@@ -17,7 +17,6 @@ context:
 warnings:
   - 'A credential on disk: the config file holds the token (0600, never printed).'
 deferred:
-  - 'whoami cannot name the user or the token''s project list: no Management route returns the caller (`/auth/state` refuses tokens, `/api-tokens` is session only). It shows the URL, the token prefix, where the token came from, the projects it reaches and read-only or read-write (probed with a request the API refuses either way). A `GET /api/v1/api-tokens/current` (token only: user, role, prefix, scope) would close it; out of scope here because the API is being changed by 10.2 in parallel.'
   - 'Groups archive/restore, schedules, ordering, covers, Tale Studio documents, fonts, theme, starting an import: the API has them, the CLI does not yet.'
   - 'Publishing the CLI to npm; today it is a workspace bin (dist/apps/cli, with its own package.json and a `taleart` bin).'
 ---
@@ -106,6 +105,31 @@ to the API, the docs app or the contract.
   (`<name>_cli_test`, dropped and created, so it never races the API's own tests on the same
   database), inserts an admin and two tokens (read-write, read-only) as hashes, and runs the built
   `taleart.js` through the verify flow and the error paths.
+
+## Review fixes (2026-10-24)
+
+- **API:** `GET /api/v1/api-tokens/current` (`getCurrentApiToken`, schema `CurrentApiToken` = `ApiToken` +
+  `allProjects` + `user`), a token only (a session gets 403 `forbidden`), `Cache-Control: no-store`.
+  `whoami` reads it; the write probe is gone.
+- **One JSON document per stream with `--json`:** warnings are gathered; a failure folds them into the
+  error document (`warnings`), a success writes `{"warnings":[…]}` to stderr only when there are any, so
+  stdout keeps the API's shape. Errors carry details: `tales create` stopping part way adds `file`,
+  `created` (the tales made) and `leftWithoutMedia` when its cleanup failed. Progress (`Created tale`,
+  `Created tag`) is for people only.
+- **Prompts:** end of input is "Not confirmed" (exit 10); CI=true and TALEART_NO_INPUT=1 never ask.
+- **Tokens:** anything shaped `tat_…` is redacted from every error; `login --token` always warns;
+  `--token-stdin` refuses a terminal; a warning before a token goes over plain http to another machine.
+- **Help for agents:** each command declares `mutates` and `result` (schema name); `help commands --json`
+  is `{ version, globalOptions, commands }` with structured options, `globalFlags`, `auth`,
+  `destructive`; `help exit-codes|output --json` are structured; a group without a command and `--json`
+  prints JSON help (stdout) and the usage error (stderr), exit 2.
+- **Safety:** `zones update --slug` is destructive (confirm); destructive commands resolve names
+  exactly; the site-key confirmation names the project.
+- **Display:** a new `--type` with `--set` merges into that type's defaults from `/frame-types`;
+  values that look like numbers or booleans as text need `--settings`.
+- **Config:** temporary file `wx` with a random name; an existing folder keeps its mode; login, logout
+  and `config path` work with a corrupt file.
+- **Robustness:** a 2xx whose body breaks off exits 9 (`response_interrupted`); EPIPE stops quietly.
 
 ## Verify
 

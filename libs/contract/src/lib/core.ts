@@ -73,6 +73,8 @@ export type CreateApiTokenRequest = Schemas['CreateApiTokenRequest'];
 /** A newly created API token, the only time the token itself is shown. */
 export type IssuedApiToken = Schemas['IssuedApiToken'];
 export type RevokedApiTokens = Schemas['RevokedApiTokens'];
+/** The API token making the request, with its user (epic developer experience 10.3): what `taleart whoami` shows. */
+export type CurrentApiToken = Schemas['CurrentApiToken'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
 export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];

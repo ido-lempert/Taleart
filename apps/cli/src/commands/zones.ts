@@ -68,6 +68,8 @@ export const zones: GroupSpec = {
   commands: [
     {
       name: 'list',
+      mutates: false,
+      result: 'Zone[]',
       summary: 'List zones: the project\'s, or every zone the token reaches when no project is chosen.',
       project: 'optional',
       examples: ['taleart zones list', 'taleart zones list --project Shop --json'],
@@ -94,6 +96,8 @@ export const zones: GroupSpec = {
     },
     {
       name: 'get',
+      mutates: false,
+      result: 'Zone',
       summary: 'Show one zone with its display and visibility.',
       project: 'optional',
       args: [zoneArg],
@@ -105,6 +109,8 @@ export const zones: GroupSpec = {
     },
     {
       name: 'create',
+      mutates: true,
+      result: 'Zone',
       summary: 'Create a zone, optionally from a template that sets its display.',
       project: 'required',
       options: {
@@ -131,14 +137,20 @@ export const zones: GroupSpec = {
     },
     {
       name: 'update',
+      mutates: true,
+      result: 'Zone',
       summary: 'Rename a zone or change its slug (a page names the zone by its slug).',
+      description:
+        'A new slug is destructive: every page that names the zone by its old slug stops showing it, so --slug needs ' +
+        '--yes (or a "yes" at a terminal), and the zone must be named by its exact id or slug. A rename alone needs neither.',
+      destructive: true,
       project: 'optional',
       args: [zoneArg],
       options: {
         name: { type: 'string', valueName: '<name>', description: 'The new name.' },
         slug: { type: 'string', valueName: '<slug>', description: 'The new slug.' },
       },
-      examples: ['taleart zones update home-top --slug homepage-top', 'taleart zones update home-top --name "Home, top"'],
+      examples: ['taleart zones update home-top --slug homepage-top --yes', 'taleart zones update home-top --name "Home, top"'],
       async run(ctx) {
         const body: UpdateZoneRequest = {
           ...(typeof ctx.opts['name'] === 'string' && { name: ctx.opts['name'] }),
@@ -146,23 +158,29 @@ export const zones: GroupSpec = {
         };
         if (Object.keys(body).length === 0) throw usageError('Give --name, --slug or both');
         const client = ctx.client();
-        const zone = await resolveZone(client, ctx.args['zone'] as string, await ctx.projectIdOrNull());
+        const zone = await resolveZone(client, ctx.args['zone'] as string, await ctx.projectIdOrNull(), ctx.exact);
+        if (body.slug !== undefined && body.slug !== zone.slug) {
+          await ctx.confirm(`Change the slug of zone ${zone.name} from ${zone.slug} to ${body.slug}? Pages that say zone="${zone.slug}" stop showing it.`);
+        }
         const updated = await client.patch<Zone>(`/zones/${seg(zone.id)}`, body);
         return { data: updated, text: zoneText(updated) };
       },
     },
     {
       name: 'display',
+      mutates: true,
+      result: 'Frame',
       summary: 'Set a zone\'s display: its type (bar or banner) and settings.',
       description:
         'Gives the zone a display, or changes it. With the same type, --set and --settings change only the settings named ' +
-        '(the rest are kept); a new --type starts from that type\'s defaults. See `taleart zones display-types` for each ' +
-        'type\'s settings. Prints the display (Frame).',
+        '(the rest are kept); a new --type starts from that type\'s defaults, and --set or --settings change only what they ' +
+        'name. --set reads true and false as booleans and numbers as numbers: a text value that looks like one (such as ' +
+        '"8") needs --settings \'{"key":"8"}\'. See `taleart zones display-types` for each type\'s settings. Prints the display (Frame).',
       project: 'optional',
       args: [zoneArg],
       options: {
         type: { type: 'string', valueName: '<type>', description: 'The display type: bar or banner (see display-types).' },
-        set: { type: 'string', multiple: true, valueName: '<key=value>', description: 'A setting, such as gap=8 or shape=rounded-square.' },
+        set: { type: 'string', multiple: true, valueName: '<key=value>', description: 'A setting, such as gap=8 or shape=rounded-square (true, false and numbers are not text: see above).' },
         settings: { type: 'string', valueName: '<json>', description: 'Settings as a JSON object.' },
         reset: { type: 'boolean', description: 'Start from the type\'s defaults instead of the current settings.' },
       },
@@ -188,8 +206,14 @@ export const zones: GroupSpec = {
           const body: SetFrameRequest = { type, ...(hasSettings && { settings: given }) };
           frame = await client.post<Frame>(`/zones/${seg(zone.id)}/frame`, body);
         } else if (type && type !== zone.frame.type) {
-          // A new type starts from its defaults, unless settings come with it (UpdateFrameRequest).
-          const body: UpdateFrameRequest = { type, ...(hasSettings && { settings: given }) };
+          // A new type starts from its defaults; settings given with it change only what they name.
+          let body: UpdateFrameRequest = { type };
+          if (hasSettings) {
+            const types = await client.get<FrameType[]>('/frame-types');
+            const target = types.find((t) => t.key === type);
+            // An unknown type: the API names the problem (400 unknown_frame_type).
+            body = { type, settings: target ? { ...defaultsOf(target), ...given } : given };
+          }
           frame = await client.patch<Frame>(`/zones/${seg(zone.id)}/frame`, body);
         } else if (ctx.opts['reset']) {
           const types = await client.get<FrameType[]>('/frame-types');
@@ -207,6 +231,8 @@ export const zones: GroupSpec = {
     },
     {
       name: 'display-types',
+      mutates: false,
+      result: 'FrameType[]',
       summary: 'List the display types and the settings each one takes.',
       examples: ['taleart zones display-types', 'taleart zones display-types --json'],
       async run(ctx) {
@@ -221,6 +247,8 @@ export const zones: GroupSpec = {
     },
     {
       name: 'snippet',
+      mutates: false,
+      result: '{ "zone": string, "snippet": string, "testPageUrl": string, "apiUrl": string, "sdkUrl": string }',
       summary: 'Print the HTML that places a zone on a page, and its test page link.',
       description:
         'The site key is shown only when it is issued, so the snippet says YOUR_SITE_KEY unless you pass --site-key ' +
@@ -230,7 +258,6 @@ export const zones: GroupSpec = {
       options: {
         'site-key': { type: 'string', valueName: '<tas_…>', description: 'The project\'s site key, to put in the snippet and link.' },
       },
-      jsonShape: '{ "zone": slug, "snippet": html, "testPageUrl": url, "apiUrl", "sdkUrl" }',
       examples: ['taleart zones snippet home-top', 'taleart zones snippet home-top --site-key "$SITE_KEY" --json'],
       async run(ctx) {
         const client = ctx.client();

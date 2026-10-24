@@ -59,6 +59,8 @@ export const groups: GroupSpec = {
   commands: [
     {
       name: 'list',
+      mutates: false,
+      result: 'ProjectTaleGroup[] (ZoneTaleGroup[] with --zone)',
       summary: 'List the project\'s tale groups, or the groups placed in a zone (in their order there).',
       project: 'optional',
       options: zoneOption('List the groups placed in this zone (id or slug), with their position.'),
@@ -105,6 +107,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'get',
+      mutates: false,
+      result: 'TaleGroup',
       summary: 'Show a tale group with its tales, tags, zones and visibility.',
       project: 'optional',
       args: [groupArg],
@@ -116,6 +120,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'create',
+      mutates: true,
+      result: 'ProjectTaleGroup (ZoneTaleGroup with --zone)',
       summary: 'Create a tale group (Off), in the project or placed in a zone.',
       project: 'optional',
       options: {
@@ -135,6 +141,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'update',
+      mutates: true,
+      result: 'TaleGroup',
       summary: 'Rename a tale group (every zone shows the new name).',
       project: 'optional',
       args: [groupArg],
@@ -148,6 +156,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'on',
+      mutates: true,
+      result: 'TaleGroup',
       summary: 'Turn a tale group On: its shown tales reach the site in every zone it is placed in.',
       project: 'optional',
       args: [groupArg],
@@ -156,6 +166,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'off',
+      mutates: true,
+      result: 'TaleGroup',
       summary: 'Turn a tale group Off: it stops showing everywhere at once.',
       project: 'optional',
       args: [groupArg],
@@ -164,6 +176,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'tags',
+      mutates: true,
+      result: 'TaleGroup',
       summary: 'Set a tale group\'s targeting tags and how they match.',
       description:
         'The tags given become the group\'s whole set (missing tags are created in the project). --match any shows the group ' +
@@ -196,7 +210,7 @@ export const groups: GroupSpec = {
             if (!tag) {
               tag = await client.post<Tag>(`/projects/${seg(group.projectId)}/tags`, { name });
               existing.push(tag);
-              ctx.io.stderr(`Created tag ${tag.name}\n`);
+              ctx.info(`Created tag ${tag.name}`);
             }
             tagIds.push(tag.id);
           }
@@ -211,6 +225,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'copy',
+      mutates: true,
+      result: 'ZoneTaleGroup',
       summary: 'Copy a tale group, with its tales and tags, into a zone as an independent group.',
       project: 'optional',
       args: [groupArg],
@@ -224,6 +240,8 @@ export const groups: GroupSpec = {
     },
     {
       name: 'place',
+      mutates: true,
+      result: 'ZoneTaleGroup',
       summary: 'Place a tale group in a zone, after the zone\'s groups (the same group, not a copy).',
       project: 'optional',
       args: [groupArg],
@@ -236,11 +254,12 @@ export const groups: GroupSpec = {
     },
     {
       name: 'unplace',
+      mutates: true,
+      result: '{ "removed": true, "zoneId": string, "taleGroupId": string }',
       summary: 'Remove a tale group from a zone (the group and its other placements stay).',
       project: 'optional',
       args: [groupArg],
       options: zoneOption('The zone (id or slug).', true),
-      jsonShape: '{ "removed": true, "zoneId": string, "taleGroupId": string }',
       examples: ['taleart groups unplace Summer --zone home-top'],
       async run(ctx) {
         const zone = await zoneId(ctx);

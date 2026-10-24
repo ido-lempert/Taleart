@@ -78,7 +78,21 @@ export class ApiClient {
     } catch (err) {
       throw networkError(this.apiUrl, err, timeoutMs);
     }
-    const text = await response.text().catch(() => '');
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (err) {
+      // A refusal is read from its status even when its body breaks off; a success is not known to be one.
+      if (!response.ok) throw apiError(response, '');
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new CliError(
+        `The API's answer to ${method} ${path} broke off (${response.status}): ${cause}`,
+        EXIT.network,
+        'response_interrupted',
+        response.status,
+        'The change may or may not have been made: read it back before trying again.',
+      );
+    }
     if (!response.ok) throw apiError(response, text);
     if (response.status === 204 || text === '') return null as T;
     try {

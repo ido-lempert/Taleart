@@ -4,6 +4,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -332,12 +333,21 @@ describe('taleart against a test API', () => {
     const refused = cli(['zones', 'create', '--name', 'Nope', '--json'], { token: readOnly, ...inProject() });
     expect(refused.code).toBe(4);
     expect(refused.error()).toMatchObject({ code: 'forbidden', status: 403 });
+    // whoami reads GET /api-tokens/current.
     expect(ok(cli(['whoami', '--json'], { token: readOnly })).json()).toMatchObject({
-      access: 'read-only',
+      name: 'cli read-only',
+      readOnly: true,
+      allProjects: true,
+      projectIds: null,
+      expiresAt: null,
       tokenPrefix: readOnly.slice(0, 10),
       tokenSource: 'env',
+      user: { name: 'CLI admin', email: 'cli-admin@example.com', role: 'admin' },
     });
-    expect(ok(cli(['whoami', '--json'])).json().access).toBe('read-write');
+    const writer = ok(cli(['whoami']));
+    expect(writer.stdout).toMatch(/user:\s+CLI admin <cli-admin@example.com> \(admin\)/);
+    expect(writer.stdout).toMatch(/access:\s+read-write/);
+    expect(writer.stderr).toBe('');
   });
 
   it('a revoked or unknown token is exit 3; no token at all is exit 3 before any request', () => {
@@ -365,8 +375,80 @@ describe('taleart against a test API', () => {
     expect(cli(['zones', 'list'], { token: null, env: { TALEART_API_URL: '' }, configDir }).code).toBe(3);
   });
 
+  it('zones display with a new type merges --set into that type\'s defaults', () => {
+    const frame = ok(cli(['zones', 'display', 'footer', '--type', 'bar', '--set', 'gap=20', '--json'], inProject())).json();
+    expect(frame).toMatchObject({ type: 'bar', settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 20 } });
+    const back = ok(cli(['zones', 'display', 'footer', '--type', 'banner', '--set', 'intervalSeconds=7', '--json'], inProject())).json();
+    expect(back).toMatchObject({ type: 'banner', settings: { aspectRatio: '16:9', autoplay: true, intervalSeconds: 7, showDots: true, loop: true } });
+  });
+
+  it('a failed upload deletes the tale it made, and the error names what was created', async () => {
+    // A proxy in front of the API that refuses the second media upload, as a full disk would.
+    let uploads = 0;
+    const proxy = createHttpServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', async () => {
+        if (req.method === 'PUT' && req.url?.endsWith('/media') && ++uploads === 2) {
+          res.writeHead(507, { 'Content-Type': 'application/json', Connection: 'close' });
+          res.end(JSON.stringify({ error: { code: 'internal', message: 'Insufficient storage' } }));
+          return;
+        }
+        const headers = Object.fromEntries(
+          Object.entries(req.headers).filter(([k]) => !['host', 'connection', 'content-length'].includes(k)),
+        ) as Record<string, string>;
+        const answer = await fetch(`${apiUrl}${req.url}`, {
+          method: req.method,
+          headers,
+          body: req.method === 'GET' || req.method === 'HEAD' ? undefined : Buffer.concat(chunks),
+        });
+        const body = Buffer.from(await answer.arrayBuffer());
+        res.writeHead(answer.status, { 'Content-Type': answer.headers.get('content-type') ?? 'application/json' });
+        res.end(body);
+      });
+    });
+    await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', () => r()));
+    const proxyUrl = `http://127.0.0.1:${(proxy.address() as { port: number }).port}`;
+    try {
+      const group = ok(cli(['groups', 'create', '--name', 'Partial', '--json'], inProject())).json();
+      const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+        const child = spawn(process.execPath, [cliPath, 'tales', 'create', '--group', group.id, 'one.png', 'two.png', '--json'], {
+          cwd: work,
+          env: { PATH: process.env['PATH'] ?? '', TALEART_CONFIG_DIR: join(work, 'config-none'), TALEART_API_URL: proxyUrl, TALEART_TOKEN: readWrite },
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (d) => (stdout += d));
+        child.stderr?.on('data', (d) => (stderr += d));
+        child.on('exit', (code) => resolve({ code: code ?? -1, stdout, stderr }));
+      });
+      expect(result.code, result.stderr).toBe(8);
+      expect(result.stdout).toBe('');
+      const error = JSON.parse(result.stderr);
+      expect(error.error).toMatchObject({ code: 'internal', status: 507, file: 'two.png' });
+      expect(error.error.created.map((t: { title: string }) => t.title)).toEqual(['one']);
+      expect(error.error.leftWithoutMedia).toBeUndefined();
+      // Only the tale whose media arrived is left.
+      expect(ok(cli(['tales', 'list', '--group', group.id, '--json'])).json().map((t: { title: string }) => t.title)).toEqual(['one']);
+    } finally {
+      await new Promise<void>((r) => proxy.close(() => r()));
+    }
+  });
+
+  it('stops quietly when its reader goes away (EPIPE)', async () => {
+    const result = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+      const child = spawn(process.execPath, [cliPath, 'help', 'commands'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderr = '';
+      child.stderr?.on('data', (d) => (stderr += d));
+      child.stdout?.destroy();
+      child.on('exit', (code) => resolve({ code, stderr }));
+    });
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+  });
+
   it('every command answers --help with exit 0 and no request', () => {
-    const commands = ok(cli(['help', 'commands', '--json'], { token: null })).json() as { command: string }[];
+    const { commands } = ok(cli(['help', 'commands', '--json'], { token: null })).json() as { commands: { command: string }[] };
     expect(commands.length).toBeGreaterThan(30);
     for (const { command } of commands) {
       const result = cli([...command.split(' '), '--help'], { token: null, env: { TALEART_API_URL: 'http://127.0.0.1:9' } });

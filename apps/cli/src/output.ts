@@ -47,23 +47,41 @@ export function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-/** The error document `--json` writes to stderr, so a script can read why a command failed. */
-export function errorJson(err: CliError): string {
+/**
+ * Anything that looks like an API token (`tat_…`) as `tat_[REDACTED]`, for every message the CLI
+ * writes about an error: a token pasted in the wrong place must not be echoed back.
+ */
+export function redactTokens(text: string): string {
+  return text.replace(/tat_[A-Za-z0-9_-]+/g, 'tat_[REDACTED]');
+}
+
+/**
+ * The error document `--json` writes to stderr, so a script can read why a command failed: the only
+ * thing on stderr, with the warnings given before it and the error's details (such as `created`).
+ */
+export function errorJson(err: CliError, warnings: readonly string[] = []): string {
   return json({
     error: {
       code: err.code,
-      message: err.message,
+      message: redactTokens(err.message),
       ...(err.status !== undefined && { status: err.status }),
       exitCode: err.exitCode,
-      ...(err.hint && { hint: err.hint }),
+      ...(err.hint && { hint: redactTokens(err.hint) }),
+      ...err.details,
     },
+    ...(warnings.length > 0 && { warnings }),
   });
+}
+
+/** The warnings of a command that worked, as the one JSON document `--json` writes to stderr. */
+export function warningsJson(warnings: readonly string[]): string {
+  return json({ warnings });
 }
 
 /** The error as people read it on stderr: `taleart: <message>` and the hint on its own line. */
 export function errorText(err: CliError): string {
   const status = err.status === undefined ? '' : ` (${err.status} ${err.code})`;
-  return `taleart: ${err.message}${status}\n${err.hint ? `hint: ${err.hint}\n` : ''}`;
+  return redactTokens(`taleart: ${err.message}${status}\n${err.hint ? `hint: ${err.hint}\n` : ''}`);
 }
 
 /** Any thrown value as a {@link CliError}. */

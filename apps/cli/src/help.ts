@@ -12,11 +12,49 @@ export interface CommandDescription {
   description?: string;
   usage: string;
   arguments: { name: string; description: string; required: boolean; variadic: boolean }[];
-  options: { flag: string; description: string; required: boolean; repeatable: boolean; choices?: readonly string[] }[];
+  options: OptionDescription[];
+  /** The global flags this command reads (`--json`, `--project`…), described once in `globalOptions`. */
+  globalFlags: string[];
   project: 'required' | 'optional' | 'none';
+  /** True when it changes something on the server or in the config file. */
+  mutates: boolean;
+  /** False when it needs no API URL or token. */
+  auth: boolean;
   destructive: boolean;
-  json: string;
+  /** What `--json` prints on stdout: an OpenAPI schema name such as `Zone` or `TaleGroup[]`, or the CLI's own shape. */
+  result: string;
   examples: readonly string[];
+}
+
+export interface OptionDescription {
+  name: string;
+  flag: string;
+  short?: string;
+  type: 'string' | 'boolean';
+  valueName?: string;
+  description: string;
+  required: boolean;
+  repeatable: boolean;
+  choices?: readonly string[];
+}
+
+function describeOption(name: string, o: OptionSpec): OptionDescription {
+  return {
+    name,
+    flag: flag(name, o),
+    ...(o.short && { short: o.short }),
+    type: o.type,
+    ...(o.type === 'string' && { valueName: o.valueName ?? '<value>' }),
+    description: o.description,
+    required: Boolean(o.required),
+    repeatable: Boolean(o.multiple),
+    ...(o.choices && { choices: o.choices }),
+  };
+}
+
+/** Every global flag, structured. */
+export function globalOptions(): OptionDescription[] {
+  return Object.entries(GLOBAL_OPTIONS).map(([name, o]) => describeOption(name, o));
 }
 
 function flag(name: string, spec: OptionSpec): string {
@@ -46,16 +84,19 @@ export function describeCommand(path: string, spec: CommandSpec): CommandDescrip
     ...(spec.description && { description: spec.description }),
     usage: usageLine(path, spec),
     arguments: (spec.args ?? []).map((a) => ({ name: a.name, description: a.description, required: Boolean(a.required), variadic: Boolean(a.variadic) })),
-    options: Object.entries(spec.options ?? {}).map(([name, o]) => ({
-      flag: flag(name, o),
-      description: o.description,
-      required: Boolean(o.required),
-      repeatable: Boolean(o.multiple),
-      ...(o.choices && { choices: o.choices }),
-    })),
+    options: Object.entries(spec.options ?? {}).map(([name, o]) => describeOption(name, o)),
+    globalFlags: [
+      '--json',
+      '--help',
+      ...(spec.auth === false ? [] : ['--api-url']),
+      ...(spec.project ? ['--project'] : []),
+      ...(spec.destructive ? ['--yes'] : []),
+    ],
     project: spec.project ?? 'none',
+    mutates: spec.mutates,
+    auth: spec.auth !== false,
     destructive: Boolean(spec.destructive),
-    json: spec.jsonShape ?? 'The API\'s answer.',
+    result: spec.result,
     examples: spec.examples,
   };
 }
@@ -91,7 +132,7 @@ export function commandHelpText(d: CommandDescription): string {
   ]);
   if (d.project !== 'none') options.push([flag('project', GLOBAL_OPTIONS['project']), `${GLOBAL_OPTIONS['project'].description}${d.project === 'required' ? ' Required.' : ''}`]);
   if (d.destructive) options.push(['-y, --yes', 'Do it without asking. Without a terminal and without --yes the command stops (exit 10).']);
-  options.push(['--json', `Print JSON on stdout: ${d.json}`]);
+  options.push(['--json', `Print JSON on stdout: ${d.result}.`]);
   options.push(['-h, --help', 'Show this help.']);
   lines.push('', 'Options:', ...optionLines(options));
   lines.push('', 'Examples:', ...d.examples.map((e) => `  ${e}`));
@@ -162,18 +203,22 @@ const TOPICS: Record<string, () => string> = {
       'With --json, stdout holds exactly one JSON document: the API\'s answer (a Zone, a TaleGroup, a list…),',
       'or for the CLI\'s own commands the shape their --help names. Nothing else is written to stdout.',
       '',
-      'Progress, warnings and errors go to stderr. With --json an error is one JSON document on stderr:',
+      'Progress, warnings and errors go to stderr. With --json, stderr holds at most one JSON document: the error,',
+      'with any warnings in it, or {"warnings":[…]} when the command worked with warnings. An error:',
       '  {"error":{"code":"slug_taken","message":"…","status":409,"exitCode":6,"hint":"…"}}',
       'code is the API\'s error code (openapi.yaml ErrorCode) or one of the CLI\'s: usage, not_found, ambiguous,',
-      'file_not_found, unsupported_media_type, confirmation_required, api_unreachable, timeout.',
+      'file_not_found, unsupported_media_type, confirmation_required, api_unreachable, timeout (help output --json lists all).',
+      'tales create stopping part way adds created (the tales made) to its error.',
       '',
-      'Commands never ask a question unless stdin and stderr are both terminals and --json is off;',
-      'destructive commands (site-keys rotate|revoke, tales delete, user-lists delete) need --yes otherwise.',
+      'Commands never ask a question unless stdin and stderr are both terminals, --json is off and neither',
+      'CI=true nor TALEART_NO_INPUT=1 is set; end of input at a question counts as no (exit 10);',
+      'destructive commands (site-keys rotate|revoke, tales delete, user-lists delete, zones update --slug)',
+      'need --yes otherwise, and take exact names only.',
       '',
       'References: projects by id or exact name; zones by id or slug; tale groups and user lists by id',
       'or name in the project; tales by id. A name matching nothing exits 5, several exit 6.',
     ].join('\n'),
-  'exit-codes': () => EXIT_CODE_MEANINGS.map(([code, meaning]) => `${String(code).padStart(2)}  ${meaning}`).join('\n'),
+  'exit-codes': () => EXIT_CODE_MEANINGS.map(([code, , meaning]) => `${String(code).padStart(2)}  ${meaning}`).join('\n'),
   concepts: () =>
     [
       'project     Holds everything below and one site key. Tokens may be limited to some projects.',
@@ -202,6 +247,61 @@ const TOPICS: Record<string, () => string> = {
     ].join('\n'),
 };
 
+/** What `taleart help <topic> --json` answers for the topics that have a structure. */
+const STRUCTURED: Record<string, () => unknown> = {
+  commands: () => ({
+    version: VERSION,
+    globalOptions: globalOptions(),
+    commands: [
+      ...TOP_COMMANDS.map((c) => describeCommand(c.name, c)),
+      ...GROUPS.flatMap((g) => g.commands.map((c) => describeCommand(`${g.name} ${c.name}`, c))),
+    ],
+  }),
+  'exit-codes': () => EXIT_CODE_MEANINGS.map(([code, name, meaning]) => ({ code, name, meaning })),
+  output: () => ({
+    stdout: 'With --json: exactly one JSON document, the command\'s result (its `result` in help commands --json). Nothing else.',
+    stderr:
+      'With --json: at most one JSON document: the error document when the command fails, or { "warnings": string[] } ' +
+      'when it worked with warnings; nothing otherwise. Without --json: messages for people.',
+    errorDocument: {
+      error: {
+        code: 'string: the API\'s ErrorCode, or one of cliErrorCodes',
+        message: 'string',
+        status: 'number, when the API answered',
+        exitCode: 'number (help exit-codes)',
+        hint: 'string, when there is something to do about it',
+        '…': 'details of some errors, such as created (Tale[]) when tales create stops part way',
+      },
+      warnings: 'string[], when there were any',
+    },
+    cliErrorCodes: [
+      'usage',
+      'not_found',
+      'ambiguous',
+      'no_api_url',
+      'no_token',
+      'invalid_token',
+      'invalid_config',
+      'file_not_found',
+      'file_empty',
+      'unsupported_media_type',
+      'media_too_large',
+      'confirmation_required',
+      'not_confirmed',
+      'api_unreachable',
+      'timeout',
+      'response_interrupted',
+      'invalid_response',
+    ],
+    prompts:
+      'None unless stdin and stderr are terminals, --json is off, and neither CI=true nor TALEART_NO_INPUT=1 is set; ' +
+      'destructive commands then ask, and otherwise need --yes (exit 10 without it).',
+    references:
+      'Projects by id or exact name; zones by id or slug; tale groups and user lists by id or name in the project; tales by id. ' +
+      'Destructive commands take exact names only.',
+  }),
+};
+
 export const HELP_TOPICS = Object.keys(TOPICS);
 
 /** Help for the words after `taleart help` (or before `--help`): the overview, a topic, a group or a command. */
@@ -210,13 +310,7 @@ export function help(words: readonly string[], asJson: boolean): Output {
   const [first, second, ...extra] = words;
   if (extra.length > 0) throw usageError(`Unknown help topic: ${words.join(' ')}`);
   if (first in TOPICS && second === undefined) {
-    if (first === 'commands' && asJson) {
-      const all = [
-        ...TOP_COMMANDS.map((c) => describeCommand(c.name, c)),
-        ...GROUPS.flatMap((g) => g.commands.map((c) => describeCommand(`${g.name} ${c.name}`, c))),
-      ];
-      return { data: all };
-    }
+    if (asJson && first in STRUCTURED) return { data: STRUCTURED[first]() };
     const text = TOPICS[first]();
     return { data: { topic: first, text }, text };
   }

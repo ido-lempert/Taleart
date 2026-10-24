@@ -10,11 +10,16 @@ export interface Io {
   platform: NodeJS.Platform;
   home: string;
   cwd: string;
-  /** True when a person can answer a question: both stdin and stderr are terminals. */
+  /**
+   * True when a person can answer a question: both stdin and stderr are terminals. The CLI also
+   * treats CI=true and TALEART_NO_INPUT=1 as no person.
+   */
   interactive: boolean;
+  /** True when stdin is a terminal (`login --token-stdin` then refuses, as nothing is piped in). */
+  stdinIsTTY: boolean;
   readStdin(): Promise<string>;
-  /** Asks a question on stderr and reads one line from stdin. Only called when `interactive`. */
-  prompt(question: string): Promise<string>;
+  /** Asks a question on stderr and reads one line from stdin; null when stdin ends first. Only called when `interactive`. */
+  prompt(question: string): Promise<string | null>;
   fetch: Fetch;
 }
 
@@ -58,7 +63,12 @@ export interface Context {
   projectIdOrNull(): Promise<string | null>;
   /** Goes on with `--yes` or a person's "yes"; otherwise stops with exit 10. */
   confirm(message: string): Promise<void>;
+  /** A warning: on stderr, or with `--json` in the one JSON document stderr gets. */
   warn(message: string): void;
+  /** Progress for people (`Created tale …`): on stderr without `--json`, nothing with it. */
+  info(message: string): void;
+  /** True for a destructive command: names must match exactly (no case-insensitive match). */
+  exact: boolean;
   /** Replaces the stored config (mode 0600). */
   saveConfig(config: StoredConfig): void;
   /** Deletes the stored config. */
@@ -77,8 +87,15 @@ export interface CommandSpec {
   auth?: boolean;
   /** Destructive: needs `--yes` (documented in its help). */
   destructive?: boolean;
-  /** What `--json` prints, in a few words, when it is not simply the API's answer. */
-  jsonShape?: string;
+  /** True when the command changes something on the server or in the config file. */
+  mutates: boolean;
+  /**
+   * What `--json` prints on stdout: an OpenAPI schema name (`Zone`, `TaleGroup[]`, `Frame | null`)
+   * or, for the CLI's own results, their shape.
+   */
+  result: string;
+  /** True for commands that still work when the config file cannot be read (login, logout, config path). */
+  ignoreBadConfig?: boolean;
   examples: readonly string[];
   run(ctx: Context): Promise<Output>;
 }

@@ -3,6 +3,7 @@ import {
   MAX_API_TOKEN_NAME_LENGTH,
   MAX_API_TOKEN_PROJECTS,
   type CreateApiTokenRequest,
+  type CurrentApiToken,
   type RevokedApiTokens,
 } from '@taleart/contract';
 import {
@@ -15,7 +16,7 @@ import {
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorize, caller, requireAdmin } from './authorize';
-import { sessionOnly } from './credentials';
+import { credential, sessionOnly } from './credentials';
 import { HttpError } from './errors';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -74,6 +75,31 @@ function readCreate(body: unknown): { name: string; projectIds: string[] | null;
  */
 export function apiTokensRouter(pool: Pool): Router {
   const router = Router();
+
+  // The token making the request, with its user (epic developer experience 10.3, for `taleart
+  // whoami`): only with a token, which reads only itself, so nothing here mints or widens anything.
+  router.get('/current', async (_req, res, next) => {
+    try {
+      const used = credential(res);
+      if (used.kind !== 'token') {
+        throw new HttpError(403, ErrorCodes.forbidden, 'Only an API token can read /api-tokens/current: a session has no token');
+      }
+      const user = caller(res);
+      const token = (await listApiTokens(pool, user.id)).find((t) => t.id === used.tokenId);
+      // Revoked between the check and the read: as if it had not been accepted.
+      if (!token) throw new HttpError(401, ErrorCodes.unauthenticated, 'This API token is unknown, revoked or expired');
+      const body: CurrentApiToken = {
+        ...token,
+        allProjects: token.projectIds === null,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      };
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.use(sessionOnly);
 
   router.get('/', async (_req, res, next) => {

@@ -24,7 +24,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 /** An Io with a token in the environment and the config in the test's folder. */
 function env(extra: Record<string, string> = {}) {
-  return { TALEART_API_URL: 'http://api.test', TALEART_TOKEN: TOKEN, TALEART_CONFIG_DIR: dir, ...extra };
+  return { TALEART_API_URL: 'http://localhost:9999', TALEART_TOKEN: TOKEN, TALEART_CONFIG_DIR: dir, ...extra };
 }
 
 /** A group's command, by name. */
@@ -110,7 +110,7 @@ describe('help, version and usage errors', () => {
 
   it('documents --yes on exactly the destructive commands', () => {
     const destructive = allCommands.filter((c) => c.spec.destructive).map((c) => c.path.join(' '));
-    expect(destructive.sort()).toEqual(['site-keys revoke', 'site-keys rotate', 'tales delete', 'user-lists delete']);
+    expect(destructive.sort()).toEqual(['site-keys revoke', 'site-keys rotate', 'tales delete', 'user-lists delete', 'zones update']);
   });
 
   it('has group help, topics and the whole command list as JSON', async () => {
@@ -126,7 +126,7 @@ describe('help, version and usage errors', () => {
     }
     const io = fakeIo();
     await run(['help', 'commands', '--json'], io);
-    expect(JSON.parse(io.stdoutText)).toHaveLength(allCommands.length);
+    expect(JSON.parse(io.stdoutText).commands).toHaveLength(allCommands.length);
     const unknown = fakeIo();
     expect(await run(['help', 'nonsense'], unknown)).toBe(EXIT.usage);
   });
@@ -258,14 +258,46 @@ describe('the token', () => {
     expect(refused.stderrText).not.toContain('SECRET');
   });
 
-  it('whoami shows the prefix and access, never the token', async () => {
-    const readOnly = api((c) => (c.method === 'POST' && c.path === '/zones' ? { status: 403, body: { error: { code: 'forbidden', message: 'This API token is read-only' } } } : undefined));
-    const io = fakeIo(readOnly, { env: env() });
+  it('whoami reads GET /api-tokens/current: the user, prefix and scope, never the token, and changes nothing', async () => {
+    const current = (readOnly: boolean) =>
+      api((c) =>
+        c.method === 'GET' && c.path === '/api-tokens/current' ?
+          {
+            status: 200,
+            body: {
+              id: 't1',
+              name: 'CI reader',
+              prefix: 'tat_abcdef',
+              projectIds: readOnly ? [PROJECT.id] : null,
+              allProjects: !readOnly,
+              readOnly,
+              createdAt: '2026-10-24T00:00:00Z',
+              expiresAt: null,
+              lastUsedAt: null,
+              user: { id: 'u1', name: 'Ada Admin', email: 'ada@example.com', role: 'admin' },
+            },
+          }
+        : undefined,
+      );
+    const io = fakeIo(current(true), { env: env() });
     expect(await run(['whoami', '--json'], io)).toBe(EXIT.ok);
-    expect(JSON.parse(io.stdoutText)).toMatchObject({ tokenPrefix: 'tat_abcdef', tokenSource: 'env', access: 'read-only', projects: [PROJECT], user: null });
-    const text = fakeIo(api((c) => (c.method === 'POST' ? { status: 400, body: { error: { code: 'validation_failed', message: 'name' } } } : undefined)), { env: env() });
+    expect(JSON.parse(io.stdoutText)).toMatchObject({
+      tokenPrefix: 'tat_abcdef',
+      tokenSource: 'env',
+      name: 'CI reader',
+      readOnly: true,
+      allProjects: false,
+      projectIds: [PROJECT.id],
+      expiresAt: null,
+      user: { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' },
+      projects: [PROJECT],
+    });
+    expect(io.calls.every((c) => c.method === 'GET')).toBe(true);
+    const text = fakeIo(current(false), { env: env() });
     expect(await run(['whoami'], text)).toBe(EXIT.ok);
+    expect(text.stdoutText).toMatch(/user:\s+Ada Admin <ada@example.com> \(admin\)/);
     expect(text.stdoutText).toMatch(/access:\s+read-write/);
+    expect(text.stdoutText).toMatch(/scope:\s+all of the user's projects/);
     for (const out of [io.stdoutText, io.stderrText, text.stdoutText, text.stderrText]) expect(out).not.toContain('SECRET');
   });
 
@@ -452,7 +484,12 @@ describe('tales create', () => {
     expect(io.calls[0].body).toEqual({ title: 'one' });
     expect(io.calls[1].headers['Content-Type']).toBe('image/png');
     expect(io.calls[3].headers['Content-Type']).toBe('image/png');
-    expect(io.stderrText).toContain('Created 1 tale(s) before the failure');
+    // With --json, stderr is one document: the error, what was made before it, and the warnings.
+    const error = JSON.parse(io.stderrText);
+    expect(error.error).toMatchObject({ code: 'media_too_large', status: 413, exitCode: 7, file: 'two.jpg' });
+    expect(error.error.created).toHaveLength(1);
+    expect(error.warnings).toEqual([`Created 1 tale(s) before the failure: ${TALE.id}`]);
+    expect(io.stdoutText).toBe('');
   });
 });
 

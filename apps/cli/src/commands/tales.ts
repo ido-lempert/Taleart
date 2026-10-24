@@ -11,6 +11,7 @@ import type { Context, GroupSpec } from '../command';
 import { UPLOAD_TIMEOUT_MS } from '../client';
 import { CliError, EXIT, usageError } from '../errors';
 import { fileBlob, mediaFile, titleFromFile } from '../media';
+import { asCliError } from '../output';
 import { resolveGroupId, seg } from '../resolve';
 import { taleStatus, talesTable, taleText } from './format';
 
@@ -50,6 +51,8 @@ export const tales: GroupSpec = {
   commands: [
     {
       name: 'list',
+      mutates: false,
+      result: 'Tale[]',
       summary: 'List a tale group\'s tales in order.',
       project: 'optional',
       options: groupOption,
@@ -62,6 +65,8 @@ export const tales: GroupSpec = {
     },
     {
       name: 'get',
+      mutates: false,
+      result: 'Tale',
       summary: 'Show one tale with its status, media and visibility.',
       args: [taleArg],
       examples: ['taleart tales get 9c0d…'],
@@ -72,6 +77,8 @@ export const tales: GroupSpec = {
     },
     {
       name: 'create',
+      mutates: true,
+      result: 'Tale[]',
       summary: 'Add one tale per file to a tale group, in the order given, uploading each file as its media.',
       description:
         'Every file is checked first (type from its first bytes, size), so a bad file stops the command before anything is ' +
@@ -83,7 +90,6 @@ export const tales: GroupSpec = {
         ...groupOption,
         title: { type: 'string', valueName: '<title>', description: 'The tale\'s title (one file only).' },
       },
-      jsonShape: 'Tale[] (each with its media)',
       examples: ['taleart tales create --group Summer ./img/one.png ./img/two.png', 'taleart tales create --group Summer clip.mp4 --title "Launch"'],
       async run(ctx) {
         const paths = ctx.args['files'] as string[];
@@ -99,17 +105,30 @@ export const tales: GroupSpec = {
           try {
             created.push(await uploadMedia(ctx, tale.id, file));
           } catch (err) {
-            await client.delete(`/tales/${seg(tale.id)}`).catch(() => ctx.warn(`Could not delete the tale without media, ${tale.id}.`));
+            const cleaned = await client.delete(`/tales/${seg(tale.id)}`).then(
+              () => true,
+              () => false,
+            );
+            if (!cleaned) ctx.warn(`Could not delete the tale left without media, ${tale.id}: delete it with taleart tales delete.`);
             if (created.length > 0) ctx.warn(`Created ${created.length} tale(s) before the failure: ${created.map((t) => t.id).join(', ')}`);
-            throw err;
+            const failure = asCliError(err);
+            // The error document says what is left, so a script can go on from there.
+            throw new CliError(`${file.name}: ${failure.message}`, failure.exitCode, failure.code, failure.status, failure.hint, {
+              ...failure.details,
+              file: file.name,
+              created,
+              ...(!cleaned && { leftWithoutMedia: tale.id }),
+            });
           }
-          if (!ctx.json) ctx.io.stderr(`Created tale ${tale.id} from ${file.name}\n`);
+          ctx.info(`Created tale ${tale.id} from ${file.name}`);
         }
         return { data: created, text: talesTable(created) };
       },
     },
     {
       name: 'media',
+      mutates: true,
+      result: 'Tale',
       summary: 'Replace a tale\'s image or video with a local file.',
       args: [taleArg, { name: 'file', description: 'An image or video file.', required: true }],
       examples: ['taleart tales media 9c0d… ./img/new.png'],
@@ -121,6 +140,8 @@ export const tales: GroupSpec = {
     },
     {
       name: 'hide',
+      mutates: true,
+      result: 'TaleStatusResult',
       summary: 'Hide a tale: it stops showing, its group stays as it is.',
       args: [taleArg],
       examples: ['taleart tales hide 9c0d…'],
@@ -128,6 +149,8 @@ export const tales: GroupSpec = {
     },
     {
       name: 'show',
+      mutates: true,
+      result: 'TaleStatusResult',
       summary: 'Show a tale again (it reaches the site when its group is On).',
       args: [taleArg],
       examples: ['taleart tales show 9c0d…'],
@@ -135,10 +158,11 @@ export const tales: GroupSpec = {
     },
     {
       name: 'delete',
+      mutates: true,
+      result: '{ "deleted": true, "id": string }',
       summary: 'Delete a tale for good, with its documents and the visitors\' responses to it.',
       args: [taleArg],
       destructive: true,
-      jsonShape: '{ "deleted": true, "id": string }',
       examples: ['taleart tales delete 9c0d… --yes'],
       async run(ctx) {
         const id = ctx.args['tale'] as string;

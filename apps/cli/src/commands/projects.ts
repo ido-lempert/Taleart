@@ -12,6 +12,8 @@ export const projects: GroupSpec = {
   commands: [
     {
       name: 'list',
+      mutates: false,
+      result: 'Project[]',
       summary: 'List the projects the token reaches.',
       examples: ['taleart projects list', 'taleart projects list --json'],
       async run(ctx) {
@@ -33,6 +35,8 @@ export const projects: GroupSpec = {
     },
     {
       name: 'get',
+      mutates: false,
+      result: 'Project',
       summary: 'Show one project.',
       args: [{ name: 'project', description: 'The project\'s id or name.', required: true }],
       examples: ['taleart projects get Shop', 'taleart projects get 3f1c…'],
@@ -44,6 +48,8 @@ export const projects: GroupSpec = {
     },
     {
       name: 'create',
+      mutates: true,
+      result: 'Project',
       summary: 'Create a project (admins, with a read-write token for all projects).',
       options: { name: { type: 'string', required: true, valueName: '<name>', description: 'The project\'s name.' } },
       examples: ['taleart projects create --name Shop'],
@@ -55,9 +61,10 @@ export const projects: GroupSpec = {
     },
     {
       name: 'use',
+      mutates: true,
+      result: '{ "project": Project, "configFile": string }',
       summary: 'Make a project the default for --project (stored in the config file).',
       args: [{ name: 'project', description: 'The project\'s id or name.', required: true }],
-      jsonShape: '{ "project": Project, "configFile": string }',
       examples: ['taleart projects use Shop'],
       async run(ctx) {
         const list = await ctx.client().get<Project[]>('/projects');

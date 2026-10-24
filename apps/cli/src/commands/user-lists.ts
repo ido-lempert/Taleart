@@ -32,6 +32,8 @@ export const userLists: GroupSpec = {
   commands: [
     {
       name: 'list',
+      mutates: false,
+      result: 'UserList[]',
       summary: 'List the project\'s user lists with how many IDs each holds.',
       project: 'required',
       examples: ['taleart user-lists list', 'taleart user-lists list --json'],
@@ -54,6 +56,8 @@ export const userLists: GroupSpec = {
     },
     {
       name: 'get',
+      mutates: false,
+      result: 'UserList',
       summary: 'Show one user list.',
       project: 'required',
       args: [listArg],
@@ -65,6 +69,8 @@ export const userLists: GroupSpec = {
     },
     {
       name: 'create',
+      mutates: true,
+      result: 'UserList',
       summary: 'Create an empty user list.',
       project: 'required',
       options: { name: { type: 'string', required: true, valueName: '<name>', description: 'The list\'s name, unique in the project.' } },
@@ -77,6 +83,8 @@ export const userLists: GroupSpec = {
     },
     {
       name: 'update',
+      mutates: true,
+      result: 'UserList',
       summary: 'Rename a user list.',
       project: 'required',
       args: [listArg],
@@ -93,6 +101,8 @@ export const userLists: GroupSpec = {
     },
     {
       name: 'upload',
+      mutates: true,
+      result: 'UserListUploadReport',
       summary: 'Add the IDs of a single-column CSV (one ID per row) to a user list.',
       description:
         'All or nothing: refused rows are counted and the first ones named by line number, never by value. --header skips the ' +
@@ -132,16 +142,17 @@ export const userLists: GroupSpec = {
     },
     {
       name: 'delete',
+      mutates: true,
+      result: '{ "deleted": true, "id": string }',
       summary: 'Delete a user list and every ID it holds, for good.',
       project: 'required',
       args: [listArg],
       destructive: true,
-      jsonShape: '{ "deleted": true, "id": string }',
       examples: ['taleart user-lists delete VIPs --yes'],
       async run(ctx) {
         const projectId = await ctx.projectId();
         const client = ctx.client();
-        const list = await resolveUserList(client, ctx.args['list'] as string, projectId);
+        const list = await resolveUserList(client, ctx.args['list'] as string, projectId, ctx.exact);
         await ctx.confirm(`Delete user list "${list.name}" and its ${list.idCount} IDs for good?`);
         await client.delete(`/projects/${seg(projectId)}/user-lists/${seg(list.id)}`);
         return { data: { deleted: true, id: list.id }, text: `Deleted user list ${list.name}.` };
