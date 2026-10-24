@@ -41,7 +41,9 @@ export type IconName =
   | 'line'
   | 'layers'
   | 'templates'
-  | 'safe-area';
+  | 'safe-area'
+  | 'search'
+  | 'puzzle';
 
 /** Inline SVG icons (24px grid, 2px stroke). Decorative: the control around an icon carries the label. */
 @Component({
@@ -220,6 +222,13 @@ export type IconName =
         @case ('safe-area') {
           <rect x="3" y="3" width="18" height="18" rx="2" />
           <rect x="7" y="7" width="10" height="10" stroke-dasharray="2 2" />
+        }
+        @case ('search') {
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="M16 16l4.5 4.5" />
+        }
+        @case ('puzzle') {
+          <path d="M5 8h3a2 2 0 1 1 4 0h3v3a2 2 0 1 1 0 4v4H5v-4a2 2 0 1 0 0-4z" />
         }
         @case ('tales') {
           <rect x="7" y="3" width="10" height="18" rx="2" />
