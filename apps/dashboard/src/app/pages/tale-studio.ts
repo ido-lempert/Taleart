@@ -121,7 +121,7 @@ import {
   type ShapeView,
   type TextView,
 } from './tale-canvas-view';
-import { dropBox, nextFreeSpot, tileBox } from './tale-placement';
+import { dropBox, landedSaid, nextFreeSpot, tileBox } from './tale-placement';
 import { TalePreviewPane } from './tale-preview';
 import {
   LEFT_TABS,
@@ -216,6 +216,20 @@ export const TOUCH_HOLD_MS = 250;
 const TOUCH_SLOP_PX = 8;
 /** What a drag that adds nothing says (EXPERIENCE Accessibility Floor). */
 const NOT_ADDED = 'Not added';
+/** How many more times focusing something not drawn yet is tried, 20 ms apart. */
+const FOCUS_TRIES = 10;
+/** How long after a drag's release its click is ignored (ms): a touch's click comes late. */
+const DRAGGED_CLICK_MS = 400;
+/** Phones add by tap only, with no palette drag (EXPERIENCE Responsive & Platform). */
+const PHONE_WIDTH = '(max-width: 767.98px)';
+/** How near the window's top or bottom edge a drag scrolls the stacked page, and by how much a frame (px). */
+const AUTO_SCROLL_EDGE_PX = 48;
+const AUTO_SCROLL_STEP_PX = 14;
+/** One frame later; a timer where there are no frames (tests). */
+const requestFrame = (run: () => void): number =>
+  typeof requestAnimationFrame === 'function' ? requestAnimationFrame(run) : (setTimeout(run, 16) as unknown as number);
+const cancelFrame = (id: number): void =>
+  typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame(id) : clearTimeout(id);
 
 /** A press on a palette tile, and the drag it becomes (epic Tale Studio 2 R3). */
 interface TileDrag {
@@ -239,6 +253,10 @@ interface TileDrag {
   /** The new element's box, before it is placed. */
   size: TaleElementBox;
   targets: SnapTargets;
+  /** The stage's rectangle on screen, read at the drag's start and again after a scroll. */
+  stage: DOMRect | null;
+  /** The frame the ghost follows the pointer in, while one is pending. */
+  frame: number | null;
 }
 
 /** How the drag ghost draws the element a tile adds. */
@@ -442,8 +460,11 @@ export class TaleStudioPage implements OnChanges {
   private drag: Drag | null = null;
   /** A press on a palette tile, until it is released or cancelled. */
   private tileDrag: TileDrag | null = null;
-  /** A drag from a tile just ended: the click its release fires adds nothing. */
-  private tileDragged = false;
+  /** The tile a drag just ended on: the click its release fires there adds nothing. */
+  private tileDragged: string | null = null;
+  private tileDraggedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A pen was last seen over the palette (see `paletteInput`). */
+  protected readonly penInput = signal(false);
   /** The ghost of the element being dragged from the palette. */
   protected readonly ghost = signal<Ghost | null>(null);
   private ghostLook: GhostLook | null = null;
@@ -1866,8 +1887,17 @@ export class TaleStudioPage implements OnChanges {
     );
   }
 
-  private focusSoon(id: string): void {
-    setTimeout(() => document.getElementById(id)?.focus(), 0);
+  // Focuses the element with this id once it is drawn: tried after this turn, then again a few
+  // times while it is not there yet (an element just added draws on the next render).
+  private focusSoon(id: string, tries = FOCUS_TRIES): void {
+    setTimeout(
+      () => {
+        const target = document.getElementById(id);
+        if (target) target.focus();
+        else if (tries > 0) this.focusSoon(id, tries - 1);
+      },
+      tries === FOCUS_TRIES ? 0 : 20,
+    );
   }
 
   protected isSelected(id: string): boolean {
@@ -1940,15 +1970,20 @@ export class TaleStudioPage implements OnChanges {
 
   /**
    * Adds the element as one step in the history (epic Tale Studio 2 R3), selects it, says where it
-   * landed and what it still needs ("Poll added at 10%, 36%. Selected."), and focuses it on the
-   * canvas (a text opens its editor there instead). False when nothing was added.
+   * landed, what it still needs and how a keyboard reaches its properties ("Poll added near the
+   * centre of the safe area. Selected. Press F6 for its properties."), and focuses it on the canvas.
+   * A text opens its editor there instead, and says so. False when nothing was added.
    */
   private added(element: TaleElement, name: string, needs = '', where?: string): boolean {
     if (!this.change(`${name} added`, (elements) => [...elements, element])) return false;
     this.selectOnly(element.id);
-    const at = where ?? `at ${this.percent(element.box.x)}%, ${this.percent(element.box.y)}%`;
-    this.say(`${name} added ${at}. Selected.${needs ? ` ${needs}` : ''}`);
-    if (element.type !== 'text') this.focusSoon(`studio-el-${element.id}`);
+    const at = where ?? landedSaid(element.box);
+    if (element.type === 'text') {
+      this.say(`${name} added ${at}. Editing its text: type, then press Escape.`);
+      return true;
+    }
+    this.say(`${name} added ${at}. Selected.${needs ? ` ${needs}` : ''} Press F6 for its properties.`);
+    this.focusSoon(`studio-el-${element.id}`);
     return true;
   }
 
@@ -2684,7 +2719,7 @@ export class TaleStudioPage implements OnChanges {
   protected addFromTile(tile: PaletteTile, at?: TaleElementBox): void {
     this.cancelPaletteCount();
     // The click a drag's release fires on its tile: the drop has added, or the drag was cancelled.
-    if (!at && this.tileDragged) return;
+    if (!at && this.tileDragged === tile.id) return;
     const block = this.tileBlock(tile);
     if (block) {
       this.say(block.reason);
@@ -2717,15 +2752,23 @@ export class TaleStudioPage implements OnChanges {
 
   /**
    * A press on a palette tile (epic Tale Studio 2 R3, EXPERIENCE Interaction Primitives): it becomes
-   * a drag once a mouse or pen moves 4 px, or a finger is held 250 ms (a quick swipe scrolls the
+   * a drag once a mouse moves 4 px, or a finger or pen is held 250 ms (a quick stroke scrolls the
    * panel). A press that does not become a drag is a click, which adds at the next free spot.
    */
   protected tilePointerDown(event: PointerEvent, tile: PaletteTile): void {
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    // A second finger while one drags is ignored; the first drag goes on.
+    if (this.tileDrag?.active && this.tileDrag.pointerId !== event.pointerId) return;
+    this.clearTileDragged();
+    // Only a pressed primary button drags: not a right or middle press, nor a Ctrl-click on a Mac
+    // (its context menu would take the release). Phones add by tap only (EXPERIENCE Responsive).
+    if (event.button !== 0 || !(event.buttons & 1) || (this.apple && event.ctrlKey)) return;
+    if (window.matchMedia?.(PHONE_WIDTH).matches) return;
     this.endTileDrag();
     const drag: TileDrag = {
       tile,
       pointerId: event.pointerId,
+      // A finger holds the tile first, so a quick swipe scrolls the panel. A pen drags as a mouse
+      // does: the tiles take no panning from a pen (`is-pen`), so its stroke does not scroll.
       touch: event.pointerType === 'touch',
       x: event.clientX,
       y: event.clientY,
@@ -2738,9 +2781,14 @@ export class TaleStudioPage implements OnChanges {
       hold: null,
       size: tileBox(tile),
       targets: { x: [], y: [] },
+      stage: null,
+      frame: null,
     };
     this.tileDrag = drag;
     window.addEventListener('keydown', this.tileDragKey, true);
+    window.addEventListener('blur', this.tileDragLost);
+    window.addEventListener('scroll', this.tileDragScrolled, true);
+    document.addEventListener('visibilitychange', this.tileDragHidden);
     if (drag.touch) {
       document.addEventListener('touchmove', this.holdScroll, { passive: false });
       drag.hold = setTimeout(() => {
@@ -2759,43 +2807,100 @@ export class TaleStudioPage implements OnChanges {
   protected tilePointerMove(event: PointerEvent): void {
     const drag = this.tileDrag;
     if (!drag || drag.pointerId !== event.pointerId || drag.cancelled) return;
+    // A mouse with no button down lost its release (Cmd-Tab away, a context menu): the drag ends.
+    if (event.pointerType === 'mouse' && !(event.buttons & 1)) {
+      this.abortTileDrag();
+      return;
+    }
     drag.lastX = event.clientX;
     drag.lastY = event.clientY;
     drag.altKey = event.altKey;
     if (!drag.active) {
-      const moved = Math.abs(event.clientX - drag.x) + Math.abs(event.clientY - drag.y);
+      const moved = Math.hypot(event.clientX - drag.x, event.clientY - drag.y);
       if (drag.touch) {
-        // Moved before the hold: the finger scrolls the panel.
+        // Moved before the hold: the finger or pen scrolls the panel.
         if (moved > TOUCH_SLOP_PX) this.endTileDrag();
         return;
       }
       if (moved < DRAG_START_PX) return;
       this.startTileDrag(drag);
+      return;
     }
-    this.followPointer(drag);
+    // At most once a frame.
+    drag.frame ??= requestFrame(() => {
+      drag.frame = null;
+      if (this.tileDrag === drag) this.followPointer(drag);
+    });
   }
 
   /** The release: over the stage it adds there; anywhere else it adds nothing and says so. */
   protected tilePointerUp(event: PointerEvent): void {
     const drag = this.tileDrag;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.active && !drag.cancelled && !drag.blocked) {
+      // Where the pointer was let go, even between frames.
+      drag.lastX = event.clientX;
+      drag.lastY = event.clientY;
+      this.followPointer(drag);
+    }
     const ghost = this.ghost();
     this.endTileDrag();
     if (!drag.active && !drag.cancelled) return;
-    // The click this release fires adds nothing more.
-    this.tileDragged = true;
-    setTimeout(() => (this.tileDragged = false), 0);
+    this.markTileDragged(drag.tile.id);
     if (drag.cancelled || drag.blocked) return;
     if (ghost?.over) this.addFromTile(drag.tile, ghost.box);
     else this.say(NOT_ADDED);
   }
 
+  /**
+   * A pen hovers before it touches: the tiles then take no panning from it, so a pen drags a tile
+   * as a mouse does. A finger (which does not hover) gives the tiles their panning back.
+   */
+  protected paletteInput(event: PointerEvent): void {
+    if (event.pointerType === 'pen') this.penInput.set(true);
+    else if (event.pointerType === 'touch') this.penInput.set(false);
+  }
+
   /** The browser took the pointer (a scroll, a system gesture): a drag under way adds nothing. */
   protected tilePointerCancel(event: PointerEvent): void {
+    if (this.tileDrag?.pointerId === event.pointerId) this.abortTileDrag();
+  }
+
+  /** The tile lost the pointer without a release reaching it: a drag under way adds nothing. */
+  protected tileLostPointer(event: PointerEvent): void {
+    if (this.tileDrag?.pointerId === event.pointerId && !this.tileDrag.touch) this.abortTileDrag();
+  }
+
+  // Ends the press or the drag with nothing added, saying so when a drag was under way.
+  private abortTileDrag(): void {
     const drag = this.tileDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag) return;
     this.endTileDrag();
-    if (drag.active && !drag.cancelled && !drag.blocked) this.say(NOT_ADDED);
+    if (!drag.active) return;
+    this.markTileDragged(drag.tile.id);
+    if (!drag.cancelled && !drag.blocked) this.say(NOT_ADDED);
+  }
+
+  private readonly tileDragLost = (): void => this.abortTileDrag();
+  private readonly tileDragHidden = (): void => {
+    if (document.visibilityState === 'hidden') this.abortTileDrag();
+  };
+  // The page or a panel scrolled: the stage moved on screen.
+  private readonly tileDragScrolled = (): void => {
+    if (this.tileDrag) this.tileDrag.stage = null;
+  };
+
+  // The click a drag's release fires on its tile (late after a touch) adds nothing: until the next press, or 400 ms.
+  private markTileDragged(id: string): void {
+    this.clearTileDragged();
+    this.tileDragged = id;
+    this.tileDraggedTimer = setTimeout(() => this.clearTileDragged(), DRAGGED_CLICK_MS);
+  }
+
+  private clearTileDragged(): void {
+    if (this.tileDraggedTimer !== null) clearTimeout(this.tileDraggedTimer);
+    this.tileDraggedTimer = null;
+    this.tileDragged = null;
   }
 
   /** A held finger opens no context menu on a tile, so the hold can start a drag. */
@@ -2842,8 +2947,10 @@ export class TaleStudioPage implements OnChanges {
       this.dragTip.set({ x: drag.lastX, y: drag.lastY, reason: drag.blocked });
       return;
     }
-    const canvas = this.host.nativeElement.querySelector<HTMLElement>('#studio-canvas');
-    const rect = canvas?.getBoundingClientRect();
+    this.autoScroll(drag);
+    // The stage's place on screen, read once per drag and again after a scroll.
+    drag.stage ??= this.host.nativeElement.querySelector<HTMLElement>('#studio-canvas')?.getBoundingClientRect() ?? null;
+    const rect = drag.stage;
     if (!rect || rect.width === 0 || rect.height === 0 || !this.ghostLook) return;
     const point = { x: (drag.lastX - rect.left) / rect.width, y: (drag.lastY - rect.top) / rect.height };
     const over = point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
@@ -2869,6 +2976,23 @@ export class TaleStudioPage implements OnChanges {
       box,
       over,
       look: this.ghostLook,
+    });
+  }
+
+  // Where the stacked page scrolls (under 1024 px), a drag near the window's top or bottom edge
+  // scrolls it, a step a frame while the pointer stays there, so the stage can be reached.
+  private autoScroll(drag: TileDrag): void {
+    const page = document.scrollingElement;
+    if (!page || page.scrollHeight <= window.innerHeight) return;
+    const dy = drag.lastY < AUTO_SCROLL_EDGE_PX ? -AUTO_SCROLL_STEP_PX : drag.lastY > window.innerHeight - AUTO_SCROLL_EDGE_PX ? AUTO_SCROLL_STEP_PX : 0;
+    if (dy === 0) return;
+    const before = page.scrollTop;
+    page.scrollTop = before + dy;
+    if (page.scrollTop === before) return;
+    drag.stage = null;
+    drag.frame ??= requestFrame(() => {
+      drag.frame = null;
+      if (this.tileDrag === drag) this.followPointer(drag);
     });
   }
 
@@ -2927,13 +3051,21 @@ export class TaleStudioPage implements OnChanges {
     const drag = this.tileDrag;
     if (!drag) return;
     if (drag.hold !== null) clearTimeout(drag.hold);
+    if (drag.frame !== null) cancelFrame(drag.frame);
+    drag.frame = null;
     this.tileDrag = null;
     window.removeEventListener('keydown', this.tileDragKey, true);
+    window.removeEventListener('blur', this.tileDragLost);
+    window.removeEventListener('scroll', this.tileDragScrolled, true);
+    document.removeEventListener('visibilitychange', this.tileDragHidden);
     document.removeEventListener('touchmove', this.holdScroll);
     this.clearDragShow();
   }
 
-  private readonly stopTileDrag = inject(DestroyRef).onDestroy(() => this.endTileDrag());
+  private readonly stopTileDrag = inject(DestroyRef).onDestroy(() => {
+    this.endTileDrag();
+    this.clearTileDragged();
+  });
 
   /** Adds an element of a type registered by configuration (R8), from its descriptor and the tile's preset, at `box`. */
   private addConfigured(type: StudioElementType, preset: PalettePreset | undefined, box: TaleElementBox): void {

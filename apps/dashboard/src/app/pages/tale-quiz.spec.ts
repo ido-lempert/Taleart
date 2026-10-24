@@ -256,7 +256,7 @@ describe('Tale Studio: a quiz (epic interactive components story 4.3)', () => {
     expect(add.textContent?.trim()).toBe('Add quiz');
     add.click();
     await settle(fixture);
-    expect(live()).toBe('Quiz added at 10%, 28%. Selected.');
+    expect(live()).toBe('Quiz added near the centre of the safe area. Selected. Press F6 for its properties.');
     const id = quiz().id;
     expect(quiz().props.question).toBe('Ask a question');
     expect(labels()).toEqual(['Answer 1', 'Answer 2']);

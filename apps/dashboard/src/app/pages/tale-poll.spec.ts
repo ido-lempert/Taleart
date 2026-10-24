@@ -194,7 +194,7 @@ describe('Tale Studio: a poll (epic interactive components story 4.1)', () => {
     expect(add.textContent?.trim()).toBe('Add poll');
     add.click();
     await settle(fixture);
-    expect(live()).toBe('Poll added at 10%, 34%. Selected.');
+    expect(live()).toBe('Poll added near the centre of the safe area. Selected. Press F6 for its properties.');
     const id = poll().id;
     expect(poll().type).toBe('poll');
     expect(poll().props.question).toBe('Ask a question');

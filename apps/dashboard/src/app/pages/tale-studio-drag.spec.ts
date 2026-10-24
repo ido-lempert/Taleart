@@ -62,17 +62,30 @@ describe('Tale Studio: drag an element onto the canvas (story 11.4)', () => {
     init: PointerEventInit = {},
   ) =>
     target.dispatchEvent(
-      new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, pointerType: 'mouse', clientX: x, clientY: y, ...init }),
+      new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        // The primary button is down while pressing and moving; a release lets it go.
+        buttons: type === 'pointerup' ? 0 : 1,
+        pointerId: 7,
+        pointerType: 'mouse',
+        clientX: x,
+        clientY: y,
+        ...init,
+      }),
     );
+  /** The ghost follows the pointer once a frame. */
+  const frame = () => new Promise((resolve) => setTimeout(resolve, 40));
   /** Presses the tile, moves over (x, y) in client px, and optionally releases there. */
   async function dragTile(id: string, x: number, y: number, release = true, init: PointerEventInit = {}) {
     const tile = q<HTMLButtonElement>(`#${id}`);
     pointer(tile, 'pointerdown', 10, 10, init);
     pointer(tile, 'pointermove', 30, 10, init);
     pointer(tile, 'pointermove', x, y, init);
+    await frame();
     await settle(fixture);
     if (release) {
-      pointer(tile, 'pointerup', x, y, init);
+      pointer(tile, 'pointerup', x, y, { ...init, buttons: 0 });
       // The click a release fires on the pressed button.
       tile.click();
       await settle(fixture);
@@ -128,14 +141,14 @@ describe('Tale Studio: drag an element onto the canvas (story 11.4)', () => {
     expect(tile.classList).toContain('is-dragging');
     expect(doc().elements).toEqual([]);
 
-    pointer(tile, 'pointerup', x, y);
+    pointer(tile, 'pointerup', x, y, { buttons: 0 });
     tile.click();
     await settle(fixture);
     expect(q('.drag-ghost')).toBeNull();
     expect(q('.snap-line--x')).toBeNull();
     expect(doc().elements.map((e) => [e.type, e.box])).toEqual([['poll', { x: 0.1, y: 0.56, w: 0.8, h: 0.28, rotation: 0 }]]);
     const id = doc().elements[0].id;
-    expect(live()).toBe('Poll added at 10%, 56%. Selected.');
+    expect(live()).toBe('Poll added at left 10%, top 56% of the tale. Selected. Press F6 for its properties.');
     expect(q(`#studio-el-${id}`).getAttribute('aria-pressed')).toBe('true');
     expect(globalThis.document.activeElement?.id).toBe(`studio-el-${id}`);
   });
@@ -167,7 +180,7 @@ describe('Tale Studio: drag an element onto the canvas (story 11.4)', () => {
     expect(escape.defaultPrevented).toBe(true);
     expect(q('.drag-ghost')).toBeNull();
     expect(live()).toBe('Not added');
-    pointer(tile, 'pointerup', STAGE.left + 150, 300);
+    pointer(tile, 'pointerup', STAGE.left + 150, 300, { buttons: 0 });
     tile.click();
     await settle(fixture);
     expect(doc().elements).toEqual([]);
@@ -198,7 +211,7 @@ describe('Tale Studio: drag an element onto the canvas (story 11.4)', () => {
     expect(q('.drag-ghost')).toBeNull();
     expect(q('.drag-tip').textContent).toContain('A tale holds one poll');
     expect(live()).toContain('A tale holds one poll');
-    pointer(tile, 'pointerup', STAGE.left + 150, 300);
+    pointer(tile, 'pointerup', STAGE.left + 150, 300, { buttons: 0 });
     tile.click();
     await settle(fixture);
     expect(q('.drag-tip')).toBeNull();
@@ -219,12 +232,131 @@ describe('Tale Studio: drag an element onto the canvas (story 11.4)', () => {
     pointer(tile, 'pointerdown', 10, 10, touch);
     await new Promise((resolve) => setTimeout(resolve, TOUCH_HOLD_MS + 30));
     pointer(tile, 'pointermove', STAGE.left + 150, 300, touch);
+    await frame();
     await settle(fixture);
     expect(q('.drag-ghost')).not.toBeNull();
-    pointer(tile, 'pointerup', STAGE.left + 150, 300, touch);
+    pointer(tile, 'pointerup', STAGE.left + 150, 300, { ...touch, buttons: 0 });
     await settle(fixture);
     expect(doc().elements.map((e) => e.type)).toEqual(['shape']);
-    expect(live()).toBe('Rectangle added at 30%, 40%. Selected. It is decorative: screen readers skip it.');
+    expect(live()).toBe(
+      'Rectangle added near the centre of the safe area. Selected. It is decorative: screen readers skip it. Press F6 for its properties.',
+    );
+  });
+
+  it('a finger held and let go without moving adds nothing, even when its click comes late', async () => {
+    await open();
+    const tile = q<HTMLButtonElement>('#studio-add-rectangle');
+    const touch = { pointerType: 'touch' };
+    pointer(tile, 'pointerdown', 10, 10, touch);
+    await new Promise((resolve) => setTimeout(resolve, TOUCH_HOLD_MS + 30));
+    pointer(tile, 'pointerup', 10, 10, { ...touch, buttons: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    tile.click();
+    await settle(fixture);
+    expect(doc().elements).toEqual([]);
+    expect(live()).toBe('Not added');
+    // A later click is a click again.
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    tile.click();
+    await settle(fixture);
+    expect(doc().elements.length).toBe(1);
+  });
+
+  it('ends a drag whose release was lost: a mouse moving with no button down', async () => {
+    await open();
+    const tile = await dragTile('studio-add-rectangle', STAGE.left + 150, 300, false);
+    expect(q('.drag-ghost')).not.toBeNull();
+    pointer(tile, 'pointermove', STAGE.left + 160, 300, { buttons: 0 });
+    await settle(fixture);
+    expect(q('.drag-ghost')).toBeNull();
+    expect(live()).toBe('Not added');
+    expect(doc().elements).toEqual([]);
+  });
+
+  for (const [how, lose] of [
+    ['the window loses focus', () => window.dispatchEvent(new Event('blur'))],
+    [
+      'the page is hidden',
+      () => {
+        vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        document.dispatchEvent(new Event('visibilitychange'));
+      },
+    ],
+    [
+      'the tile loses the pointer',
+      () =>
+        q('#studio-add-rectangle').dispatchEvent(
+          new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 7, pointerType: 'mouse' }),
+        ),
+    ],
+  ] as const) {
+    it(`ends a drag when ${how}, with nothing added`, async () => {
+      await open();
+      const tile = await dragTile('studio-add-rectangle', STAGE.left + 150, 300, false);
+      expect(q('.drag-ghost')).not.toBeNull();
+      lose();
+      await settle(fixture);
+      expect(q('.drag-ghost')).toBeNull();
+      expect(live()).toBe('Not added');
+      pointer(tile, 'pointerup', STAGE.left + 150, 300, { buttons: 0 });
+      tile.click();
+      await settle(fixture);
+      expect(doc().elements).toEqual([]);
+    });
+  }
+
+  it('starts no drag without a pressed button, nor from a small jitter', async () => {
+    await open();
+    const tile = q<HTMLButtonElement>('#studio-add-rectangle');
+    // No button down (a synthetic or stale press).
+    pointer(tile, 'pointerdown', 10, 10, { buttons: 0 });
+    pointer(tile, 'pointermove', STAGE.left + 150, 300);
+    await frame();
+    await settle(fixture);
+    expect(q('.drag-ghost')).toBeNull();
+    pointer(tile, 'pointerup', STAGE.left + 150, 300, { buttons: 0 });
+    // 3 px across and 2 px down is under 4 px: still a click, which adds at the next free spot.
+    pointer(tile, 'pointerdown', 10, 10);
+    pointer(tile, 'pointermove', 13, 12);
+    await settle(fixture);
+    expect(q('.drag-ghost')).toBeNull();
+    pointer(tile, 'pointerup', 13, 12, { buttons: 0 });
+    tile.click();
+    await settle(fixture);
+    expect(doc().elements.length).toBe(1);
+  });
+
+  it('ignores a second pointer while one drags', async () => {
+    await open();
+    const tile = await dragTile('studio-add-rectangle', STAGE.left + 150, 300, false);
+    const other = q<HTMLButtonElement>('#studio-add-ellipse');
+    pointer(other, 'pointerdown', 10, 10, { pointerId: 8, pointerType: 'touch' });
+    pointer(other, 'pointerup', 10, 10, { pointerId: 8, pointerType: 'touch', buttons: 0 });
+    await settle(fixture);
+    expect(q('.drag-ghost')).not.toBeNull();
+    pointer(tile, 'pointerup', STAGE.left + 150, 300, { buttons: 0 });
+    await settle(fixture);
+    expect(doc().elements.map((e) => (e.props as { shape?: string }).shape)).toEqual(['rectangle']);
+  });
+
+  it('has no palette drag on a phone: a tap adds', async () => {
+    await open();
+    const had = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({ matches: query.includes('767'), media: query }) as MediaQueryList,
+    });
+    try {
+      const tile = await dragTile('studio-add-rectangle', STAGE.left + 150, 300, false);
+      expect(q('.drag-ghost')).toBeNull();
+      pointer(tile, 'pointerup', STAGE.left + 150, 300, { buttons: 0 });
+      tile.click();
+      await settle(fixture);
+      expect(doc().elements.length).toBe(1);
+    } finally {
+      if (had) Object.defineProperty(window, 'matchMedia', had);
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
   });
 
   it('makes each add, dragged or clicked, one undo step', async () => {

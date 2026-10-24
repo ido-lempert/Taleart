@@ -146,7 +146,7 @@ describe('Tale Studio: a Rating (epic interactive components story 4.2)', () => 
     expect(add.textContent?.trim()).toBe('Add rating');
     add.click();
     await settle(fixture);
-    expect(live()).toBe('Rating added at 10%, 37%. Selected.');
+    expect(live()).toBe('Rating added near the centre of the safe area. Selected. Press F6 for its properties.');
     const id = rating().id;
     expect(rating().props).toEqual({ question: 'How much do you like it?', emoji: '❤️', theme: 'light' });
     http.expectOne(responsesUrl).flush({ elements: [] });

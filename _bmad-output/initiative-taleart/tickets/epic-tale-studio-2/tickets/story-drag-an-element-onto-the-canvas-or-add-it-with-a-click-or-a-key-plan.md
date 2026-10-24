@@ -123,5 +123,16 @@ content; no change to moving elements already on the canvas.
   heading's edge (`tale-layers.ts` `nearest`; moves on the canvas get the same tie-break).
 - The next free spot can overlap a larger element whose centre lies elsewhere (a rating at the centre
   over a poll dropped lower down): the design's cascade is by spot, not by overlap area.
+- Review fixes (2026-10-24): a drag whose release is lost ends with "Not added" (a mouse moving with
+  no button, window blur, the page hidden, lost pointer capture); a drag needs a pressed primary
+  button and no Mac Ctrl-click; a 4 px Euclidean start threshold; a pen drags at once (the tiles take
+  no panning once a pen is seen hovering), a finger after a 250 ms hold; a second pointer is ignored;
+  no palette drag under 768 px; near the window edge the stacked page scrolls; the stage rectangle is
+  read once per drag (again after a scroll) and the ghost follows once a frame; the release's click is
+  ignored on that tile for 400 ms or until the next press; the announcement says "near the centre of
+  the safe area" or "at left 10%, top 56% of the tale", then "Press F6 for its properties" (a text:
+  "Editing its text"); the "drag or press Enter" hint is one visible note, the groups' description;
+  `focusSoon` retries until the element is drawn; tiles are `position: relative` so their hidden
+  "Add" words never grow the page.
 - The ghost is drawn in a fixed layer over the stage's rectangle with its own size container, so it
   uses the canvas's `cqh` sizes and can follow the pointer outside the stage.
