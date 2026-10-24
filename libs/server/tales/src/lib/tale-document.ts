@@ -31,6 +31,7 @@ import {
   TALE_DOCUMENT_V1_SCHEMA,
   elementTypeRegistry,
   ELEMENT_TYPE_LIMITS,
+  isInteractiveElementType,
   type DeliveryTaleDocument,
   type TaleCanvas,
   type TaleDocument,
@@ -183,18 +184,35 @@ function checkLineText(value: unknown, pointer: string): void {
   if (value.trim() === '') throw new InvalidTaleDocumentError(pointer, 'must hold some text');
 }
 
-// A poll (epic interactive components R2): its title, question and option labels are text that
-// shows, and its option ids differ, since votes are counted by them.
-function checkPoll(props: Record<string, unknown>, pointer: string): void {
+// A choice component (a poll, R2; a quiz, R3): its title, question and choice labels are text that
+// shows, and the ids of the choices in `prop` differ, since responses are counted by them. Answers
+// the ids.
+function checkChoices(props: Record<string, unknown>, pointer: string, prop: string, noun: string): Set<unknown> {
   checkLineText(props['title'], `${pointer}/title`);
   checkLineText(props['question'], `${pointer}/question`);
-  const options = Array.isArray(props['options']) ? (props['options'] as { id?: unknown; label?: unknown }[]) : [];
+  const choices = Array.isArray(props[prop]) ? (props[prop] as { id?: unknown; label?: unknown }[]) : [];
   const ids = new Set<unknown>();
-  options.forEach((option, i) => {
-    checkLineText(option.label, `${pointer}/options/${i}/label`);
-    if (ids.has(option.id)) throw new InvalidTaleDocumentError(`${pointer}/options/${i}/id`, 'is the id of another option');
-    ids.add(option.id);
+  choices.forEach((choice, i) => {
+    checkLineText(choice.label, `${pointer}/${prop}/${i}/label`);
+    if (ids.has(choice.id)) throw new InvalidTaleDocumentError(`${pointer}/${prop}/${i}/id`, `is the id of another ${noun}`);
+    ids.add(choice.id);
   });
+  return ids;
+}
+
+// A poll (epic interactive components R2): two options with distinct ids.
+function checkPoll(props: Record<string, unknown>, pointer: string): void {
+  checkChoices(props, pointer, 'options', 'option');
+}
+
+// A quiz (epic interactive components R3): answers with distinct ids, and a correct answer, when it
+// has one, that is one of them.
+function checkQuiz(props: Record<string, unknown>, pointer: string): void {
+  const ids = checkChoices(props, pointer, 'answers', 'answer');
+  const correct = props['correctAnswerId'];
+  if (correct !== undefined && !ids.has(correct)) {
+    throw new InvalidTaleDocumentError(`${pointer}/correctAnswerId`, 'must be the id of one of its answers');
+  }
 }
 
 const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
@@ -227,6 +245,7 @@ const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
     checkHref(props, pointer);
   },
   poll: checkPoll,
+  quiz: checkQuiz,
   // A Rating (epic interactive components R5, R15): text that shows, and one RGI emoji on its slider.
   rating: (props, pointer) => {
     checkLineText(props['title'], `${pointer}/title`);
@@ -469,18 +488,21 @@ export function checkPublishableDocument(value: unknown): TaleDocument {
 
 // The element with its label, a text element's text and a link's label in Unicode NFC, so equal
 // text is stored equally; a project font's id in lower case, as the database spells a uuid.
-// A poll's or a Rating's title, question and option labels in Unicode NFC, as text and labels are.
+// An interactive component's title, question and choice labels (a poll's options, a quiz's answers)
+// in Unicode NFC, as text and labels are.
 function normalizedComponent<P>(props: P): P {
   const nfc = (value: unknown) => (typeof value === 'string' ? value.normalize('NFC') : value);
-  const poll = props as { title?: unknown; question?: unknown; options?: unknown };
-  const next: Record<string, unknown> = { ...poll };
-  if (poll.title !== undefined) next['title'] = nfc(poll.title);
-  if (poll.question !== undefined) next['question'] = nfc(poll.question);
-  if (Array.isArray(poll.options)) {
-    next['options'] = poll.options.map((option: unknown) =>
-      typeof option === 'object' && option !== null
-        ? { ...option, label: nfc((option as { label?: unknown }).label) }
-        : option,
+  const component = props as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...component };
+  if (component['title'] !== undefined) next['title'] = nfc(component['title']);
+  if (component['question'] !== undefined) next['question'] = nfc(component['question']);
+  for (const prop of ['options', 'answers']) {
+    const choices = component[prop];
+    if (!Array.isArray(choices)) continue;
+    next[prop] = choices.map((choice: unknown) =>
+      typeof choice === 'object' && choice !== null
+        ? { ...choice, label: nfc((choice as { label?: unknown }).label) }
+        : choice,
     );
   }
   return next as P;
@@ -493,7 +515,7 @@ function normalized(element: TaleDocument['elements'][number]): TaleDocument['el
   let props = typeof text === 'string' ? { ...element.props, text: text.normalize('NFC') } : element.props;
   const linkText = isLinkElement(element) ? (props as { label?: unknown }).label : undefined;
   if (typeof linkText === 'string') props = { ...props, label: linkText.normalize('NFC') } as typeof props;
-  if (element.type === 'poll' || element.type === 'rating') props = normalizedComponent(props);
+  if (isInteractiveElementType(element.type)) props = normalizedComponent(props);
   const font = (props as { font?: { source?: unknown; fontId?: unknown } } | null)?.font;
   if (font?.source === 'project' && typeof font.fontId === 'string') {
     props = { ...props, font: { ...font, fontId: font.fontId.toLowerCase() } } as typeof props;

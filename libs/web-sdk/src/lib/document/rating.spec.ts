@@ -358,7 +358,7 @@ describe('TaleViewer with a Rating (R5, C7)', () => {
     expect(where()).not.toBe(before);
   });
 
-  it('pauses while the slider has focus, and its arrow keys move the emoji, never the tale', () => {
+  it('pauses while the slider has focus, and its arrow keys move the emoji, never the tale', async () => {
     const before = where();
     const slider = track();
     slider.focus();
@@ -368,13 +368,22 @@ describe('TaleViewer with a Rating (R5, C7)', () => {
     expect(slider.getAttribute('aria-valuenow')).toBe('10');
     vi.advanceTimersByTime(20_000);
     expect(where()).toBe(before);
+    // Space on the slider is the slider's while rating: it does not toggle the pause.
+    const live = press(slider, ' ');
+    expect(live.defaultPrevented).toBe(false);
+    expect(dialog().querySelector('.pause')?.getAttribute('aria-label')).toBe('Pause');
     press(slider, 'Enter');
     expect(fake.send).toHaveBeenCalledWith('t1', ratingId, '10');
-    // Space on the slider is the slider's, as on a poll's option: it does not toggle the pause.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+    // Rated: Space does nothing on the slider, neither a press nor a pause (story 4.3).
     const space = press(slider, ' ');
-    expect(space.defaultPrevented).toBe(false);
-    slider.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true }));
+    expect(space.defaultPrevented).toBe(true);
+    const up = new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true });
+    slider.dispatchEvent(up);
+    expect(up.defaultPrevented).toBe(true);
     expect(dialog().hasAttribute('data-paused')).toBe(true);
+    expect(dialog().querySelector('.pause')?.getAttribute('aria-label')).toBe('Pause');
     slider.blur();
     expect(dialog().hasAttribute('data-paused')).toBe(false);
     slider.focus();
