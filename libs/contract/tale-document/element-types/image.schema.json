@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ImageElementProps",
-  "description": "The props of an image element (epic Tale Studio R5): an image (GIF included) of the tale's project, by its storage key (AD-11), never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+  "description": "The props of an image element: an image (GIF included) of the tale's project, by its storage key, never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
   "type": "object",
   "additionalProperties": false,
   "required": ["mediaKey", "fit"],
@@ -30,7 +30,7 @@
       "maximum": 1
     },
     "taleMedia": {
-      "description": "True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one.",
+      "description": "True on the tale's own media: the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one.",
       "type": "boolean"
     }
   }

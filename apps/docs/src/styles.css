@@ -12,6 +12,8 @@
   --code-bg: #f1f2f5;
   --note-bg: #fff7e0;
   --note-line: #e2b33c;
+  --error: #b3261e;
+  --on-accent: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -28,6 +30,8 @@
     --code-bg: #1e2026;
     --note-bg: #2e2716;
     --note-line: #b48a22;
+    --error: #ffb4ab;
+    --on-accent: #131418;
   }
 }
 

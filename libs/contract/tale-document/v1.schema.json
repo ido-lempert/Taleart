@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TaleDocument",
-  "description": "A tale document, version 1 (AD-15): the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.",
+  "description": "A tale document, version 1: the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "canvas", "elements"],
@@ -53,7 +53,7 @@
       }
     },
     "MediaBackground": {
-      "description": "An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows.",
+      "description": "An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows.",
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "mediaKey", "fit", "color"],

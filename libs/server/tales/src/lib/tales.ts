@@ -1435,6 +1435,20 @@ export async function taleGroupName(db: Db, taleGroupId: string): Promise<string
   return rows[0]?.name ?? null;
 }
 
+/**
+ * The names of the project's tale groups with these ids, keyed by id as stored (lower case); an id
+ * of another project, or none, has no entry.
+ */
+export async function taleGroupNames(db: Db, projectId: string, taleGroupIds: readonly string[]): Promise<Map<string, string>> {
+  const ids = taleGroupIds.filter((id) => UUID.test(id));
+  if (!UUID.test(projectId) || ids.length === 0) return new Map();
+  const { rows } = await db.query<{ id: string; name: string }>(
+    'SELECT id, name FROM tale_groups WHERE id = ANY($1::uuid[]) AND project_id = $2',
+    [ids, projectId],
+  );
+  return new Map(rows.map((row) => [row.id, row.name]));
+}
+
 /** A tale's title, or null when it does not exist. Ids that are not UUIDs never match. */
 export async function taleTitle(db: Db, taleId: string): Promise<string | null> {
   if (!UUID.test(taleId)) return null;

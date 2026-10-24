@@ -2,13 +2,17 @@
 // "Visible on site" indicator adds for a delivered group ("Visible on site · for viewers tagged summer
 // or vip"). It reads only the targeting fields the Management API returns with every group, never a
 // visibility reason: targeting narrows who sees a group, it does not make it "Not visible" (AD-6),
-// so `delivery-rule.ts` and the indicator still agree. Stories 4 and 7 add user lists and segments
+// so `delivery-rule.ts` and the indicator still agree. Story 4 adds user lists; story 7 adds segments
 // here. Its own file, so the Web SDK, which imports the tag rule, does not bundle it.
 
-/** A tale group's targeting, as the Management API returns it: tags as `{ name }` (or names) and the match mode. */
+/**
+ * A tale group's targeting, as the Management API returns it: tags as `{ name }` (or names), the
+ * match mode, and the user lists with how many IDs each holds.
+ */
 export interface GroupAudience {
   readonly tags?: readonly ({ readonly name: string } | string)[] | null;
   readonly tagMatch?: string | null;
+  readonly userLists?: readonly { readonly id?: string; readonly name: string; readonly idCount: number }[] | null;
 }
 
 /** How many tag names the summary line names before "N more"; the full list is in `audienceDetail`. */
@@ -25,9 +29,21 @@ function tagNames(group: GroupAudience): string[] {
     .map((name) => name.trim());
 }
 
-/** True when the group shows only to some viewers: it has targeting tags (story 7 adds lists and segments). */
+// The group's user lists as the summary names them, blank names left out.
+function userLists(group: GroupAudience): { name: string; idCount: number }[] {
+  return (Array.isArray(group.userLists) ? group.userLists : [])
+    .filter((list) => typeof list?.name === 'string' && list.name.trim() !== '')
+    .map((list) => ({ name: list.name.trim(), idCount: Number.isFinite(list.idCount) ? Math.max(0, list.idCount) : 0 }));
+}
+
+/** A count with thousands separators, the same in every locale: 1204 as "1,204". */
+export function formatCount(n: number): string {
+  return String(Math.floor(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/** True when the group shows only to some viewers: it has targeting tags or user lists (story 7 adds segments). */
 export function isTargeted(group: GroupAudience): boolean {
-  return tagNames(group).length > 0;
+  return tagNames(group).length > 0 || userLists(group).length > 0;
 }
 
 // "a", "a or b", "a, b or c"; with `all`, "and".
@@ -36,18 +52,36 @@ function joinNames(names: readonly string[], word: 'or' | 'and'): string {
   return `${names.slice(0, -1).join(', ')} ${word} ${names[names.length - 1]}`;
 }
 
+// The first `max` items, then the rest as "N more".
+function shortened(items: readonly string[], max: number): string[] {
+  const limit = Math.max(1, Math.floor(max));
+  return items.length > limit ? [...items.slice(0, limit), `${items.length - limit} more`] : [...items];
+}
+
 /**
  * Who the group is for, after "for": "viewers tagged summer or vip" (Any, the default),
- * "viewers tagged summer and vip" (All); past `maxTags` names, the rest as "N more"
- * ("viewers tagged a, b, c or 2 more"). Null for a group with no audience, which every viewer sees.
+ * "viewers tagged summer and vip" (All), "user list Loyal (1,204)", "user lists Loyal (1,204) or
+ * VIP (30)", and both: "viewers tagged summer in user list Loyal (1,204)". Past `maxTags` names
+ * (tags, and lists apart), the rest as "N more" ("viewers tagged a, b, c or 2 more"). Null for a
+ * group with no audience, which every viewer sees.
  */
 export function audienceSummary(group: GroupAudience, maxTags = AUDIENCE_SUMMARY_MAX_TAGS): string | null {
   const names = tagNames(group);
-  if (names.length === 0) return null;
-  const word = group.tagMatch === 'all' ? 'and' : 'or';
-  const limit = Math.max(1, Math.floor(maxTags));
-  const shown = names.length > limit ? [...names.slice(0, limit), `${names.length - limit} more`] : names;
-  return `viewers tagged ${joinNames(shown, word)}`;
+  const lists = userLists(group);
+  const tagged =
+    names.length > 0 ? `viewers tagged ${joinNames(shortened(names, maxTags), group.tagMatch === 'all' ? 'and' : 'or')}` : null;
+  const listed =
+    lists.length > 0
+      ? `user list${lists.length > 1 ? 's' : ''} ${joinNames(
+          shortened(
+            lists.map((list) => `${list.name} (${formatCount(list.idCount)})`),
+            maxTags,
+          ),
+          'or',
+        )}`
+      : null;
+  if (tagged && listed) return `${tagged} in ${listed}`;
+  return tagged ?? listed;
 }
 
 /** The indicator's line with the audience: "Visible on site · for viewers tagged summer or vip"; the line alone when none. */
@@ -55,20 +89,44 @@ export function withAudience(line: string, summary: string | null): string {
   return summary ? `${line}${AUDIENCE_SEPARATOR}${summary}` : line;
 }
 
+// "1 ID", "1,204 IDs".
+function ids(n: number): string {
+  return `${formatCount(n)} ID${n === 1 ? '' : 's'}`;
+}
+
 /**
- * The full audience, for the indicator's tooltip: every tag named, and what a page that passes no
- * tags does (epic targeting R2: it shows every delivered group). Empty for a group with no audience.
+ * The full audience, for the indicator's tooltip: every tag and list named, what a page that passes
+ * no tags does (epic targeting R2: it shows every delivered group, or with lists every one the viewer
+ * is listed for), and that a page without an external user ID does not show a group with lists
+ * (R4). Empty for a group with no audience.
  */
 export function audienceDetail(group: GroupAudience): string[] {
   const names = tagNames(group);
-  if (names.length === 0) return [];
-  const all = group.tagMatch === 'all';
-  return [
-    names.length === 1
-      ? `Shown to viewers tagged ${names[0]}.`
-      : all
-        ? `Shown to viewers tagged with all of ${joinNames(names, 'and')}.`
-        : `Shown to viewers tagged with any of ${joinNames(names, 'or')}.`,
-    'A page that passes no tags shows it to every viewer.',
-  ];
+  const lists = userLists(group);
+  if (names.length === 0 && lists.length === 0) return [];
+  const sentences: string[] = [];
+  if (lists.length > 0) {
+    const named = lists.map((list) => `${list.name} (${ids(list.idCount)})`);
+    sentences.push(
+      lists.length === 1
+        ? `Shown to viewers whose external user ID is in the user list ${named[0]}.`
+        : `Shown to viewers whose external user ID is in any of the user lists ${joinNames(named, 'or')}.`,
+    );
+  }
+  if (names.length > 0) {
+    const all = group.tagMatch === 'all';
+    const who = lists.length > 0 ? 'Of those, to viewers' : 'Shown to viewers';
+    sentences.push(
+      names.length === 1
+        ? `${who} tagged ${names[0]}.`
+        : all
+          ? `${who} tagged with all of ${joinNames(names, 'and')}.`
+          : `${who} tagged with any of ${joinNames(names, 'or')}.`,
+      lists.length > 0
+        ? 'A page that passes no tags shows it to every viewer in its lists.'
+        : 'A page that passes no tags shows it to every viewer.',
+    );
+  }
+  if (lists.length > 0) sentences.push('A page that sets no external user ID does not show it.');
+  return sentences;
 }

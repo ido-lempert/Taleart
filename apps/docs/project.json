@@ -11,6 +11,21 @@
   "targets": {
     "build": {
       "executor": "@angular/build:application",
+      "dependsOn": [
+        "^build",
+        {
+          "projects": [
+            "contract"
+          ],
+          "target": "generate"
+        }
+      ],
+      "inputs": [
+        "production",
+        "^production",
+        "{workspaceRoot}/libs/contract/openapi/openapi.yaml",
+        "{workspaceRoot}/libs/contract/src/generated/openapi.json"
+      ],
       "outputs": [
         "{options.outputPath}"
       ],
@@ -23,6 +38,11 @@
           {
             "glob": "**/*",
             "input": "apps/docs/public"
+          },
+          {
+            "glob": "openapi.json",
+            "input": "libs/contract/src/generated",
+            "output": "api-reference"
           }
         ],
         "styles": [
@@ -79,7 +99,10 @@
         "{workspaceRoot}/libs/web-sdk/README.md",
         "{workspaceRoot}/apps/dashboard/src/app/**/*.html",
         "{workspaceRoot}/apps/dashboard/src/app/**/*.ts",
-        "{workspaceRoot}/apps/api/src/app.spec.ts"
+        "{workspaceRoot}/apps/api/src/app.spec.ts",
+        "{workspaceRoot}/apps/docs/public/swagger-ui/*",
+        "{workspaceRoot}/libs/contract/openapi/openapi.yaml",
+        "{workspaceRoot}/libs/contract/src/generated/openapi.json"
       ],
       "options": {
         "watch": false

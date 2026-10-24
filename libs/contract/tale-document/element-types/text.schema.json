@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TextElementProps",
-  "description": "The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text (AD-15).",
+  "description": "The props of a text element: plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text.",
   "type": "object",
   "additionalProperties": false,
   "required": ["text"],
@@ -11,7 +11,7 @@
       "maxLength": 1000
     },
     "font": {
-      "description": "Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project (story 7.17), by its id.",
+      "description": "Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project, by its id.",
       "type": "object",
       "additionalProperties": false,
       "required": ["source"],

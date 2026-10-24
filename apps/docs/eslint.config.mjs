@@ -5,6 +5,8 @@ export default [
   ...nx.configs['flat/angular'],
   ...nx.configs['flat/angular-template'],
   ...baseConfig,
+  // Vendored Swagger UI (swagger-ui-dist, see its README): third-party, kept byte for byte.
+  { ignores: ['public/swagger-ui/**'] },
   {
     files: ['**/*.ts'],
     rules: {

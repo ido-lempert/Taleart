@@ -38,6 +38,11 @@ export type Tag = Schemas['Tag'];
 export type TaleGroupTag = Schemas['TaleGroupTag'];
 export type CreateTagRequest = Schemas['CreateTagRequest'];
 export type SetTaleGroupTagsRequest = Schemas['SetTaleGroupTagsRequest'];
+/** A user list as a tale group is targeted to it (epic targeting R4), with its ID count, never its IDs. */
+export type TaleGroupUserList = Schemas['TaleGroupUserList'];
+export type SetTaleGroupUserListsRequest = Schemas['SetTaleGroupUserListsRequest'];
+/** A tale group a user list targets. */
+export type UserListTaleGroup = Schemas['UserListTaleGroup'];
 export type Tale = Schemas['Tale'];
 export type CreateTaleRequest = Schemas['CreateTaleRequest'];
 export type OrderTaleGroupsRequest = Schemas['OrderTaleGroupsRequest'];
@@ -73,6 +78,8 @@ export type CreateApiTokenRequest = Schemas['CreateApiTokenRequest'];
 /** A newly created API token, the only time the token itself is shown. */
 export type IssuedApiToken = Schemas['IssuedApiToken'];
 export type RevokedApiTokens = Schemas['RevokedApiTokens'];
+/** The API token making the request, with its user (epic developer experience 10.3): what `taleart whoami` shows. */
+export type CurrentApiToken = Schemas['CurrentApiToken'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
 export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
@@ -130,6 +137,7 @@ export * from './visibility';
 export * from './targeting';
 export * from './audience';
 export * from './user-lists';
+export * from './external-user-id';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;

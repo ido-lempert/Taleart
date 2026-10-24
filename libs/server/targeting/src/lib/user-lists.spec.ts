@@ -88,18 +88,22 @@ describe('renameUserList and deleteUserList', () => {
       UserListNotFoundError,
     );
     await expect(deleteUserList(fakeDb([]).db, { projectId, userListId: 'nope' })).rejects.toBeInstanceOf(UserListNotFoundError);
-    await expect(deleteUserList(fakeDb([{ rows: [] }, { rowCount: 0 }]).db, { projectId, userListId: listId })).rejects.toBeInstanceOf(
+    await expect(deleteUserList(fakeDb([{ rows: [] }, { rows: [] }]).db, { projectId, userListId: listId })).rejects.toBeInstanceOf(
       UserListNotFoundError,
     );
   });
 
-  it('deletes the list and, with the last list, the secret, in one transaction', async () => {
-    const { db, statements } = fakeDb([{ rows: [] }, { rowCount: 1 }, { rowCount: 1 }]);
+  it('holds its only-list groups hidden, deletes the list and, with the last list, the secret, in one transaction', async () => {
+    const { db, statements } = fakeDb([{ rows: [] }, { rows: [{ id: listId }] }, { rowCount: 1 }, { rowCount: 1 }, { rowCount: 1 }]);
     await deleteUserList(db, { projectId, userListId: listId });
     const sql = statements();
     expect(sql[0]).toBe('BEGIN');
-    expect(sql[2]).toMatch(/^DELETE FROM user_lists WHERE id = \$1 AND project_id = \$2/);
-    expect(sql[3]).toMatch(/DELETE FROM user_list_secrets[\s\S]*NOT EXISTS/);
+    // The list's row first, so the holds below read the links after any concurrent change commits.
+    expect(sql[2]).toMatch(/^SELECT id FROM user_lists WHERE id = \$1 AND project_id = \$2 FOR UPDATE$/);
+    // Before the list (and its links) go: the groups it was the only list of (story 5.4 review).
+    expect(sql[3]).toMatch(/^INSERT INTO tale_group_audience_holds[\s\S]*user_list_id <> \$1/);
+    expect(sql[4]).toMatch(/^DELETE FROM user_lists WHERE id = \$1 AND project_id = \$2/);
+    expect(sql[5]).toMatch(/DELETE FROM user_list_secrets[\s\S]*NOT EXISTS/);
     expect(sql.at(-1)).toBe('COMMIT');
   });
 });

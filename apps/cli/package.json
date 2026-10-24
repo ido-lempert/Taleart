@@ -1,0 +1,13 @@
+{
+  "name": "@taleart/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The taleart command-line tool: drives the TaleArt Management API with an API token.",
+  "type": "commonjs",
+  "bin": {
+    "taleart": "taleart.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

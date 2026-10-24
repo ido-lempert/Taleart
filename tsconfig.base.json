@@ -19,6 +19,7 @@
       "@taleart/web-sdk/preview": ["./libs/web-sdk/src/preview.ts"],
       "@taleart/contract": ["./libs/contract/src/index.ts"],
       "@taleart/contract/core": ["./libs/contract/src/lib/core.ts"],
+      "@taleart/contract/openapi.json": ["./libs/contract/src/generated/openapi.json"],
       "@taleart/contract/project-fonts": ["./libs/contract/src/lib/project-fonts.ts"],
       "@taleart/contract/tale-document": ["./libs/contract/src/lib/tale-document.ts"],
       "@taleart/contract/text-style": ["./libs/contract/src/lib/text-style.ts"],

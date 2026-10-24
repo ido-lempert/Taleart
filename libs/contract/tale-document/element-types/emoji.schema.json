@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "EmojiElementProps",
-  "description": "The props of an emoji sticker (epic Tale Studio R6): one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.",
+  "description": "The props of an emoji sticker: one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.",
   "type": "object",
   "additionalProperties": false,
   "required": ["emoji"],

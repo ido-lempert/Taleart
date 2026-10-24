@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RatingElementProps",
-  "description": "The props of a Rating (epic interactive components R1, R5): an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.",
+  "description": "The props of a Rating: an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.",
   "type": "object",
   "additionalProperties": false,
   "required": ["question", "emoji", "theme"],

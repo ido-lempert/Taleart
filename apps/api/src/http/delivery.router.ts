@@ -1,6 +1,8 @@
 import {
+  decodeExternalUserIdHeader,
   DEFAULT_TAG_MATCH,
   ErrorCodes,
+  EXTERNAL_USER_ID_HEADER,
   isZoneSlug,
   mediaKind,
   publicMediaUrl,
@@ -10,7 +12,7 @@ import {
 } from '@taleart/contract';
 import { projectForSiteKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { tagRulesForTaleGroups } from '@taleart/server-targeting';
+import { passesUserLists, tagRulesForTaleGroups, userListAudiences } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
 import express, { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
@@ -108,8 +110,12 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
 
   router.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    // The SDKs send the device's visitor id (epic UX rework 8.23), so a preflight must allow it.
-    res.setHeader('Access-Control-Allow-Headers', `Authorization, Content-Type, ${VISITOR_HEADER}`);
+    // The SDKs send the device's visitor id (epic UX rework 8.23) and, when the page set one, the
+    // viewer's external user ID (epic targeting R4), so a preflight must allow both.
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      `Authorization, Content-Type, ${VISITOR_HEADER}, ${EXTERNAL_USER_ID_HEADER}`,
+    );
     // GET reads a zone; POST records a visitor's response (epic interactive components R9).
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     // A client script may read when to try again after a 429.
@@ -132,8 +138,11 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
   router.use(requireDeliveryKey(pool));
   router.use(deliveryResponsesRouter(pool));
 
-  router.get('/zone', async (_req, res, next) => {
+  router.get('/zone', async (req, res, next) => {
     try {
+      // Whether the viewer's external user ID header was sent at all: then the answer is per viewer.
+      const idHeader = req.headers[EXTERNAL_USER_ID_HEADER.toLowerCase()];
+      const perViewer = idHeader !== undefined;
       const zoneId = requestZoneId(res);
       const zone = await findZone(pool, zoneId);
       if (!zone) {
@@ -147,11 +156,16 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         listDeliveryTaleGroups(pool, zoneId),
         getProjectTheme(pool, zone.projectId),
       ]);
+      const groupIds = taleGroups.map((group) => group.id);
       // Each group's tag rule, the same for every viewer: the SDK matches the viewer's tags (AD-13).
-      const tagRules = await tagRulesForTaleGroups(
-        pool,
-        taleGroups.map((group) => group.id),
-      );
+      // Each group's user lists, matched here (epic targeting R4, R5): the header is decoded and
+      // passed straight to the lookup, which hashes it; the ID is never logged, stored, kept in a
+      // variable past this call, or put with the visitor id. A header that carries no valid ID
+      // matches no list.
+      const [tagRules, audiences] = await Promise.all([
+        tagRulesForTaleGroups(pool, groupIds),
+        userListAudiences(pool, zone.projectId, groupIds, perViewer ? decodeExternalUserIdHeader(idHeader) : null),
+      ]);
       // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).
       const body: DeliveryZone = {
         id: zone.id,
@@ -165,11 +179,15 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
           type: zone.frame.type,
           settings: options.frameTypes.withDefaults(zone.frame.type, zone.frame.settings),
         },
-        taleGroups: taleGroups.map((group) => ({
+        // A group targeted to user lists is shown only when the viewer is listed for it (fail
+        // closed): any other is left out altogether, so the response never says which lists exist.
+        // One the viewer is listed for is marked (R4).
+        taleGroups: taleGroups.filter((group) => passesUserLists(audiences, group.id)).map((group) => ({
           id: group.id,
           name: group.name,
           tags: tagRules.get(group.id)?.tags ?? [],
           tagMatch: tagRules.get(group.id)?.tagMatch ?? DEFAULT_TAG_MATCH,
+          ...(audiences.matched.has(group.id.toLowerCase()) && { userListMatched: true }),
           cover: group.cover && {
             kind: mediaKind(group.cover.contentType),
             contentType: group.cover.contentType,
@@ -206,11 +224,22 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
           })),
         })),
       };
+      // `private` keeps every zone answer out of shared caches, and it varies by key (and by slug,
+      // which is in the URL) and by the external user ID header.
+      res.setHeader('Vary', `Authorization, ${EXTERNAL_USER_ID_HEADER}`);
+      if (perViewer) {
+        // An answer for one viewer (epic targeting R5) is never kept by any cache, carries no ETag
+        // and is never a 304, so no cached copy or validator can hand one viewer's groups to another.
+        res.setHeader('Cache-Control', 'private, no-store');
+        const json = Buffer.from(JSON.stringify(body));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Length', json.length);
+        res.status(200).end(json);
+        return;
+      }
       // Browsers keep the zone and revalidate it on every load (NFR-006): Express's ETag answers 304
-      // while nothing changed, so a pause or unpublish still shows at once. `private` keeps keyed
-      // responses out of shared caches, and they vary by key (and by slug, which is in the URL).
+      // while nothing changed, so a pause or unpublish still shows at once.
       res.setHeader('Cache-Control', 'private, no-cache');
-      res.setHeader('Vary', 'Authorization');
       res.json(body);
     } catch (err) {
       next(err);
