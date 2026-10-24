@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tale Studio 2 mock</title>
+<style>
+/* Key-screen mock for Tale Studio 2. Governs: EXPERIENCE.md Information Architecture, Left panel tabs,
+   Inspector contexts and sections, Component Patterns; DESIGN.md Layout & Spacing, Components.
+   Spines win on conflict. Static, no JS, no network. Content is illustrative. */
+:root{--ember:#F2542D;--ember-strong:#C73E1D;--ink:#111827;--muted:#4B5563;--surface:#fff;--sunken:#F3F4F6;
+--border:#E5E7EB;--border-strong:#D1D5DB;--workspace:#E9EAF0;--sel:#2563EB;--guide:#DB2777;--drop:#0D9488;
+font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+*{box-sizing:border-box}body{margin:0;background:#cfd2da;padding:24px}
+h1{font-size:16px;margin:0 0 12px}
+.app{width:1440px;height:900px;background:var(--surface);border-radius:12px;overflow:hidden;display:grid;
+grid-template-rows:56px 1fr 112px;grid-template-columns:56px 280px 1fr 320px;box-shadow:0 12px 32px rgb(16 24 40/16%)}
+.top{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);font-size:13px}
+.btn{border:1px solid var(--border-strong);background:#fff;border-radius:8px;height:32px;padding:0 10px;font:inherit;display:inline-flex;align-items:center;gap:6px}
+.btn.ghost{border-color:transparent}.btn.primary{background:var(--ember-strong);color:#fff;border-color:var(--ember-strong);font-weight:600}
+.spacer{flex:1}.status{color:var(--muted)}.dot{width:8px;height:8px;border-radius:50%;border:2px solid var(--muted);display:inline-block}
+.rail{grid-row:2/3;border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:8px}
+.rail div{width:44px;height:44px;border-radius:8px;display:grid;place-items:center;font-size:10px;color:var(--muted);text-align:center}
+.rail .on{background:var(--sunken);color:var(--ink);font-weight:600}
+.left{grid-row:2/3;border-right:1px solid var(--border);overflow:hidden;padding:12px}
+.search{border:1px solid var(--border-strong);border-radius:8px;height:32px;padding:0 10px;display:flex;align-items:center;color:var(--muted);font-size:13px;margin-bottom:12px}
+.cat{font-size:13px;font-weight:600;margin:12px 0 6px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.tile{border:1px solid var(--border);border-radius:10px;height:68px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11px;font-weight:500}
+.tile i{font-style:normal;font-size:20px}.tile.dis{opacity:.45}
+.tile.h1{font-size:15px;font-weight:800}.tile.h2{font-size:13px;font-weight:600}
+.center{grid-row:2/3;background:var(--workspace);position:relative;display:grid;place-items:center;overflow:hidden}
+.stage{width:378px;height:672px;position:relative;background:linear-gradient(160deg,#7a1f0b,#f2542d);box-shadow:0 12px 32px rgb(16 24 40/16%)}
+.safe{position:absolute;left:4%;right:4%;top:12%;bottom:16%;border:1px dashed rgb(37 99 235/.6)}
+.el{position:absolute;color:#fff}
+.sel{outline:1.5px solid var(--sel)}
+.h{position:absolute;width:8px;height:8px;background:#fff;border:1.5px solid var(--sel)}
+.guide{position:absolute;background:var(--guide)}.pill{position:absolute;background:var(--guide);color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px}
+.dragghost{position:absolute;opacity:.8;outline:2px solid var(--drop);background:#fff;color:#111;border-radius:10px;font-size:12px;padding:8px}
+.zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:4px}
+.right{grid-row:2/3;border-left:1px solid var(--border);overflow:hidden;font-size:13px}
+.ihead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);font-weight:600}
+.sec{border-bottom:1px solid var(--border);padding:0 12px 12px}
+.sec>b{display:flex;justify-content:space-between;height:40px;align-items:center;font-size:13px}
+.lbl{font-size:12px;font-weight:500;color:var(--muted);margin:8px 0 4px}
+.input{border:1px solid var(--border-strong);border-radius:8px;height:32px;padding:0 8px;display:flex;align-items:center;font-size:13px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg{display:flex;background:var(--sunken);border-radius:8px;padding:2px}.seg span{flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:12px}
+.seg .on{background:#fff;box-shadow:0 1px 2px rgb(16 24 40/12%);font-weight:600}
+.sw{display:flex;gap:6px;align-items:center}.sw span{width:24px;height:24px;border-radius:50%;border:1px solid var(--border-strong)}
+.sw .on{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink)}
+.slider{display:flex;gap:8px;align-items:center}.track{flex:1;height:4px;background:var(--border-strong);border-radius:2px;position:relative}
+.track::before{content:"";position:absolute;left:0;width:55%;height:4px;background:var(--ink);border-radius:2px}
+.track::after{content:"";position:absolute;left:55%;top:-6px;width:16px;height:16px;border-radius:50%;background:#fff;border:1px solid var(--ink);margin-left:-8px}
+.closed b::after{content:"›"}
+.strip{grid-column:1/-1;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 16px;font-size:11px}
+.th{width:54px;height:96px;border-radius:10px;position:relative;flex:none}
+.th.cur{box-shadow:0 0 0 2px var(--sel)}.th .chg{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;background:var(--ember)}
+.th.hid{opacity:.5}.add{width:54px;height:96px;border:1px dashed var(--border-strong);border-radius:10px;display:grid;place-items:center;font-size:20px;color:var(--muted)}
+.phone{width:390px;height:844px;border-radius:28px;background:#fff;overflow:hidden;position:relative;box-shadow:0 12px 32px rgb(16 24 40/16%);margin-top:24px}
+.ptop{height:52px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid var(--border);font-size:13px}
+.pcanvas{background:var(--workspace);height:560px;display:grid;place-items:center}
+.sheet{position:absolute;left:0;right:0;bottom:64px;height:180px;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -8px 24px rgb(16 24 40/16%);padding:10px 14px}
+.pbar{position:absolute;left:0;right:0;bottom:0;height:64px;border-top:1px solid var(--border);display:flex;justify-content:space-around;align-items:center;font-size:12px}
+.note{font-size:12px;color:#333;max-width:1440px;margin:8px 0 0}
+</style>
+</head>
+<body>
+<h1>Tale Studio 2: desktop at 1440×900, a poll being dragged in, heading selected</h1>
+<div class="app">
+  <div class="top">
+    <span class="btn ghost">← Autumn drop</span><strong>Tale 2 · Product drop</strong>
+    <span class="btn ghost">↶ Undo</span><span class="btn ghost">↷ Redo</span>
+    <span class="btn ghost">Fit (64%) ▾</span><span class="btn ghost">▣ Safe area</span>
+    <span class="spacer"></span>
+    <span class="status">All changes saved</span>
+    <span class="status"><span class="dot"></span> Not visible: group is off · 3 changes not updated yet</span>
+    <span class="btn ghost">👁 Preview</span><span class="btn primary">Update tale</span><span class="btn ghost">⋯</span>
+  </div>
+  <div class="rail"><div class="on">＋<br>Elements</div><div>▤<br>Templates</div><div>▧<br>Media</div><div>≡<br>Layers</div></div>
+  <div class="left">
+    <div class="search">⌕ Search elements  <span class="spacer"></span> /</div>
+    <div class="cat">Text</div>
+    <div class="tiles"><div class="tile h1">Heading</div><div class="tile h2">Subhead</div><div class="tile">Body text</div></div>
+    <div class="cat">Media</div>
+    <div class="tiles"><div class="tile"><i>🖼</i>Image</div><div class="tile"><i>▶</i>Video</div><div class="tile"><i>✂</i>Sticker</div></div>
+    <div class="cat">Shapes</div>
+    <div class="tiles"><div class="tile"><i>▭</i>Rectangle</div><div class="tile"><i>◯</i>Ellipse</div><div class="tile"><i>╱</i>Line</div></div>
+    <div class="cat">Buttons &amp; links</div>
+    <div class="tiles"><div class="tile"><i>⬭</i>Button</div><div class="tile"><i>▣</i>Image button</div><div class="tile"><i>⌃</i>Swipe-up</div></div>
+    <div class="cat">Interactive</div>
+    <div class="tiles"><div class="tile"><i>▥</i>Poll</div><div class="tile dis"><i>★</i>Rating</div><div class="tile"><i>?</i>Quiz</div></div>
+  </div>
+  <div class="center">
+    <div class="stage">
+      <div class="safe"></div>
+      <div class="el sel" style="left:8%;top:14%;width:84%;height:9%;font:800 34px/1 system-ui;display:flex;align-items:center;justify-content:center">NEW DROP
+        <span class="h" style="left:-4px;top:-4px"></span><span class="h" style="right:-4px;top:-4px"></span><span class="h" style="left:-4px;bottom:-4px"></span><span class="h" style="right:-4px;bottom:-4px"></span></div>
+      <div class="el" style="left:15%;top:26%;width:70%;height:30%;background:#fde3d9;border-radius:12px;color:#7a1f0b;display:grid;place-items:center;font-size:12px">Shoe photo</div>
+      <div class="guide" style="left:50%;top:0;bottom:0;width:1px"></div>
+      <div class="guide" style="left:49.5%;top:56%;height:4%;width:3px"></div><span class="pill" style="left:53%;top:56.5%">16 px</span>
+      <div class="dragghost" style="left:15%;top:60%;width:70%">Ask a question<br><small>Option 1 · Option 2</small></div>
+      <div class="el" style="left:25%;top:76%;width:50%;height:6%;background:#fff;color:#c73e1d;border-radius:99px;display:grid;place-items:center;font-weight:700">Shop now</div>
+    </div>
+    <div class="zoom"><span class="btn">−</span><span class="btn">Fit</span><span class="btn">＋</span></div>
+  </div>
+  <div class="right">
+    <div class="ihead">T <span>Heading “NEW DROP”</span><span class="spacer"></span>🔓 👁</div>
+    <div class="sec"><b>Content ⌄</b><div class="input">NEW DROP</div></div>
+    <div class="sec"><b>Style ⌄</b>
+      <div class="lbl">Font</div><div class="input" style="font-weight:800">Grotesk Brand · project font ▾</div>
+      <div class="lbl">Size</div><div class="slider"><div class="track"></div><div class="input" style="width:64px">34 px</div></div>
+      <div class="lbl">Weight</div><div class="seg"><span>Regular</span><span>Medium</span><span>Bold</span><span class="on">Black</span></div>
+      <div class="lbl">Colour <small>· AA on background</small></div>
+      <div class="sw"><span class="on" style="background:#fff"></span><span style="background:#111827"></span><span style="background:#F2542D"></span><span style="background:#7a1f0b"></span><span style="background:#fde3d9"></span><span style="display:grid;place-items:center">＋</span></div>
+      <div class="two"><div><div class="lbl">Align</div><div class="seg"><span>⇤</span><span class="on">≡</span><span>⇥</span></div></div><div><div class="lbl">Direction</div><div class="seg"><span class="on">Auto</span><span>LTR</span><span>RTL</span></div></div></div>
+    </div>
+    <div class="sec"><b>Position &amp; size ⌄</b><div class="two"><div class="input">X 8%</div><div class="input">Y 14%</div><div class="input">W 84%</div><div class="input">H 9%</div></div></div>
+    <div class="sec closed"><b>Animation </b></div>
+    <div class="sec closed"><b>Accessibility </b></div>
+  </div>
+  <div class="strip">
+    <strong>Tales in Autumn drop</strong>
+    <div class="th" style="background:linear-gradient(160deg,#1e1b4b,#2563eb)"></div>
+    <div class="th cur" style="background:linear-gradient(160deg,#7a1f0b,#f2542d)"><span class="chg"></span></div>
+    <div class="th hid" style="background:linear-gradient(160deg,#134e4a,#0d9488)"></div>
+    <div class="add">＋</div>
+    <span class="spacer"></span><span class="status">Live region: “Poll: drop to add at 15%, 60%.”</span>
+  </div>
+</div>
+<p class="note">Notes: the poll is mid-drag (teal outline ghost) with a pink equal-spacing guide; Rating is disabled because the tale already has one (its reason is the tile's description); the heading stays selected in the inspector until the drop selects the poll.</p>
+
+<h1 style="margin-top:32px">Phone at 390×844: edit-lite, Add sheet open</h1>
+<div class="phone">
+  <div class="ptop"><span>←</span><strong>Tale 2</strong><span class="spacer"></span><span>↶</span><span class="btn primary" style="height:30px">Update</span><span>⋯</span></div>
+  <div class="pcanvas"><div class="stage" style="width:252px;height:448px"><div class="safe"></div></div></div>
+  <div class="sheet"><div class="search">⌕ Search elements</div>
+    <div class="tiles"><div class="tile h1">Heading</div><div class="tile"><i>🖼</i>Image</div><div class="tile"><i>▥</i>Poll</div></div>
+    <div class="note">Tap to add at the centre of the safe area.</div></div>
+  <div class="pbar"><b>＋ Add</b><span>≡ Layers</span><span>⚙ Properties</span><span>▤ Tales</span></div>
+</div>
+</body>
+</html>
