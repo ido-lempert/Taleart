@@ -8,6 +8,7 @@ import {
   listApiTokens,
   migrateApiTokens,
   revokeApiToken,
+  revokeUserApiTokens,
   touchApiToken,
 } from './apiTokens';
 import { accessibleProjectIds, canAccessProject } from './members';
@@ -71,7 +72,10 @@ describe('API tokens', () => {
     const statements = sql(db);
     expect(statements[0]).toBe('BEGIN');
     expect(statements[1]).toContain("pg_advisory_xact_lock(hashtext('api_tokens:' || $1))");
-    expect(statements[2]).toContain('FROM api_tokens WHERE user_id = $1 AND revoked_at IS NULL');
+    // Expired tokens do not count toward the limit.
+    expect(statements[2]).toContain(
+      'FROM api_tokens WHERE user_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())',
+    );
     expect(statements[3]).toContain('INSERT INTO api_tokens');
     // A token for all of the user's projects lists none.
     expect(statements.some((s) => s.includes('api_token_projects'))).toBe(false);
@@ -143,6 +147,19 @@ describe('API tokens', () => {
     // An id that is not a UUID is not looked up.
     const bad = fakeDb({});
     await expect(revokeApiToken(bad, userId, 'nope')).rejects.toBeInstanceOf(ApiTokenNotFoundError);
+    expect(bad.query).not.toHaveBeenCalled();
+  });
+
+  it("revokes every active token of a user, or says there is no such user", async () => {
+    const db = fakeDb({ 'SELECT 1 FROM users': { rowCount: 1 }, 'UPDATE api_tokens SET revoked_at': { rowCount: 3 } });
+    expect(await revokeUserApiTokens(db, userId)).toBe(3);
+    const update = db.query.mock.calls.find(([text]) => String(text).includes('UPDATE api_tokens'));
+    expect(String(update?.[0])).toContain('WHERE user_id = $1 AND revoked_at IS NULL');
+    expect(update?.[1]).toEqual([userId]);
+
+    expect(await revokeUserApiTokens(fakeDb({ 'SELECT 1 FROM users': { rowCount: 0 } }), userId)).toBeNull();
+    const bad = fakeDb({});
+    expect(await revokeUserApiTokens(bad, 'nope')).toBeNull();
     expect(bad.query).not.toHaveBeenCalled();
   });
 

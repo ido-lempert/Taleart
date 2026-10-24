@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { request as httpRequest, type Server } from 'node:http';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
@@ -27,7 +27,14 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
-import { DEFAULT_THEME, MAX_TALE_GROUPS_PER_PROJECT, VISIBILITY_REASON_CODES, type ImportReport } from '@taleart/contract';
+import {
+  contactLikeWarning,
+  DEFAULT_THEME,
+  MAX_TALE_GROUPS_PER_PROJECT,
+  reportContactCounts,
+  VISIBILITY_REASON_CODES,
+  type ImportReport,
+} from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import {
   clearDeliveryCache,
@@ -50,7 +57,7 @@ import {
   taleExists,
   TALE_MEDIA_SWEEP_MIN_AGE_MS,
 } from '@taleart/server-tales';
-import { ensureTags } from '@taleart/server-targeting';
+import { addUserListIds, createUserList, ensureTags } from '@taleart/server-targeting';
 import {
   createZoneFromTemplate,
   foldStagesIntoZones,
@@ -60,7 +67,7 @@ import {
 } from '@taleart/server-zones';
 import type { Pool, PoolClient } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
-import { createApp, type ImporterConfig, type ProjectMediaOptions } from './app';
+import { createApp, type ImporterConfig, type ProjectMediaOptions, type UserListOptions } from './app';
 import { createPool, databasePoolMax, migrate } from './db';
 
 // Runs against a separate test database. It clears tables, so it must never
@@ -334,7 +341,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -9955,6 +9962,451 @@ describe('Management API v1: projects and zones', () => {
     });
   });
 
+  describe('user lists from a CSV, stored only as keyed hashes (epic targeting story 5.3)', () => {
+    // The verify line's file: 10 rows (8 IDs, one of them twice, and a 300-character value) and an
+    // empty row. Line 7 is the duplicate, line 9 the empty row, line 10 the long value.
+    const ids = ['cust-1001', 'cust-1002', 'Cust-1002', 'cust-1003', 'cust-1004', 'cust-1005'];
+    const long = 'L'.repeat(300);
+    const verifyCsv = [...ids, 'cust-1001', 'cust-1006', '', long, '"cust-1007"'].join('\r\n') + '\r\n';
+    const emails = ['ana@example.com', 'bo@example.org', 'cy@example.net', 'dee@example.com', 'u-77'];
+
+    // Every external user ID these tests upload, to look for in clear.
+    const uploaded = [...ids, 'cust-1006', 'cust-1007', long, ...emails];
+
+    // Everything the API printed during a test, to look for IDs in.
+    let printed: string[] = [];
+    beforeEach(() => {
+      printed = [];
+      for (const method of ['log', 'warn', 'error', 'info', 'debug'] as const) {
+        vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+          printed.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+        });
+      }
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    const listsUrl = (projectId: string) => `${base}/projects/${projectId}/user-lists`;
+
+    async function createList(projectId: string, name: string): Promise<{ id: string; idCount: number }> {
+      const res = await post(`/projects/${projectId}/user-lists`, { name });
+      expect(res.status).toBe(201);
+      return res.json();
+    }
+
+    function upload(
+      url: string,
+      body: string | Uint8Array,
+      headers: Record<string, string> = {},
+      query = '',
+    ): Promise<Response> {
+      return fetch(`${url}/ids${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv', ...headers },
+        body,
+      });
+    }
+
+    // Every row of every table, as text, with each bytea column also as text when it is UTF-8, so an
+    // ID stored in clear anywhere, in any column type, is found.
+    async function dump(): Promise<string> {
+      const { rows: tables } = await pool.query<{ name: string }>(
+        "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
+      );
+      const parts: string[] = [];
+      for (const { name } of tables) {
+        const { rows } = await pool.query<{ row: string }>(`SELECT t::text AS row FROM "${name}" t`);
+        for (const { row } of rows) parts.push(row);
+      }
+      const { rows: hashes } = await pool.query<{ h: Buffer }>('SELECT id_hash AS h FROM user_list_ids');
+      for (const { h } of hashes) parts.push(h.toString('latin1'));
+      return parts.join('\n');
+    }
+
+    function expectNoIdIn(text: string, where: string): void {
+      for (const id of uploaded) {
+        expect(text.includes(id), `${where} holds an uploaded ID`).toBe(false);
+        expect(text.includes(Buffer.from(id).toString('hex')), `${where} holds an uploaded ID in hex`).toBe(false);
+      }
+    }
+
+    it('takes the verify CSV: 8 IDs, the duplicate already present, the long value refused by line', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Loyal customers');
+      expect(list).toEqual({
+        id: expect.any(String),
+        projectId: project.id,
+        name: 'Loyal customers',
+        idCount: 0,
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      });
+      const res = await upload(`${listsUrl(project.id)}/${list.id}`, verifyCsv);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(JSON.parse(text)).toEqual({
+        added: 8,
+        alreadyPresent: 1,
+        refused: 1,
+        refusedRows: [{ line: 10, reason: 'too-long' }],
+        emptyRows: 1,
+        emailLike: 0,
+        phoneLike: 0,
+        idCount: 8,
+      });
+      expectNoIdIn(text, 'the report');
+      const lists = await fetch(listsUrl(project.id));
+      const listed = await lists.text();
+      expect(JSON.parse(listed)).toEqual([expect.objectContaining({ id: list.id, idCount: 8 })]);
+      expectNoIdIn(listed, 'the list');
+      // Matching is exact: Cust-1002 and cust-1002 are two IDs. Each is stored as HMAC-SHA-256 under
+      // the project's secret, and nothing else.
+      const { rows: secrets } = await pool.query<{ secret: Buffer }>(
+        'SELECT secret FROM user_list_secrets WHERE project_id = $1',
+        [project.id],
+      );
+      expect(secrets).toHaveLength(1);
+      const { rows: stored } = await pool.query<{ h: Buffer }>('SELECT id_hash AS h FROM user_list_ids WHERE user_list_id = $1', [list.id]);
+      const expected = [...ids, 'cust-1006', 'cust-1007'].map((id) =>
+        createHmac('sha256', secrets[0].secret).update(id, 'utf8').digest('hex'),
+      );
+      expect(stored.map((r) => r.h.toString('hex')).sort()).toEqual(expected.sort());
+
+      // Again: every row already present, nothing changes but the report.
+      const again = await (await upload(`${listsUrl(project.id)}/${list.id}`, verifyCsv)).json();
+      expect(again).toMatchObject({ added: 0, alreadyPresent: 9, refused: 1, idCount: 8 });
+      expectNoIdIn(await dump(), 'the database');
+      expectNoIdIn(printed.join('\n'), 'the API log');
+    });
+
+    it('takes a CSV of emails, counts them for the warning, and creates the list', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Newsletter');
+      const res = await upload(`${listsUrl(project.id)}/${list.id}`, `email\n${emails.join('\n')}`, {}, '?header=true');
+      expect(res.status).toBe(200);
+      const report = await res.json();
+      expect(report).toMatchObject({ added: 5, emailLike: 4, phoneLike: 0, idCount: 5, refused: 0 });
+      expect(contactLikeWarning(reportContactCounts(report))).toBe('email');
+      expect((await (await fetch(listsUrl(project.id))).json())[0]).toMatchObject({ name: 'Newsletter', idCount: 5 });
+      expectNoIdIn(await dump(), 'the database');
+      expectNoIdIn(printed.join('\n'), 'the API log');
+    });
+
+    it('deletes a list and every hash of it in one go; the secret goes with the last list', async () => {
+      const project = await createProject();
+      const kept = await createList(project.id, 'Kept');
+      const gone = await createList(project.id, 'Gone');
+      await upload(`${listsUrl(project.id)}/${kept.id}`, 'k-1\nk-2\n');
+      await upload(`${listsUrl(project.id)}/${gone.id}`, verifyCsv);
+      const del = await fetch(`${listsUrl(project.id)}/${gone.id}`, { method: 'DELETE' });
+      expect(del.status).toBe(204);
+      const count = async (sql: string, value: string) => (await pool.query(sql, [value])).rowCount;
+      expect(await count('SELECT 1 FROM user_lists WHERE id = $1', gone.id)).toBe(0);
+      expect(await count('SELECT 1 FROM user_list_ids WHERE user_list_id = $1', gone.id)).toBe(0);
+      expect(await count('SELECT 1 FROM user_list_ids WHERE user_list_id = $1', kept.id)).toBe(2);
+      expect(await count('SELECT 1 FROM user_list_secrets WHERE project_id = $1', project.id)).toBe(1);
+      expect((await fetch(`${listsUrl(project.id)}/${gone.id}`, { method: 'DELETE' })).status).toBe(404);
+
+      // The last list: the project's secret goes too, and its next list gets a new one.
+      const { rows: before } = await pool.query<{ secret: Buffer }>('SELECT secret FROM user_list_secrets WHERE project_id = $1', [
+        project.id,
+      ]);
+      expect((await fetch(`${listsUrl(project.id)}/${kept.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect(await count('SELECT 1 FROM user_list_secrets WHERE project_id = $1', project.id)).toBe(0);
+      expect(await count('SELECT 1 FROM user_list_ids WHERE project_id = $1', project.id)).toBe(0);
+      await createList(project.id, 'Fresh');
+      const { rows: after } = await pool.query<{ secret: Buffer }>('SELECT secret FROM user_list_secrets WHERE project_id = $1', [
+        project.id,
+      ]);
+      expect(after[0].secret.equals(before[0].secret)).toBe(false);
+    });
+
+    it('deletes a project with its lists, their hashes and its secret', async () => {
+      const project = await createProject('Test project');
+      const other = await createProject('Other');
+      const list = await createList(project.id, 'Loyal');
+      await upload(`${listsUrl(project.id)}/${list.id}`, verifyCsv);
+      const otherList = await createList(other.id, 'Loyal');
+      await upload(`${listsUrl(other.id)}/${otherList.id}`, 'o-1\n');
+      // No project-delete operation exists yet: the database deletes a project's lists with it.
+      await pool.query('DELETE FROM projects WHERE id = $1', [project.id]);
+      for (const table of ['user_lists', 'user_list_ids', 'user_list_secrets']) {
+        expect((await pool.query(`SELECT 1 FROM ${table} WHERE project_id = $1`, [project.id])).rowCount, table).toBe(0);
+        expect((await pool.query(`SELECT 1 FROM ${table} WHERE project_id = $1`, [other.id])).rowCount, table).toBe(1);
+      }
+    });
+
+    it('creates, renames and lists by name, refusing taken and bad names and the 101st list', async () => {
+      const project = await createProject();
+      const b = await createList(project.id, ' beta ');
+      await createList(project.id, 'Alpha');
+      const taken = await post(`/projects/${project.id}/user-lists`, { name: 'ALPHA' });
+      expect(taken.status).toBe(409);
+      expect((await taken.json()).error.code).toBe('user_list_exists');
+      for (const name of ['', '   ', 'x'.repeat(101), 'a\u0007b']) {
+        const res = await post(`/projects/${project.id}/user-lists`, { name });
+        expect(res.status, JSON.stringify(name)).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      const renamed = await fetch(`${listsUrl(project.id)}/${b.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Gamma' }),
+      });
+      expect(renamed.status).toBe(200);
+      expect((await renamed.json()).name).toBe('Gamma');
+      const clash = await fetch(`${listsUrl(project.id)}/${b.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'alpha' }),
+      });
+      expect(clash.status).toBe(409);
+      expect((await (await fetch(listsUrl(project.id))).json()).map((l: { name: string }) => l.name)).toEqual(['Alpha', 'Gamma']);
+
+      await pool.query(
+        `INSERT INTO user_lists (project_id, name) SELECT $1, 'List ' || n FROM generate_series(3, 100) AS n`,
+        [project.id],
+      );
+      const full = await post(`/projects/${project.id}/user-lists`, { name: 'One more' });
+      expect(full.status).toBe(409);
+      expect((await full.json()).error.code).toBe('user_list_limit_reached');
+    });
+
+    it('answers 404 for a list of another project and 403 for a project the caller cannot reach', async () => {
+      const mine = await createProject('Mine');
+      const theirs = await createProject('Theirs');
+      const theirList = await createList(theirs.id, 'Theirs');
+      const foreign = await upload(`${listsUrl(mine.id)}/${theirList.id}`, 'a\n');
+      expect(foreign.status).toBe(404);
+      expect((await foreign.json()).error.code).toBe('user_list_not_found');
+      expect((await fetch(`${listsUrl(mine.id)}/${theirList.id}`, { method: 'DELETE' })).status).toBe(404);
+      expect((await upload(`${listsUrl(mine.id)}/nope`, 'a\n')).status).toBe(404);
+      expect((await fetch(listsUrl('00000000-0000-4000-8000-000000000000'))).status).toBe(404);
+
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, mine.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      const own = await createList(mine.id, 'Mine');
+      expect((await upload(`${listsUrl(mine.id)}/${own.id}`, 'a\n')).status).toBe(200);
+      expect((await fetch(listsUrl(theirs.id))).status).toBe(403);
+      expect((await upload(`${listsUrl(theirs.id)}/${theirList.id}`, 'a\n')).status).toBe(403);
+      expect((await pool.query('SELECT 1 FROM user_list_ids WHERE user_list_id = $1', [theirList.id])).rowCount).toBe(0);
+    });
+
+    it('refuses another type, a compressed, empty or too large file, and text that is not UTF-8, adding nothing', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Checked');
+      const url = `${listsUrl(project.id)}/${list.id}`;
+      const refuse = async (res: Response, status: number, code: string) => {
+        expect(res.status).toBe(status);
+        expect((await res.json()).error.code).toBe(code);
+      };
+      const early = await upload(url, 'a\n', { 'Content-Type': 'application/json' });
+      expect(early.headers.get('connection')).toBe('close');
+      await refuse(early, 415, 'unsupported_media_type');
+      await refuse(await upload(url, 'a\n', { 'Content-Encoding': 'gzip' }), 415, 'unsupported_media_type');
+      await refuse(await upload(url, ''), 400, 'validation_failed');
+      await refuse(await upload(url, new Uint8Array(50 * 1024 * 1024 + 1)), 413, 'user_list_file_too_large');
+      const notUtf8 = await upload(url, new Uint8Array([...Buffer.from('cust-1001\n'), 0xc3, 0x28, 0x0a]));
+      expect(notUtf8.status).toBe(400);
+      const body = await notUtf8.text();
+      expect(body).toMatch(/UTF-8/);
+      expectNoIdIn(body, 'the refusal');
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+      expect((await pool.query('SELECT 1 FROM user_list_ids WHERE user_list_id = $1', [list.id])).rowCount).toBe(0);
+      expectNoIdIn(printed.join('\n'), 'the API log');
+    });
+
+    // An API with its own user list options, for the caps tests cannot reach with real sizes.
+    async function withLists<T>(options: UserListOptions, run: (base: string) => Promise<T>): Promise<T> {
+      const app = createApp(
+        pool,
+        loadFrameTypeRegistry(frameTypesDir),
+        new LocalDiskStorage(mediaDir),
+        { verifier: fakeVerifier },
+        { publicApiUrl },
+        undefined,
+        undefined,
+        { rateLimit: null },
+        undefined,
+        options,
+      );
+      const s = app.listen(0);
+      await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+      try {
+        return await run(`http://127.0.0.1:${(s.address() as AddressInfo).port}/api/v1`);
+      } finally {
+        s.closeAllConnections();
+        await new Promise<void>((resolve) => s.close(() => resolve()));
+      }
+    }
+
+    it('refuses a file over the row cap whole, and an upload while too many run', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Capped');
+      await withLists({ maxRows: 3 }, async (b) => {
+        const url = `${b}/projects/${project.id}/user-lists/${list.id}`;
+        const over = await upload(url, 'a\n\nb\nc\nd\n');
+        expect(over.status).toBe(413);
+        expect((await over.json()).error.code).toBe('user_list_file_too_large');
+        expect((await (await upload(url, 'h\na\n\nb\nc\n', {}, '?header=true')).json()).added).toBe(3);
+      });
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(3);
+      await withLists({ maxConcurrentUploads: 0 }, async (b) => {
+        const busy = await upload(`${b}/projects/${project.id}/user-lists/${list.id}`, 'z\n');
+        expect(busy.status).toBe(429);
+        expect((await busy.json()).error.code).toBe('upload_busy');
+      });
+    });
+
+    it('takes IDs from another module through the public interface', async () => {
+      const project = await createProject();
+      const list = await createUserList(pool, { projectId: project.id, name: 'Imported' });
+      const report = await addUserListIds(pool, { projectId: project.id, userListId: list.id }, ['i-1', ' i-2 ', 'i-1', '', 'x'.repeat(257)]);
+      expect(report).toMatchObject({ added: 2, alreadyPresent: 1, refused: 1, emptyRows: 1, idCount: 2 });
+      expect((await (await fetch(listsUrl(project.id))).json())[0]).toMatchObject({ name: 'Imported', idCount: 2 });
+    });
+
+    // A raw upload, for what fetch cannot send: a body that stalls, or one sent slowly. Resolves with
+    // the answer, or with `closed` when the server ended the connection without one.
+    function rawCsv(
+      target: string,
+      length: number,
+    ): { req: ReturnType<typeof httpRequest>; answer: Promise<{ status: number; body: string } | 'closed'> } {
+      const url = new URL(target);
+      let req!: ReturnType<typeof httpRequest>;
+      const answer = new Promise<{ status: number; body: string } | 'closed'>((resolve) => {
+        req = httpRequest(
+          {
+            method: 'POST',
+            host: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            headers: { Cookie: sessionCookie, 'Content-Type': 'text/csv', 'Content-Length': String(length) },
+          },
+          (res) => {
+            let body = '';
+            res.on('data', (c) => (body += c));
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+            res.on('error', () => resolve('closed'));
+          },
+        );
+        req.on('error', () => resolve('closed'));
+      });
+      return { req, answer };
+    }
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    it('ends a stalled upload, adds nothing, frees the list and keeps running (security review F1)', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Stalled');
+      await withLists({ idleMs: 300 }, async (b) => {
+        const url = `${b}/projects/${project.id}/user-lists/${list.id}/ids`;
+        const stalled = rawCsv(url, 1000);
+        stalled.req.write('cust-1001\ncust-1002\n');
+        await pause(900);
+        const answer = await stalled.answer;
+        if (answer !== 'closed') expect(answer.status).toBe(408);
+        stalled.req.destroy();
+        // The process is up, nothing was added, and the list's locks are free.
+        expect((await fetch(`${b}/health`)).status).toBe(200);
+        expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+        expect((await pool.query('SELECT 1 FROM user_list_ids WHERE user_list_id = $1', [list.id])).rowCount).toBe(0);
+        expect((await fetch(`${url.replace(/\/ids$/, '')}`, { method: 'DELETE' })).status).toBe(204);
+      });
+      expectNoIdIn(printed.join('\n'), 'the API log');
+    });
+
+    it('ends an upload past its deadline even while bytes keep coming', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Slowpoke');
+      await withLists({ idleMs: 1000, deadlineMs: 400 }, async (b) => {
+        const slow = rawCsv(`${b}/projects/${project.id}/user-lists/${list.id}/ids`, 10_000);
+        for (let i = 0; i < 8; i++) {
+          if (!slow.req.destroyed) slow.req.write(`slow-${i}\n`);
+          await pause(100);
+        }
+        const answer = await slow.answer;
+        if (answer !== 'closed') expect(answer.status).toBe(408);
+        slow.req.destroy();
+        expect((await fetch(`${b}/health`)).status).toBe(200);
+      });
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+    });
+
+    it('survives the database ending a stalled upload transaction (the backstop), adding nothing', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Backstop');
+      await withLists({ idleMs: 60_000, deadlineMs: 60_000, databaseIdleTimeout: '300ms' }, async (b) => {
+        const body = 'cust-1001\ncust-1002\n';
+        const stalled = rawCsv(`${b}/projects/${project.id}/user-lists/${list.id}/ids`, body.length);
+        stalled.req.write(body.slice(0, 10));
+        // PostgreSQL ends the session (FATAL 25P03) while the API waits for bytes: pg emits `error`
+        // on the checked-out client, which must not take the process down.
+        await pause(1200);
+        stalled.req.end(body.slice(10));
+        const answer = await stalled.answer;
+        expect(answer).not.toBe('closed');
+        if (answer !== 'closed') {
+          expect(answer.status).toBe(500);
+          expectNoIdIn(answer.body, 'the answer');
+        }
+        expect((await fetch(`${b}/health`)).status).toBe(200);
+        // The pool still serves requests.
+        expect((await fetch(listsUrl(project.id).replace(base, b))).status).toBe(200);
+      });
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+      expectNoIdIn(printed.join('\n'), 'the API log');
+    });
+
+    it('takes a slow but steady upload under the limits', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Steady');
+      await withLists({ idleMs: 400, deadlineMs: 10_000 }, async (b) => {
+        const rows = Array.from({ length: 8 }, (_, i) => `steady-${i}\n`);
+        const steady = rawCsv(`${b}/projects/${project.id}/user-lists/${list.id}/ids`, rows.join('').length);
+        for (const row of rows) {
+          steady.req.write(row);
+          await pause(150);
+        }
+        steady.req.end();
+        const answer = await steady.answer;
+        expect(answer).not.toBe('closed');
+        if (answer !== 'closed') {
+          expect(answer.status).toBe(200);
+          expect(JSON.parse(answer.body)).toMatchObject({ added: 8, idCount: 8 });
+        }
+      });
+    });
+
+    it('logs no ID when an upload fails with an internal error', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Broken');
+      // Every insert into user_list_ids fails from now on, as a database fault would.
+      await pool.query('ALTER TABLE user_list_ids ADD CONSTRAINT t53_forced_failure CHECK (false) NOT VALID');
+      try {
+        const res = await upload(`${listsUrl(project.id)}/${list.id}`, verifyCsv);
+        expect(res.status).toBe(500);
+        const body = await res.text();
+        expect(JSON.parse(body).error.code).toBe('internal_error');
+        expectNoIdIn(body, 'the answer');
+      } finally {
+        await pool.query('ALTER TABLE user_list_ids DROP CONSTRAINT IF EXISTS t53_forced_failure');
+      }
+      const log = printed.join('\n');
+      expect(log).toMatch(/unhandled error/);
+      expectNoIdIn(log, 'the API log');
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+    });
+
+    it('refuses IDs outside ASCII for now, by line, and keeps the rest', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Ascii');
+      const res = await upload(`${listsUrl(project.id)}/${list.id}`, 'cust-1001\nmüller-7\ncust-1002\n');
+      const report = await res.json();
+      expect(report).toMatchObject({ added: 2, refused: 1, refusedRows: [{ line: 2, reason: 'not-ascii' }], idCount: 2 });
+    });
+  });
+
   describe('imports from Storyly', () => {
     const tokenKey = randomBytes(32);
     let fake: FakeStoryly;
@@ -14043,6 +14495,176 @@ describe('Management API v1: projects and zones', () => {
         expect((await rated.json()).result).toEqual({ total: 1, average: 80 });
       });
     });
+
+    describe('quizzes (epic interactive components, story 4.3)', () => {
+      const quizId = '00000000-0000-4000-8000-0000000000cc';
+      const answers = [
+        { id: 'a', label: 'Mercury' },
+        { id: 'b', label: 'Venus' },
+        { id: 'c', label: 'Earth' },
+        { id: 'd', label: 'Mars' },
+      ];
+
+      function quizElement(extra: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
+        return {
+          id: quizId,
+          type: 'quiz',
+          box: { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { question: 'Which planet is hottest?', answers, correctAnswerId: 'b', theme: 'light', ...props },
+          ...extra,
+        };
+      }
+
+      function answer(handle: string, taleId: string, value: unknown, visitor: string | null = visitorA) {
+        return respond(handle, { taleId, elementId: quizId, value }, visitor);
+      }
+
+      async function newTale() {
+        const zone = await createZone();
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+        return (await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json()) as { id: string };
+      }
+
+      async function refusedAt(document: unknown): Promise<string> {
+        const tale = await newTale();
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error.code).toBe('invalid_tale_document');
+        return body.error.pointer;
+      }
+
+      it('saves a four-answer quiz with a correct answer beside a poll and a Rating, and a quiz without one', async () => {
+        const tale = await newTale();
+        const rating = {
+          id: '00000000-0000-4000-8000-0000000000dd',
+          type: 'rating',
+          box: { x: 0.1, y: 0.8, w: 0.8, h: 0.15, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { question: 'How was it?', emoji: '❤️', theme: 'dark' },
+        };
+        const document = pollDoc([pollElement(), rating, quizElement({}, { title: 'Space' })]);
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document).toEqual(document);
+        const survey = quizElement({}, { answers: answers.slice(0, 2) });
+        delete (survey.props as Record<string, unknown>)['correctAnswerId'];
+        const other = await newTale();
+        expect((await saveDoc(other.id, pollDoc([survey]), 0)).status).toBe(200);
+      });
+
+      it('keeps answer text in Unicode NFC, ids as they are', async () => {
+        const tale = await newTale();
+        const decomposed = [{ id: 'a', label: 'Café' }, answers[1]];
+        const res = await saveDoc(tale.id, pollDoc([quizElement({}, { answers: decomposed, correctAnswerId: 'a' })]), 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document.elements[0].props.answers).toEqual([{ id: 'a', label: 'Café' }, answers[1]]);
+      });
+
+      it('refuses five answers, a correct id that is not an answer, repeated ids, a second quiz and a line feed', async () => {
+        const five = [...answers, { id: 'e', label: 'Jupiter' }];
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: five })]))).toBe('/elements/0/props/answers');
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: answers.slice(0, 1), correctAnswerId: 'a' })]))).toBe(
+          '/elements/0/props/answers',
+        );
+        expect(await refusedAt(pollDoc([quizElement({}, { correctAnswerId: 'e' })]))).toBe('/elements/0/props/correctAnswerId');
+        const repeated = [answers[0], { ...answers[1], id: 'a' }];
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: repeated, correctAnswerId: 'a' })]))).toBe(
+          '/elements/0/props/answers/1/id',
+        );
+        const second = { ...quizElement({ hidden: true }), id: '00000000-0000-4000-8000-0000000000ee' };
+        expect(await refusedAt(pollDoc([quizElement(), second]))).toBe('/elements/1/type');
+        const lineFeed = [answers[0], { id: 'b', label: 'Ve\nnus' }];
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: lineFeed })]))).toBe('/elements/0/props/answers/1/label');
+        expect(await refusedAt(pollDoc([quizElement({}, { correct: 'b' })]))).toBe('/elements/0/props/correct');
+      });
+
+      it('records answers once per visitor and answers the counts per answer, without saying which is right', async () => {
+        const { tale, handle } = await livePoll([textElement(), quizElement()]);
+        const first = await answer(handle, tale.id, 'c');
+        expect(first.status).toBe(201);
+        const body = await first.json();
+        expect(body).toEqual({
+          elementId: quizId,
+          value: 'c',
+          recorded: true,
+          result: {
+            total: 1,
+            choices: [
+              { id: 'a', count: 0, percent: 0 },
+              { id: 'b', count: 0, percent: 0 },
+              { id: 'c', count: 1, percent: 100 },
+              { id: 'd', count: 0, percent: 0 },
+            ],
+          },
+        });
+        expect(JSON.stringify(body)).not.toContain('correct');
+        expect((await answer(handle, tale.id, 'b', visitorB)).status).toBe(201);
+        // The first answer wins (C9).
+        const repeat = await answer(handle, tale.id, 'b');
+        expect(repeat.status).toBe(200);
+        const again = await repeat.json();
+        expect(again.value).toBe('c');
+        expect(again.recorded).toBe(false);
+        expect(again.result.choices.map((c: { percent: number }) => c.percent)).toEqual([0, 50, 50, 0]);
+        expect((await rows()).map((r) => [r.elementType, r.interaction, r.value])).toEqual([
+          ['quiz', 'answer', 'c'],
+          ['quiz', 'answer', 'b'],
+        ]);
+      });
+
+      it("refuses a value that is none of the published quiz's answer ids", async () => {
+        const { tale, handle } = await livePoll([pollElement(), quizElement()]);
+        for (const value of ['e', 'tea', 'Venus', 'B', '80', '', 2, null]) {
+          const res = await answer(handle, tale.id, value);
+          expect(res.status).toBe(422);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+        expect(await rows()).toEqual([]);
+      });
+
+      it("refuses a real option id of the tale's poll posted to its quiz, and records it for neither", async () => {
+        const { tale, handle } = await livePoll([pollElement(), quizElement()]);
+        const res = await answer(handle, tale.id, 'coffee');
+        expect(res.status).toBe(422);
+        expect((await res.json()).error.code).toBe('validation_failed');
+        expect(await rows()).toEqual([]);
+        // The same id is a vote on the poll itself.
+        expect((await vote(handle, tale.id, 'coffee')).status).toBe(201);
+      });
+
+      it('checks answers against the published quiz: a removed answer is refused and its count left out', async () => {
+        const { tale, handle } = await livePoll([quizElement()]);
+        expect((await answer(handle, tale.id, 'd')).status).toBe(201);
+        expect((await answer(handle, tale.id, 'b', visitorB)).status).toBe(201);
+        // Answer D is removed and B's text edited, then the tale is updated again.
+        const edited = [answers[0], { id: 'b', label: 'Venus, second' }, answers[2]];
+        expect((await saveDoc(tale.id, pollDoc([quizElement({}, { answers: edited })]), 1)).status).toBe(200);
+        expect((await post(`/tales/${tale.id}/document/publish`, { revision: 2, publishedRevision: 1 })).status).toBe(200);
+        const visitorC = '33333333-3333-4333-8333-333333333333';
+        expect((await answer(handle, tale.id, 'd', visitorC)).status).toBe(422);
+        const res = await answer(handle, tale.id, 'b', visitorC);
+        expect(res.status).toBe(201);
+        expect((await res.json()).result).toEqual({
+          total: 2,
+          choices: [
+            { id: 'a', count: 0, percent: 0 },
+            { id: 'b', count: 2, percent: 100 },
+            { id: 'c', count: 0, percent: 0 },
+          ],
+        });
+        // The studio reads every stored value; its panel lists only the answers the draft holds now.
+        const counts = await (await fetch(`${base}/tales/${tale.id}/responses`)).json();
+        expect(counts.elements).toEqual([
+          { elementId: quizId, elementType: 'quiz', total: 3, values: [{ value: 'b', count: 2 }, { value: 'd', count: 1 }] },
+        ]);
+      });
+    });
   });
 
   describe('auth', () => {
@@ -14424,7 +15046,7 @@ describe('Management API v1: API tokens for scripts (epic developer experience 1
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE users, projects CASCADE');
+    await pool.query('TRUNCATE user_list_ids, user_lists, user_list_secrets, api_token_projects, api_tokens, users, projects CASCADE');
     const admin = await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
     adminId = admin.id;
     adminCookie = `taleart_session=${(await createSession(pool, admin.id)).token}`;
@@ -14704,27 +15326,74 @@ describe('Management API v1: API tokens for scripts (epic developer experience 1
     expect((await session('POST', '/api-tokens', { name: 'Now it fits', projectIds: null, readOnly: true })).status).toBe(201);
   });
 
-  it('records when a token was last used, writing at most once a minute', async () => {
+  // The pool with a count of the `last_used_at` writes the app starts through it.
+  function countingPool(): { pool: Pool; writes: () => number } {
+    let writes = 0;
+    const counted = new Proxy(pool, {
+      get(target, prop, receiver) {
+        if (prop === 'query') {
+          return (...args: Parameters<Pool['query']>) => {
+            if (String(args[0]).includes('SET last_used_at')) writes++;
+            return (target.query as (...a: unknown[]) => unknown)(...args);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    return { pool: counted, writes: () => writes };
+  }
+
+  it('records when a token was last used, starting at most one write per minute per token', async () => {
     const issued = await createToken({});
     expect(await lastUsedAt(issued.id)).toBeNull();
-    expect((await bearer('GET', '/projects', issued.token)).status).toBe(200);
-    expect(await lastUsedAfter(issued.id, 0)).not.toBeNull();
+    const counting = countingPool();
+    const app = await start(counting.pool, { burst: 1000, perSecond: 1000 });
+    try {
+      const api = `http://127.0.0.1:${(app.address() as AddressInfo).port}/api/v1`;
+      const use = () => globalThis.fetch(`${api}/projects`, { headers: { Authorization: `Bearer ${issued.token}` } });
+      // Twenty requests at once start one write.
+      const all = await Promise.all(Array.from({ length: 20 }, use));
+      expect(all.map((r) => r.status)).toEqual(Array(20).fill(200));
+      expect(await lastUsedAfter(issued.id, 0)).not.toBeNull();
+      // Used again within the minute, even after the stored value is made old: this process wrote it
+      // a moment ago, so nothing is written.
+      await pool.query("UPDATE api_tokens SET last_used_at = now() - interval '2 minutes' WHERE id = $1", [issued.id]);
+      expect((await use()).status).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(counting.writes()).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => app.close(() => resolve()));
+    }
 
-    // Used again within the minute: nothing is written.
-    await pool.query("UPDATE api_tokens SET last_used_at = now() - interval '30 seconds' WHERE id = $1", [issued.id]);
-    const before = (await lastUsedAt(issued.id)) as Date;
-    expect((await bearer('GET', '/projects', issued.token)).status).toBe(200);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(((await lastUsedAt(issued.id)) as Date).getTime()).toBe(before.getTime());
-
-    // Over a minute later it is written again.
-    await pool.query("UPDATE api_tokens SET last_used_at = now() - interval '2 minutes' WHERE id = $1", [issued.id]);
+    // Another process (here: another app) that never wrote it writes again once the stored value is over a minute old.
     const old = (await lastUsedAt(issued.id)) as Date;
     expect((await bearer('GET', '/projects', issued.token)).status).toBe(200);
     expect(((await lastUsedAfter(issued.id, old.getTime())) as Date).getTime()).toBeGreaterThan(old.getTime());
   });
 
-  it('locks out an address that keeps guessing tokens, sessions unaffected', async () => {
+  it('does not record a use the token was refused for', async () => {
+    const a = await project('Acme');
+    const issued = await createToken({ projectIds: [a], readOnly: true });
+    const counting = countingPool();
+    const app = await start(counting.pool, { burst: 1000, perSecond: 1000 });
+    try {
+      const api = `http://127.0.0.1:${(app.address() as AddressInfo).port}/api/v1`;
+      const res = await globalThis.fetch(`${api}/zones`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${issued.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'x', projectId: a }),
+      });
+      expect(res.status).toBe(403);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(counting.writes()).toBe(0);
+      expect(await lastUsedAt(issued.id)).toBeNull();
+    } finally {
+      await new Promise<void>((resolve) => app.close(() => resolve()));
+    }
+  });
+
+  it('answers 429 to failed guesses past the limit, while valid tokens and sessions keep working', async () => {
     const issued = await createToken({});
     const strict = await start(pool, { burst: 3, perSecond: 0.001 });
     try {
@@ -14735,23 +15404,147 @@ describe('Management API v1: API tokens for scripts (epic developer experience 1
       expect(locked.status).toBe(429);
       expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0);
       expect((await locked.json()).error.code).toBe('rate_limited');
-      // Locked out, even a valid token is refused, so the lock-out tells a guesser nothing.
-      expect((await guess(issued.token)).status).toBe(429);
+      // A valid token is still looked up and let through: a flood cannot lock it out.
+      for (let i = 0; i < 3; i++) expect((await guess(issued.token)).status).toBe(200);
+      expect((await guess('tat_guess5')).status).toBe(429);
       // The cookie path is not limited by it.
       expect((await globalThis.fetch(`${api}/projects`, { headers: { Cookie: adminCookie } })).status).toBe(200);
     } finally {
       await new Promise<void>((resolve) => strict.close(() => resolve()));
     }
-    // A successful token use never counts.
-    const lenient = await start(pool, { burst: 2, perSecond: 0.001 });
+  });
+
+  it('never lets concurrent failures past the burst', async () => {
+    const issued = await createToken({});
+    const strict = await start(pool, { burst: 3, perSecond: 0.001 });
     try {
-      const api = `http://127.0.0.1:${(lenient.address() as AddressInfo).port}/api/v1`;
-      for (let i = 0; i < 5; i++) {
-        expect((await globalThis.fetch(`${api}/projects`, { headers: { Authorization: `Bearer ${issued.token}` } })).status).toBe(200);
-      }
+      const api = `http://127.0.0.1:${(strict.address() as AddressInfo).port}/api/v1`;
+      const call = (token: string) => globalThis.fetch(`${api}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+      // Twelve wrong tokens and four valid ones, all at once.
+      const tokens = [...Array.from({ length: 12 }, (_, i) => `tat_wrong${i}`), ...Array(4).fill(issued.token)];
+      const statuses = (await Promise.all(tokens.map(call))).map((r) => r.status);
+      const wrong = statuses.slice(0, 12);
+      expect(wrong.filter((s) => s === 401)).toHaveLength(3);
+      expect(wrong.filter((s) => s === 429)).toHaveLength(9);
+      expect(statuses.slice(12)).toEqual([200, 200, 200, 200]);
     } finally {
-      await new Promise<void>((resolve) => lenient.close(() => resolve()));
+      await new Promise<void>((resolve) => strict.close(() => resolve()));
     }
+  });
+
+  it("does not count expired tokens toward the limit of 50", async () => {
+    for (let i = 0; i < 50; i++) await createToken({ name: `Script ${i}` });
+    expect((await session('POST', '/api-tokens', { name: 'Over', projectIds: null, readOnly: true })).status).toBe(409);
+    await pool.query(
+      "UPDATE api_tokens SET expires_at = now() - interval '1 second' WHERE id = (SELECT id FROM api_tokens ORDER BY created_at LIMIT 1)",
+    );
+    expect((await session('POST', '/api-tokens', { name: 'Now it fits', projectIds: null, readOnly: true })).status).toBe(201);
+  });
+
+  it('an admin revokes every token of a user; nobody else can', async () => {
+    const a = await project('Acme');
+    const casey = await contentManager('casey@example.com', [a]);
+    const one = await createToken({ name: 'One' }, casey.cookie);
+    const two = await createToken({ name: 'Two' }, casey.cookie);
+    const admins = await createToken({ name: 'Admin', readOnly: false });
+
+    // A content manager, and any token, are refused.
+    expect((await session('DELETE', `/users/${casey.id}/api-tokens`, undefined, casey.cookie)).status).toBe(403);
+    expect((await bearer('DELETE', `/users/${casey.id}/api-tokens`, admins.token)).status).toBe(403);
+    expect((await bearer('GET', '/projects', one.token)).status).toBe(200);
+
+    const res = await session('DELETE', `/users/${casey.id}/api-tokens`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revoked: 2 });
+    expect((await bearer('GET', '/projects', one.token)).status).toBe(401);
+    expect((await bearer('GET', '/projects', two.token)).status).toBe(401);
+    // Only that user's tokens.
+    expect((await bearer('GET', '/projects', admins.token)).status).toBe(200);
+    expect(await (await session('DELETE', `/users/${casey.id}/api-tokens`)).json()).toEqual({ revoked: 0 });
+    const unknown = await session('DELETE', '/users/00000000-0000-4000-8000-000000000000/api-tokens');
+    expect(unknown.status).toBe(404);
+    expect((await unknown.json()).error.code).toBe('not_found');
+    expect((await session('DELETE', '/users/nope/api-tokens')).status).toBe(404);
+  });
+
+  it('keeps a project-scoped token to its project on tales, tale groups, media, fonts, imports and user lists', async () => {
+    const a = await project('Acme');
+    const b = await project('Beta');
+    const groupIn = async (projectId: string) => {
+      const res = await session('POST', `/projects/${projectId}/tale-groups`, { name: 'Summer' });
+      expect(res.status).toBe(201);
+      return (await res.json()).id as string;
+    };
+    const taleIn = async (groupId: string) => {
+      const res = await session('POST', `/tale-groups/${groupId}/tales`, { title: 'Beach' });
+      expect(res.status).toBe(201);
+      return (await res.json()).id as string;
+    };
+    const listIn = async (projectId: string) => {
+      const res = await session('POST', `/projects/${projectId}/user-lists`, { name: 'VIP' });
+      expect(res.status).toBe(201);
+      return (await res.json()).id as string;
+    };
+    const groupA = await groupIn(a);
+    const groupB = await groupIn(b);
+    const taleA = await taleIn(groupA);
+    const taleB = await taleIn(groupB);
+    const listA = await listIn(a);
+    const listB = await listIn(b);
+    const reader = await createToken({ projectIds: [a], readOnly: true });
+    const writer = await createToken({ projectIds: [a], readOnly: false });
+
+    // Inside its project: answered as for the admin's session (imports: the importer is not configured here).
+    const inside: [string, number][] = [
+      [`/tale-groups/${groupA}`, 200],
+      [`/tales/${taleA}`, 200],
+      [`/projects/${a}/media`, 200],
+      [`/projects/${a}/fonts`, 200],
+      [`/projects/${a}/imports`, 503],
+      [`/projects/${a}/user-lists`, 200],
+    ];
+    for (const [path, status] of inside) expect((await bearer('GET', path, reader.token)).status, path).toBe(status);
+
+    // Another project: 403, as for a session without access.
+    for (const path of [
+      `/tale-groups/${groupB}`,
+      `/tales/${taleB}`,
+      `/tales/${taleB}/document`,
+      `/projects/${b}/media`,
+      `/projects/${b}/fonts`,
+      `/projects/${b}/imports`,
+      `/projects/${b}/user-lists`,
+    ]) {
+      const res = await bearer('GET', path, writer.token);
+      expect(res.status, path).toBe(403);
+      expect((await res.json()).error.code, path).toBe('forbidden');
+    }
+    expect((await bearer('PATCH', `/tale-groups/${groupB}`, writer.token, { name: 'Taken' })).status).toBe(403);
+    expect((await bearer('DELETE', `/tales/${taleB}`, writer.token)).status).toBe(403);
+    expect((await bearer('DELETE', `/projects/${b}/user-lists/${listB}`, writer.token)).status).toBe(403);
+    expect((await bearer('POST', `/projects/${b}/imports`, writer.token, {})).status).toBe(403);
+    // A list id of another project under this project's path is not found.
+    expect([403, 404]).toContain((await bearer('DELETE', `/projects/${a}/user-lists/${listB}`, writer.token)).status);
+
+    // Uploads with a read-only token are refused before the body is read.
+    const upload = (path: string, method: string, contentType: string, body: string) =>
+      globalThis.fetch(`${base}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${reader.token}`, 'Content-Type': contentType },
+        body,
+      });
+    for (const [path, method, type] of [
+      [`/projects/${a}/user-lists/${listA}/ids`, 'POST', 'text/csv'],
+      [`/projects/${a}/media`, 'POST', 'image/png'],
+      [`/projects/${a}/fonts`, 'POST', 'font/woff2'],
+      [`/tales/${taleA}/media`, 'PUT', 'image/png'],
+    ] as const) {
+      const res = await upload(path, method, type, 'user-1\nuser-2\n');
+      expect(res.status, path).toBe(403);
+      expect(await res.json(), path).toEqual({ error: { code: 'forbidden', message: 'This API token is read-only' } });
+    }
+    const { rows } = await pool.query('SELECT count(*)::int AS n FROM user_list_ids');
+    expect(rows[0].n).toBe(0);
   });
 
   it('lets other origins send Authorization, never with credentials', async () => {

@@ -1,5 +1,12 @@
 import { API_TOKEN_PREFIX, ErrorCodes, SESSION_COOKIE, SITE_KEY_PREFIX } from '@taleart/contract';
-import { authenticateApiToken, findSessionUser, touchApiToken, type ProjectScope } from '@taleart/server-access';
+import {
+  API_TOKEN_LAST_USED_INTERVAL_MS,
+  authenticateApiToken,
+  findSessionUser,
+  touchApiToken,
+  type AuthenticatedApiToken,
+  type ProjectScope,
+} from '@taleart/server-access';
 import type { RequestHandler, Response } from 'express';
 import type { Pool } from 'pg';
 import { readCookie } from './cookies';
@@ -16,11 +23,17 @@ export type Credential =
 
 /**
  * The default allowance of failed bearer authentications per address (an IPv4 address or an IPv6
- * /48): 10 at once, refilled at 10 a minute. Past it every bearer request from the address answers
- * 429 until the bucket refills, valid tokens included, so a lock-out tells a guesser nothing. A
- * token is 256 random bits, so this is defence in depth, not what keeps tokens safe.
+ * /48): 10 at once, refilled at 10 a minute. Every bearer request takes one from the bucket before
+ * its lookup and gives it back when the token is valid, so requests at once cannot fail more than
+ * the burst between them. With the bucket empty, a valid token still works and a failed attempt
+ * answers 429 instead of 401: a stuck script or a flood of guesses never locks valid tokens out,
+ * and a guesser learns nothing new (a 429 means only "not a valid token"). A token is 256 random
+ * bits, so this is defence in depth, not what keeps tokens safe.
  */
 export const DEFAULT_TOKEN_GUESS_LIMIT: RateLimitOptions = { burst: 10, perSecond: 10 / 60 };
+
+/** The most tokens whose last touch this process remembers; beyond it, stale entries are dropped. */
+const MAX_TOUCHED_TOKENS = 10_000;
 
 /** Methods a read-only token may use. */
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -59,7 +72,8 @@ export interface CallerOptions {
  *   other header answers 401 `unauthenticated`. The token acts as its user, whose role and projects
  *   are read now, narrowed to the token's projects; a read-only token may only read (403 otherwise).
  * - Failed bearer attempts count against the address ({@link DEFAULT_TOKEN_GUESS_LIMIT}); with the
- *   bucket empty every bearer request answers 429 `rate_limited` before any lookup.
+ *   bucket empty a failed attempt answers 429 `rate_limited`, while a valid token still works.
+ * - `last_used_at` is written at most once a minute per token and process, and not on a refusal.
  * - Any other request needs a valid session cookie, as before (401 `unauthenticated`). The cookie
  *   keeps its CSRF protections: it is `HttpOnly; SameSite=Strict` and CORS never allows credentials.
  *   A bearer token is never sent by a browser on its own, so the token path needs none.
@@ -68,6 +82,24 @@ export function requireCaller(pool: Pool, options: CallerOptions = {}): RequestH
   const now = options.now ?? Date.now;
   const limit = options.tokenGuessLimit === undefined ? DEFAULT_TOKEN_GUESS_LIMIT : options.tokenGuessLimit;
   const failures = limit ? new Buckets(checkRateLimit(limit), RATE_LIMIT_MAX_CLIENTS, now()) : null;
+  // When this process last started a `last_used_at` write per token (in flight or done), so requests
+  // at once start at most one write per token per interval.
+  const touched = new Map<string, number>();
+
+  const touch = (found: AuthenticatedApiToken, t: number): void => {
+    const last = Math.max(touched.get(found.tokenId) ?? 0, found.lastUsedAt?.getTime() ?? 0);
+    if (t - last < API_TOKEN_LAST_USED_INTERVAL_MS) return;
+    if (touched.size >= MAX_TOUCHED_TOKENS) {
+      for (const [id, at] of touched) if (t - at >= API_TOKEN_LAST_USED_INTERVAL_MS) touched.delete(id);
+      if (touched.size >= MAX_TOUCHED_TOKENS) touched.clear();
+    }
+    touched.set(found.tokenId, t);
+    // Best effort: the request does not wait for it.
+    void touchApiToken(pool, { tokenId: found.tokenId, lastUsedAt: null }, t).catch((err: unknown) => {
+      touched.delete(found.tokenId);
+      console.warn(JSON.stringify({ level: 'warn', msg: 'Could not record an API token as used', error: String(err) }));
+    });
+  };
 
   return async (req, res, next) => {
     try {
@@ -83,16 +115,21 @@ export function requireCaller(pool: Pool, options: CallerOptions = {}): RequestH
 
       const t = now();
       const bucket = failures?.get(rateLimitClient(req.ip ?? req.socket.remoteAddress), t);
-      if (failures && bucket && bucket.tokens < 1) {
+      // Reserved before the lookup, so concurrent failures cannot exceed the burst; given back below
+      // when the token is valid.
+      const reserved = !!bucket && bucket.tokens >= 1;
+      if (bucket && reserved) bucket.tokens -= 1;
+      const raw = bearerToken(header);
+      // Always looked up: a valid token works whatever the address's failures.
+      const found = await authenticateApiToken(pool, raw);
+      if (found && bucket && reserved) bucket.tokens += 1;
+      if (!found && failures && bucket && !reserved) {
         res.setHeader('Retry-After', String(failures.wait(bucket)));
         res.setHeader('Cache-Control', 'no-store');
         res.status(429).json(errorBody(ErrorCodes.rateLimited, 'Too many failed API token attempts. Try again later.'));
         return;
       }
-      const raw = bearerToken(header);
-      const found = await authenticateApiToken(pool, raw);
       if (!found) {
-        if (bucket) bucket.tokens -= 1;
         unauthenticated(
           res,
           raw?.startsWith(SITE_KEY_PREFIX)
@@ -110,13 +147,13 @@ export function requireCaller(pool: Pool, options: CallerOptions = {}): RequestH
         projects: found.projects,
         readOnly: found.readOnly,
       } satisfies Credential;
-      // Best effort and at most once a minute: the request does not wait for it.
-      void touchApiToken(pool, found).catch((err: unknown) =>
-        console.warn(JSON.stringify({ level: 'warn', msg: 'Could not record an API token as used', error: String(err) })),
-      );
       if (found.readOnly && !READ_METHODS.has(req.method)) {
+        // Refused before any body is read (an upload's included), so the connection is not reused.
+        res.setHeader('Connection', 'close');
         throw new HttpError(403, ErrorCodes.forbidden, 'This API token is read-only');
       }
+      // Not counted as a use when refused above.
+      touch(found, t);
       next();
     } catch (err) {
       next(err);

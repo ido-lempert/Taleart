@@ -35,6 +35,7 @@ export {
   createApiToken,
   listApiTokens,
   revokeApiToken,
+  revokeUserApiTokens,
   authenticateApiToken,
   touchApiToken,
   type NewApiToken,

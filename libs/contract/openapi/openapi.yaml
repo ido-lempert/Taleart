@@ -280,8 +280,8 @@ paths:
         user's own access is read on every request, so a project the user
         loses is lost to the token too. Every listed project must exist (else
         400 `project_not_found`) and be one the user can access (else 403
-        `forbidden`). A user holds at most 50 active tokens (409
-        `api_token_limit_reached`). A passkey session only: an API token gets
+        `forbidden`). A user holds at most 50 active tokens, expired ones not
+        counted (409 `api_token_limit_reached`). A passkey session only: an API token gets
         403 `forbidden`.
       security:
         - session: []
@@ -326,6 +326,36 @@ paths:
       responses:
         '204':
           description: The token is revoked.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/{userId}/api-tokens:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: revokeUserApiTokens
+      summary: Revoke every API token of a user (admins only).
+      description: >-
+        For a lost laptop or a person leaving: every active token of the user
+        stops working at once. A content manager gets 403 `forbidden`; an
+        unknown user 404 `not_found`. A passkey session only: an API token
+        gets 403 `forbidden`.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: How many tokens were revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokedApiTokens'
         '403':
           $ref: '#/components/responses/Error'
         '404':
@@ -969,6 +999,203 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /projects/{projectId}/user-lists:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listUserLists
+      summary: A project's user lists (epic targeting R3), by name.
+      description: >-
+        Each list with its name, how many external user IDs it holds and when
+        it last changed. The IDs themselves are never returned: they are
+        stored only as keyed hashes (epic targeting R5). Unknown project 404
+        `project_not_found`.
+      responses:
+        '200':
+          description: The project's user lists, by name ignoring case.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserList'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createUserList
+      summary: Create an empty user list in a project.
+      description: >-
+        Admins and content managers create lists. The name is trimmed and
+        holds 1 to 100 characters and no control characters (400
+        `validation_failed`); names are unique per project ignoring case (409
+        `user_list_exists`); a project holds at most 100 lists (409
+        `user_list_limit_reached`). Unknown project 404 `project_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserListRequest'
+      responses:
+        '201':
+          description: The created list, holding no ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /projects/{projectId}/user-lists/{userListId}:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: userListId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: renameUserList
+      summary: Rename a user list.
+      description: >-
+        Same name rules as creating one. A list of another project, or none,
+        404 `user_list_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameUserListRequest'
+      responses:
+        '200':
+          description: The renamed list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteUserList
+      summary: Delete a user list and every ID it holds, for good.
+      description: >-
+        A hard delete in one transaction: the list and all its hashes go, with
+        no soft delete (epic targeting R5). When it was the project's last
+        list, the project's hashing secret goes too, so the next list gets a
+        new one. Admins and content managers delete. 404
+        `user_list_not_found` for a list of another project, or none.
+      responses:
+        '204':
+          description: Deleted.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /projects/{projectId}/user-lists/{userListId}/ids:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: userListId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: header
+        in: query
+        required: false
+        description: '`true` when the first row is a header, which is skipped; any other value reads every row.'
+        schema:
+          type: string
+    post:
+      operationId: addUserListIds
+      summary: Add the external user IDs of a single-column CSV to a user list.
+      description: >-
+        The body is the CSV, UTF-8 (a byte order mark is skipped), one ID per
+        row, read as a stream and not kept. Each non-empty row, trimmed (and
+        unquoted when it is a quoted field), is one ID of at most 256
+        ASCII characters with no control characters; matching is exact
+        (case-sensitive, no Unicode normalization). Each ID is stored only as HMAC-SHA-256 under the
+        project's secret (epic targeting R5); no ID is ever returned, logged
+        or kept. Rows already in the list, or earlier in the file, count as
+        already present; refused rows are counted and the first 10 named by
+        line number and reason. The upload is all or nothing. Admins and
+        content managers upload. An upload that sends no byte for 30 s, or
+        takes more than 280 s in all (a 50 MB file needs about 190 KB/s), is
+        ended with nothing added (408 `validation_failed`, often on a closed
+        connection). Checked before the body is read (with
+        `Connection: close`): too many uploads at once 429 `upload_busy`;
+        unknown project 404 `project_not_found`; unknown list 404
+        `user_list_not_found`; a type other than `text/csv` or `text/plain`
+        415 `unsupported_media_type`; a compressed body 415; no valid
+        `Content-Length` 411 `length_required`; empty 400
+        `validation_failed`; over 50 MB 413 `user_list_file_too_large`. While
+        it streams: over 1,000,000 rows 413 `user_list_file_too_large`, not
+        UTF-8 or a body other than its declared length 400
+        `validation_failed`; nothing is added in either case.
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+          text/plain:
+            schema: { type: string }
+      responses:
+        '200':
+          description: What the upload did.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListUploadReport'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '411':
+          $ref: '#/components/responses/Error'
+        '408':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '415':
+          $ref: '#/components/responses/Error'
+        '429':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -2572,7 +2799,8 @@ paths:
         The visitors' responses to the tale's interactive components (epic
         interactive components R11), as Tale Studio's inspector shows them:
         per component, the number of responses in all and per stored value
-        (a poll's option id, a Rating's value from 0 to 100), whatever the
+        (a poll's option id, a quiz's answer id, a Rating's value from 0 to
+        100), whatever the
         tale's documents hold now. A
         component without a response is not listed. Counts include only
         responses from the site; the studio preview records none. Any member
@@ -2613,13 +2841,14 @@ paths:
         interactive type; otherwise 404 `response_target_not_found`, the
         same for a tale of another project, a hidden tale and an unknown
         element. The value must be valid for the element (a poll's option
-        id; a Rating's whole number from 0 to 100, written plainly, such as
-        `80`), else 422 `validation_failed`. Each visitor keeps one response
+        id; a quiz's answer id; a Rating's whole number from 0 to 100,
+        written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response
         per tale, component and interaction kind, and the first is kept
         (C9): a new response answers 201, a repeat 200 with the stored value
         and `recorded: false`. Either way the answer carries the current
-        result (a poll's counts and percentages per option, a Rating's count
-        and average). The row records
+        result (a poll's or a quiz's counts and percentages per option or
+        answer, a Rating's count and average). A quiz's correct answer is
+        not in the answer: it is in the published document (C10). The row records
         the project, zone, display, tale group and tale ids, the element's
         id and type, the value, the visitor id and the client's and the
         server's times (AD-10); no user data (AD-13). Deleting the tale
@@ -2699,14 +2928,22 @@ components:
         within the token's scope: its projects (or all of the user's projects)
         intersected with the user's access read on every request, and, for a
         read-only token, GET and HEAD only (anything else answers 403
-        `forbidden`). Admin-only routes stay admin-only. A missing, unknown,
+        `forbidden`). Admin-only routes stay admin-only. A token follows its
+        user's role as it is now: a token for all projects reaches every
+        project once its user is made an admin (and fewer when the user loses
+        projects or admin), and an admin's read-write token can do what the
+        admin can within its projects, including issuing, rotating and
+        revoking site keys, which affects every zone of the project. An admin
+        can revoke every token of a user (`DELETE /users/{userId}/api-tokens`).
+        At most 50 tokens per user are active (expired and revoked ones do not
+        count). A missing, unknown,
         revoked or expired token, or any other credential in the header (such
         as a `tas_` site key), answers 401 `unauthenticated`; when a request
         carries an `Authorization` header the session cookie is ignored, even
         if the header is refused. Failed attempts count against the caller's
-        address (by default 10 at once, refilled at 10 a minute); past that,
-        every bearer request from the address answers 429 `rate_limited` with
-        `Retry-After`. A token can never create, list or revoke tokens, use
+        address (by default 10 at once, refilled at 10 a minute); past that, a
+        failed attempt answers 429 `rate_limited` with `Retry-After` instead
+        of 401, while a valid token keeps working. A token can never create, list or revoke tokens, use
         `/auth/*` (sign-in, sign-out, setup, invitations: 403 `forbidden`),
         manage passkeys or sessions, or create invitations; a token limited to
         some projects cannot create projects. Only the Management API accepts
@@ -3078,6 +3315,112 @@ components:
           minLength: 1
           maxLength: 40
           description: Trimmed before it is checked and stored; unique in the project ignoring case.
+    UserList:
+      type: object
+      required: [id, projectId, name, idCount, createdAt, updatedAt]
+      description: >-
+        A project's list of external user IDs (epic targeting R3). It tells
+        how many IDs it holds, never which: they are stored only as keyed
+        hashes (R5).
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        idCount:
+          type: integer
+          minimum: 0
+          description: How many distinct external user IDs the list holds.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the list was created, renamed or last had IDs added.
+    CreateUserListRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed before it is checked and stored; unique in the project ignoring case.
+    RenameUserListRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed before it is checked and stored; unique in the project ignoring case.
+    UserListRefusedRow:
+      type: object
+      required: [line, reason]
+      description: A refused row, by its line number in the file (from 1), never by its value.
+      properties:
+        line:
+          type: integer
+          minimum: 1
+        reason:
+          $ref: '#/components/schemas/UserListRefusal'
+    UserListRefusal:
+      type: string
+      enum: [too-long, control-character, not-ascii, not-one-column]
+      description: >-
+        Why a row was refused: longer than 256 characters, holding a control
+        character, holding a character outside ASCII (only ASCII IDs are
+        supported until the Delivery header's encoding is defined, epic
+        targeting story 4), or more than one field (an unquoted comma or
+        quote, or a broken quoted field).
+    UserListUploadReport:
+      type: object
+      required: [added, alreadyPresent, refused, refusedRows, emptyRows, emailLike, phoneLike, idCount]
+      description: >-
+        What an upload did, in counts only (epic targeting R3, R5). It never
+        holds an uploaded value.
+      properties:
+        added:
+          type: integer
+          minimum: 0
+          description: IDs added to the list.
+        alreadyPresent:
+          type: integer
+          minimum: 0
+          description: Rows whose ID the list already held, or an earlier row of the file held.
+        refused:
+          type: integer
+          minimum: 0
+        refusedRows:
+          type: array
+          maxItems: 10
+          description: The first refused rows, by line number.
+          items:
+            $ref: '#/components/schemas/UserListRefusedRow'
+        emptyRows:
+          type: integer
+          minimum: 0
+          description: Blank rows, skipped.
+        emailLike:
+          type: integer
+          minimum: 0
+          description: Accepted rows that look like an email address.
+        phoneLike:
+          type: integer
+          minimum: 0
+          description: Accepted rows that look like a phone number.
+        idCount:
+          type: integer
+          minimum: 0
+          description: How many IDs the list holds now.
     SetTaleGroupTagsRequest:
       type: object
       required: [tagIds]
@@ -3494,6 +3837,14 @@ components:
           type: [string, 'null']
           format: date-time
           description: When the token stops working, in the future; null or left out for never.
+    RevokedApiTokens:
+      type: object
+      required: [revoked]
+      properties:
+        revoked:
+          type: integer
+          minimum: 0
+          description: How many active tokens were revoked.
     IssuedApiToken:
       allOf:
         - $ref: '#/components/schemas/ApiToken'
@@ -3794,7 +4145,7 @@ components:
           description: >-
             A key of the element-type registry, such as `text`, `image`,
             `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`,
-            `swipe-up`, `poll` or `rating`.
+            `swipe-up`, `poll`, `rating` or `quiz`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
@@ -3830,13 +4181,15 @@ components:
       $ref: '../tale-document/element-types/poll.schema.json'
     RatingElementProps:
       $ref: '../tale-document/element-types/rating.schema.json'
+    QuizElementProps:
+      $ref: '../tale-document/element-types/quiz.schema.json'
     ChoiceCount:
       type: object
       required: [id, count, percent]
       properties:
         id:
           type: string
-          description: The choice's id (a poll's option id).
+          description: The choice's id (a poll's option id, a quiz's answer id).
         count:
           type: integer
           minimum: 0
@@ -3894,8 +4247,8 @@ components:
           minLength: 1
           maxLength: 64
           description: >-
-            The response, such as a poll's option id or a Rating's whole
-            number from 0 to 100 (`80`).
+            The response, such as a poll's option id, a quiz's answer id or
+            a Rating's whole number from 0 to 100 (`80`).
         clientAt:
           type: string
           format: date-time
@@ -3915,8 +4268,8 @@ components:
           description: True when this request recorded it; false for a repeat.
         result:
           description: >-
-            The component's result now: a poll's counts and percentages per
-            option, or a Rating's count and average.
+            The component's result now: a poll's or a quiz's counts and
+            percentages per choice, or a Rating's count and average.
           oneOf:
             - $ref: '#/components/schemas/ChoiceResult'
             - $ref: '#/components/schemas/RatingResult'
@@ -4800,6 +5153,10 @@ components:
         - length_required
         - response_target_not_found
         - visitor_id_required
+        - user_list_not_found
+        - user_list_exists
+        - user_list_limit_reached
+        - user_list_file_too_large
         - internal_error
     ErrorBody:
       type: object

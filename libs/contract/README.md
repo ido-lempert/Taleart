@@ -78,11 +78,13 @@ A component a visitor answers (epic interactive components; the `poll` first) ad
   over it; the studio's Add entry takes its `limit` from it) and its interaction kinds in `INTERACTIONS` (the first is
   the default; a visitor has one response per tale, element and kind, the first wins). Choice ids are props of the
   element (`{ id, label }` items), so counts survive an edit to the text.
-- **Server** (`libs/server/interactive`, `responses.ts`): how its value is checked and counted (`CHOICES` for a choice
-  component). `recordResponse` accepts a response only for an element of a tale the zone delivers now
+- **Server** (`libs/server/interactive`, `responses.ts`): how its value is checked and counted, in `RESPONSE_KINDS`
+  (`choiceKind` for a choice component, whose choices prop is named in the contract's `CHOICE_PROPS`). `recordResponse` accepts a response only for an element of a tale the zone delivers now
   (`deliveredTaleElement` in the tales module, the AD-6 rule) and its published document; the Delivery API's
   `POST /responses` needs the site key, the slug and a valid `X-TaleArt-Visitor`, and is rate limited.
-- **Studio**: a fixed list of choices is a `choices` field of the fields inspector (labels edited, ids kept); the
+- **Studio**: a list of choices is a `choices` field of the fields inspector (labels edited, ids kept): fixed when its
+  array prop has as many items at least as at most, else a list field that adds, removes and moves choices by id
+  (`newLabel` and `addLabel` say how), with an optional `correct` pick of one choice (the quiz's); the
   inspector shows the component's counts (`tale-responses.ts`, from `GET /api/v1/tales/{taleId}/responses`).
 - **SDK**: the renderer posts through `context.responses` (absent in the Tale Studio preview and on side cards, which
   record nothing), keeps the answer locally (`responses.ts`), marks its root `ta-interactive` (focus inside it pauses
@@ -101,3 +103,18 @@ the path end to end and is never offered in production:
   with `localStorage['taleart.testElementTypes'] = 'on'`, or where a test provides
   `STUDIO_TEST_ELEMENT_TYPES`;
 - no SDK has its renderer, so the SDK skips it with one warning.
+
+## User lists (epic targeting R3, R5)
+
+`src/lib/user-lists.ts` holds the rules the server and the dashboard share for user lists: the
+limits (100 lists per project; 1,000,000 rows and 50 MB per CSV; 256 characters per ID), the
+one-line CSV reader and the email and phone heuristics of the dashboard's warning.
+
+- An external user ID is trimmed and then **matched exactly**: case counts, and no Unicode
+  normalization is applied (`User-1`, `user-1` and a decomposed `é` are all different IDs).
+- Only **ASCII** IDs are accepted for now. A row with any other character is refused as
+  `not-ascii` ("only ASCII IDs are supported for now"). Story 5.4 must define how the Delivery
+  request header carries the ID (percent-encoded or base64url UTF-8) and decode it before
+  `normalizeExternalUserId`; non-ASCII IDs can then be allowed.
+- The server stores each ID only as HMAC-SHA-256 under a per-project secret; no response, log or
+  error names one.

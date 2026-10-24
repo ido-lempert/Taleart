@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 export type IconName =
   | 'zones'
   | 'projects'
+  | 'audience'
   | 'plus'
   | 'close'
   | 'back'
@@ -27,6 +28,7 @@ export type IconName =
   | 'swipe-up'
   | 'poll'
   | 'rating'
+  | 'quiz'
   | 'eye'
   | 'eye-off'
   | 'lock'
@@ -58,6 +60,12 @@ export type IconName =
           <rect x="14" y="3" width="7" height="7" rx="2" />
           <rect x="3" y="14" width="7" height="7" rx="2" />
           <rect x="14" y="14" width="7" height="7" rx="2" />
+        }
+        @case ('audience') {
+          <circle cx="9" cy="8" r="3.5" />
+          <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+          <path d="M16 4.5a3.5 3.5 0 0 1 0 7" />
+          <path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
         }
         @case ('projects') {
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -151,6 +159,10 @@ export type IconName =
         @case ('rating') {
           <path d="M3 12h18" />
           <circle cx="15" cy="12" r="4" />
+        }
+        @case ('quiz') {
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
         }
         @case ('eye') {
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

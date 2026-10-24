@@ -16,7 +16,7 @@ context:
 warnings:
   - 'Security-sensitive: a new credential on the Management API. Review before merge.'
 deferred:
-  - 'Admin view of every user''s tokens and revoking another user''s token (owner may want it).'
+  - 'Admin view of every user''s tokens in the dashboard (the API can revoke all of a user''s tokens; no UI yet).'
   - 'Finer scopes than read-only / read-write (epic note: owner may refine scopes later).'
   - 'The docs page that explains tokens (story 10.2 builds the API reference around this scheme).'
 ---
@@ -110,6 +110,23 @@ a change to the Delivery API's behaviour.
 - **Tests:** access unit tests with a fake db (format, hash only, cap, scope intersection, throttled
   touch); API tests in `app.spec.ts` for the verify line and every rule above; dashboard unit tests;
   a Playwright spec (`api-tokens.spec.ts`) for the flow and an `@a11y` scan of each state.
+
+## Review fixes (2026-10-24)
+
+- Guess limit: every bearer request takes one from its address's bucket before the lookup and gives
+  it back when the token is valid, so concurrent failures never exceed the burst. The lookup always
+  runs: a valid token works with the bucket empty, and only a failed attempt answers 429 (a stuck
+  script or a flood cannot lock valid tokens out).
+- `last_used_at`: a per-token in-process record of the last write started (in flight or done), so
+  requests at once start at most one `UPDATE`; no write on a read-only 403.
+- Expired tokens do not count toward the 50. An admin revokes every token of a user with
+  `DELETE /users/{userId}/api-tokens` (passkey session, admins only; 200 `{ revoked }`, 404 for an
+  unknown user); no dashboard UI yet.
+- Documented in the OpenAPI `token` scheme, the docs' new API tokens page and AD-9: a token follows its
+  user's role (an all-projects token widens when its user is promoted), and an admin's read-write token
+  can issue, rotate and revoke site keys in its projects.
+- Merged foundation (5.3 user lists): the user-lists router sits behind `requireCaller`; tests cover a
+  project-scoped token on tales, tale groups, media, fonts, imports and user lists, and read-only uploads.
 
 ## Verify
 

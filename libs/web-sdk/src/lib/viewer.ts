@@ -287,10 +287,23 @@ function onClose(e: Event): boolean {
   return !!(e.target as Element | null)?.closest?.('.close');
 }
 
-// True when Space goes to a control of an interactive component (a poll's option, which it presses,
-// or a Rating's slider), not to the viewer's pause (C7).
+// The control of an interactive component the key went to (a poll's or a quiz's choice, a Rating's
+// slider), or null.
+function componentControl(e: Event): Element | null {
+  return (e.target as Element | null)?.closest?.('.ta-interactive button, .ta-interactive [role="slider"]') ?? null;
+}
+
+// True when Space goes to a control of an interactive component that is still to be answered, which
+// it presses (C7), not to the viewer's pause.
 function onComponent(e: Event): boolean {
-  return !!(e.target as Element | null)?.closest?.('.ta-interactive button, .ta-interactive [role="slider"]');
+  const control = componentControl(e);
+  return !!control && control.getAttribute('aria-disabled') !== 'true';
+}
+
+// True when Space goes to a control already answered (`aria-disabled`): it does nothing there, neither
+// presses it nor pauses the tale (story 4.3). The arrow keys still step the tale.
+function onAnswered(e: Event): boolean {
+  return componentControl(e)?.getAttribute('aria-disabled') === 'true';
 }
 
 // True when `node` lays out right to left (the host page's direction reaches the Shadow DOM).
@@ -661,7 +674,9 @@ export class TaleViewer {
     if (e.key === forward) this.next();
     else if (e.key === back) this.previous();
     else if (e.key === ' ' && (onClose(e) || onComponent(e))) return;
-    else if (e.key === ' ') {
+    else if (e.key === ' ' && onAnswered(e)) {
+      // Swallowed: an answered control takes no press, and Space there does not pause.
+    } else if (e.key === ' ') {
       if (!e.repeat) this.togglePause();
     } else if (e.key === 'Escape') this.close();
     else return;
