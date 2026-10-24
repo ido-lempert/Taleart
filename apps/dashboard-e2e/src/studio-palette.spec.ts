@@ -78,7 +78,8 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('#studio-add-poll')).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(live()).toHaveText('Poll added');
+    await expect(live()).toHaveText('Poll added near the centre of the safe area. Selected. Press F6 for its properties.');
+    await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     await expect(page.locator('[id^="studio-el-"]')).toHaveCount(1);
   });
 

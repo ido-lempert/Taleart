@@ -311,6 +311,8 @@
         <p class="visually-hidden" id="studio-palette-help">
           Finds elements by name or by what they are for. Arrow Down goes to the first one found.
         </p>
+        <!-- How a tile adds (story 11.4), said once for all tiles and given to each group as its description. -->
+        <p class="palette-note" id="studio-palette-note">Drag onto the tale, or click or press Enter to add.</p>
         @if (paletteQuery().trim()) {
           <p class="palette-count" id="studio-palette-count">{{ paletteCount() }}</p>
         }
@@ -322,9 +324,14 @@
         @if (noProjectMedia()) {
           <p class="field__hint palette-reason" id="studio-project-hint">{{ noProjectReason }}</p>
         }
-        <div id="studio-palette-groups">
+        <div id="studio-palette-groups" [class.is-pen]="penInput()" (pointerover)="paletteInput($event)">
           @for (group of paletteGroups(); track group.key) {
-            <div class="tile-group" role="group" [attr.aria-labelledby]="'studio-tiles-' + group.key">
+            <div
+              class="tile-group"
+              role="group"
+              [attr.aria-labelledby]="'studio-tiles-' + group.key"
+              aria-describedby="studio-palette-note"
+            >
               <h3 class="tile-group__name" [id]="'studio-tiles-' + group.key">{{ group.name }}</h3>
               <div class="tiles" [class.tiles--text]="group.key === 'text'">
                 @for (tile of group.tiles; track tile.id) {
@@ -333,11 +340,18 @@
                     type="button"
                     class="tile"
                     [class.tile--text]="tile.sample"
+                    [class.is-dragging]="draggingTile() === tile.id"
                     [id]="tile.id"
                     [attr.aria-disabled]="block ? 'true' : null"
                     [attr.aria-describedby]="block?.id ?? null"
                     (click)="addFromTile(tile)"
                     (keydown)="tileKey($event)"
+                    (pointerdown)="tilePointerDown($event, tile)"
+                    (pointermove)="tilePointerMove($event)"
+                    (pointerup)="tilePointerUp($event)"
+                    (pointercancel)="tilePointerCancel($event)"
+                    (lostpointercapture)="tileLostPointer($event)"
+                    (contextmenu)="tileContextMenu($event)"
                   >
                     @if (tile.sample; as s) {
                       <!-- A text preset shows its word in its own style, in place of an icon. -->
@@ -554,6 +568,7 @@
         <div
           class="canvas"
           [class.show-bounds]="guides()"
+          [class.is-drop-target]="ghost()?.over"
           id="studio-canvas"
           tabindex="-1"
           role="group"
@@ -808,9 +823,11 @@
               [style.transform]="f.rotation ? 'rotate(' + f.rotation + 'deg)' : null"
             ></div>
           }
-          @if (guides()) {
+          @if (guides() || ghost()) {
+            <!-- The safe area; while dragging from the palette, always and at full strength (EXPERIENCE Safe-area toggle). -->
             <div
               class="guides"
+              [class.guides--dragging]="ghost()"
               aria-hidden="true"
               [style.left.%]="safeArea.side * 100"
               [style.right.%]="safeArea.side * 100"
@@ -827,7 +844,7 @@
             }
           }
           @if (d.elements.length === 0) {
-            <p class="canvas__hint">Pick an element on the left to add it to the tale.</p>
+            <p class="canvas__hint">Drag an element here, or pick one on the left.</p>
           }
         </div>
       </div>
@@ -1284,6 +1301,83 @@
       <p class="muted">Loading the tale…</p>
     }
   </div>
+}
+@if (ghost(); as g) {
+  <!-- The drag ghost (epic Tale Studio 2 R3, DESIGN Drag ghost): the element at its size on the canvas,
+       over the stage's rectangle, whose size container gives it the canvas's cqh sizes. -->
+  <div
+    class="drag-stage"
+    aria-hidden="true"
+    [style.left.px]="g.stage.left"
+    [style.top.px]="g.stage.top"
+    [style.width.px]="g.stage.width"
+    [style.height.px]="g.stage.height"
+  >
+    <div
+      class="drag-ghost"
+      [class.is-over]="g.over"
+      [style.left.%]="g.box.x * 100"
+      [style.top.%]="g.box.y * 100"
+      [style.width.%]="g.box.w * 100"
+      [style.height.%]="g.box.h * 100"
+    >
+      @if (ghostText(g.look); as t) {
+        <span
+          class="drag-ghost__text"
+          [attr.dir]="t.view.dir"
+          [style.font-family]="t.view.family"
+          [style.font-size]="t.view.size"
+          [style.line-height]="t.view.lineHeight"
+          [style.font-weight]="t.view.weight"
+          [style.font-style]="t.view.fontStyle"
+          [style.color]="t.view.color"
+          [style.text-align]="t.view.align"
+          [style.background-color]="t.view.boxColor ?? t.view.lineColor"
+          [style.padding-inline]="t.view.boxPadding ?? t.view.linePadding"
+          [textContent]="t.text"
+        ></span>
+      } @else if (ghostShape(g.look); as s) {
+        <span
+          class="el__shape"
+          [style.background-color]="s.fill"
+          [style.border]="s.border"
+          [style.border-radius]="s.radius"
+          [style.opacity]="s.opacity"
+        >
+          @if (s.line; as line) {
+            <span class="el__stroke" [style.height]="line.height" [style.background-color]="line.color"></span>
+          }
+        </span>
+      } @else if (ghostLink(g.look); as b) {
+        <span
+          class="el__link"
+          [style.color]="b.color"
+          [style.background-color]="b.background"
+          [style.border]="b.border"
+          [style.border-radius]="b.radius"
+          [style.font-size]="b.fontSize"
+          [textContent]="b.label"
+        ></span>
+      } @else if (ghostConfigured(g.look); as c) {
+        <span
+          class="el__link"
+          [style.color]="c.color"
+          [style.border]="'0.3cqh dashed ' + c.color"
+          [style.font-size]="c.fontSize"
+          [textContent]="c.text"
+        ></span>
+      } @else if (ghostIcon(g.look); as i) {
+        <span class="drag-ghost__icon"><app-icon [name]="i.icon" /> {{ i.word }}</span>
+      }
+      @if (g.over) {
+        <span class="drag-ghost__at">{{ percent(g.box.x) }}%, {{ percent(g.box.y) }}%</span>
+      }
+    </div>
+  </div>
+}
+@if (dragTip(); as tip) {
+  <!-- A blocked tile being dragged: why, by the pointer. The live region says it too. -->
+  <p class="drag-tip" aria-hidden="true" [style.left.px]="tip.x" [style.top.px]="tip.y">{{ tip.reason }}</p>
 }
 <!-- The studio's one polite live region, and one alert region for save failures: the first failure and nothing per retry. -->
 <p class="visually-hidden" id="studio-live" aria-live="polite">{{ announcement() }}</p>

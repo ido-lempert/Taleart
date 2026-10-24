@@ -497,13 +497,13 @@ describe('TaleStudioPage', () => {
     const [el] = elements();
     expect(el.textContent?.trim()).toBe('Hello');
     expect(document.activeElement).toBe(el);
-    // From 42% down: ArrowUp twice with Shift (10% each), then once (1%).
+    // From 40% down (the centre of the safe area): ArrowUp twice with Shift (10% each), then once (1%).
     key(el, 'ArrowUp', { shiftKey: true });
     key(el, 'ArrowUp', { shiftKey: true });
     key(el, 'ArrowUp');
     await settle(fixture);
-    expect(elements()[0].style.top).toBe('21%');
-    expect((root.querySelector('#studio-y') as HTMLInputElement).value).toBe('21');
+    expect(elements()[0].style.top).toBe('19%');
+    expect((root.querySelector('#studio-y') as HTMLInputElement).value).toBe('19');
     expect(root.querySelector('[aria-live=polite]')?.textContent).toContain('Text moved');
 
     const body = await saveNow(1);
@@ -512,7 +512,7 @@ describe('TaleStudioPage', () => {
       {
         id: expect.stringMatching(/^[0-9a-f-]{36}$/),
         type: 'text',
-        box: { x: 0.1, y: 0.21, w: 0.8, h: 0.16, rotation: 0 },
+        box: { x: 0.1, y: 0.19, w: 0.8, h: 0.16, rotation: 0 },
         hidden: false,
         locked: false,
         a11y: {},

@@ -74,14 +74,16 @@ test.describe.serial('Tale Studio 2: the studio in five regions (story 11.1)', (
     await picker.getByRole('button', { name: /^Use / }).click();
     await expect(picker).toBeHidden();
     const alt = page.locator('textarea[id^="media-alt-"]');
-    await expect(alt).toBeFocused();
+    // Focus is on the new element on the canvas (story 11.4); its inspector shows its fields.
+    await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     await alt.fill('A running shoe');
     await alt.press('Tab');
 
     await page.locator('#studio-add-rectangle').click();
     await page.locator('#studio-add-poll').click();
     const question = page.locator('input[id^="field-poll-question-"]');
-    await expect(question).toBeFocused();
+    // Focus is on the new element on the canvas (story 11.4); its inspector shows its fields.
+    await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     const pollId = ((await question.getAttribute('id')) ?? '').replace('field-poll-question-', '');
     await question.fill('Which colour next?');
     await question.press('Tab');

@@ -183,7 +183,8 @@ function nearest(edges: number[], targets: number[], distance: number): { shift:
   for (const target of targets) {
     for (const edge of edges) {
       const gap = Math.abs(target - edge);
-      if (gap <= best.gap) best = { shift: target - edge, at: target, gap };
+      // On a tie the earlier target wins: the canvas centre, then the safe-area edges, then other elements (story 11.4).
+      if (best.at === null ? gap <= best.gap : gap < best.gap - 1e-9) best = { shift: target - edge, at: target, gap };
     }
   }
   return { shift: best.shift, at: best.at };

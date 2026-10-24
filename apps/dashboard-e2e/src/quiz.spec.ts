@@ -130,7 +130,8 @@ test.describe.serial('a quiz (epic interactive components story 4.3)', () => {
     await page.goto(`/tales/${taleId}/studio`);
     await page.locator('#studio-add-quiz').click();
     const question = page.locator('input[id^="field-quiz-question-"]');
-    await expect(question).toBeFocused();
+    // Focus is on the new element on the canvas (story 11.4); its inspector shows its fields.
+    await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     quizId = (await question.getAttribute('id'))?.replace('field-quiz-question-', '') ?? '';
     await question.fill('Which planet is hottest?');
     await question.press('Tab');
