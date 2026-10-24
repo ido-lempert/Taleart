@@ -79,3 +79,11 @@ title = "Developer experience"
 description = "API tokens for scripts, an interactive Swagger API reference in the docs, a taleart CLI and an agent skill that uses it (owner request 2026-10-24)."
 covers = ["R3", "R10"]
 after = []
+
+[[epic]]
+id = 11
+slug = "epic-tale-studio-2"
+title = "Tale Studio 2: a low-code editor"
+description = "Tale Studio becomes a low-code editor: a grouped, searchable palette of every registered element type to drag onto the 9:16 canvas or add by click or key, a contextual inspector in sections with swatches, sliders, segmented controls and a font picker, canvas zoom, alignment and smart guides, a tale strip, Media and Templates tabs, RTL mirroring, more shapes and entrance animation, keyboard and screen-reader parity, and tablet and phone modes (owner request 2026-10-24)."
+covers = ["R13", "R10"]
+after = [{ epic = 7, needs = "the built studio, its accessibility review and sweep (7.15, 7.16), which this epic rebuilds (story 1)" }, { epic = 4, needs = "the quiz (4.3) merged; 4.4 to 4.7 add descriptors in the files stories 3 and 6 reshape, per story" }, { epic = 8, needs = "tale order and the group view (8.11) for the tale strip (story 9 only)" }]

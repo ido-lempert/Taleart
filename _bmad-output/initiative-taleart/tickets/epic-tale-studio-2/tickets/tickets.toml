@@ -1,0 +1,220 @@
+# Breakdown for epic-tale-studio-2, vertical slices in build order.
+# Each entry is a flow a person reviews in Tale Studio (dashboard) or on the sample host page that loads the Web SDK.
+# Table order is build order; id is permanent.
+#
+# One studio lane (tale-studio.ts/html/css and the panels split out of it):
+#   1 (tracer shell) -> 2 (owner layout review, hitl) -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 14 -> 15 -> 16
+# Contract and SDK lane, beside the studio lane once 5 is in (each adds its own inspector controls):
+#   12 (shapes), 13 (entrance animation, waits on an architect answer)
+# Then 17 (accessibility review, hitl) and 18 (sweep).
+#
+# Interactive components (epic 4): the epic starts after 4.3 (quiz), which is being merged now.
+# Stories 4.4 to 4.7 add descriptors and inspector fields in tale-element-types.ts and tale-fields-inspector.ts,
+# the files that stories 3 and 6 reshape. Each of those stories says so; whichever merges second carries the other's
+# change. A descriptor in today's shape keeps working (it shows under More with its fields in Content).
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: the studio in five regions"
+description = "Rebuilds the studio page per epic R1 with today's controls: a full-height shell with the top bar (back, tale name, undo and redo, Preview, save state, status line, Update tale, and a tale menu holding Discard changes, Duplicate and Keyboard shortcuts), a left panel with an Elements tab (today's Add entries as tiles, grouped by their current row) and a Layers tab (today's layers list, keyboard model unchanged), the canvas centred on a workspace at a fit size, the inspector on the right (today's Selected and Canvas fieldsets), and the Preview pane opening in the inspector's place. The page no longer scrolls; each panel scrolls on its own; F6 and Shift+F6 cycle the regions. Click to add as today. Templates and Media tabs exist as placeholders that say what is coming. Studio e2e and a11y specs (studio-keyboard, studio-a11y) are updated to the new structure."
+verify = "At 1440x900 the canvas, the palette and the inspector of a selected element are all visible without scrolling the page; a tale composed in the new shell (text, image, shape, poll) updates and shows on the sample page as before; F6 reaches each region in order; the existing studio e2e and WCAG 2.2 AA scan pass."
+covers = ["R1", "R16", "R17"]
+after = ["4.3", "7.15", "7.16"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/ux-tale-studio-2/EXPERIENCE.md#information-architecture", "_bmad-output/initiative-taleart/ux-tale-studio-2/mockups/tale-studio-2.html"]
+notes = ["Restructures tale-studio.html: a story of 4.4 to 4.7 in flight at the same time rebases onto it (its changes are in descriptors and fields, not the page layout)."]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Owner reviews the new layout and settles the design decisions"
+description = "The owner walks the five-region studio from story 1 on a test build (screenshots at 1440, 1024 and 390 wide beside the mock in ux-tale-studio-2/mockups), and confirms or changes each item under 'Owner decisions to confirm' in EXPERIENCE.md (layers placement, animation in scope, canvas drawn by the SDK renderer, new shapes, built-in templates only, RTL mirror, phone edit-lite, Discard and Duplicate in the tale menu, strip reorder changing group order). Each answer becomes a dated Decision line in the epic's Notes and, where it changes the design, an update to EXPERIENCE.md and to the affected entries below."
+verify = "Every owner decision in EXPERIENCE.md has a dated Decision line in the epic's Notes, and every entry it changes has been revised or dropped."
+covers = ["R1"]
+after = [1]
+hitl = true # the owner reviews the layout and answers the decisions
+risk = "low"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Find any element in a grouped, searchable palette"
+description = "Adds a `palette` entry to the studio descriptor (category, order, keywords, presets with props and box) and builds the Elements tab from it per epic R2: categories Text, Media, Shapes, Stickers & emoji, Buttons & links, Interactive, More; text presets (Heading, Subheading, Body, Caption, Label) drawn in their style; one tile per shape kind; search over labels and keywords with a live count; limits and the project-media rule as focusable disabled tiles with their reason; a registered type without a palette entry under More; test-only types never shown. Migrates every existing descriptor to the new entry."
+verify = "Typing 'vote' finds Poll and the count is announced; with a poll in the tale the Poll tile is disabled and says why; the test badge type registered without a palette entry shows under More in a test build and nowhere in production; a unit test checks every registry key has a tile."
+covers = ["R2", "R17"]
+after = [2]
+hitl = false
+risk = "medium"
+notes = ["Conflicts with 4.4 to 4.7, which add descriptors to tale-element-types.ts in today's shape: whichever merges second migrates the other's descriptors (an unmigrated one still shows under More)."]
+
+[[entry]]
+id = 4
+type = "story"
+title = "Drag an element onto the canvas, or add it with a click or a key"
+description = "Pointer drag from a palette tile onto the canvas per epic R3: a ghost at the element's real size, snapping and safe-area overlay while dragging, drop at the pointer clamped inside the stage, cancel by dropping outside or pressing Escape ('Not added'). Click, Enter or Space adds at the next free spot in the safe area. Both select the new element, focus it on the canvas and announce it in the studio's polite live region. Dragging is never the only way (WCAG 2.5.7)."
+verify = "Drag a Poll to the lower third: it lands under the pointer, snapped to the centre guide, selected and announced; drop a tile on the workspace outside the stage: nothing is added; with the keyboard only, Tab to Rating, press Enter: it is added, selected and focused on the canvas; one undo removes each add."
+covers = ["R3", "R16", "R17"]
+after = [3]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Edit an element in sections with swatches, sliders and a font picker"
+description = "Rebuilds the inspector of the built-in types (text, media, shape, emoji, link) per epic R4 and R5: the contextual header (type, layer name, lock, hide), disclosure sections in order (Content, Style, Position & size, Action, Accessibility; Animation comes with story 13), remembered open state, a section with a problem opening itself, and the low-code controls: colour swatches (theme, this tale, recent, custom with hex, contrast badge on text colour), slider with number field, segmented control, toggle, and the font picker that shows each font in its face with an inline project-font upload. Nothing selected shows the Tale settings. One drag of a slider is one undo step."
+verify = "Select a heading: change its font to a project font from the picker (each option drawn in its face), drag the size slider (one undo step reverts it), pick a theme swatch and see the contrast badge; select an image without alt text: Accessibility is open with the warning; keyboard only: arrows move through swatches and segmented options."
+covers = ["R4", "R5", "R16", "R17"]
+after = [4]
+hitl = false
+risk = "high"
+notes = ["Touches tale-text-style.ts, tale-shapes.ts, tale-media.ts and tale-links.ts; does not touch the configured inspector, so it does not conflict with 4.4 to 4.7."]
+
+[[entry]]
+id = 6
+type = "story"
+title = "New component types get sections and low-code controls from their descriptor"
+description = "Extends the descriptor's inspector fields per epic R5: each field names its `section` (content by default, style, action, accessibility) and may use the controls `slider`, `segmented`, `swatch`, `toggle` and `font`, with ranges and options taken from the type's props schema; the configured inspector renders them in the right sections, with Responses last for interactive types. Moves poll, rating and quiz (and any of 4.4 to 4.7 already merged) to sections, e.g. theme as a segmented Light/Dark in Style."
+verify = "The poll's theme is a segmented control in Style and its question and options are in Content; a test type whose descriptor declares a slider field shows a slider with the schema's min and max, and a value out of range is refused with the schema's reason; responses still show for poll, rating and quiz."
+covers = ["R4", "R5", "R2"]
+after = [5]
+hitl = false
+risk = "medium"
+notes = ["Conflicts with 4.4 to 4.7, which add fields to tale-fields-inspector.ts (4.5 adds a date-time field): whichever merges second carries the other's change. A field without a section keeps working in Content."]
+
+[[entry]]
+id = 7
+type = "story"
+title = "Zoom, pan and show the safe area on the canvas"
+description = "Adds the zoom control per epic R6 (Fit by default, 25 to 400%, menu, Ctrl or Cmd plus, minus, 0 and 1, Ctrl or Cmd with the wheel, pinch), panning (Space+drag, middle drag, scrollbars, keys), and the safe-area toggle remembered per user, always shown while dragging. Moving, resizing, dropping and snapping map pointer positions through the zoom; an undo or a layers pick scrolls the selection into view."
+verify = "At 200% drag a text to the safe-area edge: it snaps to the same place as at Fit; Ctrl+0 returns to Fit and it keeps fitting on window resize; with the overlay off, dragging still shows it; keyboard only: zoom in and out from the zoom menu."
+covers = ["R6", "R17"]
+after = [6]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Select several elements, align and distribute them"
+description = "Multi-select per epic R7 by Shift or Cmd-click, marquee on empty canvas, select all and Shift selection in the layers list; the inspector's multi-selection context with Align (left, centre, right, top, middle, bottom), Distribute (with three or more) and the bounds; align a single element to the canvas or the safe area; equal-spacing smart guides with distance labels; keyboard shortcuts; each action one named undo step announced in the live region."
+verify = "Marquee three elements and press Align centre: their centres line up, one undo restores them and 'Undid Align centre' is announced; distribute three texts vertically: equal gaps; drag a fourth between two others: an equal-spacing guide and its distance show; keyboard only: select three from the layers list and align them with the shortcut."
+covers = ["R7", "R16", "R17"]
+after = [7]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Move between a group's tales in the tale strip"
+description = "Adds the tale strip per epic R8: the group's tales as 9:16 thumbnails of their drafts, the current one marked (aria-current), Hidden and changes-not-updated marks, open another tale after autosave flushes (a failed flush stops the switch), '+' for a blank tale, from a template (once story 10 is in, until then blank and from media) or from media, and a menu with Duplicate, Move earlier, Move later, Hide or Show, Delete; drag to reorder with Alt+arrows as the alternative. Reorder uses the group's tale order, so the site follows."
+verify = "In a group of three tales, move tale 3 to first with Alt+Left: the strip, the group drawer and the sample page show the new order; edit tale 1 and switch to tale 2: the edit is saved and tale 1 shows the changed mark until updated; hide a tale from the strip: it shows the Hidden mark and leaves the sample page."
+covers = ["R8", "R16", "R17"]
+after = [8, "8.11"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Add photos and video from the Media tab, or drop files to upload"
+description = "Builds the Media tab per epic R9: the project's media with search and a filter for images, videos and stickers; upload by button or by dropping files on the panel or the canvas, with progress, failure, retry and remove; add an item by click or drag onto the canvas; drop an image on the Background target to set the tale's background; alt text asked for in Accessibility. Reuses the media picker's data and upload path."
+verify = "Drop a JPEG from the desktop onto the canvas: it uploads with progress and lands as an image element at the drop point with Accessibility asking for alt text; drag an image onto the Background target: it becomes the background; keyboard only: filter to Videos, add one with Enter."
+covers = ["R9", "R3", "R17"]
+after = [9]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Start a tale from a template or drop in a styled preset"
+description = "Adds starter tales and element presets as registry data in libs/contract per epic R10 (Announcement, Product drop, Ask a question, Countdown to launch, Quiz time, Blank; heading styles, button styles, a poll with a heading), each valid against the document schema in a unit test; the Templates tab shows them as thumbnails drawn by the SDK renderer; applying to an empty tale fills it, to a non-empty one asks Replace elements or Add as new tale; replace is one undo step. A template that names a type the build does not have (e.g. countdown before 4.5) is hidden. The strip's '+' gains From template."
+verify = "On an empty tale apply Product drop: the elements appear and one undo empties the tale; on a tale with elements choose Add as new tale: a new tale opens after the current one in the strip; every template passes the document schema test."
+covers = ["R10", "R16", "R8"]
+after = [10]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 12
+type = "story"
+title = "Draw stars, arrows and speech bubbles with an outline"
+description = "Adds the shape kinds star, arrow and speech bubble and a stroke (colour, width) to the shape schema in libs/contract as an additive change (AD-15), validated on the server, rendered by the Web SDK as inline SVG with no content-supplied markup, and offered as palette tiles with stroke controls in the shape's Style section. An older SDK skips an unknown kind. Measures the SDK size."
+verify = "Add a speech bubble with a 2 px white outline, update the tale: the sample page draws it as the preview did; a document with an unknown shape kind is refused by the server; the Web SDK stays at or under 50 KB gzipped."
+covers = ["R12", "R5"]
+after = [5]
+hitl = false
+risk = "medium"
+notes = ["The native renderer (epic 9) does not draw the new kinds until it adds them; it skips them."]
+
+[[entry]]
+id = 13
+type = "story"
+title = "Give an element an entrance animation"
+description = "Adds an optional entrance per element (none, fade, slide up, slide from start, pop, drift; delay and duration in ranges) as an additive field in libs/contract per epic R13, after the architect settles where it lives (epic Notes). The Web SDK plays it once when a tale opens and skips it under prefers-reduced-motion; the inspector gains the Animation section with a Play button that plays it on the canvas (also respecting reduced motion). Measures the SDK size and first-frame time."
+verify = "Give a heading 'Slide up' with 300 ms delay, update: on the sample page it slides in once when the tale opens; with reduced motion on it appears at once; the SDK stays at or under 50 KB gzipped and p75 first tale frame stays within its budget."
+covers = ["R13", "R4"]
+after = [5]
+hitl = false
+risk = "high"
+unknown = "Architect: is the entrance an element-level field beside a11y or inside props, and does the SDK budget allow it?"
+
+[[entry]]
+id = 14
+type = "story"
+title = "Mirror a tale for right-to-left and check it in the preview"
+description = "Adds 'Mirror for right-to-left' to the tale menu and the Tale settings per epic R11: each element's x becomes 1 - x - w, rotation is negated, texts get direction RTL and start alignment, as one undo step announced with the count; the preview gains a 'Right-to-left page' check that renders the viewer on a dir=rtl host; the Accessibility section shows the reading order following the tale's direction."
+verify = "Mirror a three-element English tale: positions flip, texts are RTL, one undo restores everything; type Hebrew in the heading and preview with Right-to-left page on: the tale reads right to left and the reading order in Accessibility is right to left."
+covers = ["R11", "R16"]
+after = [11]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 15
+type = "story"
+title = "See polls, ratings and quizzes on the canvas exactly as visitors do"
+description = "Draws configured element types on the canvas with the Web SDK's document renderer per epic R14, inert (no responses, no focus inside), under the studio's selection outline and handles, replacing the stand-in text; an unknown type is a labelled, locked box. Needs the architect's answer on a single-element renderer entry point (epic Notes)."
+verify = "A dark-theme poll and a rating look the same on the canvas as in the preview (pixel comparison within tolerance); clicking an option on the canvas selects the element and records no vote; a document with an unregistered type shows 'Unknown element', locked."
+covers = ["R14", "R2"]
+after = [14]
+hitl = false
+risk = "high"
+unknown = "Architect: may the dashboard use a single-element entry of the SDK's document renderer beyond @taleart/web-sdk/preview (AD-16)?"
+
+[[entry]]
+id = 16
+type = "story"
+title = "Edit tales on a tablet and on a phone"
+description = "Adds the responsive modes per epic R15: 1024 to 1279 px the left panel as an icon rail with a flyout that closes on Escape or after an add; 768 to 1023 px the inspector as a drawer opened by selection or a Properties button; below 768 px edit-lite with a full-width canvas, a bottom toolbar (Add, Layers, Properties, Tales) opening resizable sheets, and tap to add; focus never obscured by sheets or bars (2.4.11); panels reflow at 320 px."
+verify = "At 390x844 add a text from the Add sheet, change its colour in the Properties sheet and update the tale, with no horizontal page scroll and the selected element visible above the sheet; at 800 px wide the inspector opens as a drawer on selection and Escape closes it, returning focus to the element."
+covers = ["R15", "R17"]
+after = [15]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 17
+type = "story"
+title = "Accessibility review of Tale Studio 2"
+description = "Re-runs the automated WCAG 2.2 AA scans of the studio at 1440, 1024, 768 and 390 px wide and fixes what they find; then a person composes Flow 2 of EXPERIENCE.md (palette search, add by Enter, inspector controls, move, align, reorder a tale, update) using only the keyboard and a screen reader (VoiceOver or NVDA), and checks every drag has a single-pointer alternative (2.5.7); the walk is recorded beside the epic and its issues fixed."
+verify = "All scans report no WCAG 2.2 AA violations, and the walk record shows every studio action done without a pointer and without a drag, each announced."
+covers = ["R17"]
+after = [16]
+hitl = true # a person does the keyboard and screen-reader walk
+risk = "medium"
+
+[[entry]]
+id = 18
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at its start from the plans and review findings this epic deferred: split what remains of tale-studio.ts into panel components, remove the old Add-row and stand-in code paths, and align studio CSS with the DESIGN.md tokens."
+verify = "The studio e2e, a11y and unit suites pass unchanged, and no behaviour changes."
+covers = ["R1"]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+hitl = false
+risk = "low"
