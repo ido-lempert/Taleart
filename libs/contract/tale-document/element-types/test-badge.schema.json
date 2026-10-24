@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TestBadgeElementProps",
-  "description": "A test-only element type (epic Tale Studio R8): it proves that a type registered by configuration reaches the studio's Add menu and inspector, the server's validation and the SDK's renderer lookup. It is `testOnly` in the registry: the server accepts it only with TALE_TEST_ELEMENT_TYPES=on outside production, the dashboard offers it only in development builds that opt in, and no SDK renders it.",
+  "description": "A test-only element type: it proves that a type registered by configuration reaches the studio's Add menu and inspector, the server's validation and the SDK's renderer lookup. It is `testOnly` in the registry: the server accepts it only with TALE_TEST_ELEMENT_TYPES=on outside production, the dashboard offers it only in development builds that opt in, and no SDK renders it.",
   "type": "object",
   "additionalProperties": false,
   "required": ["label", "color", "tone"],
