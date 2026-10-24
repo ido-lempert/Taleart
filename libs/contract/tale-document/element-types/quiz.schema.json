@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "QuizElementProps",
-  "description": "The props of a quiz (epic interactive components R1, R3): an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.",
+  "description": "The props of a quiz: an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.",
   "type": "object",
   "additionalProperties": false,
   "required": ["question", "answers", "theme"],

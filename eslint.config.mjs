@@ -71,6 +71,7 @@ export default [
               group: [
                 '@taleart/*/**',
                 '!@taleart/contract/core',
+                '!@taleart/contract/openapi.json',
                 '!@taleart/contract/project-fonts',
                 '!@taleart/contract/tale-document',
                 '!@taleart/contract/text-style',

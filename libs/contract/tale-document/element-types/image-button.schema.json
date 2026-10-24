@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ImageButtonElementProps",
-  "description": "The props of a custom image button (epic Tale Studio R7): an image of the tale's project, by its storage key (AD-11), never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination (R7, R12, R14).",
+  "description": "The props of a custom image button: an image of the tale's project, by its storage key, never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination.",
   "type": "object",
   "additionalProperties": false,
   "required": ["mediaKey"],
@@ -13,7 +13,7 @@
       "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp)$"
     },
     "href": {
-      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters.",
       "type": "string",
       "maxLength": 2048,
       "pattern": "^[hH][tT][tT][pP][sS]?://"

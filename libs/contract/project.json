@@ -14,16 +14,19 @@
         "{projectRoot}/openapi/openapi.yaml",
         "{projectRoot}/tale-document/**/*.json",
         "{projectRoot}/scripts/generate-tale-document-schemas.mjs",
-        "{projectRoot}/scripts/tale-document-registry.mjs"
+        "{projectRoot}/scripts/tale-document-registry.mjs",
+        "{projectRoot}/scripts/generate-openapi-json.mjs"
       ],
       "outputs": [
         "{projectRoot}/src/generated/api.ts",
-        "{projectRoot}/src/generated/tale-document-schemas.ts"
+        "{projectRoot}/src/generated/tale-document-schemas.ts",
+        "{projectRoot}/src/generated/openapi.json"
       ],
       "options": {
         "commands": [
           "openapi-typescript libs/contract/openapi/openapi.yaml --enum-values -o libs/contract/src/generated/api.ts",
-          "node libs/contract/scripts/generate-tale-document-schemas.mjs"
+          "node libs/contract/scripts/generate-tale-document-schemas.mjs",
+          "node libs/contract/scripts/generate-openapi-json.mjs"
         ],
         "parallel": false
       }
@@ -37,7 +40,18 @@
         "outputPath": "dist/libs/contract",
         "main": "libs/contract/src/index.ts",
         "tsConfig": "libs/contract/tsconfig.lib.json",
-        "assets": []
+        "assets": [
+          {
+            "input": "libs/contract/src/generated",
+            "glob": "openapi.json",
+            "output": "src/generated"
+          },
+          {
+            "input": "libs/contract/src",
+            "glob": "openapi-json.d.ts",
+            "output": "src"
+          }
+        ]
       },
       "dependsOn": [
         "generate"
