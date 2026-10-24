@@ -157,7 +157,7 @@ beforeAll(async () => {
   await insertTokens();
   writeFileSync(join(work, 'one.png'), png(8, 8, [220, 40, 40]));
   writeFileSync(join(work, 'two.png'), png(8, 8, [40, 40, 220]));
-  writeFileSync(join(work, 'ids.csv'), 'user_id\nu-1\nu-2\nu-2\n\nnot ascii é\n');
+  writeFileSync(join(work, 'ids.csv'), 'user_id\nu-1\nu-2\nu-2\n\ntwo,columns\n');
 });
 
 afterAll(async () => {
