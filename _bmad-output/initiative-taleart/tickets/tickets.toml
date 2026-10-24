@@ -71,3 +71,11 @@ title = "Analytics"
 description = "Per-widget and per-content metrics (Reach, Impression, Click, Engagement Rate, CTR) are recorded and shown, with published definitions."
 covers = ["R7"]
 after = [{ epic = 3, needs = "widgets emitting events" }, { epic = 4, needs = "interactive events" }]
+
+[[epic]]
+id = 10
+slug = "epic-developer-experience"
+title = "Developer experience"
+description = "API tokens for scripts, an interactive Swagger API reference in the docs, a taleart CLI and an agent skill that uses it (owner request 2026-10-24)."
+covers = ["R3", "R10"]
+after = []

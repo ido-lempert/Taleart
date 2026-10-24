@@ -1,0 +1,45 @@
+# Breakdown for epic-developer-experience, vertical slices in build order.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Create, list and revoke API tokens for scripts"
+description = "Adds personal API tokens to the access module: a person creates a named token in the dashboard (Settings > API tokens), optionally limited to some projects and to read-only; it is shown once (prefix tat_), stored only as a hash, lists with name, prefix, scope, created and last used, and can be revoked. The Management API accepts `Authorization: Bearer tat_…` as an alternative to the session cookie, acting as the creating user within the token's scope; a revoked or expired token answers 401 like no session. OpenAPI gains a `token` security scheme on every Management route. Tokens never work on the Delivery API, and site keys never work on the Management API."
+verify = "Create a read-only token for one project: GET of that project's zones works, a POST is refused 403, another project answers 404/403 as for a session; revoke it: the next call is 401; the dashboard shows the token once and never again; the database holds only its hash."
+covers = ["R3"]
+after = []
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 2
+type = "story"
+title = "The docs show the whole API with a Swagger UI you can try with a token"
+description = "The docs site gets an API reference page built from libs/contract/openapi/openapi.yaml with Swagger UI: every Management and Delivery operation with its schemas and examples, an Authorize dialog for an API token (Management) and a site key (Delivery), and Try it out against a configurable API URL (default the local API). The spec is served by the API at /api/openapi.json and copied into the docs build so the page also works offline. The page meets the docs' WCAG checks as far as Swagger UI allows (documented exceptions)."
+verify = "Open the docs API page, authorize with a token from 10.1, try GET /api/v1/projects and see the real answer; authorize with a site key and try the Delivery zone call; the reference lists every path in openapi.yaml (a test compares)."
+covers = ["R10"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "A taleart CLI drives the Management API"
+description = "A `taleart` command-line tool in the workspace (apps/cli, Node, no new runtime) authenticates with TALEART_API_URL and TALEART_TOKEN (or `taleart login` storing them in the user's config dir with 0600 permissions) and covers the main tasks: projects, zones (create, display, slug, install snippet), tale groups (create, On/Off, tags and match mode, copy), tales (create from media upload, hide/show, delete), user lists (create, upload CSV, delete) and site keys; `--json` output for scripts, clear errors, `--help` everywhere. Built on the generated contract types so it stays in step with the API."
+verify = "With a token, a script runs: create a zone, set a bar display, create a group with two image tales from local files, turn it On; the sample/test page shows it; every command has --help and --json; tests run the CLI against a test API."
+covers = ["R10"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "An agent skill that manages TaleArt through the CLI, documented in the docs"
+description = "An Agent Skills package (`skills/taleart/SKILL.md` plus reference files) that teaches an AI agent (Claude Code and compatible agents) to manage TaleArt with the `taleart` CLI: setup and token handling (never print the token), the concepts (zone, tale group, tale, site key, targeting), recipes for common tasks, safe-by-default rules (confirm before delete, prefer read-only tokens for read tasks) and troubleshooting. The docs site gets an 'AI agents' page: what the skill does, how to install it (copy the folder or a one-line install), an example session, and the skill text itself."
+verify = "In a fresh Claude Code session with the skill installed and a token set, the prompt 'create a zone home-top with a bar and a group Summer with two tales from ./img, and turn it On' completes through the CLI and the test page shows it; the docs page renders the skill and install steps."
+covers = ["R10"]
+after = [2, 3]
+hitl = false
+risk = "low"
