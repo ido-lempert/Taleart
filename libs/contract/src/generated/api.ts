@@ -557,7 +557,7 @@ export interface paths {
         put?: never;
         /**
          * Add the external user IDs of a single-column CSV to a user list.
-         * @description The body is the CSV, UTF-8 (a byte order mark is skipped), one ID per row, read as a stream and not kept. Each non-empty row, trimmed (and unquoted when it is a quoted field), is one ID of at most 256 characters with no control characters; matching is exact and case-sensitive. Each ID is stored only as HMAC-SHA-256 under the project's secret (epic targeting R5); no ID is ever returned, logged or kept. Rows already in the list, or earlier in the file, count as already present; refused rows are counted and the first 10 named by line number and reason. The upload is all or nothing. Admins and content managers upload. Checked before the body is read (with `Connection: close`): too many uploads at once 429 `upload_busy`; unknown project 404 `project_not_found`; unknown list 404 `user_list_not_found`; a type other than `text/csv` or `text/plain` 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over 50 MB 413 `user_list_file_too_large`. While it streams: over 1,000,000 rows 413 `user_list_file_too_large`, not UTF-8 or a body other than its declared length 400 `validation_failed`; nothing is added in either case.
+         * @description The body is the CSV, UTF-8 (a byte order mark is skipped), one ID per row, read as a stream and not kept. Each non-empty row, trimmed (and unquoted when it is a quoted field), is one ID of at most 256 ASCII characters with no control characters; matching is exact (case-sensitive, no Unicode normalization). Each ID is stored only as HMAC-SHA-256 under the project's secret (epic targeting R5); no ID is ever returned, logged or kept. Rows already in the list, or earlier in the file, count as already present; refused rows are counted and the first 10 named by line number and reason. The upload is all or nothing. Admins and content managers upload. An upload that sends no byte for 30 s, or takes more than 280 s in all (a 50 MB file needs about 190 KB/s), is ended with nothing added (408 `validation_failed`, often on a closed connection). Checked before the body is read (with `Connection: close`): too many uploads at once 429 `upload_busy`; unknown project 404 `project_not_found`; unknown list 404 `user_list_not_found`; a type other than `text/csv` or `text/plain` 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over 50 MB 413 `user_list_file_too_large`. While it streams: over 1,000,000 rows 413 `user_list_file_too_large`, not UTF-8 or a body other than its declared length 400 `validation_failed`; nothing is added in either case.
          */
         post: operations["addUserListIds"];
         delete?: never;
@@ -1531,10 +1531,10 @@ export interface components {
             reason: components["schemas"]["UserListRefusal"];
         };
         /**
-         * @description Why a row was refused: longer than 256 characters, holding a control character, or more than one field (an unquoted comma or quote, or a broken quoted field).
+         * @description Why a row was refused: longer than 256 characters, holding a control character, holding a character outside ASCII (only ASCII IDs are supported until the Delivery header's encoding is defined, epic targeting story 4), or more than one field (an unquoted comma or quote, or a broken quoted field).
          * @enum {string}
          */
-        UserListRefusal: "too-long" | "control-character" | "not-one-column";
+        UserListRefusal: "too-long" | "control-character" | "not-ascii" | "not-one-column";
         /** @description What an upload did, in counts only (epic targeting R3, R5). It never holds an uploaded value. */
         UserListUploadReport: {
             /** @description IDs added to the list. */
@@ -3680,6 +3680,7 @@ export interface operations {
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            408: components["responses"]["Error"];
             411: components["responses"]["Error"];
             413: components["responses"]["Error"];
             415: components["responses"]["Error"];
@@ -5029,7 +5030,7 @@ export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: Readonly
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
 export const createZoneRequestTemplateValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["CreateZoneRequest"]["template"]> = ["stories-bar", "promo-banner", "blank"];
-export const userListRefusalValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserListRefusal"]> = ["too-long", "control-character", "not-one-column"];
+export const userListRefusalValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserListRefusal"]> = ["too-long", "control-character", "not-ascii", "not-one-column"];
 export const tagMatchValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TagMatch"]> = ["any", "all"];
 export const visibilityReasonSubjectValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReason"]["subject"]> = ["zone", "group", "tale"];
 export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet", "no-visible-groups", "no-tale-groups"];

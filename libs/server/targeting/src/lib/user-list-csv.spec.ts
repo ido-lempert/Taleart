@@ -24,7 +24,7 @@ describe('readUserListCsv', () => {
     { kind: 'empty', line: 3 },
     { kind: 'id', id: 'u,3', line: 4 },
     { kind: 'refused', reason: 'not-one-column', line: 5 },
-    { kind: 'id', id: 'ü-5', line: 6 },
+    { kind: 'refused', reason: 'not-ascii', line: 6 },
   ];
 
   it.each([1, 2, 3, 7, 1024])('reads LF, CRLF and CR lines in chunks of %i bytes', async (size) => {
@@ -64,7 +64,7 @@ describe('readUserListCsv', () => {
     await expect(read('a\nb\nc\n', 1024, { maxRows: 2 })).rejects.toBeInstanceOf(UserListFileTooLargeError);
   });
 
-  it('throws on bytes that are not UTF-8, naming a line but no value', async () => {
+  it('throws on bytes that are not UTF-8, naming no value', async () => {
     const bytes = new Uint8Array([...enc.encode('secret-1\nsecret-2\n'), 0xff, 0x0a]);
     const err = await read(bytes).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UserListFileNotUtf8Error);

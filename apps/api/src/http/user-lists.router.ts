@@ -37,6 +37,20 @@ const CSV_TYPES = new Set(['text/csv', 'text/plain', 'application/csv']);
 /** The CSV uploads one process streams at once by default (each holds a database connection). */
 export const MAX_CONCURRENT_USER_LIST_UPLOADS = 2;
 
+/**
+ * How long an upload may go without a byte before it is ended: the request is destroyed and its
+ * transaction rolled back. Counted only while the server waits for bytes, not while it writes.
+ */
+export const USER_LIST_UPLOAD_IDLE_MS = 30_000;
+
+/**
+ * How long a whole upload may take, from its first check to its last row: 280 s, under Node's
+ * 300 s `server.requestTimeout` (set in main.ts). A 50 MB file needs at least about 190 KB/s
+ * (1.5 Mbit/s); a slower link can send the file in parts, each added to the same list. It also
+ * bounds how long an upload holds its list's lock and its project's shared lock (epic targeting R5).
+ */
+export const USER_LIST_UPLOAD_DEADLINE_MS = 280_000;
+
 /** How the user list routes are bounded. */
 export interface UserListOptions {
   /** The most uploads this process streams at once; more answer 429 `upload_busy`. */
@@ -45,6 +59,12 @@ export interface UserListOptions {
   maxBytes?: number;
   /** The most rows of one CSV (tests lower it). */
   maxRows?: number;
+  /** {@link USER_LIST_UPLOAD_IDLE_MS} by default (tests lower it). */
+  idleMs?: number;
+  /** {@link USER_LIST_UPLOAD_DEADLINE_MS} by default (tests lower it). */
+  deadlineMs?: number;
+  /** The database's idle-in-transaction backstop, such as `120s` (tests lower it). */
+  databaseIdleTimeout?: string;
 }
 
 async function requireProject(pool: Pool, projectId: string): Promise<void> {
@@ -70,18 +90,37 @@ class UploadRefused extends Error {
   }
 }
 
+/** Ends a request that sent no byte for too long, or took too long in all. */
+export class UploadTimedOut extends Error {
+  constructor(readonly why: 'idle' | 'deadline') {
+    super(why === 'idle' ? 'The upload stalled' : 'The upload took too long');
+    this.name = 'UploadTimedOut';
+  }
+}
+
 /**
  * The request body as chunks: a body longer or shorter than its declared length stops the stream
  * (400). Stopping does not destroy the request, so the caller can drain the rest and still answer.
+ * While it waits for the next chunk, `idleMs` without a byte destroys the request with
+ * {@link UploadTimedOut}, which ends the read with that error; so does the caller's deadline.
  */
-async function* wholeBody(req: IncomingMessage, length: number): AsyncGenerator<Uint8Array> {
+async function* wholeBody(req: IncomingMessage, length: number, idleMs: number): AsyncGenerator<Uint8Array> {
   const notWhole = () =>
     new UploadRefused(new HttpError(400, ErrorCodes.validationFailed, 'The file did not arrive whole'));
   let received = 0;
-  for await (const chunk of req.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>) {
-    received += chunk.length;
+  const chunks = req.iterator({ destroyOnReturn: false })[Symbol.asyncIterator]() as AsyncIterator<Buffer>;
+  for (;;) {
+    const idle = setTimeout(() => req.destroy(new UploadTimedOut('idle')), idleMs);
+    let next: IteratorResult<Buffer>;
+    try {
+      next = await chunks.next();
+    } finally {
+      clearTimeout(idle);
+    }
+    if (next.done) break;
+    received += next.value.length;
     if (received > length) throw notWhole();
-    yield chunk;
+    yield next.value;
   }
   if (received !== length) throw notWhole();
 }
@@ -92,6 +131,8 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
   const projectAccess = authorizeParam(pool, 'project', 'projectId');
   const maxUploads = options.maxConcurrentUploads ?? MAX_CONCURRENT_USER_LIST_UPLOADS;
   const maxBytes = options.maxBytes ?? MAX_USER_LIST_CSV_BYTES;
+  const idleMs = options.idleMs ?? USER_LIST_UPLOAD_IDLE_MS;
+  const deadlineMs = options.deadlineMs ?? USER_LIST_UPLOAD_DEADLINE_MS;
   let uploads = 0;
 
   router.get('/:projectId/user-lists', projectAccess, async (req, res, next) => {
@@ -141,6 +182,8 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
 
   router.post('/:projectId/user-lists/:userListId/ids', projectAccess, async (req, res, next) => {
     let counted = false;
+    // The whole upload's deadline: it destroys the request, which ends the read and rolls back.
+    const deadline = setTimeout(() => req.destroy(new UploadTimedOut('deadline')), deadlineMs);
     try {
       // Everything that needs no byte of the body is checked first, and refused with
       // `Connection: close` so the body is never read: the role (403), uploads in flight (429), the
@@ -190,7 +233,8 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
         report = await addUserListRows(
           pool,
           { projectId, userListId },
-          readUserListCsv(wholeBody(req, length), { header, maxRows: options.maxRows }),
+          readUserListCsv(wholeBody(req, length, idleMs), { header, maxRows: options.maxRows }),
+          { databaseIdleTimeout: options.databaseIdleTimeout },
         );
       } catch (err) {
         // Nothing was added (one transaction). The rest of a refused body is drained, unread, so
@@ -206,16 +250,25 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
         if (err instanceof UserListFileNotUtf8Error) {
           throw drained(new HttpError(400, ErrorCodes.validationFailed, err.message));
         }
+        // Stalled or too slow: the request is destroyed and nothing was added. The answer is tried,
+        // though the connection is usually gone.
+        if (err instanceof UploadTimedOut) {
+          throw early(new HttpError(408, ErrorCodes.validationFailed, `${err.message}. Nothing was added; try again.`));
+        }
         // The client went away mid-file: nothing was added, and there is nobody to answer.
-        if (req.destroyed || (err as { message?: string }).message === 'aborted') {
+        // (A request read to its end is destroyed too, so `complete` tells a cut body from a whole one.)
+        if (!req.complete && (req.destroyed || (err as { message?: string }).message === 'aborted')) {
           throw early(new HttpError(400, ErrorCodes.validationFailed, 'The file did not arrive whole'));
         }
+        // Anything else (the database, a bug) answers 500: the rest of the body is drained, unread.
+        req.resume();
         throw err;
       }
       res.json(report satisfies UserListUploadReport);
     } catch (err) {
       next(err);
     } finally {
+      clearTimeout(deadline);
       if (counted) uploads--;
     }
   });

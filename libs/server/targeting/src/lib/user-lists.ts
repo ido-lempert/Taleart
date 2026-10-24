@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import {
   externalUserIdRefusal,
   looksLikeEmail,
@@ -34,10 +34,12 @@ const LIST_COLUMNS = `id, project_id AS "projectId", name, id_count AS "idCount"
 export const USER_LIST_INSERT_BATCH = 5000;
 
 /**
- * How long an upload's transaction may wait for the next bytes before the database ends it: a
- * client that stalls cannot hold a connection and the list's lock for longer.
+ * The database's backstop for an upload's transaction: how long it may sit idle between two
+ * statements before PostgreSQL ends the session. The API's own timers end a stalled or too slow
+ * upload long before (30 s without bytes, 280 s in all, apps/api user-lists.router.ts); this only
+ * catches a caller that has none. It must stay longer than the caller's idle timer.
  */
-export const USER_LIST_UPLOAD_IDLE_TIMEOUT = '60s';
+export const USER_LIST_UPLOAD_DATABASE_IDLE_TIMEOUT = '120s';
 
 interface UserListRow {
   id: string;
@@ -57,13 +59,11 @@ export function hashExternalUserId(secret: Uint8Array, id: string): Buffer {
   return createHmac('sha256', secret).update(id, 'utf8').digest();
 }
 
-/** True when two hashes are the same, compared in constant time. */
-export function sameHash(a: Uint8Array, b: Uint8Array): boolean {
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 // Creates, deletes and uploads of one project's lists are serialised against each other by this
-// lock: creates and deletes take it alone (the list cap, the secret's life), uploads share it.
+// lock: creates and deletes take it alone (the list cap, the secret's life), uploads share it. An
+// upload holds it for as long as its file streams, which its caller bounds (the API: at most 280 s,
+// and 30 s without bytes; the database backstop above otherwise), so a create or a delete waits at
+// most that long behind a running upload.
 async function lockProject(tx: Db, projectId: string, shared = false): Promise<void> {
   await tx.query(`SELECT pg_advisory_xact_lock${shared ? '_shared' : ''}(hashtext('user_lists:' || $1))`, [projectId]);
 }
@@ -178,6 +178,64 @@ export async function deleteUserList(
   });
 }
 
+/** How an upload's transaction is bounded. */
+export interface UserListUploadOptions {
+  /** The database's idle-in-transaction backstop, such as `120s`; {@link USER_LIST_UPLOAD_DATABASE_IDLE_TIMEOUT} by default. */
+  databaseIdleTimeout?: string;
+}
+
+/** A checked-out client that may emit `error`, as a pg PoolClient does. */
+type ListenedClient = Db & {
+  release(err?: Error | boolean): void;
+  on?(event: 'error', listener: (err: Error) => void): unknown;
+  off?(event: 'error', listener: (err: Error) => void): unknown;
+};
+
+/**
+ * Runs an upload in one transaction on one connection, with an `error` listener on the client for
+ * as long as it is checked out: when PostgreSQL ends the session (the idle-in-transaction backstop
+ * fires FATAL 25P03 while the client waits for bytes), pg emits `error` on the client, and without a
+ * listener Node would exit. The error is kept and thrown instead, the work rolls back, and the
+ * broken client is discarded rather than returned to the pool.
+ */
+async function uploadTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
+  const client = (await db.connect()) as ListenedClient;
+  let broken: Error | null = null;
+  const onError = (err: Error) => {
+    broken = err;
+  };
+  client.on?.('error', onError);
+  const check = () => {
+    if (broken) throw broken;
+  };
+  try {
+    await client.query('BEGIN');
+    const result = await work({
+      query: (async (...args: unknown[]) => {
+        check();
+        return (client.query as (...a: unknown[]) => unknown)(...args);
+      }) as unknown as Db['query'],
+    });
+    check();
+    await client.query('COMMIT');
+    client.off?.('error', onError);
+    client.release();
+    return result;
+  } catch (err) {
+    try {
+      if (broken) throw broken;
+      await client.query('ROLLBACK');
+      client.off?.('error', onError);
+      client.release();
+    } catch (rollbackErr) {
+      // A connection that cannot roll back, or that the database ended, is not returned to the pool.
+      client.off?.('error', onError);
+      client.release(rollbackErr as Error);
+    }
+    throw err;
+  }
+}
+
 /** Where IDs go: a list of a project. */
 export interface UserListTarget {
   projectId: string;
@@ -196,10 +254,13 @@ export async function addUserListRows(
   db: TransactionalDb,
   target: UserListTarget,
   rows: AsyncIterable<NumberedUserListRow> | Iterable<NumberedUserListRow>,
+  options: UserListUploadOptions = {},
 ): Promise<UserListUploadReport> {
   if (!UUID.test(target.projectId) || !UUID.test(target.userListId)) throw new UserListNotFoundError();
-  return inTransaction(db, async (tx) => {
-    await tx.query(`SET LOCAL idle_in_transaction_session_timeout = '${USER_LIST_UPLOAD_IDLE_TIMEOUT}'`);
+  const idleTimeout = options.databaseIdleTimeout ?? USER_LIST_UPLOAD_DATABASE_IDLE_TIMEOUT;
+  if (!/^\d+(ms|s|min)$/.test(idleTimeout)) throw new Error('databaseIdleTimeout must be like 120s');
+  return uploadTransaction(db, async (tx) => {
+    await tx.query(`SET LOCAL idle_in_transaction_session_timeout = '${idleTimeout}'`);
     await lockProject(tx, target.projectId, true);
     const { rows: found } = await tx.query<{ secret: Buffer }>(
       `SELECT s.secret FROM user_lists l JOIN user_list_secrets s ON s.project_id = l.project_id
@@ -276,6 +337,7 @@ export async function addUserListIds(
   db: TransactionalDb,
   target: UserListTarget,
   ids: AsyncIterable<string> | Iterable<string>,
+  options: UserListUploadOptions = {},
 ): Promise<UserListUploadReport> {
   async function* rows(): AsyncGenerator<NumberedUserListRow> {
     let line = 0;
@@ -290,5 +352,5 @@ export async function addUserListIds(
       yield reason === null ? { kind: 'id', id, line } : { kind: 'refused', reason, line };
     }
   }
-  return addUserListRows(db, target, rows());
+  return addUserListRows(db, target, rows(), options);
 }

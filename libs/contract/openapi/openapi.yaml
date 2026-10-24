@@ -1021,13 +1021,16 @@ paths:
         The body is the CSV, UTF-8 (a byte order mark is skipped), one ID per
         row, read as a stream and not kept. Each non-empty row, trimmed (and
         unquoted when it is a quoted field), is one ID of at most 256
-        characters with no control characters; matching is exact and
-        case-sensitive. Each ID is stored only as HMAC-SHA-256 under the
+        ASCII characters with no control characters; matching is exact
+        (case-sensitive, no Unicode normalization). Each ID is stored only as HMAC-SHA-256 under the
         project's secret (epic targeting R5); no ID is ever returned, logged
         or kept. Rows already in the list, or earlier in the file, count as
         already present; refused rows are counted and the first 10 named by
         line number and reason. The upload is all or nothing. Admins and
-        content managers upload. Checked before the body is read (with
+        content managers upload. An upload that sends no byte for 30 s, or
+        takes more than 280 s in all (a 50 MB file needs about 190 KB/s), is
+        ended with nothing added (408 `validation_failed`, often on a closed
+        connection). Checked before the body is read (with
         `Connection: close`): too many uploads at once 429 `upload_busy`;
         unknown project 404 `project_not_found`; unknown list 404
         `user_list_not_found`; a type other than `text/csv` or `text/plain`
@@ -1058,6 +1061,8 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
         '411':
+          $ref: '#/components/responses/Error'
+        '408':
           $ref: '#/components/responses/Error'
         '413':
           $ref: '#/components/responses/Error'
@@ -3209,11 +3214,13 @@ components:
           $ref: '#/components/schemas/UserListRefusal'
     UserListRefusal:
       type: string
-      enum: [too-long, control-character, not-one-column]
+      enum: [too-long, control-character, not-ascii, not-one-column]
       description: >-
         Why a row was refused: longer than 256 characters, holding a control
-        character, or more than one field (an unquoted comma or quote, or a
-        broken quoted field).
+        character, holding a character outside ASCII (only ASCII IDs are
+        supported until the Delivery header's encoding is defined, epic
+        targeting story 4), or more than one field (an unquoted comma or
+        quote, or a broken quoted field).
     UserListUploadReport:
       type: object
       required: [added, alreadyPresent, refused, refusedRows, emptyRows, emailLike, phoneLike, idCount]

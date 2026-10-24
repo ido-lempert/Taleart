@@ -26,10 +26,18 @@ describe('normalizeUserListName', () => {
 describe('external user IDs', () => {
   it('accepts up to 256 code points and refuses longer ones and controls', () => {
     expect(externalUserIdRefusal('a'.repeat(MAX_EXTERNAL_USER_ID_LENGTH))).toBeNull();
-    expect(externalUserIdRefusal('é'.repeat(MAX_EXTERNAL_USER_ID_LENGTH))).toBeNull();
+    expect(externalUserIdRefusal('~'.repeat(MAX_EXTERNAL_USER_ID_LENGTH))).toBeNull();
     expect(externalUserIdRefusal('a'.repeat(MAX_EXTERNAL_USER_ID_LENGTH + 1))).toBe('too-long');
     expect(externalUserIdRefusal('a\u0000b')).toBe('control-character');
     expect(externalUserIdRefusal('a\u0085b')).toBe('control-character');
+  });
+
+  it('refuses IDs outside ASCII until the Delivery header defines its encoding (story 5.4)', () => {
+    expect(externalUserIdRefusal('müller-7')).toBe('not-ascii');
+    expect(externalUserIdRefusal('user-😀')).toBe('not-ascii');
+    expect(externalUserIdRefusal('é'.repeat(MAX_EXTERNAL_USER_ID_LENGTH + 1))).toBe('too-long');
+    expect(normalizeExternalUserId('ü')).toBeNull();
+    expect(parseUserListCsvLine('"zoë"')).toEqual({ kind: 'refused', reason: 'not-ascii' });
   });
 
   it('normalizes by trimming only, case kept', () => {

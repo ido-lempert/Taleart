@@ -132,6 +132,7 @@ R10 (parent R5, R12; architecture AD-12): **Docs for targeting and its privacy**
 - Waits on epic-web-zones and epic-ux-rework because: the zone, the Delivery response, the group row ⋯ menu and the indicator are what targeting extends (pinned per story).
 - Waits on epic-native-mobile because: story 9 extends its Delivery client and zone composable (9.2, 9.3). Only story 9 waits on epic 9.
 - Decision (2026-10-23, Sofia): the device visitor id of UX rework story 8.23 (header `X-TaleArt-Visitor`, owner decision) is a separate header from the external user ID and is never linked to it, stored with it, or used for targeting.
+- Decision (2026-10-24, story 5.3 security review): until story 4 defines how the external user ID travels in its request header, user lists accept only ASCII IDs (a row with any other character is refused as `not-ascii`, "only ASCII IDs are supported for now"), so no uploaded ID can be one a header could never match. Story 4 must define the header's encoding (percent-encoded or base64url UTF-8) and decode it before `normalizeExternalUserId`; then non-ASCII IDs can be allowed. IDs match exactly: case counts and no Unicode normalization is applied.
 
 ### Owner decisions to confirm
 

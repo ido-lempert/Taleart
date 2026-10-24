@@ -49,8 +49,8 @@ echoed or kept. The dashboard gets an Audience page with a User lists tab.
 - Parsing never buffers the file: lines are cut from the stream, hashed and inserted in batches with
   back-pressure; the ID strings are dropped once hashed. Error objects carry line numbers, never values.
 - The secret never leaves the targeting module: no route returns it, and it is not in any log.
-- Hashes are compared by the database's unique index (exact bytes); any in-process comparison of a
-  hash or secret uses `timingSafeEqual`.
+- Hashes are compared by the database's unique index (exact bytes); no hash or secret is compared in
+  process in this story (story 4 uses `timingSafeEqual` if it ever does).
 - Uploads reuse the media route's shape: checked before the body is read (role, concurrency cap,
   project, list, type, Content-Length, size) and refused with `Connection: close`.
 - Project-scoped (AD-4): every table carries `project_id`; the list key is (id, project_id).
@@ -78,7 +78,7 @@ an error message; a soft delete; keeping the CSV on disk or in memory.
   IDs) and `addUserListRows` (the CSV path), both inserting `ON CONFLICT DO NOTHING` in batches in one
   transaction under the list's row lock and a shared project lock. `user-list-csv.ts`: a streaming
   parser (BOM, LF/CRLF/CR, one field, quoted with `""`, optional header row, fatal UTF-8 decoder, row
-  and byte caps). `hashExternalUserId(secret, id)` and `sameHash` (timing-safe).
+  and byte caps). `hashExternalUserId(secret, id)`.
 - **API:** `user-lists.router.ts` mounted at `/projects`; the JSON parser skips the upload path; the
   error handler maps the new errors; at most 2 uploads per process at once (429 `upload_busy`).
 - **Dashboard:** a rail item Audience, route `/audience` for the selected project, a tablist with one
@@ -100,5 +100,27 @@ list shows 8 IDs and the report names the refused line; a CSV of emails shows th
 is created; a database dump and the API log contain none of the uploaded IDs in clear; delete the
 list: no row of it remains; delete a test project with a list: none of its lists or hashes remain.
 Then the full lint/test/build run, `dashboard-e2e:e2e` and `dashboard-e2e:a11y`.
+
+## Review fixes (security review, 2026-10-24)
+
+- **F1 (blocking), a stalled upload crashed the API:** the PostgreSQL idle-in-transaction timeout
+  ended the session (FATAL 25P03) on a checked-out client with no `error` listener, and Node exited.
+  The upload now runs in its own transaction with an `error` listener on the client for as long as it
+  is checked out; the error is kept, the work rolls back and the client is discarded. The API ends an
+  upload itself from the bytes: 30 s without a byte (counted only while it waits for bytes) or 280 s
+  in all destroys the request and rolls back. 280 s is under `server.requestTimeout` (300 s, now set
+  explicitly in main.ts); a 50 MB file needs at least about 190 KB/s (1.5 Mbit/s), and a slower link
+  can send it in parts. The PostgreSQL timeout stays as a backstop at 120 s, longer than the idle
+  timer. The pool gets an `error` listener (db.ts). Tests: a stalled body (408 or a closed connection,
+  nothing added, the list free, the process up), a deadline, the database backstop (shown to crash
+  without the fix), a slow but steady upload, a forced 500 that logs no ID.
+- **F2:** until story 4 defines the header's encoding, IDs outside ASCII are refused as `not-ascii`
+  ("only ASCII IDs are supported for now"); epic Notes and the contract README say so, and that IDs
+  match exactly (case, no Unicode normalization).
+- **F3, how long the project lock is held:** an upload holds its list's row lock and its project's
+  shared advisory lock while its file streams, so at most 280 s (30 s without bytes), plus its last
+  batch; a create or a delete in that project waits at most that long. A caller without the API's
+  timers (the importer) is bounded by the 120 s database backstop per idle gap.
+- **F4:** the unused `sameHash` is gone; the UTF-8 test title is fixed.
 
 </intent-contract>
