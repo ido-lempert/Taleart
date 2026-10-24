@@ -55,14 +55,10 @@ import {
   MAX_SWIPE_UP_ELEMENTS,
   MEDIA_FITS,
   MIN_TALE_DURATION_MS,
-  NEW_BUTTON_BOX,
   NEW_EMOJI_BOX,
   NEW_IMAGE_BUTTON_BOX,
-  NEW_LINE_BOX,
   NEW_MEDIA_BOX,
-  NEW_SHAPE_BOX,
   NEW_STICKER_BOX,
-  NEW_TEXT_BOX,
   newButtonProps,
   newShapeProps,
   newSwipeUpProps,
@@ -125,6 +121,7 @@ import {
   type ShapeView,
   type TextView,
 } from './tale-canvas-view';
+import { dropBox, nextFreeSpot, tileBox } from './tale-placement';
 import { TalePreviewPane } from './tale-preview';
 import {
   LEFT_TABS,
@@ -211,6 +208,56 @@ interface Drag {
   before: TaleDocument;
 }
 
+/** How far a mouse or pen moves on a tile before the press is a drag (px). */
+const DRAG_START_PX = 4;
+/** How long a finger is held on a tile before it drags (ms); a quicker move scrolls the panel. */
+export const TOUCH_HOLD_MS = 250;
+/** How far a finger may move during the hold and still drag (px). */
+const TOUCH_SLOP_PX = 8;
+/** What a drag that adds nothing says (EXPERIENCE Accessibility Floor). */
+const NOT_ADDED = 'Not added';
+
+/** A press on a palette tile, and the drag it becomes (epic Tale Studio 2 R3). */
+interface TileDrag {
+  tile: PaletteTile;
+  pointerId: number;
+  touch: boolean;
+  /** Where the press began, and where the pointer is now (client px). */
+  x: number;
+  y: number;
+  lastX: number;
+  lastY: number;
+  /** Alt places freely: no snapping. */
+  altKey: boolean;
+  /** The press is a drag: it moved far enough, or the finger was held. */
+  active: boolean;
+  /** Escape cancelled it: the release adds nothing. */
+  cancelled: boolean;
+  /** Why the tile cannot add: the drag only says so. */
+  blocked: string | null;
+  hold: ReturnType<typeof setTimeout> | null;
+  /** The new element's box, before it is placed. */
+  size: TaleElementBox;
+  targets: SnapTargets;
+}
+
+/** How the drag ghost draws the element a tile adds. */
+type GhostLook =
+  | { kind: 'text'; text: string; view: TextView }
+  | { kind: 'shape'; view: ShapeView }
+  | { kind: 'link'; view: LinkView }
+  | { kind: 'configured'; view: { text: string; color: string; fontSize: string } }
+  | { kind: 'icon'; icon: PaletteTile['icon']; word: string };
+
+/** The ghost of a drag from the palette: over the stage's rectangle (client px), at `box` on it. */
+interface Ghost {
+  stage: { left: number; top: number; width: number; height: number };
+  box: TaleElementBox;
+  /** Over the stage: a release adds it at `box`. */
+  over: boolean;
+  look: GhostLook;
+}
+
 interface OpenMenu {
   x: number;
   y: number;
@@ -244,6 +291,8 @@ interface OpenPicker {
   elementId: string | null;
   currentKey: string | null;
   returnFocus: HTMLElement | null;
+  /** Where added media lands: where its tile was dropped, else the next free spot. */
+  box?: TaleElementBox;
 }
 
 // The props of a media element given other media: other media is not the tale's own (R16), so the
@@ -296,6 +345,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     './tale-studio-inspector.css',
     './tale-studio.css',
     './tale-studio-canvas.css',
+    './tale-studio-drag.css',
   ],
 })
 export class TaleStudioPage implements OnChanges {
@@ -390,6 +440,17 @@ export class TaleStudioPage implements OnChanges {
   /** The open layer actions menu, if any. */
   protected readonly menu = signal<OpenMenu | null>(null);
   private drag: Drag | null = null;
+  /** A press on a palette tile, until it is released or cancelled. */
+  private tileDrag: TileDrag | null = null;
+  /** A drag from a tile just ended: the click its release fires adds nothing. */
+  private tileDragged = false;
+  /** The ghost of the element being dragged from the palette. */
+  protected readonly ghost = signal<Ghost | null>(null);
+  private ghostLook: GhostLook | null = null;
+  /** The tile being dragged, drawn faded (DESIGN palette-tile-dragging). */
+  protected readonly draggingTile = signal<string | null>(null);
+  /** A blocked tile being dragged: its reason, by the pointer (EXPERIENCE State Patterns). */
+  protected readonly dragTip = signal<{ x: number; y: number; reason: string } | null>(null);
   /** A drag just ended: the click that follows it does not change the selection. */
   private dragged = false;
   /** Shift+Space just added to the selection: the click a button may fire for it is ignored. */
@@ -435,6 +496,8 @@ export class TaleStudioPage implements OnChanges {
     current: string | null;
     heading: string;
     returnFocus: HTMLElement | null;
+    /** Where an added emoji lands: where its tile was dropped; else the next free spot. */
+    box?: TaleElementBox;
   } | null>(null);
   /** The element types the studio offers, from the registry and each type's descriptor (R8). */
   protected readonly elementTypes = studioElementTypes({ testTypes: inject(STUDIO_TEST_ELEMENT_TYPES) });
@@ -1859,23 +1922,34 @@ export class TaleStudioPage implements OnChanges {
     return true;
   }
 
-  /** Adds a text, in a preset's style and box (Heading, Body text …), and starts editing it. */
-  protected addText(preset?: PalettePreset): void {
+  /** Adds a text, in a preset's style (Heading, Body text …) at `box`, and starts editing it in place on the canvas. */
+  protected addText(preset: PalettePreset | undefined, box: TaleElementBox): void {
     if (this.isHeld()) return;
     const element: TaleElement = {
       id: crypto.randomUUID(),
       type: 'text',
-      box: { ...(preset?.box ?? NEW_TEXT_BOX) },
+      box: { ...box },
       hidden: false,
       locked: false,
       a11y: {},
       props: { ...newTextProps('Text'), ...(preset?.props ?? {}) } as TextElementProps,
     };
     const name = preset && preset.id !== 'text' ? preset.label : 'Text';
-    this.change(`${name} added`, (elements) => [...elements, element]);
+    if (this.added(element, name)) this.edit(element.id);
+  }
+
+  /**
+   * Adds the element as one step in the history (epic Tale Studio 2 R3), selects it, says where it
+   * landed and what it still needs ("Poll added at 10%, 36%. Selected."), and focuses it on the
+   * canvas (a text opens its editor there instead). False when nothing was added.
+   */
+  private added(element: TaleElement, name: string, needs = '', where?: string): boolean {
+    if (!this.change(`${name} added`, (elements) => [...elements, element])) return false;
     this.selectOnly(element.id);
-    this.say(`${name} added`);
-    this.edit(element.id);
+    const at = where ?? `at ${this.percent(element.box.x)}%, ${this.percent(element.box.y)}%`;
+    this.say(`${name} added ${at}. Selected.${needs ? ` ${needs}` : ''}`);
+    if (element.type !== 'text') this.focusSoon(`studio-el-${element.id}`);
+    return true;
   }
 
   /** Types in place: the element becomes a text field at its place on the canvas. A locked one is not edited. */
@@ -2482,6 +2556,7 @@ export class TaleStudioPage implements OnChanges {
     elementId: string | null = null,
     sticker = false,
     imageButton = false,
+    box?: TaleElementBox,
   ): void {
     if (this.isHeld()) return;
     if (purpose === 'add' && kind === 'video' && this.videoLimitReached()) {
@@ -2518,7 +2593,7 @@ export class TaleStudioPage implements OnChanges {
             ? `Choose another ${kind}`
             : `Add ${kind === 'image' ? 'an image' : 'a video'}`;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    this.picker.set({ purpose, kind, sticker, imageButton, heading, elementId, currentKey, returnFocus });
+    this.picker.set({ purpose, kind, sticker, imageButton, heading, elementId, currentKey, returnFocus, box });
   }
 
   /** A canvas video read its length: one over 15 s is flagged, as only its first 15 s will play. */
@@ -2572,27 +2647,27 @@ export class TaleStudioPage implements OnChanges {
       this.focusSoon(`studio-el-${id}`);
       return;
     }
-    if (open.imageButton) this.addImageButton(media);
-    else this.addMedia(media, open.sticker);
+    const box =
+      open.box ??
+      nextFreeSpot(open.imageButton ? NEW_IMAGE_BUTTON_BOX : open.sticker ? NEW_STICKER_BOX : NEW_MEDIA_BOX, doc.elements);
+    if (open.imageButton) this.addImageButton(media, box);
+    else this.addMedia(media, open.sticker, box);
   }
 
   // Adds an image button (R7) over the other layers, with no alt text or web address yet: the
   // inspector and the layers list say it needs both before the tale is updated.
-  private addImageButton(media: ProjectMedia): void {
+  private addImageButton(media: ProjectMedia, box: TaleElementBox): void {
     if (media.kind !== 'image' || !this.roomForLayer()) return;
     const element: TaleElement = {
       id: crypto.randomUUID(),
       type: 'image-button',
-      box: { ...NEW_IMAGE_BUTTON_BOX },
+      box: { ...box },
       hidden: false,
       locked: false,
       a11y: {},
       props: { mediaKey: media.key },
     };
-    this.change('Image button added', (elements) => [...elements, element]);
-    this.selectOnly(element.id);
-    this.say('Image button added. Give it a web address and alt text before updating the tale.');
-    this.focusSoon(`link-href-${element.id}`);
+    this.added(element, 'Image button', 'Give it a web address and alt text before updating the tale.');
   }
 
   // True when the tale has room for one more layer; otherwise says so.
@@ -2606,56 +2681,273 @@ export class TaleStudioPage implements OnChanges {
    * Adds from a palette tile (R8, epic Tale Studio 2 R2): the studio's own flow for a built-in type,
    * else a configured type's, with the tile's preset. A blocked tile says why and adds nothing.
    */
-  protected addFromTile(tile: PaletteTile): void {
+  protected addFromTile(tile: PaletteTile, at?: TaleElementBox): void {
     this.cancelPaletteCount();
+    // The click a drag's release fires on its tile: the drop has added, or the drag was cancelled.
+    if (!at && this.tileDragged) return;
     const block = this.tileBlock(tile);
     if (block) {
       this.say(block.reason);
       return;
     }
+    // Where it lands: where it was dropped, else the next free spot in the safe area (EXPERIENCE Palette tile).
+    const box = at ?? nextFreeSpot(tileBox(tile), this.doc()?.elements ?? []);
     const action = tile.action;
     switch (action.kind) {
       case 'text':
-        return this.addText(tile.preset);
+        return this.addText(tile.preset, box);
       case 'media':
-        return this.openPicker('add', action.media);
+        return this.openPicker('add', action.media, null, false, false, box);
       case 'sticker':
-        return this.openPicker('add', 'image', null, true);
+        return this.openPicker('add', 'image', null, true, false, box);
       case 'image-button':
-        return this.openPicker('add', 'image', null, false, true);
+        return this.openPicker('add', 'image', null, false, true, box);
       case 'shape':
-        return this.addShape(action.shape);
+        return this.addShape(action.shape, box);
       case 'emoji':
-        return this.openEmojiPicker();
+        return this.openEmojiPicker(null, box);
       case 'button':
-        return this.addButton();
+        return this.addButton(box);
       case 'swipe-up':
         return this.addSwipeUp();
       case 'configured':
-        return this.addConfigured(tile.type, tile.preset);
+        return this.addConfigured(tile.type, tile.preset, box);
     }
   }
 
   /**
-   * Adds an element of a type registered by configuration (R8), from its descriptor and the tile's
-   * preset, and opens its inspector.
+   * A press on a palette tile (epic Tale Studio 2 R3, EXPERIENCE Interaction Primitives): it becomes
+   * a drag once a mouse or pen moves 4 px, or a finger is held 250 ms (a quick swipe scrolls the
+   * panel). A press that does not become a drag is a click, which adds at the next free spot.
    */
-  private addConfigured(type: StudioElementType, preset?: PalettePreset): void {
+  protected tilePointerDown(event: PointerEvent, tile: PaletteTile): void {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    this.endTileDrag();
+    const drag: TileDrag = {
+      tile,
+      pointerId: event.pointerId,
+      touch: event.pointerType === 'touch',
+      x: event.clientX,
+      y: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      altKey: event.altKey,
+      active: false,
+      cancelled: false,
+      blocked: null,
+      hold: null,
+      size: tileBox(tile),
+      targets: { x: [], y: [] },
+    };
+    this.tileDrag = drag;
+    window.addEventListener('keydown', this.tileDragKey, true);
+    if (drag.touch) {
+      document.addEventListener('touchmove', this.holdScroll, { passive: false });
+      drag.hold = setTimeout(() => {
+        drag.hold = null;
+        if (this.tileDrag === drag) this.startTileDrag(drag);
+      }, TOUCH_HOLD_MS);
+      return;
+    }
+    try {
+      (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+    } catch {
+      // Synthetic pointers cannot be captured.
+    }
+  }
+
+  protected tilePointerMove(event: PointerEvent): void {
+    const drag = this.tileDrag;
+    if (!drag || drag.pointerId !== event.pointerId || drag.cancelled) return;
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
+    drag.altKey = event.altKey;
+    if (!drag.active) {
+      const moved = Math.abs(event.clientX - drag.x) + Math.abs(event.clientY - drag.y);
+      if (drag.touch) {
+        // Moved before the hold: the finger scrolls the panel.
+        if (moved > TOUCH_SLOP_PX) this.endTileDrag();
+        return;
+      }
+      if (moved < DRAG_START_PX) return;
+      this.startTileDrag(drag);
+    }
+    this.followPointer(drag);
+  }
+
+  /** The release: over the stage it adds there; anywhere else it adds nothing and says so. */
+  protected tilePointerUp(event: PointerEvent): void {
+    const drag = this.tileDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const ghost = this.ghost();
+    this.endTileDrag();
+    if (!drag.active && !drag.cancelled) return;
+    // The click this release fires adds nothing more.
+    this.tileDragged = true;
+    setTimeout(() => (this.tileDragged = false), 0);
+    if (drag.cancelled || drag.blocked) return;
+    if (ghost?.over) this.addFromTile(drag.tile, ghost.box);
+    else this.say(NOT_ADDED);
+  }
+
+  /** The browser took the pointer (a scroll, a system gesture): a drag under way adds nothing. */
+  protected tilePointerCancel(event: PointerEvent): void {
+    const drag = this.tileDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    this.endTileDrag();
+    if (drag.active && !drag.cancelled && !drag.blocked) this.say(NOT_ADDED);
+  }
+
+  /** A held finger opens no context menu on a tile, so the hold can start a drag. */
+  protected tileContextMenu(event: Event): void {
+    if (this.tileDrag?.touch) event.preventDefault();
+  }
+
+  // Escape while dragging cancels the drag (EXPERIENCE State Patterns); the release then adds nothing.
+  private readonly tileDragKey = (event: KeyboardEvent): void => {
+    const drag = this.tileDrag;
+    if (event.key !== 'Escape' || !drag?.active || drag.cancelled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    drag.cancelled = true;
+    this.clearDragShow();
+    if (!drag.blocked) this.say(NOT_ADDED);
+  };
+
+  // A finger dragging a tile does not scroll the panel under it.
+  private readonly holdScroll = (event: TouchEvent): void => {
+    if (this.tileDrag?.active && event.cancelable) event.preventDefault();
+  };
+
+  // The press became a drag: a blocked tile says why, by the pointer and once in the live region;
+  // otherwise the ghost shows, snapping to what lies on the canvas now.
+  private startTileDrag(drag: TileDrag): void {
+    drag.active = true;
+    this.cancelPaletteCount();
+    drag.blocked = this.held() || this.tileBlock(drag.tile)?.reason || null;
+    if (drag.blocked) {
+      this.say(drag.blocked);
+    } else {
+      drag.targets = snapTargets(this.doc()?.elements ?? [], new Set());
+      this.ghostLook = this.lookOf(drag.tile, drag.size);
+    }
+    this.draggingTile.set(drag.tile.id);
+    this.followPointer(drag);
+  }
+
+  // The ghost where the pointer is: over the stage, centred on it, snapped and clamped into the safe
+  // area as the drop will be; elsewhere, under the pointer as it is.
+  private followPointer(drag: TileDrag): void {
+    if (drag.blocked) {
+      this.dragTip.set({ x: drag.lastX, y: drag.lastY, reason: drag.blocked });
+      return;
+    }
+    const canvas = this.host.nativeElement.querySelector<HTMLElement>('#studio-canvas');
+    const rect = canvas?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0 || !this.ghostLook) return;
+    const point = { x: (drag.lastX - rect.left) / rect.width, y: (drag.lastY - rect.top) / rect.height };
+    const over = point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
+    let box: TaleElementBox = { ...drag.size, x: point.x - drag.size.w / 2, y: point.y - drag.size.h / 2 };
+    let lines: { x: number | null; y: number | null } | null = null;
+    if (over) {
+      const dropped =
+        drag.tile.action.kind === 'swipe-up'
+          ? { box: { ...SWIPE_UP_BOX }, lines: { x: null, y: null } }
+          : dropBox(
+              drag.size,
+              point,
+              drag.targets,
+              { x: SNAP_DISTANCE_PX / rect.width, y: SNAP_DISTANCE_PX / rect.height },
+              drag.altKey,
+            );
+      box = dropped.box;
+      lines = dropped.lines.x === null && dropped.lines.y === null ? null : dropped.lines;
+    }
+    this.snapLines.set(lines);
+    this.ghost.set({
+      stage: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      box,
+      over,
+      look: this.ghostLook,
+    });
+  }
+
+  // How the ghost draws the element a tile adds, as the canvas will; media and emoji, chosen after
+  // the drop, show the tile's icon and word in their box.
+  private lookOf(tile: PaletteTile, box: TaleElementBox): GhostLook {
+    const base = { id: 'ghost', box, hidden: false, locked: false, a11y: {} };
+    const action = tile.action;
+    switch (action.kind) {
+      case 'text': {
+        const props = { ...newTextProps('Text'), ...(tile.preset?.props ?? {}) } as TextElementProps;
+        return { kind: 'text', text: props.text, view: textView(props, this.themeFont() ?? null) };
+      }
+      case 'shape':
+        return { kind: 'shape', view: shapeView(newShapeProps(action.shape)) };
+      case 'button':
+        return { kind: 'link', view: linkView({ ...base, type: 'button', props: newButtonProps() }) };
+      case 'swipe-up':
+        return { kind: 'link', view: linkView({ ...base, type: 'swipe-up', props: newSwipeUpProps() }) };
+      case 'configured': {
+        const props = { ...(tile.type.create?.props() ?? {}), ...(tile.preset?.props ?? {}) };
+        return { kind: 'configured', view: this.configuredView({ type: tile.type.key, box, props }) };
+      }
+      default:
+        return { kind: 'icon', icon: tile.icon, word: tile.word };
+    }
+  }
+
+  // The ghost's look by kind, for the template.
+  protected ghostText(look: GhostLook) {
+    return look.kind === 'text' ? look : null;
+  }
+  protected ghostShape(look: GhostLook): ShapeView | null {
+    return look.kind === 'shape' ? look.view : null;
+  }
+  protected ghostLink(look: GhostLook): LinkView | null {
+    return look.kind === 'link' ? look.view : null;
+  }
+  protected ghostConfigured(look: GhostLook) {
+    return look.kind === 'configured' ? look.view : null;
+  }
+  protected ghostIcon(look: GhostLook) {
+    return look.kind === 'icon' ? look : null;
+  }
+
+  private clearDragShow(): void {
+    this.ghost.set(null);
+    this.ghostLook = null;
+    this.dragTip.set(null);
+    this.draggingTile.set(null);
+    this.snapLines.set(null);
+  }
+
+  // Forgets the press or the drag, and what it shows.
+  private endTileDrag(): void {
+    const drag = this.tileDrag;
+    if (!drag) return;
+    if (drag.hold !== null) clearTimeout(drag.hold);
+    this.tileDrag = null;
+    window.removeEventListener('keydown', this.tileDragKey, true);
+    document.removeEventListener('touchmove', this.holdScroll);
+    this.clearDragShow();
+  }
+
+  private readonly stopTileDrag = inject(DestroyRef).onDestroy(() => this.endTileDrag());
+
+  /** Adds an element of a type registered by configuration (R8), from its descriptor and the tile's preset, at `box`. */
+  private addConfigured(type: StudioElementType, preset: PalettePreset | undefined, box: TaleElementBox): void {
     if (this.isHeld() || !this.roomForLayer() || !type.create) return;
     const element = {
       id: crypto.randomUUID(),
       type: type.key,
-      box: { ...(preset?.box ?? type.create.box) },
+      box: { ...box },
       hidden: false,
       locked: false,
       a11y: { ...(type.create.a11y ?? {}) },
       props: { ...type.create.props(), ...(preset?.props ?? {}) },
     } as unknown as TaleElement;
-    this.change(`${type.label} added`, (elements) => [...elements, element]);
-    this.selectOnly(element.id);
-    this.say(`${type.label} added`);
-    const first = typeof type.inspector === 'object' ? type.inspector.fields[0] : undefined;
-    if (first) this.focusSoon(`field-${type.key}-${first.prop}-${element.id}`);
+    this.added(element, type.label);
   }
 
   /** True for an image, video, image sticker or image button: the media inspector edits it. */
@@ -2694,21 +2986,18 @@ export class TaleStudioPage implements OnChanges {
   }
 
   /** Adds a button (R7) above the bottom safe area, with no web address yet. */
-  protected addButton(): void {
+  protected addButton(box: TaleElementBox): void {
     if (this.isHeld() || !this.roomForLayer()) return;
     const element: TaleElement = {
       id: crypto.randomUUID(),
       type: 'button',
-      box: { ...NEW_BUTTON_BOX },
+      box: { ...box },
       hidden: false,
       locked: false,
       a11y: {},
       props: newButtonProps(),
     };
-    this.change('Button added', (elements) => [...elements, element]);
-    this.selectOnly(element.id);
-    this.say('Button added. Give it a web address before updating the tale.');
-    this.focusSoon(`link-href-${element.id}`);
+    this.added(element, 'Button', 'Give it a web address before updating the tale.');
   }
 
   /** Adds the swipe-up link (R7), pinned to the bottom safe area; a tale holds one. */
@@ -2728,15 +3017,12 @@ export class TaleStudioPage implements OnChanges {
       a11y: {},
       props: newSwipeUpProps(),
     };
-    this.change('Swipe-up link added', (elements) => [...elements, element]);
-    this.selectOnly(element.id);
-    this.say('Swipe-up link added at the bottom of the tale. Give it a web address before updating the tale.');
-    this.focusSoon(`link-href-${element.id}`);
+    this.added(element, 'Swipe-up link', 'Give it a web address before updating the tale.', 'at the bottom of the tale');
   }
 
   // Adds an image, video or image sticker of the project's media over the other layers, with no alt
   // text yet: the layers list and the inspector say it needs some before the tale is updated (R12).
-  private addMedia(media: ProjectMedia, sticker = false): void {
+  private addMedia(media: ProjectMedia, sticker: boolean, box: TaleElementBox): void {
     const doc = this.doc();
     if (!doc) return;
     if (doc.elements.length >= MAX_TALE_ELEMENTS) {
@@ -2749,7 +3035,7 @@ export class TaleStudioPage implements OnChanges {
     }
     const base = {
       id: crypto.randomUUID(),
-      box: { ...NEW_MEDIA_BOX },
+      box: { ...box },
       hidden: false,
       locked: false,
       a11y: {},
@@ -2758,13 +3044,9 @@ export class TaleStudioPage implements OnChanges {
     let element: MediaElement;
     if (sticker) {
       if (media.kind !== 'image' || !STICKER_CONTENT_TYPES.includes(media.contentType)) return;
-      element = { ...base, type: 'sticker', box: { ...NEW_STICKER_BOX }, props: { mediaKey: media.key } };
+      element = { ...base, type: 'sticker', props: { mediaKey: media.key } };
     } else element = media.kind === 'video' ? { ...base, type: 'video' } : { ...base, type: 'image' };
-    const kind = kindName(element);
-    this.change(`${kind} added`, (elements) => [...elements, element]);
-    this.selectOnly(element.id);
-    this.say(`${kind} added. Give it alt text, or mark it decorative, before updating the tale.`);
-    this.focusSoon(`media-alt-${element.id}`);
+    this.added(element, kindName(element), 'Give it alt text, or mark it decorative, before updating the tale.');
   }
 
   /**
@@ -2798,7 +3080,7 @@ export class TaleStudioPage implements OnChanges {
   }
 
   /** Adds a shape (R6) over the other layers: white, and decorative until it is named. */
-  protected addShape(shape: ShapeKind): void {
+  protected addShape(shape: ShapeKind, box: TaleElementBox): void {
     if (this.isHeld()) return;
     if ((this.doc()?.elements.length ?? 0) >= MAX_TALE_ELEMENTS) {
       this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
@@ -2807,21 +3089,17 @@ export class TaleStudioPage implements OnChanges {
     const element: TaleElement = {
       id: crypto.randomUUID(),
       type: 'shape',
-      box: { ...(shape === 'line' ? NEW_LINE_BOX : NEW_SHAPE_BOX) },
+      box: { ...box },
       hidden: false,
       locked: false,
       a11y: { decorative: true },
       props: newShapeProps(shape),
     };
-    const name = SHAPE_NAMES[shape];
-    this.change(`${name} added`, (elements) => [...elements, element]);
-    this.selectOnly(element.id);
-    this.say(`${name} added. It is decorative: screen readers skip it.`);
-    this.focusSoon(`studio-el-${element.id}`);
+    this.added(element, SHAPE_NAMES[shape], 'It is decorative: screen readers skip it.');
   }
 
   /** Opens the emoji picker (R6): to add an emoji, or to choose another for the one `elementId` names. */
-  protected openEmojiPicker(elementId: string | null = null): void {
+  protected openEmojiPicker(elementId: string | null = null, box?: TaleElementBox): void {
     if (this.isHeld()) return;
     const element = elementId === null ? undefined : this.element(elementId);
     if (element?.locked) {
@@ -2834,6 +3112,7 @@ export class TaleStudioPage implements OnChanges {
       current: element?.type === 'emoji' ? element.props.emoji : null,
       heading: element ? 'Choose another emoji' : 'Add an emoji',
       returnFocus,
+      box,
     });
   }
 
@@ -2865,16 +3144,13 @@ export class TaleStudioPage implements OnChanges {
     const element: TaleElement = {
       id: crypto.randomUUID(),
       type: 'emoji',
-      box: { ...NEW_EMOJI_BOX },
+      box: { ...(open.box ?? nextFreeSpot(NEW_EMOJI_BOX, this.doc()?.elements ?? [])) },
       hidden: false,
       locked: false,
       a11y: { label: choice.name },
       props: { emoji: choice.emoji },
     };
-    this.change('Emoji added', (elements) => [...elements, element]);
-    this.selectOnly(element.id);
-    this.say(`Emoji added: ${choice.name}. Screen readers announce it by this name, which you can edit.`);
-    this.focusSoon(`studio-el-${element.id}`);
+    this.added(element, 'Emoji', `Screen readers announce it as ${choice.name}, a name you can edit.`);
   }
 
   /** Applies a width or height field (a percentage of the canvas), keeping the box on the canvas. */

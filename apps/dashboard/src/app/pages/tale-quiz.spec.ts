@@ -256,12 +256,12 @@ describe('Tale Studio: a quiz (epic interactive components story 4.3)', () => {
     expect(add.textContent?.trim()).toBe('Add quiz');
     add.click();
     await settle(fixture);
-    expect(live()).toBe('Quiz added');
+    expect(live()).toBe('Quiz added at 10%, 28%. Selected.');
     const id = quiz().id;
     expect(quiz().props.question).toBe('Ask a question');
     expect(labels()).toEqual(['Answer 1', 'Answer 2']);
     expect(quiz().props.correctAnswerId).toBeUndefined();
-    expect(globalThis.document.activeElement?.id).toBe(`field-quiz-question-${id}`);
+    expect(globalThis.document.activeElement?.id).toBe(`studio-el-${id}`);
     http.expectOne(responsesUrl).flush({ elements: [] });
     await settle(fixture);
     expect(counts()).toEqual(['Answer 1 0', 'Answer 2 0']);
