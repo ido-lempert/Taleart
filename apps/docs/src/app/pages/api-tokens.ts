@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 /** API tokens for scripts (epic developer experience 10.1): what they are, their scope and their limits. */
 @Component({
   selector: 'docs-api-tokens',
+  imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">API tokens</h1>
@@ -30,6 +32,11 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
     <p>
       Keep it in your script's secret settings, never in a page's HTML: a page uses the project's site key
       (<code>tas_</code>) instead. A token works only on the Management API, and a site key only on the Delivery API.
+    </p>
+    <p>
+      Try it in the <a routerLink="/api-reference">API reference</a>, or let an AI agent use it through the
+      <code>taleart</code> command-line tool: see <a routerLink="/ai-agents">AI agents</a>. Give an agent a read-only
+      token when its task only reads.
     </p>
 
     <h2>What a token can do</h2>

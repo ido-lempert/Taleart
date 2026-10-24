@@ -24,6 +24,7 @@
       "@taleart/contract/tale-document": ["./libs/contract/src/lib/tale-document.ts"],
       "@taleart/contract/text-style": ["./libs/contract/src/lib/text-style.ts"],
       "@taleart/contract/theme": ["./libs/contract/src/lib/theme.ts"],
+      "@taleart/agent-skill/*": ["./skills/taleart/*"],
       "@taleart/server-access": ["./libs/server/access/src/index.ts"],
       "@taleart/server-importer": ["./libs/server/importer/src/index.ts"],
       "@taleart/server-interactive": ["./libs/server/interactive/src/index.ts"],

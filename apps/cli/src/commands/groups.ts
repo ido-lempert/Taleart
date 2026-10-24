@@ -7,6 +7,7 @@ import {
   type RenameTaleGroupRequest,
   type SetStatusRequest,
   type SetTaleGroupTagsRequest,
+  type SetTaleGroupUserListsRequest,
   type Tag,
   type TaleGroup,
   type ZoneTaleGroup,
@@ -14,7 +15,7 @@ import {
 import type { Context, GroupSpec } from '../command';
 import { CliError, EXIT, usageError } from '../errors';
 import { table } from '../output';
-import { resolveGroupId, resolveZoneId, seg } from '../resolve';
+import { resolveGroupId, resolveUserList, resolveZoneId, seg } from '../resolve';
 import { groupStatus, groupText, visible } from './format';
 
 const groupArg = { name: 'group', description: 'The tale group\'s id or name (a name within --project).', required: true };
@@ -220,6 +221,44 @@ export const groups: GroupSpec = {
         return {
           data: updated,
           text: `${updated.name}: tags ${updated.tags.map((t) => t.name).join(', ') || '(none)'}, match ${updated.tagMatch}`,
+        };
+      },
+    },
+    {
+      name: 'audience',
+      mutates: true,
+      result: 'TaleGroup',
+      summary: 'Target a tale group to user lists (external user IDs), or clear its user lists.',
+      description:
+        'The lists given become the group\'s whole set of user lists (names or ids within the group\'s project). The group then ' +
+        'shows only to viewers whose external user ID, set by the page, is in one of them; its tags still apply. --clear removes ' +
+        'every list, so the group shows to every viewer its tags allow.',
+      project: 'optional',
+      args: [groupArg],
+      options: {
+        list: { type: 'string', multiple: true, valueName: '<list>', description: 'A user list (id or name in the group\'s project).' },
+        clear: { type: 'boolean', description: 'Remove every user list.' },
+      },
+      examples: ['taleart groups audience Summer --list VIPs', 'taleart groups audience Summer --list VIPs --list Beta --json', 'taleart groups audience Summer --clear'],
+      async run(ctx) {
+        const refs = ((ctx.opts['list'] as string[] | undefined) ?? []).map((n) => n.trim()).filter(Boolean);
+        const clear = ctx.opts['clear'] === true;
+        if (clear && refs.length > 0) throw usageError('Give --list or --clear, not both');
+        if (!clear && refs.length === 0) throw usageError('Give --list or --clear');
+        const client = ctx.client();
+        const id = await groupId(ctx);
+        let userListIds: string[] = [];
+        if (!clear) {
+          const group = await client.get<TaleGroup>(`/tale-groups/${seg(id)}`);
+          userListIds = [];
+          for (const ref of refs) userListIds.push((await resolveUserList(client, ref, group.projectId)).id);
+        }
+        const body: SetTaleGroupUserListsRequest = { userListIds };
+        const updated = await client.put<TaleGroup>(`/tale-groups/${seg(id)}/user-lists`, body);
+        const lists = updated.userLists.map((l) => `${l.name} (${l.idCount} IDs)`).join(', ');
+        return {
+          data: updated,
+          text: `${updated.name}: user lists ${lists || '(none: every viewer)'} (visible: ${visible(updated.visibility)})`,
         };
       },
     },
