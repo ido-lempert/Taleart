@@ -106,14 +106,17 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
     await page.keyboard.press('Escape');
     await expect(page.locator('[id^="studio-el-"]').first()).toBeFocused();
 
-    // Arrows by position: Down from Heading reaches the second row of text presets, Up from it the search.
+    // Arrows by position: the text presets lie in two columns (Heading, Subheading / Body text,
+    // Caption / Label); Down follows the column, then into Media; Up from the top row is the search.
     await page.locator('#studio-add-heading').focus();
     await page.keyboard.press('ArrowRight');
     await expect(page.locator('#studio-add-subheading')).toBeFocused();
     await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#studio-add-caption')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     await expect(page.locator('#studio-add-label')).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(page.locator('#studio-add-video')).toBeFocused();
+    await expect(page.locator('#studio-add-image')).toBeFocused();
     await page.keyboard.press('End');
     await expect(page.locator('#studio-add-quiz')).toBeFocused();
     await page.keyboard.press('Home');
@@ -131,5 +134,42 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
     expect(await tileIds()).toEqual(['studio-add-test-badge']);
     if (shots) await page.screenshot({ path: join(shots, 'studio2-11-3-more.png') });
     await page.evaluate(() => localStorage.removeItem('taleart.testElementTypes'));
+  });
+
+  test('says once, above the groups, why the media tiles cannot add to a tale with no project', async () => {
+    // A tale the dashboard knows without a project: its project id taken out of each tale the API lists.
+    const unproject = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(unproject);
+      if (!value || typeof value !== 'object') return value;
+      const entries = Object.entries(value).map(([k, v]) => [k, unproject(v)]);
+      const object = Object.fromEntries(entries) as Record<string, unknown>;
+      if ('taleGroupId' in object && 'projectId' in object) object['projectId'] = null;
+      return object;
+    };
+    await page.route('**/api/v1/**', async (route) => {
+      const response = await route.fetch();
+      const type = response.headers()['content-type'] ?? '';
+      if (route.request().method() !== 'GET' || !type.includes('json')) return route.fulfill({ response });
+      return route.fulfill({ response, json: unproject(await response.json()) });
+    });
+    await page.reload();
+    await expect(page.locator('#studio-add-heading')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('#studio-project-hint')).toHaveCount(1);
+    await expect(page.locator('#studio-project-hint')).toHaveText(
+      "This tale has no project, so it can't use the project's media.",
+    );
+    for (const id of ['image', 'video', 'sticker', 'image-button']) {
+      const tile = page.locator(`#studio-add-${id}`);
+      await expect(tile, id).toHaveAttribute('aria-disabled', 'true');
+      await expect(tile, id).toHaveAccessibleDescription("This tale has no project, so it can't use the project's media.");
+    }
+    await expect(page.locator('#studio-add-emoji')).not.toHaveAttribute('aria-disabled', 'true');
+    // Focusable, and pressing it says why and adds nothing.
+    await page.locator('#studio-add-image').focus();
+    await page.keyboard.press('Enter');
+    await expect(live()).toHaveText("This tale has no project, so it can't use the project's media.");
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await axeViolations(page), 'with no project').toEqual([]);
+    await page.unroute('**/api/v1/**');
   });
 });

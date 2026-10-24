@@ -117,6 +117,9 @@ change to the targeting, docs or CLI areas (parallel builders).
 ## Implementation Notes
 
 - Sticker sits under Stickers & emoji, not Media: EXPERIENCE lists it in both, the mock under Media; one type has one category, and the category is named for it. Media holds Image and Video.
-- The Body preset is today's "Add text" (same box, text "Text"), at regular weight; its tile id is `studio-add-text`, the old `studio-add` id is gone (the tests that used it follow).
-- Limit hints show under the group of the tile they describe, in tile order, so `hintOrder` goes.
-- The count is debounced (400 ms) so typing a word is announced once; the visible count updates at once.
+- The Body preset is today's "Add text" exactly (same box, text "Text", DEFAULT_TEXT_STYLE, bold); only its tile draws it at regular weight (`tileProps`). Its tile id is `studio-add-text`; the old `studio-add` id is gone (the tests that used it follow).
+- Limit hints show under the group of the tile they describe, in tile order, so `hintOrder` goes. The full-tale and no-project reasons are shared by several groups, so each shows once above the groups.
+- The count is debounced (400 ms) so typing a word is announced once; the visible count updates at once. Adding from a tile, Arrow Down into the tiles and clearing drop a count not said yet; the count is said on its own, never taking a pending contrast note.
+- Search matches the start of a word ("rect" finds Rectangle, "cta" does not match inside "rectangle").
+- Text presets sit in two columns, drawn at 18, 15, 13 and 11 px (Heading, Subheading, Body, Caption), so the ladder reads at 1024 and 1440.
+- Review fixes (2026-10-24): body weight kept, the no-project reason once, count timer cleared, the size ladder, no `title` on blocked tiles (the reason is visible and is the description), more synonyms.

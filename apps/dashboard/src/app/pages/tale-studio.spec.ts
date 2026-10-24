@@ -517,7 +517,7 @@ describe('TaleStudioPage', () => {
         locked: false,
         a11y: {},
         // Every style setting is stored explicitly, the direction included (story 7.4).
-        props: { ...DEFAULT_TEXT_STYLE, weight: 'regular', text: 'Hello' },
+        props: { ...DEFAULT_TEXT_STYLE, text: 'Hello' },
       },
     ]);
     expect(body.document.elements[0].props).toMatchObject({ direction: 'auto', font: { source: 'system' } });

@@ -64,16 +64,16 @@ export function foldSearch(text: string): string {
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
-// The tile size a text preset is drawn at: its size on the canvas (a fraction of its height),
-// scaled so Heading reads largest and Caption smallest, from 11 to 16 px (10 px at least); and never wider than its
-// tile, so a long word ("Subheading") shrinks in a narrow tile rather than breaking (cqi: the
-// tile's width, about 0.6 em a letter).
+// The tile size a text preset is drawn at: its size on the canvas (a fraction of its height) on a
+// ladder from 11 px (Caption) to 18 px (Heading), 2 to 3 px between presets, in the Text group's
+// two columns. A narrow tile (the stacked panels under 1024 px) caps it by the tile's width (cqi,
+// about 0.6 em a letter, 9 px at least), so a long word ("Subheading") never breaks.
 function sampleOf(word: string, props: Readonly<Record<string, unknown>> | undefined): TileSample {
   const size = typeof props?.['size'] === 'number' ? props['size'] : 0.04;
   const weight = props?.['weight'];
-  const px = Math.min(16, Math.max(10, Math.round(5 + size * 180)));
+  const px = Math.min(18, Math.max(11, Math.round(4.3 + size * 228.6)));
   return {
-    fontSize: `clamp(10px, ${Math.floor(100 / (Math.max(word.length, 1) * 0.62))}cqi, ${px}px)`,
+    fontSize: `clamp(9px, ${Math.floor(100 / (Math.max(word.length, 1) * 0.62))}cqi, ${px}px)`,
     fontWeight: typeof weight === 'string' && weight in TEXT_WEIGHTS ? TEXT_WEIGHTS[weight as TextWeight] : 700,
     fontStyle: props?.['italic'] === true ? 'italic' : 'normal',
     boxed: props?.['background'] === 'box',
@@ -107,16 +107,20 @@ export function paletteTiles(types: readonly StudioElementType[]): PaletteTile[]
         preset,
         type,
         terms: [label, ...shared, ...(preset?.keywords ?? [])].map(foldSearch),
-        sample: action.kind === 'text' ? sampleOf(label, preset?.props) : undefined,
+        sample: action.kind === 'text' ? sampleOf(label, { ...preset?.props, ...preset?.tileProps }) : undefined,
       };
     });
   });
 }
 
-/** True when every word of the query is part of one of the tile's terms; an empty query matches all. */
+/**
+ * True when every word of the query starts a word of the tile's terms ("rect" finds Rectangle, but
+ * "cta" does not find it inside "rectangle", nor "rect" inside "correct"); an empty query matches all.
+ */
 export function tileMatches(tile: PaletteTile, query: string): boolean {
   const words = foldSearch(query).split(' ').filter(Boolean);
-  return words.every((word) => tile.terms.some((term) => term.includes(word)));
+  const starts = tile.terms.flatMap((term) => [term, ...term.split(/[\s-]+/)]);
+  return words.every((word) => starts.some((start) => start.startsWith(word)));
 }
 
 /**
