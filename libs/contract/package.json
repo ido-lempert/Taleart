@@ -30,6 +30,7 @@
       "types": "./src/lib/theme.d.ts",
       "default": "./src/lib/theme.js"
     },
+    "./openapi.json": "./src/generated/openapi.json",
     "./package.json": "./package.json"
   },
   "sideEffects": false,

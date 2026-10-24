@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/openapi.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This OpenAPI document, as JSON.
+         * @description Served at `/api/openapi.json`, with no credentials (any are ignored), `Cache-Control: public, max-age=300` and an ETag (304 for a matching `If-None-Match`). Its relative servers resolve against the API's origin.
+         */
+        get: operations["getOpenApiDocument"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2848,6 +2868,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getOpenApiDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The OpenAPI document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description The client's copy, named by `If-None-Match`, is still current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -4234,7 +4283,10 @@ export interface operations {
     getDeliveryZone: {
         parameters: {
             query: {
-                /** @description The zone's slug (lowercase letters, digits and hyphens), sent with the project's site key, as a host page names it in `zone="..."`. */
+                /**
+                 * @description The zone's slug (lowercase letters, digits and hyphens), sent with the project's site key, as a host page names it in `zone="..."`.
+                 * @example home-top
+                 */
                 zone: string;
             };
             header?: {

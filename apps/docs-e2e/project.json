@@ -4,6 +4,35 @@
   "projectType": "application",
   "sourceRoot": "apps/docs-e2e/src",
   "implicitDependencies": ["docs"],
-  "// targets": "to see all targets run: nx show project docs-e2e --web",
-  "targets": {}
+  "// targets": "e2e and a11y run against the built docs, served on E2E_DOCS_PORT (default 4317) by scripts/serve-docs.mjs; see playwright.config.mts. a11y is the axe WCAG 2.2 AA scan of every docs page (epic developer experience 10.2), with the API reference's documented Swagger UI exceptions.",
+  "targets": {
+    "e2e": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        {
+          "projects": ["docs"],
+          "target": "build"
+        }
+      ],
+      "options": {
+        "cwd": "apps/docs-e2e",
+        "command": "playwright test --grep-invert @a11y"
+      }
+    },
+    "a11y": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        {
+          "projects": ["docs"],
+          "target": "build"
+        }
+      ],
+      "options": {
+        "cwd": "apps/docs-e2e",
+        "command": "playwright test --grep @a11y"
+      }
+    }
+  }
 }
