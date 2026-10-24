@@ -5,7 +5,9 @@ import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
-import { authRouter, requireSession } from './http/auth.router';
+import { authRouter } from './http/auth.router';
+import { apiTokensRouter, userApiTokensRouter } from './http/api-tokens.router';
+import { refuseAuthorizationHeader, requireCaller } from './http/credentials';
 import { coversRouter } from './http/covers.router';
 import { deliveryRouter } from './http/delivery.router';
 import { projectFontsRouter } from './http/fonts.router';
@@ -49,6 +51,8 @@ export interface AppAuth {
   secureCookies?: boolean;
   /** The dashboard's origin (RP_ORIGIN), where invitation links point. Defaults to http://localhost:4200. */
   dashboardOrigin?: string;
+  /** Failed API token attempts allowed per address; the default when left out, off when null. */
+  tokenGuessLimit?: RateLimitOptions | null;
 }
 
 /** How the Delivery API is limited. */
@@ -119,7 +123,9 @@ export function createApp(
   // cookies are same-origin. CORS stays open for other callers, never with credentials.
   app.use((_req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Authorization carries an API token (epic developer experience 10.1), for scripts and the docs'
+    // API reference. Credentials stay disallowed, so no other origin's request carries the cookie.
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     next();
   });
@@ -130,10 +136,20 @@ export function createApp(
     const body: Health = { status: 'ok' };
     res.json(body);
   });
-  v1.use('/auth', authRouter(pool, { verifier: auth.verifier, secureCookies: auth.secureCookies ?? false }));
-  // Every other route, media included, needs a signed-in session (AD-9), and
-  // each checks the caller's access to the project it touches (AD-4).
-  v1.use(requireSession(pool));
+  // Sign-in, sign-out, setup and invitations read cookies only: a request with an Authorization header
+  // (an API token) is refused there, so a token never starts, ends or stands in for a session.
+  v1.use(
+    '/auth',
+    refuseAuthorizationHeader,
+    authRouter(pool, { verifier: auth.verifier, secureCookies: auth.secureCookies ?? false }),
+  );
+  // Every other route, media included, needs a signed-in session or an API token acting as its user
+  // (AD-9, epic developer experience 10.1), and each checks the caller's access to the project it
+  // touches (AD-4), narrowed to the token's projects.
+  v1.use(requireCaller(pool, { tokenGuessLimit: auth.tokenGuessLimit }));
+  // Personal API tokens: a passkey session only.
+  v1.use('/api-tokens', apiTokensRouter(pool));
+  v1.use('/users', userApiTokensRouter(pool));
   v1.use('/projects', projectsRouter(pool, { dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200' }));
   v1.use('/projects', projectTagsRouter(pool));
   v1.use('/projects', userListsRouter(pool, userLists));

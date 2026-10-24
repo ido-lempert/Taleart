@@ -341,7 +341,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -14728,7 +14728,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
+        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, users',
       );
     });
 
@@ -14947,5 +14947,620 @@ describe('Management API v1: projects and zones', () => {
         await new Promise<void>((resolve) => secure.close(() => resolve()));
       }
     });
+  });
+});
+
+describe('Management API v1: API tokens for scripts (epic developer experience 10.1)', () => {
+  let pool: Pool;
+  let server: Server;
+  let origin: string;
+  let base: string;
+  // The admin's session cookie, sent by `session()`; token requests never carry it unless a test says so.
+  let adminCookie = '';
+  let adminId = '';
+
+  async function start(p: Pool, tokenGuessLimit?: { burst: number; perSecond: number } | null): Promise<Server> {
+    const s = createApp(
+      p,
+      loadFrameTypeRegistry(frameTypesDir),
+      new LocalDiskStorage(mediaDir),
+      { verifier: fakeVerifier, tokenGuessLimit },
+      { publicApiUrl },
+      undefined,
+      undefined,
+      { rateLimit: null },
+    ).listen(0);
+    await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+    return s;
+  }
+
+  // A request with the admin's session cookie.
+  function session(method: string, path: string, body?: unknown, cookie = adminCookie): Promise<Response> {
+    const headers: Record<string, string> = { Cookie: cookie };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    return globalThis.fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  }
+
+  // A request with `Authorization: Bearer <token>` and no cookie.
+  function bearer(method: string, path: string, token: string, body?: unknown): Promise<Response> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    return globalThis.fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  }
+
+  async function createToken(
+    body: Record<string, unknown>,
+    cookie = adminCookie,
+  ): Promise<{ id: string; token: string; prefix: string; projectIds: string[] | null; readOnly: boolean }> {
+    const res = await session('POST', '/api-tokens', { name: 'Script', readOnly: true, projectIds: null, ...body }, cookie);
+    expect(res.status, await res.clone().text()).toBe(201);
+    return res.json();
+  }
+
+  async function project(name: string): Promise<string> {
+    const res = await session('POST', '/projects', { name });
+    expect(res.status).toBe(201);
+    return (await res.json()).id;
+  }
+
+  async function zone(projectId: string, name = 'Home top'): Promise<string> {
+    const res = await session('POST', '/zones', { name, projectId });
+    expect(res.status).toBe(201);
+    return (await res.json()).id;
+  }
+
+  async function contentManager(email: string, projectIds: string[]): Promise<{ id: string; cookie: string }> {
+    const user = await createUser(pool, { name: 'Casey Content', email, role: 'content_manager' });
+    for (const projectId of projectIds) await addProjectMember(pool, projectId, user.id);
+    const { token } = await createSession(pool, user.id);
+    return { id: user.id, cookie: `taleart_session=${token}` };
+  }
+
+  async function lastUsedAt(tokenId: string): Promise<Date | null> {
+    const { rows } = await pool.query<{ lastUsedAt: Date | null }>(
+      'SELECT last_used_at AS "lastUsedAt" FROM api_tokens WHERE id = $1',
+      [tokenId],
+    );
+    return rows[0]?.lastUsedAt ?? null;
+  }
+
+  // Waits for the best-effort `last_used_at` write the middleware does after letting a request
+  // through, until it is later than `after`; the last value read.
+  async function lastUsedAfter(tokenId: string, after: number): Promise<Date | null> {
+    let value: Date | null = null;
+    for (let i = 0; i < 50; i++) {
+      value = await lastUsedAt(tokenId);
+      if (value && value.getTime() > after) return value;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return value;
+  }
+
+  beforeAll(async () => {
+    pool = createPool(testDatabaseUrl);
+    await migrate(pool);
+    // A generous guess limit here; its own test starts an app with a small one.
+    server = await start(pool, { burst: 1000, perSecond: 1000 });
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    base = `${origin}/api/v1`;
+  });
+
+  beforeEach(async () => {
+    await pool.query('TRUNCATE user_list_ids, user_lists, user_list_secrets, api_token_projects, api_tokens, users, projects CASCADE');
+    const admin = await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+    adminId = admin.id;
+    adminCookie = `taleart_session=${(await createSession(pool, admin.id)).token}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await pool.end();
+  });
+
+  it('a read-only token for one project reads its zones, cannot write, cannot reach another project, and stops at revoke', async () => {
+    const a = await project('Acme');
+    const b = await project('Beta');
+    const zoneA = await zone(a);
+    const zoneB = await zone(b);
+
+    const res = await session('POST', '/api-tokens', { name: 'CI reader', projectIds: [a], readOnly: true });
+    expect(res.status).toBe(201);
+    // The token is in this body only: no cache keeps it.
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const issued = await res.json();
+    expect(issued).toEqual({
+      id: expect.any(String),
+      name: 'CI reader',
+      prefix: issued.token.slice(0, 10),
+      projectIds: [a],
+      readOnly: true,
+      createdAt: expect.any(String),
+      expiresAt: null,
+      lastUsedAt: null,
+      token: expect.stringMatching(/^tat_[A-Za-z0-9_-]{43}$/),
+    });
+
+    // GET of that project's zones works, and lists only that project's.
+    const zones = await bearer('GET', '/zones', issued.token);
+    expect(zones.status).toBe(200);
+    expect((await zones.json()).map((z: { id: string }) => z.id)).toEqual([zoneA]);
+    expect((await bearer('GET', `/zones/${zoneA}/tale-groups`, issued.token)).status).toBe(200);
+    expect((await (await bearer('GET', '/projects', issued.token)).json()).map((p: { id: string }) => p.id)).toEqual([a]);
+
+    // A write is refused 403.
+    const write = await bearer('POST', '/zones', issued.token, { name: 'Another', projectId: a });
+    expect(write.status).toBe(403);
+    expect(await write.json()).toEqual({ error: { code: 'forbidden', message: 'This API token is read-only' } });
+    expect((await bearer('PATCH', `/zones/${zoneA}`, issued.token, { name: 'Renamed' })).status).toBe(403);
+    expect((await bearer('PATCH', `/zones/${zoneA}/frame`, issued.token, { settings: {} })).status).toBe(403);
+
+    // Another project answers as for a session that cannot access it: 403 on its zone, 404 on what does not exist.
+    const other = await bearer('GET', `/zones/${zoneB}/tale-groups`, issued.token);
+    expect(other.status).toBe(403);
+    expect((await other.json()).error.code).toBe('forbidden');
+    expect((await bearer('GET', `/projects/${b}/site-key`, issued.token)).status).toBe(403);
+    expect((await bearer('GET', '/zones/00000000-0000-4000-8000-000000000000/tale-groups', issued.token)).status).toBe(404);
+
+    // The database holds only the token's hash.
+    const { rows } = await pool.query('SELECT * FROM api_tokens');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].token_hash).toBe(createHash('sha256').update(issued.token).digest('hex'));
+    expect(JSON.stringify(rows)).not.toContain(issued.token);
+    expect(JSON.stringify(rows)).not.toContain(issued.token.slice(10));
+
+    // The list never shows it again.
+    await lastUsedAfter(issued.id, 0);
+    const listed = await (await session('GET', '/api-tokens')).text();
+    expect(listed).not.toContain(issued.token);
+    const shown = { ...issued, lastUsedAt: expect.any(String) };
+    delete shown.token;
+    expect(JSON.parse(listed)).toEqual([shown]);
+
+    // Revoke it: the next call is 401, like no session.
+    expect((await session('DELETE', `/api-tokens/${issued.id}`)).status).toBe(204);
+    const after = await bearer('GET', '/zones', issued.token);
+    expect(after.status).toBe(401);
+    expect(after.headers.get('www-authenticate')).toMatch(/^Bearer/);
+    expect(after.headers.get('cache-control')).toBe('no-store');
+    expect((await after.json()).error.code).toBe('unauthenticated');
+    expect(await (await session('GET', '/api-tokens')).json()).toEqual([]);
+    // The row stays, revoked; a second revoke finds nothing.
+    expect((await pool.query('SELECT 1 FROM api_tokens WHERE revoked_at IS NOT NULL')).rowCount).toBe(1);
+    expect((await session('DELETE', `/api-tokens/${issued.id}`)).status).toBe(404);
+  });
+
+  it('a read-write token writes within its projects only', async () => {
+    const a = await project('Acme');
+    const b = await project('Beta');
+    const { token } = await createToken({ projectIds: [a], readOnly: false });
+
+    const created = await bearer('POST', '/zones', token, { name: 'From a script', projectId: a });
+    expect(created.status).toBe(201);
+    const inB = await bearer('POST', '/zones', token, { name: 'Elsewhere', projectId: b });
+    expect(inB.status).toBe(403);
+    // An admin's token keeps admin rights within its projects: the site key of A, not of B.
+    expect((await bearer('POST', `/projects/${a}/site-key`, token, { ifNone: true })).status).toBe(201);
+    expect((await bearer('POST', `/projects/${b}/site-key`, token, { ifNone: true })).status).toBe(403);
+    // A token limited to some projects cannot create one.
+    const newProject = await bearer('POST', '/projects', token, { name: 'Gamma' });
+    expect(newProject.status).toBe(403);
+    expect((await newProject.json()).error.message).toMatch(/limited to some projects/);
+  });
+
+  it('an admin token for all projects, read-write, may create a project; invitations need a passkey session', async () => {
+    const a = await project('Acme');
+    const { token } = await createToken({ projectIds: null, readOnly: false });
+    const created = await bearer('POST', '/projects', token, { name: 'Made by a script' });
+    expect(created.status).toBe(201);
+    const made = (await created.json()).id;
+    // A project made after the token was: an all-projects token reaches it.
+    expect((await bearer('GET', `/projects/${made}/site-key`, token)).status).toBe(200);
+
+    const invite = await bearer('POST', `/projects/${a}/invitations`, token);
+    expect(invite.status).toBe(403);
+    expect((await invite.json()).error.code).toBe('forbidden');
+    expect((await pool.query('SELECT 1 FROM invitations')).rowCount).toBe(0);
+    expect((await session('POST', `/projects/${a}/invitations`)).status).toBe(201);
+  });
+
+  it('acts as its user: admin-only routes stay admin-only, and losing a project cuts the token at once', async () => {
+    const a = await project('Acme');
+    const b = await project('Beta');
+    const zoneA = await zone(a);
+    const casey = await contentManager('casey@example.com', [a]);
+    // A content manager may limit a token only to projects they can access.
+    const refused = await session('POST', '/api-tokens', { name: 'x', readOnly: false, projectIds: [b] }, casey.cookie);
+    expect(refused.status).toBe(403);
+    const { token } = await createToken({ projectIds: null, readOnly: false }, casey.cookie);
+
+    expect((await bearer('GET', `/zones/${zoneA}/tale-groups`, token)).status).toBe(200);
+    expect((await (await bearer('GET', '/projects', token)).json()).map((p: { id: string }) => p.id)).toEqual([a]);
+    // Admin-only, as for the user's session.
+    expect((await bearer('POST', `/projects/${a}/site-key`, token, {})).status).toBe(403);
+    expect((await bearer('POST', '/projects', token, { name: 'No' })).status).toBe(403);
+
+    // The user loses the project: so does the token, on the next request.
+    await pool.query('DELETE FROM project_members WHERE user_id = $1', [casey.id]);
+    expect((await bearer('GET', `/zones/${zoneA}/tale-groups`, token)).status).toBe(403);
+    expect(await (await bearer('GET', '/zones', token)).json()).toEqual([]);
+
+    // A user who becomes admin is admin through the token too, and back.
+    await pool.query("UPDATE users SET role = 'admin' WHERE id = $1", [casey.id]);
+    expect((await bearer('GET', `/zones/${zoneA}/tale-groups`, token)).status).toBe(200);
+    await pool.query("UPDATE users SET role = 'content_manager' WHERE id = $1", [casey.id]);
+    expect((await bearer('GET', `/zones/${zoneA}/tale-groups`, token)).status).toBe(403);
+  });
+
+  it('a token can never create, list or revoke tokens, or use the auth routes', async () => {
+    const { id, token } = await createToken({ projectIds: null, readOnly: false });
+    for (const [method, path] of [
+      ['GET', '/api-tokens'],
+      ['POST', '/api-tokens'],
+      ['DELETE', `/api-tokens/${id}`],
+    ] as const) {
+      const res = await bearer(method, path, token, method === 'POST' ? { name: 'Child', projectIds: null, readOnly: false } : undefined);
+      expect(res.status, `${method} ${path}`).toBe(403);
+      expect((await res.json()).error.code).toBe('forbidden');
+    }
+    expect((await pool.query('SELECT 1 FROM api_tokens')).rowCount).toBe(1);
+    expect((await pool.query('SELECT 1 FROM api_tokens WHERE revoked_at IS NOT NULL')).rowCount).toBe(0);
+
+    // Sign-in, sign-out, setup and invitations: any Authorization header is refused, cookie or not.
+    for (const path of ['/auth/state', '/auth/sign-in/options', '/auth/sign-out', '/auth/setup/options']) {
+      const res = await globalThis.fetch(`${base}${path}`, {
+        method: path === '/auth/state' ? 'GET' : 'POST',
+        headers: { Authorization: `Bearer ${token}`, Cookie: adminCookie },
+      });
+      expect(res.status, path).toBe(403);
+    }
+    // The session the sign-out carried is untouched.
+    expect((await session('GET', '/projects')).status).toBe(200);
+  });
+
+  it('judges a request carrying a cookie and a token by its token alone', async () => {
+    const a = await project('Acme');
+    const { token } = await createToken({ projectIds: [a], readOnly: true });
+    const both = (method: string, path: string, auth: string, body?: unknown) =>
+      globalThis.fetch(`${base}${path}`, {
+        method,
+        headers: { Authorization: auth, Cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    // The admin's cookie does not lift the token's read-only limit.
+    expect((await both('POST', '/zones', `Bearer ${token}`, { name: 'x', projectId: a })).status).toBe(403);
+    // A refused header never falls back to the cookie.
+    for (const auth of ['Bearer tat_unknown', 'Bearer', 'Basic YWRhOnNlY3JldA==', '']) {
+      const res = await both('GET', '/projects', auth);
+      expect(res.status, JSON.stringify(auth)).toBe(401);
+      expect((await res.json()).error.code).toBe('unauthenticated');
+    }
+    // Without the header, the cookie works as before.
+    expect((await session('GET', '/projects')).status).toBe(200);
+  });
+
+  it('refuses a site key on the Management API and a token on the Delivery API', async () => {
+    const a = await project('Acme');
+    const zoneA = await zone(a, 'Home');
+    expect((await session('POST', `/zones/${zoneA}/frame`, { type: 'bar', settings: {} })).status).toBe(201);
+    const siteKey = (await (await session('POST', `/projects/${a}/site-key`, {})).json()).key as string;
+    const { token } = await createToken({ projectIds: [a], readOnly: true });
+
+    const management = await bearer('GET', '/zones', siteKey);
+    expect(management.status).toBe(401);
+    expect(await management.json()).toEqual({
+      error: { code: 'unauthenticated', message: expect.stringMatching(/site key works only on the Delivery API/) },
+    });
+
+    const delivery = (key: string) =>
+      globalThis.fetch(`${origin}/delivery/v1/zone?zone=home`, { headers: { Authorization: `Bearer ${key}` } });
+    expect((await delivery(siteKey)).status).toBe(200);
+    const refused = await delivery(token);
+    expect(refused.status).toBe(401);
+    expect((await refused.json()).error.code).toBe('invalid_site_key');
+  });
+
+  it('an expired token answers 401, and an expiry must be in the future', async () => {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    const issued = await createToken({ expiresAt });
+    expect(issued).toMatchObject({ expiresAt });
+    expect((await bearer('GET', '/projects', issued.token)).status).toBe(200);
+    await pool.query("UPDATE api_tokens SET expires_at = now() - interval '1 second' WHERE id = $1", [issued.id]);
+    const res = await bearer('GET', '/projects', issued.token);
+    expect(res.status).toBe(401);
+    expect((await res.json()).error.code).toBe('unauthenticated');
+    // Still listed (with its expiry) until revoked.
+    expect((await (await session('GET', '/api-tokens')).json()).map((t: { id: string }) => t.id)).toEqual([issued.id]);
+
+    const past = await session('POST', '/api-tokens', { name: 'Old', projectIds: null, readOnly: true, expiresAt: '2020-01-01T00:00:00Z' });
+    expect(past.status).toBe(400);
+    expect((await past.json()).error.code).toBe('validation_failed');
+  });
+
+  it('validates a new token and its projects', async () => {
+    const a = await project('Acme');
+    const cases: [unknown, number, string][] = [
+      [{ projectIds: null, readOnly: true }, 400, 'validation_failed'],
+      [{ name: '  ', projectIds: null, readOnly: true }, 400, 'validation_failed'],
+      [{ name: 'x'.repeat(81), projectIds: null, readOnly: true }, 400, 'validation_failed'],
+      [{ name: 'tab\there', projectIds: null, readOnly: true }, 400, 'validation_failed'],
+      [{ name: 'x', projectIds: null }, 400, 'validation_failed'],
+      [{ name: 'x', projectIds: null, readOnly: 'yes' }, 400, 'validation_failed'],
+      [{ name: 'x', readOnly: true }, 400, 'validation_failed'],
+      [{ name: 'x', projectIds: [], readOnly: true }, 400, 'validation_failed'],
+      [{ name: 'x', projectIds: [a, a], readOnly: true }, 400, 'validation_failed'],
+      [{ name: 'x', projectIds: ['nope'], readOnly: true }, 400, 'validation_failed'],
+      [{ name: 'x', projectIds: ['00000000-0000-4000-8000-000000000000'], readOnly: true }, 400, 'project_not_found'],
+      [{ name: 'x', projectIds: null, readOnly: true, expiresAt: 'tomorrow' }, 400, 'validation_failed'],
+      [[], 400, 'validation_failed'],
+    ];
+    for (const [body, status, code] of cases) {
+      const res = await session('POST', '/api-tokens', body);
+      expect(res.status, JSON.stringify(body)).toBe(status);
+      expect((await res.json()).error.code, JSON.stringify(body)).toBe(code);
+    }
+    expect((await pool.query('SELECT 1 FROM api_tokens')).rowCount).toBe(0);
+    // Unauthenticated: 401.
+    expect((await globalThis.fetch(`${base}/api-tokens`)).status).toBe(401);
+  });
+
+  it('each user sees and revokes only their own tokens; at most 50 active each', async () => {
+    const a = await project('Acme');
+    const casey = await contentManager('casey@example.com', [a]);
+    const mine = await createToken({ name: 'Admin script' });
+    const theirs = await createToken({ name: 'Casey script' }, casey.cookie);
+    expect((await (await session('GET', '/api-tokens', undefined, casey.cookie)).json()).map((t: { id: string }) => t.id)).toEqual([
+      theirs.id,
+    ]);
+    const res = await session('DELETE', `/api-tokens/${mine.id}`, undefined, casey.cookie);
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('api_token_not_found');
+    expect((await bearer('GET', '/projects', mine.token)).status).toBe(200);
+    expect((await session('DELETE', '/api-tokens/not-a-uuid')).status).toBe(404);
+
+    for (let i = 1; i < 50; i++) await createToken({ name: `Script ${i}` });
+    const over = await session('POST', '/api-tokens', { name: 'One too many', projectIds: null, readOnly: true });
+    expect(over.status).toBe(409);
+    expect((await over.json()).error.code).toBe('api_token_limit_reached');
+    // Revoking one frees a place.
+    expect((await session('DELETE', `/api-tokens/${mine.id}`)).status).toBe(204);
+    expect((await session('POST', '/api-tokens', { name: 'Now it fits', projectIds: null, readOnly: true })).status).toBe(201);
+  });
+
+  // The pool with a count of the `last_used_at` writes the app starts through it.
+  function countingPool(): { pool: Pool; writes: () => number } {
+    let writes = 0;
+    const counted = new Proxy(pool, {
+      get(target, prop, receiver) {
+        if (prop === 'query') {
+          return (...args: Parameters<Pool['query']>) => {
+            if (String(args[0]).includes('SET last_used_at')) writes++;
+            return (target.query as (...a: unknown[]) => unknown)(...args);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    return { pool: counted, writes: () => writes };
+  }
+
+  it('records when a token was last used, starting at most one write per minute per token', async () => {
+    const issued = await createToken({});
+    expect(await lastUsedAt(issued.id)).toBeNull();
+    const counting = countingPool();
+    const app = await start(counting.pool, { burst: 1000, perSecond: 1000 });
+    try {
+      const api = `http://127.0.0.1:${(app.address() as AddressInfo).port}/api/v1`;
+      const use = () => globalThis.fetch(`${api}/projects`, { headers: { Authorization: `Bearer ${issued.token}` } });
+      // Twenty requests at once start one write.
+      const all = await Promise.all(Array.from({ length: 20 }, use));
+      expect(all.map((r) => r.status)).toEqual(Array(20).fill(200));
+      expect(await lastUsedAfter(issued.id, 0)).not.toBeNull();
+      // Used again within the minute, even after the stored value is made old: this process wrote it
+      // a moment ago, so nothing is written.
+      await pool.query("UPDATE api_tokens SET last_used_at = now() - interval '2 minutes' WHERE id = $1", [issued.id]);
+      expect((await use()).status).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(counting.writes()).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => app.close(() => resolve()));
+    }
+
+    // Another process (here: another app) that never wrote it writes again once the stored value is over a minute old.
+    const old = (await lastUsedAt(issued.id)) as Date;
+    expect((await bearer('GET', '/projects', issued.token)).status).toBe(200);
+    expect(((await lastUsedAfter(issued.id, old.getTime())) as Date).getTime()).toBeGreaterThan(old.getTime());
+  });
+
+  it('does not record a use the token was refused for', async () => {
+    const a = await project('Acme');
+    const issued = await createToken({ projectIds: [a], readOnly: true });
+    const counting = countingPool();
+    const app = await start(counting.pool, { burst: 1000, perSecond: 1000 });
+    try {
+      const api = `http://127.0.0.1:${(app.address() as AddressInfo).port}/api/v1`;
+      const res = await globalThis.fetch(`${api}/zones`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${issued.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'x', projectId: a }),
+      });
+      expect(res.status).toBe(403);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(counting.writes()).toBe(0);
+      expect(await lastUsedAt(issued.id)).toBeNull();
+    } finally {
+      await new Promise<void>((resolve) => app.close(() => resolve()));
+    }
+  });
+
+  it('answers 429 to failed guesses past the limit, while valid tokens and sessions keep working', async () => {
+    const issued = await createToken({});
+    const strict = await start(pool, { burst: 3, perSecond: 0.001 });
+    try {
+      const api = `http://127.0.0.1:${(strict.address() as AddressInfo).port}/api/v1`;
+      const guess = (token: string) => globalThis.fetch(`${api}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+      for (let i = 0; i < 3; i++) expect((await guess(`tat_guess${i}`)).status).toBe(401);
+      const locked = await guess('tat_guess4');
+      expect(locked.status).toBe(429);
+      expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect((await locked.json()).error.code).toBe('rate_limited');
+      // A valid token is still looked up and let through: a flood cannot lock it out.
+      for (let i = 0; i < 3; i++) expect((await guess(issued.token)).status).toBe(200);
+      expect((await guess('tat_guess5')).status).toBe(429);
+      // The cookie path is not limited by it.
+      expect((await globalThis.fetch(`${api}/projects`, { headers: { Cookie: adminCookie } })).status).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) => strict.close(() => resolve()));
+    }
+  });
+
+  it('never lets concurrent failures past the burst', async () => {
+    const issued = await createToken({});
+    const strict = await start(pool, { burst: 3, perSecond: 0.001 });
+    try {
+      const api = `http://127.0.0.1:${(strict.address() as AddressInfo).port}/api/v1`;
+      const call = (token: string) => globalThis.fetch(`${api}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+      // Twelve wrong tokens and four valid ones, all at once.
+      const tokens = [...Array.from({ length: 12 }, (_, i) => `tat_wrong${i}`), ...Array(4).fill(issued.token)];
+      const statuses = (await Promise.all(tokens.map(call))).map((r) => r.status);
+      const wrong = statuses.slice(0, 12);
+      expect(wrong.filter((s) => s === 401)).toHaveLength(3);
+      expect(wrong.filter((s) => s === 429)).toHaveLength(9);
+      expect(statuses.slice(12)).toEqual([200, 200, 200, 200]);
+    } finally {
+      await new Promise<void>((resolve) => strict.close(() => resolve()));
+    }
+  });
+
+  it("does not count expired tokens toward the limit of 50", async () => {
+    for (let i = 0; i < 50; i++) await createToken({ name: `Script ${i}` });
+    expect((await session('POST', '/api-tokens', { name: 'Over', projectIds: null, readOnly: true })).status).toBe(409);
+    await pool.query(
+      "UPDATE api_tokens SET expires_at = now() - interval '1 second' WHERE id = (SELECT id FROM api_tokens ORDER BY created_at LIMIT 1)",
+    );
+    expect((await session('POST', '/api-tokens', { name: 'Now it fits', projectIds: null, readOnly: true })).status).toBe(201);
+  });
+
+  it('an admin revokes every token of a user; nobody else can', async () => {
+    const a = await project('Acme');
+    const casey = await contentManager('casey@example.com', [a]);
+    const one = await createToken({ name: 'One' }, casey.cookie);
+    const two = await createToken({ name: 'Two' }, casey.cookie);
+    const admins = await createToken({ name: 'Admin', readOnly: false });
+
+    // A content manager, and any token, are refused.
+    expect((await session('DELETE', `/users/${casey.id}/api-tokens`, undefined, casey.cookie)).status).toBe(403);
+    expect((await bearer('DELETE', `/users/${casey.id}/api-tokens`, admins.token)).status).toBe(403);
+    expect((await bearer('GET', '/projects', one.token)).status).toBe(200);
+
+    const res = await session('DELETE', `/users/${casey.id}/api-tokens`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revoked: 2 });
+    expect((await bearer('GET', '/projects', one.token)).status).toBe(401);
+    expect((await bearer('GET', '/projects', two.token)).status).toBe(401);
+    // Only that user's tokens.
+    expect((await bearer('GET', '/projects', admins.token)).status).toBe(200);
+    expect(await (await session('DELETE', `/users/${casey.id}/api-tokens`)).json()).toEqual({ revoked: 0 });
+    const unknown = await session('DELETE', '/users/00000000-0000-4000-8000-000000000000/api-tokens');
+    expect(unknown.status).toBe(404);
+    expect((await unknown.json()).error.code).toBe('not_found');
+    expect((await session('DELETE', '/users/nope/api-tokens')).status).toBe(404);
+  });
+
+  it('keeps a project-scoped token to its project on tales, tale groups, media, fonts, imports and user lists', async () => {
+    const a = await project('Acme');
+    const b = await project('Beta');
+    const groupIn = async (projectId: string) => {
+      const res = await session('POST', `/projects/${projectId}/tale-groups`, { name: 'Summer' });
+      expect(res.status).toBe(201);
+      return (await res.json()).id as string;
+    };
+    const taleIn = async (groupId: string) => {
+      const res = await session('POST', `/tale-groups/${groupId}/tales`, { title: 'Beach' });
+      expect(res.status).toBe(201);
+      return (await res.json()).id as string;
+    };
+    const listIn = async (projectId: string) => {
+      const res = await session('POST', `/projects/${projectId}/user-lists`, { name: 'VIP' });
+      expect(res.status).toBe(201);
+      return (await res.json()).id as string;
+    };
+    const groupA = await groupIn(a);
+    const groupB = await groupIn(b);
+    const taleA = await taleIn(groupA);
+    const taleB = await taleIn(groupB);
+    const listA = await listIn(a);
+    const listB = await listIn(b);
+    const reader = await createToken({ projectIds: [a], readOnly: true });
+    const writer = await createToken({ projectIds: [a], readOnly: false });
+
+    // Inside its project: answered as for the admin's session (imports: the importer is not configured here).
+    const inside: [string, number][] = [
+      [`/tale-groups/${groupA}`, 200],
+      [`/tales/${taleA}`, 200],
+      [`/projects/${a}/media`, 200],
+      [`/projects/${a}/fonts`, 200],
+      [`/projects/${a}/imports`, 503],
+      [`/projects/${a}/user-lists`, 200],
+    ];
+    for (const [path, status] of inside) expect((await bearer('GET', path, reader.token)).status, path).toBe(status);
+
+    // Another project: 403, as for a session without access.
+    for (const path of [
+      `/tale-groups/${groupB}`,
+      `/tales/${taleB}`,
+      `/tales/${taleB}/document`,
+      `/projects/${b}/media`,
+      `/projects/${b}/fonts`,
+      `/projects/${b}/imports`,
+      `/projects/${b}/user-lists`,
+    ]) {
+      const res = await bearer('GET', path, writer.token);
+      expect(res.status, path).toBe(403);
+      expect((await res.json()).error.code, path).toBe('forbidden');
+    }
+    expect((await bearer('PATCH', `/tale-groups/${groupB}`, writer.token, { name: 'Taken' })).status).toBe(403);
+    expect((await bearer('DELETE', `/tales/${taleB}`, writer.token)).status).toBe(403);
+    expect((await bearer('DELETE', `/projects/${b}/user-lists/${listB}`, writer.token)).status).toBe(403);
+    expect((await bearer('POST', `/projects/${b}/imports`, writer.token, {})).status).toBe(403);
+    // A list id of another project under this project's path is not found.
+    expect([403, 404]).toContain((await bearer('DELETE', `/projects/${a}/user-lists/${listB}`, writer.token)).status);
+
+    // Uploads with a read-only token are refused before the body is read.
+    const upload = (path: string, method: string, contentType: string, body: string) =>
+      globalThis.fetch(`${base}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${reader.token}`, 'Content-Type': contentType },
+        body,
+      });
+    for (const [path, method, type] of [
+      [`/projects/${a}/user-lists/${listA}/ids`, 'POST', 'text/csv'],
+      [`/projects/${a}/media`, 'POST', 'image/png'],
+      [`/projects/${a}/fonts`, 'POST', 'font/woff2'],
+      [`/tales/${taleA}/media`, 'PUT', 'image/png'],
+    ] as const) {
+      const res = await upload(path, method, type, 'user-1\nuser-2\n');
+      expect(res.status, path).toBe(403);
+      expect(await res.json(), path).toEqual({ error: { code: 'forbidden', message: 'This API token is read-only' } });
+    }
+    const { rows } = await pool.query('SELECT count(*)::int AS n FROM user_list_ids');
+    expect(rows[0].n).toBe(0);
+  });
+
+  it('lets other origins send Authorization, never with credentials', async () => {
+    const preflight = await globalThis.fetch(`${base}/zones`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://docs.example.com', 'Access-Control-Request-Headers': 'authorization' },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-headers')).toMatch(/Authorization/);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+    expect(preflight.headers.get('access-control-allow-credentials')).toBeNull();
+  });
+
+  it("cascades a user's tokens when the user goes", async () => {
+    await createToken({});
+    await pool.query('DELETE FROM users WHERE id = $1', [adminId]);
+    expect((await pool.query('SELECT 1 FROM api_tokens')).rowCount).toBe(0);
   });
 });

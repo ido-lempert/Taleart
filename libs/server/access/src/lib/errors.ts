@@ -1,4 +1,4 @@
-import { ErrorCodes } from '@taleart/contract';
+import { ErrorCodes, MAX_API_TOKENS_PER_USER } from '@taleart/contract';
 
 /** Thrown when setup is attempted after a user exists. */
 export class SetupClosedError extends Error {
@@ -57,5 +57,25 @@ export class SiteKeyNotFoundError extends Error {
   constructor() {
     super('This project has no active site key');
     this.name = 'SiteKeyNotFoundError';
+  }
+}
+
+/** Thrown when a user has no such active API token: unknown, revoked, or another user's. */
+export class ApiTokenNotFoundError extends Error {
+  readonly code = ErrorCodes.apiTokenNotFound;
+
+  constructor() {
+    super('You have no active API token with this id');
+    this.name = 'ApiTokenNotFoundError';
+  }
+}
+
+/** Thrown when a user already holds the most active API tokens allowed. */
+export class ApiTokenLimitError extends Error {
+  readonly code = ErrorCodes.apiTokenLimitReached;
+
+  constructor() {
+    super(`You have ${MAX_API_TOKENS_PER_USER} active API tokens, the most allowed. Revoke one you no longer use.`);
+    this.name = 'ApiTokenLimitError';
   }
 }

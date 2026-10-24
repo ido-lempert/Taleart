@@ -67,6 +67,12 @@ export type InstallInfo = Schemas['InstallInfo'];
 export type IssueSiteKeyRequest = Schemas['IssueSiteKeyRequest'];
 /** A newly issued site key, the only time the key itself is shown. */
 export type IssuedSiteKey = Schemas['IssuedSiteKey'];
+/** A personal API token as its user sees it (epic developer experience 10.1): prefix and scope, never the token. */
+export type ApiToken = Schemas['ApiToken'];
+export type CreateApiTokenRequest = Schemas['CreateApiTokenRequest'];
+/** A newly created API token, the only time the token itself is shown. */
+export type IssuedApiToken = Schemas['IssuedApiToken'];
+export type RevokedApiTokens = Schemas['RevokedApiTokens'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
 export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
@@ -187,6 +193,26 @@ export const SITE_KEY_PREFIX_CHARS = 6;
 export function siteKeyPrefix(key: string): string {
   return key.slice(0, SITE_KEY_PREFIX.length + SITE_KEY_PREFIX_CHARS);
 }
+
+/** Every personal API token starts with this (epic developer experience 10.1); site keys start `tas_`. */
+export const API_TOKEN_PREFIX = 'tat_';
+
+/** How many characters of an API token, after {@link API_TOKEN_PREFIX}, its display prefix shows. */
+export const API_TOKEN_PREFIX_CHARS = 6;
+
+/** The display prefix of an API token: `tat_` and the next 6 characters. */
+export function apiTokenPrefix(token: string): string {
+  return token.slice(0, API_TOKEN_PREFIX.length + API_TOKEN_PREFIX_CHARS);
+}
+
+/** The most active (not revoked) API tokens one user holds. */
+export const MAX_API_TOKENS_PER_USER = 50;
+
+/** The longest name of an API token, in characters. */
+export const MAX_API_TOKEN_NAME_LENGTH = 80;
+
+/** The most projects one API token can be limited to. */
+export const MAX_API_TOKEN_PROJECTS = 100;
 
 /**
  * Base path of what the API serves to host pages besides the Delivery API (epic UX rework R13): the
@@ -660,6 +686,8 @@ export const ErrorCodes = {
   siteKeyNotFound: 'site_key_not_found',
   siteKeyExists: 'site_key_exists',
   invalidSiteKey: 'invalid_site_key',
+  apiTokenNotFound: 'api_token_not_found',
+  apiTokenLimitReached: 'api_token_limit_reached',
   rateLimited: 'rate_limited',
   storylyTokenInvalid: 'storyly_token_invalid',
   storylyUnavailable: 'storyly_unavailable',
