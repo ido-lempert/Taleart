@@ -1,4 +1,5 @@
 import { Route } from '@angular/router';
+import { AiAgentsPage } from './pages/ai-agents';
 import { ApiReferencePage } from './pages/api-reference';
 import { ApiTokensPage } from './pages/api-tokens';
 import { ConceptsPage } from './pages/concepts';
@@ -16,6 +17,7 @@ export const DOCS_PAGES = [
   { path: 'targeting', label: 'Targeting', title: 'Targeting', component: TargetingPage },
   { path: 'api-tokens', label: 'API tokens', title: 'API tokens', component: ApiTokensPage },
   { path: 'api-reference', label: 'API reference', title: 'API reference', component: ApiReferencePage },
+  { path: 'ai-agents', label: 'AI agents', title: 'AI agents', component: AiAgentsPage },
   { path: 'moving-from-stages', label: 'Stages and zone keys', title: 'Stages and zone keys', component: MovingPage },
 ] as const;
 

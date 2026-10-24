@@ -1,0 +1,9 @@
+{
+  "name": "agent-skills",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "skills",
+  "tags": ["type:skill"],
+  "// targets": "No targets: the agent skills are Markdown (skills/taleart, epic developer experience 10.4). The CLI bundles them (taleart skill install) and the docs render them, each importing the files as text through @taleart/agent-skill/*; apps/cli/src/skill.spec.ts checks every command and flag they name against the CLI.",
+  "targets": {}
+}

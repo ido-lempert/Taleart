@@ -24,7 +24,8 @@
         "production",
         "^production",
         "{workspaceRoot}/libs/contract/openapi/openapi.yaml",
-        "{workspaceRoot}/libs/contract/src/generated/openapi.json"
+        "{workspaceRoot}/libs/contract/src/generated/openapi.json",
+        "{workspaceRoot}/skills/taleart/**/*"
       ],
       "outputs": [
         "{options.outputPath}"
@@ -43,6 +44,11 @@
             "glob": "openapi.json",
             "input": "libs/contract/src/generated",
             "output": "api-reference"
+          },
+          {
+            "glob": "**/*.md",
+            "input": "skills/taleart",
+            "output": "skill/taleart"
           }
         ],
         "styles": [
@@ -102,7 +108,8 @@
         "{workspaceRoot}/apps/api/src/app.spec.ts",
         "{workspaceRoot}/apps/docs/public/swagger-ui/*",
         "{workspaceRoot}/libs/contract/openapi/openapi.yaml",
-        "{workspaceRoot}/libs/contract/src/generated/openapi.json"
+        "{workspaceRoot}/libs/contract/src/generated/openapi.json",
+        "{workspaceRoot}/skills/taleart/**/*"
       ],
       "options": {
         "watch": false
