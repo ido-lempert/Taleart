@@ -247,8 +247,8 @@ export const IMPORT_PILL_STYLES = `
     color: var(--danger-text);
   }
   .pill--active {
-    background: var(--ember-tint);
-    color: var(--ember-strong-hover);
+    background: var(--brand-tint);
+    color: var(--brand-text);
   }
 `;
 
