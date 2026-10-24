@@ -33,8 +33,8 @@ import { onTop, scan, settle, type ScanOptions } from './wcag';
 const shots = process.env['E2E_SCREENSHOTS'];
 if (shots) mkdirSync(shots, { recursive: true });
 const API = '/api/v1';
-/** The scanned states, all named in the review (`a11y-review-7-15.md`). */
-const STATES = 22;
+/** The scanned states, all named in the review (`a11y-review-7-15.md`), and the palette search (story 11.3). */
+const STATES = 23;
 
 test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7.15) @a11y', () => {
   let context: BrowserContext;
@@ -200,12 +200,12 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
 
   test('the empty studio', async () => {
     await page.goto(`/tales/${taleId}/studio`);
-    await expect(page.locator('#studio-add')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('#studio-add-text')).toBeVisible({ timeout: 30_000 });
     await check('studio-empty', { layout: true });
   });
 
   test('adds a text by keyboard and types it in place', async () => {
-    await tabTo(page.locator('#studio-add'), 'Add text');
+    await tabTo(page.locator('#studio-add-text'), 'Add body text');
     await page.keyboard.press('Enter');
     await said('Text added', 'text');
     // Typing in place: a text field on the canvas.
@@ -320,6 +320,27 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     expect(back).toEqual(['top', 'strip', 'inspector', 'canvas', 'left']);
     await expect(page.locator('[role=tab][aria-selected=true]')).toBeFocused();
     keyboard.push(`F6: ${forward.join(', ')}; Shift+F6: ${back.join(', ')}`);
+  });
+
+  test('searches the palette with / and moves to a tile with Arrow Down (Tale Studio 2, story 11.3)', async () => {
+    // From the selected tab of the left panel (where F6 left focus): `/` opens Elements with its search focused.
+    const before = ((await page.locator('[role=tab][aria-selected=true]').textContent()) ?? '').trim();
+    await page.keyboard.press('/');
+    await expect(page.locator('#studio-palette-search')).toBeFocused();
+    await page.keyboard.type('circle');
+    await said('1 element', 'palette search');
+    await check('palette-search', { walk: false });
+    await page.keyboard.press('ArrowDown');
+    await seen(page.locator('#studio-add-ellipse'), 'the ellipse tile, found');
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('#studio-palette-search')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#studio-palette-search')).toHaveValue('');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-region=canvas] :focus')).toHaveCount(1);
+    keyboard.push('palette: / to search, "circle" found 1 element, Arrow Down to it, Escape twice back to the canvas');
+    // Back to the tab the walk was on.
+    if (before && before !== 'Elements') await openTab(before);
   });
 
   test('selects from the layers grid with the arrow keys', async () => {
