@@ -3,7 +3,9 @@ import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { installSnippet, SDK_BUNDLE_PATH, SDK_TEST_PAGE_PATH, testPageLink } from '@taleart/contract/core';
 import { App } from './app';
+import { AGENT_SESSION } from './agent-session';
 import { appRoutes, DOCS_PAGES } from './app.routes';
+import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from './skill-files';
 
 const api = 'https://api.example.com';
 const info = { apiUrl: api, sdkUrl: api + SDK_BUNDLE_PATH, testPageUrl: api + SDK_TEST_PAGE_PATH };
@@ -57,6 +59,57 @@ describe('docs app', () => {
     expect(text).toContain(installSnippet(info, 'home-top', null));
   });
 
+  it('shows the agent skill on AI agents: install, the token, a session and every skill file (story 10.4)', async () => {
+    const harness = await RouterTestingHarness.create('/ai-agents');
+    const page = harness.routeNativeElement as HTMLElement;
+    expect(page.querySelector('h1')?.textContent).toBe('AI agents');
+    expect([...page.querySelectorAll('h2')].map((h) => h.textContent)).toEqual([
+      'What the skill does',
+      'Safety rules',
+      'Install it',
+      'Give it a token',
+      'An example session',
+      'The skill',
+    ]);
+    const text = page.textContent ?? '';
+    expect(text).toContain('taleart skill install --project');
+    expect(text).toContain('~/.claude/skills/taleart');
+    expect(text).toContain('TALEART_TOKEN');
+    // Every skill file, whole, and a download link to it.
+    const blocks = [...page.querySelectorAll('details pre')].map((pre) => pre.textContent);
+    expect(blocks).toEqual(SKILL_FILES.map((f) => f.content));
+    expect(SKILL_FILES[0].content).toMatch(/^---\nname: taleart\n/);
+    const links = [...page.querySelectorAll<HTMLAnchorElement>('.downloads a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual(SKILL_FILES.map((f) => SKILL_DOWNLOAD_BASE + f.path));
+    // The session: every turn, its commands, and no credential.
+    for (const turn of AGENT_SESSION) expect(text).toContain(turn.text);
+    expect(text).toContain('$ taleart groups on Summer --project "Shop" --json');
+    // Every token or site key on the page is at most a display prefix (tat_ or tas_ and 6 characters):
+    // the whole base64url run after the prefix is counted, so a full key cannot slip past.
+    const credentials = [...text.matchAll(/\b(tat|tas)_([A-Za-z0-9_-]*)/g)];
+    expect(credentials.length).toBeGreaterThan(3);
+    expect(credentials.filter((m) => m[2].length > 6).map((m) => m[0])).toEqual([]);
+    for (const m of text.matchAll(/\btas_[A-Za-z0-9_-]{6}(?=…)/g)) {
+      expect(text.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 11)).toBe('…[REDACTED]');
+    }
+  });
+
+  it('loads AI agents, with the skill text, only on demand', () => {
+    const page = DOCS_PAGES.find((p) => p.path === 'ai-agents');
+    expect(page?.loadComponent).toBeDefined();
+    expect(page?.component).toBeUndefined();
+    expect(DOCS_PAGES.filter((p) => p.loadComponent).map((p) => p.path)).toEqual(['ai-agents']);
+  });
+
+  it('links AI agents from API tokens and API reference', async () => {
+    const harness = await RouterTestingHarness.create();
+    for (const path of ['/api-tokens', '/api-reference']) {
+      await harness.navigateByUrl(path);
+      const hrefs = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('a')].map((a) => a.getAttribute('href'));
+      expect(hrefs).toContain('/ai-agents');
+    }
+  });
+
   it('shows a not-found page for an unknown path', async () => {
     const harness = await RouterTestingHarness.create('/no-such-page');
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Page not found');
@@ -64,7 +117,7 @@ describe('docs app', () => {
 
   it('labels every code block and table scroll region and keeps it focusable', async () => {
     const harness = await RouterTestingHarness.create();
-    for (const page of ['/', '/concepts', '/install', '/moving-from-stages']) {
+    for (const page of ['/', '/concepts', '/install', '/moving-from-stages', '/ai-agents']) {
       await harness.navigateByUrl(page);
       const regions = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('pre, .table-wrap')];
       expect(regions.length).toBeGreaterThan(0);

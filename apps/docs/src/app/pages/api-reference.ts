@@ -218,6 +218,10 @@ type State = 'loading' | 'ready' | 'failed';
         tokens, say <em>Dashboard only</em>.
       </p>
     </div>
+    <p>
+      From a terminal or a script, the <code>taleart</code> command-line tool calls these operations for you; an AI agent
+      can drive it with the TaleArt skill: see <a routerLink="/ai-agents">AI agents</a>.
+    </p>
 
     <form class="api-url" (submit)="apply($event)" novalidate>
       <label for="api-url">API URL</label>

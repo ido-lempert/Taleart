@@ -292,6 +292,8 @@ const STRUCTURED: Record<string, () => unknown> = {
       'timeout',
       'response_interrupted',
       'invalid_response',
+      'skill_exists',
+      'unsafe_path',
     ],
     prompts:
       'None unless stdin and stderr are terminals, --json is off, and neither CI=true nor TALEART_NO_INPUT=1 is set; ' +
