@@ -194,13 +194,14 @@ describe('Tale Studio: a poll (epic interactive components story 4.1)', () => {
     expect(add.textContent?.trim()).toBe('Add poll');
     add.click();
     await settle(fixture);
-    expect(live()).toBe('Poll added');
+    expect(live()).toBe('Poll added at 10%, 34%. Selected.');
     const id = poll().id;
     expect(poll().type).toBe('poll');
     expect(poll().props.question).toBe('Ask a question');
     const [first, second] = poll().props.options.map((o) => o.id);
     expect(first).not.toBe(second);
-    expect(globalThis.document.activeElement?.id).toBe(`field-poll-question-${id}`);
+    // Focus is on the new poll on the canvas (epic Tale Studio 2 R3).
+    expect(globalThis.document.activeElement?.id).toBe(`studio-el-${id}`);
     // Its votes are read for the selected poll: none yet.
     http.expectOne(responsesUrl).flush({ elements: [] });
     await settle(fixture);

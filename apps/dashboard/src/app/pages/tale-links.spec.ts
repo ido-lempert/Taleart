@@ -158,9 +158,9 @@ describe('Tale Studio links (epic Tale Studio R7)', () => {
   it('adds a button, gives it an address and a new tab, and styles it, each a step', async () => {
     await open();
     await click('#studio-add-button');
-    expect(live()).toBe('Button added. Give it a web address before updating the tale.');
+    expect(live()).toBe('Button added at 20%, 44.5%. Selected. Give it a web address before updating the tale.');
     const id = doc().elements[0].id;
-    expect(globalThis.document.activeElement?.id).toBe(`link-href-${id}`);
+    expect(globalThis.document.activeElement?.id).toBe(`studio-el-${id}`);
     expect(q<HTMLButtonElement>('button.el').getAttribute('aria-label')).toBe('Button: Learn more');
     expect(root.querySelector('.layer__state')?.textContent).toContain('Needs a web address');
     expect(q<HTMLInputElement>(`#link-href-${id}`).getAttribute('aria-invalid')).toBe('true');

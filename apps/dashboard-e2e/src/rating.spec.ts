@@ -113,7 +113,8 @@ test.describe.serial('a Rating (epic interactive components story 4.2)', () => {
     await page.goto(`/tales/${taleId}/studio`);
     await page.locator('#studio-add-rating').click();
     const question = page.locator('input[id^="field-rating-question-"]');
-    await expect(question).toBeFocused();
+    // Focus is on the new element on the canvas (story 11.4); its inspector shows its fields.
+    await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     const id = (await question.getAttribute('id'))?.replace('field-rating-question-', '') ?? '';
     await question.fill('How was the sunset?');
     await question.press('Tab');
