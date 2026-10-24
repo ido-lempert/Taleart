@@ -111,6 +111,18 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await expect(item).toBeFocused();
   }
 
+  /**
+   * Shows a tab of the left panel (Tale Studio 2): Tab to the tab rail (one tab stop), then the
+   * arrows to the tab, which shows its panel.
+   */
+  async function openTab(name: string): Promise<void> {
+    await tabTo(page.locator('[role=tab][tabindex="0"]'), 'the left panel tabs');
+    const tab = page.getByRole('tab', { name, exact: true });
+    for (let n = 0; n < 4 && !(await focused(tab)); n++) await page.keyboard.press('ArrowDown');
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    keyboard.push(`left panel: the ${name} tab by the arrow keys`);
+  }
+
   /** Selects the layer `id` alone from the layers grid: Tab to the grid, Ctrl+Home, Down to its row, Enter. */
   async function selectInGrid(id: string, what: string): Promise<void> {
     await tabTo(page.locator('.layers [role=gridcell][tabindex="0"]'), 'layers grid');
@@ -125,7 +137,7 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
   /** The id of the element with focus. */
   const activeId = () => page.evaluate(() => document.activeElement?.id ?? '');
   /** The studio's live region. */
-  const live = () => page.locator('section.card > p.visually-hidden[aria-live="polite"]');
+  const live = () => page.locator('#studio-live');
   /** The live region says exactly `text`; recorded for the report. */
   async function said(text: string, what: string): Promise<void> {
     await expect(live(), what).toHaveText(text, { timeout: 15_000 });
@@ -279,10 +291,35 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
   });
 
   test('the composed tale, with each kind selected', async () => {
+    // The layers list is the left panel's Layers tab (Tale Studio 2).
+    await openTab('Layers');
     for (const [name, id] of Object.entries(ids)) {
       await selectInGrid(id, name);
       await check(`composed-${name}-selected`, { layout: name === 'text' });
     }
+  });
+
+  test('moves between the five regions with F6 and Shift+F6 (Tale Studio 2)', async () => {
+    const region = () =>
+      page.evaluate(() => document.activeElement?.closest('[data-region]')?.getAttribute('data-region') ?? '');
+    // From the layers grid (the left panel): the canvas, the inspector, the strip, the top bar, back to the left panel.
+    await tabTo(page.locator('.layers [role=gridcell][tabindex="0"]'), 'layers grid');
+    const forward: string[] = [];
+    for (let n = 0; n < 5; n++) {
+      await page.keyboard.press('F6');
+      forward.push(await region());
+      await seen(page.locator(':focus'), `F6 to the ${forward.at(-1)} region`);
+    }
+    expect(forward).toEqual(['canvas', 'inspector', 'strip', 'top', 'left']);
+    // On the canvas F6 lands on the selected element; in the strip on the current tale.
+    const back: string[] = [];
+    for (let n = 0; n < 5; n++) {
+      await page.keyboard.press('Shift+F6');
+      back.push(await region());
+    }
+    expect(back).toEqual(['top', 'strip', 'inspector', 'canvas', 'left']);
+    await expect(page.locator('[role=tab][aria-selected=true]')).toBeFocused();
+    keyboard.push(`F6: ${forward.join(', ')}; Shift+F6: ${back.join(', ')}`);
   });
 
   test('selects from the layers grid with the arrow keys', async () => {
@@ -304,7 +341,7 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await page.keyboard.press('Home');
     await page.keyboard.press('Enter');
     await expect(page.locator(`#layer-${ids.text}`).locator('xpath=..')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('fieldset.selected legend').first()).toHaveText('Selected text');
+    await expect(page.locator('#inspector-title')).toContainText('Text');
     keyboard.push('layers grid: Ctrl/Cmd+Home, Down through all layers, Right, End, Home, Enter selects');
   });
 
@@ -451,24 +488,30 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await said('Redone: Layer sent backward', 'Redo button');
   });
 
-  test('the shortcuts panel and the duplicate drawer', async () => {
-    await tabTo(page.locator('#studio-help-button'), 'Keyboard shortcuts', { max: 3 });
+  test('the shortcuts panel and the duplicate drawer, from the tale menu', async () => {
+    // Keyboard shortcuts and Duplicate are in the top bar's tale menu (Tale Studio 2).
+    const taleMenu = page.locator('#studio-menu');
+    await tabTo(taleMenu, 'Tale actions', { max: 8 });
     await page.keyboard.press('Enter');
+    await menuTo('Keyboard shortcuts');
+    await page.keyboard.press('Enter');
+    await seen(page.locator('#studio-help-panel'), 'the shortcuts panel');
     await expect(page.locator('#studio-keys')).toBeVisible();
     await check('shortcuts-open', { walk: false });
     await page.keyboard.press('Escape');
     await expect(page.locator('#studio-keys')).toBeHidden();
-    await seen(page.locator('#studio-help-button'), 'Keyboard shortcuts after Escape');
+    await seen(taleMenu, 'Tale actions after Escape');
 
-    await tabTo(page.locator('#studio-duplicate'), 'Duplicate', { max: 10 });
+    await page.keyboard.press('Enter');
+    await menuTo('Duplicate');
     await page.keyboard.press('Enter');
     const drawer = page.getByRole('dialog', { name: 'Duplicate tale' });
     await expect(drawer).toBeVisible();
     await check('duplicate-drawer', { layout: true, maxStops: 30 });
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();
-    await seen(page.locator('#studio-duplicate'), 'Duplicate after Escape');
-    keyboard.push('shortcuts panel: Enter opens, Escape closes; Duplicate drawer: Enter opens, Escape returns focus');
+    await seen(taleMenu, 'Tale actions after the Duplicate drawer');
+    keyboard.push('tale menu: Enter opens it, the arrows reach Keyboard shortcuts and Duplicate; Escape returns focus to it');
   });
 
   test('updates the tale by keyboard', async () => {
