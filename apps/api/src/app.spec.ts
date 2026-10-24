@@ -14176,6 +14176,16 @@ describe('Management API v1: projects and zones', () => {
         expect(await rows()).toEqual([]);
       });
 
+      it("refuses a real option id of the tale's poll posted to its quiz, and records it for neither", async () => {
+        const { tale, handle } = await livePoll([pollElement(), quizElement()]);
+        const res = await answer(handle, tale.id, 'coffee');
+        expect(res.status).toBe(422);
+        expect((await res.json()).error.code).toBe('validation_failed');
+        expect(await rows()).toEqual([]);
+        // The same id is a vote on the poll itself.
+        expect((await vote(handle, tale.id, 'coffee')).status).toBe(201);
+      });
+
       it('checks answers against the published quiz: a removed answer is refused and its count left out', async () => {
         const { tale, handle } = await livePoll([quizElement()]);
         expect((await answer(handle, tale.id, 'd')).status).toBe(201);

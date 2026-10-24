@@ -56,11 +56,13 @@ export const POLL_STYLES = `
 .ta-poll-mine .ta-poll-fill { opacity: 0.4; }
 @media (forced-colors: active) { .ta-poll-opt { border-color: ButtonText; } .ta-poll-fill { background: Highlight; } }
 .ta-quiz-mark { position: relative; font-weight: 800; }
-.ta-poll-light .ta-quiz-right { color: #065f46; }
-.ta-poll-light .ta-quiz-wrong { color: #991b1b; }
-.ta-poll-dark .ta-quiz-right { color: #6ee7b7; }
-.ta-poll-dark .ta-quiz-wrong { color: #fca5a5; }
-.ta-quiz-right, .ta-quiz-wrong { border-width: 0.5cqh; }
+.ta-poll-light .ta-quiz-right { --ta-mark: #065f46; }
+.ta-poll-light .ta-quiz-wrong { --ta-mark: #991b1b; }
+.ta-poll-dark .ta-quiz-right { --ta-mark: #6ee7b7; }
+.ta-poll-dark .ta-quiz-wrong { --ta-mark: #fca5a5; }
+.ta-quiz-right, .ta-quiz-wrong { border-width: 0.5cqh; border-color: var(--ta-mark); }
+.ta-quiz-right .ta-quiz-mark, .ta-quiz-wrong .ta-quiz-mark { color: var(--ta-mark); }
+.ta-quiz-right .ta-poll-fill, .ta-quiz-wrong .ta-poll-fill { opacity: 0.22; }
 `;
 
 /** One choice of a choice card: a poll's option or a quiz's answer. */
@@ -73,8 +75,10 @@ export interface Choice {
 export interface ChoiceWords {
   /** The start of the result, such as "You voted Tea." */
   chose(label: string): string;
-  /** What a press in the Tale Studio preview says, after "You chose Tea." */
+  /** What a press in the Tale Studio preview says, after the choice. */
   preview: string;
+  /** The choice in the preview, when it is worded otherwise than {@link ChoiceWords.chose}. */
+  previewChose?(label: string): string;
   /** What a failed post says. */
   failed: string;
 }
@@ -82,6 +86,7 @@ export interface ChoiceWords {
 const POLL_WORDS: ChoiceWords = {
   chose: (label) => `You voted ${label}.`,
   preview: 'Votes are not recorded in the preview.',
+  previewChose: (label) => `You chose ${label}.`,
   failed: 'Your vote could not be sent. Try again.',
 };
 
@@ -170,6 +175,8 @@ export function renderChoiceCard(element: DeliveryTaleElement, context: RenderCo
     return { choice, button, fill };
   });
   root.appendChild(live);
+  // A tap anywhere on the card (its question, its padding) is the card's: it never steps the tale (C7).
+  root.addEventListener('click', (e) => e.stopPropagation());
   const buttonOf = (id: string) => buttons.find((b) => b.choice.id === id)?.button;
 
   const responses = context.responses;
@@ -206,7 +213,7 @@ export function renderChoiceCard(element: DeliveryTaleElement, context: RenderCo
       e.stopPropagation();
       if (answered || busy) return;
       if (!responses) {
-        const start = show(choice.id, null, (label) => `You chose ${label}.`);
+        const start = show(choice.id, null, words.previewChose);
         live.textContent = start ? `${start} ${words.preview}` : words.preview;
         return;
       }

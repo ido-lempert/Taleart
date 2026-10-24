@@ -393,6 +393,41 @@ describe('Tale Studio: a quiz (epic interactive components story 4.3)', () => {
     expect(labels()).toEqual(['Mercury', 'Earth']);
   });
 
+  it('keeps a refused answer text and its error together when another answer is removed', async () => {
+    await openStored();
+    const id = storedQuiz().id;
+    const g = field(id);
+    http.expectOne(responsesUrl).flush({ elements: [] });
+    await settle(fixture);
+    // Answer 2 is cleared: refused, its error shown, the quiz unchanged.
+    await edit(`${g}-1`, '');
+    expect(q(`${g}-1-error`).textContent).toBe('Enter some text.');
+    expect(labels()).toEqual(['Mercury', 'Venus', 'Earth', 'Mars']);
+    // Answer 1 is removed: the cleared input is now answer 1, still empty and still with its error.
+    await press(`${g}-0-remove`);
+    expect(labels()).toEqual(['Venus', 'Earth', 'Mars']);
+    expect(q<HTMLInputElement>(`${g}-0`).value).toBe('');
+    expect(q(`${g}-0-error`).textContent).toBe('Enter some text.');
+    expect(q<HTMLInputElement>(`${g}-1`).value).toBe('Earth');
+    expect(q(`${g}-1-error`).textContent).toBe('');
+    // Typing a label again applies it to the right answer, by its id.
+    await edit(`${g}-0`, 'Venus again');
+    expect(quiz().props.answers[0]).toEqual({ id: 'b', label: 'Venus again' });
+    expect(q(`${g}-0-error`).textContent).toBe('');
+  });
+
+  it('labels a new answer with the next free "Answer N"', async () => {
+    await openStored(
+      storedQuiz({
+        props: { question: 'Q?', theme: 'light', answers: [{ id: 'a', label: 'Answer 3' }, { id: 'b', label: 'Answer 4' }] },
+      }),
+    );
+    http.expectOne(responsesUrl).flush({ elements: [] });
+    await settle(fixture);
+    await press(`${field(storedQuiz().id)}-add`);
+    expect(labels()).toEqual(['Answer 3', 'Answer 4', 'Answer 5']);
+  });
+
   it('works as a survey with no correct answer picked', async () => {
     await openStored();
     const id = storedQuiz().id;
