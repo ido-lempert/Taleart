@@ -92,4 +92,20 @@ async function migrateUserLists(db: Db): Promise<void> {
       FOREIGN KEY (user_list_id, project_id) REFERENCES user_lists (id, project_id) ON DELETE CASCADE
     );
   `);
+  // The user lists a tale group is targeted to (epic targeting R4). Both keys carry the same
+  // project_id, so a group can only use lists of its own project (AD-4). Deleting the list or the
+  // group removes the link. The tales module's audience-empty clause (delivery-rule.ts) reads this
+  // table and user_lists by these names.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tale_group_user_lists (
+      tale_group_id uuid NOT NULL,
+      user_list_id uuid NOT NULL,
+      project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tale_group_id, user_list_id),
+      FOREIGN KEY (tale_group_id, project_id) REFERENCES tale_groups (id, project_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_list_id, project_id) REFERENCES user_lists (id, project_id) ON DELETE CASCADE
+    );
+  `);
+  await db.query('CREATE INDEX IF NOT EXISTS tale_group_user_lists_user_list_id_idx ON tale_group_user_lists (user_list_id)');
 }

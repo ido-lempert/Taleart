@@ -67,6 +67,28 @@ export const DOCS_THEME_SCRIPT = [
   '</script>',
 ].join('\n');
 
+/** The viewer's targeting tags (epic targeting R2), imported from the URL of the page's script tag. */
+export const DOCS_TAGS_SCRIPT = [
+  '<script type="module">',
+  `  import { setTags } from '${EXAMPLE_INSTALL.sdkUrl}';`,
+  '',
+  "  setTags(['summer', 'vip']);",
+  '</script>',
+].join('\n');
+
+/**
+ * The viewer's external user ID (epic targeting R4): an opaque ID of the host's own, never an email.
+ * `setExternalUserId(null)` sends none again, for example after sign-out.
+ */
+export const DOCS_EXTERNAL_USER_ID_SCRIPT = [
+  '<script type="module">',
+  `  import { setExternalUserId } from '${EXAMPLE_INSTALL.sdkUrl}';`,
+  '',
+  "  // Your own opaque ID for the signed-in user; null after sign-out.",
+  "  setExternalUserId('cust-1001');",
+  '</script>',
+].join('\n');
+
 export interface GlossaryTerm {
   readonly term: string;
   /** The name it replaced, when it had one. */

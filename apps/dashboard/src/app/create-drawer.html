@@ -366,6 +366,28 @@
             <p class="field__hint" id="tag-public-note">
               Tag names are visible to anyone who loads the zone, so keep anything private out of them.
             </p>
+            <!-- User lists (epic targeting R4): the viewer's external user ID picks them, on the server. -->
+            <fieldset class="tag-options" aria-describedby="user-lists-hint">
+              <legend class="field__label">User lists</legend>
+              @for (list of projectLists(); track list.id) {
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    [checked]="isListSelected(list.id)"
+                    (change)="toggleList(list.id, $event)"
+                  />
+                  <span>{{ list.name }} <span class="muted">({{ listCount(list) }})</span></span>
+                </label>
+              } @empty {
+                <p class="muted">This project has no user lists yet. Create one on the Audience page.</p>
+              }
+            </fieldset>
+            <p class="field__hint" id="user-lists-hint" aria-live="polite">{{ userListHint() }}</p>
+            @if (selectedListIds().length > 0) {
+              <p class="field__hint" id="user-lists-note">
+                Targeting is not access control: a group's tales are not secret from viewers outside its lists.
+              </p>
+            }
           } @else {
             <p class="muted">This tale group no longer exists.</p>
           }

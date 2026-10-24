@@ -1,5 +1,5 @@
-// Types only: nothing from the contract ends up in the bundle (AD-3).
-import type { DeliveryZone, ErrorBody } from '@taleart/contract';
+// Types and the header name only from the contract (AD-3).
+import { EXTERNAL_USER_ID_HEADER, type DeliveryZone, type ErrorBody } from '@taleart/contract';
 import { VISITOR_HEADER, visitorId } from './visitor';
 
 // The Delivery API base path (AD-2), as `DELIVERY_API_BASE` in the contract.
@@ -37,26 +37,29 @@ interface SharedResponse {
   text: string;
 }
 
-// The requests in flight, by URL and key: elements on one page that share a site key and a slug
-// send one request. An entry leaves when its request settles, so a later load
+// The requests in flight, by URL, key and external user ID header: elements on one page that share
+// a site key, a slug and a viewer send one request. An entry leaves when its request settles, so a later load
 // (after a change on the page) asks the API again.
 const inFlight = new Map<string, Promise<SharedResponse>>();
 
 /**
  * Reads a zone from the Delivery API at `apiUrl`, with the key as a bearer token and never a
- * cookie, the slug as the `zone` query parameter, and this browser's visitor id. Throws
+ * cookie, the slug as the `zone` query parameter, and this browser's visitor id. With
+ * `externalUserIdHeader` (the viewer's external user ID, already encoded), it is sent in its own
+ * header, never in the URL, and the browser is told to keep no copy (epic targeting R4, R5). Throws
  * {@link DeliveryError} for a refused key or slug, any other error status or a network failure.
  */
 export async function fetchZone(
   apiUrl: string,
   request: ZoneRequest,
   fetchImpl: typeof fetch = fetch,
+  externalUserIdHeader: string | null = null,
 ): Promise<DeliveryZone> {
   const url = `${apiUrl.replace(/\/+$/, '')}${DELIVERY_PATH}/zone?zone=${encodeURIComponent(request.zone)}`;
-  const id = `${url}\n${request.key}`;
+  const id = `${url}\n${request.key}\n${externalUserIdHeader ?? ''}`;
   let shared = inFlight.get(id);
   if (!shared) {
-    const started = read(url, request.key, fetchImpl);
+    const started = read(url, request.key, fetchImpl, externalUserIdHeader);
     shared = started;
     inFlight.set(id, started);
     const forget = () => {
@@ -79,13 +82,22 @@ export async function fetchZone(
   return body;
 }
 
-async function read(url: string, key: string, fetchImpl: typeof fetch): Promise<SharedResponse> {
+async function read(
+  url: string,
+  key: string,
+  fetchImpl: typeof fetch,
+  externalUserIdHeader: string | null,
+): Promise<SharedResponse> {
   let res: Response;
+  const headers: Record<string, string> = { Authorization: `Bearer ${key}`, [VISITOR_HEADER]: visitorId() };
+  const init: RequestInit = { headers, credentials: 'omit' };
+  if (externalUserIdHeader !== null) {
+    headers[EXTERNAL_USER_ID_HEADER] = externalUserIdHeader;
+    // A per-viewer answer is never kept by the browser either (the API answers no-store too).
+    init.cache = 'no-store';
+  }
   try {
-    res = await fetchImpl(url, {
-      headers: { Authorization: `Bearer ${key}`, [VISITOR_HEADER]: visitorId() },
-      credentials: 'omit',
-    });
+    res = await fetchImpl(url, init);
   } catch (err) {
     throw new DeliveryError(`Could not reach the TaleArt API: ${err instanceof Error ? err.message : String(err)}`);
   }

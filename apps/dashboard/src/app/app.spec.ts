@@ -97,6 +97,8 @@ interface Data {
   groups?: Record<string, unknown[]>;
   /** Each project's tags, keyed by project id. */
   tags?: Record<string, unknown[]>;
+  /** Each project's user lists, keyed by project id (epic targeting R4). */
+  userLists?: Record<string, unknown[]>;
   /** Each project's tale groups (the Tale groups page), keyed by project id. */
   projectGroups?: Record<string, unknown[]>;
   /** Tale groups read on their own with their tales (`GET /tale-groups/{id}`, story 8.19), keyed by id; 404 when missing. */
@@ -288,6 +290,9 @@ describe('App', () => {
     }
     await settle(fixture);
     for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
+    for (const p of data.projects ?? []) {
+      http.expectOne(`${API_BASE}/projects/${p.id}/user-lists`).flush(data.userLists?.[p.id] ?? []);
+    }
     await settle(fixture);
     flushProjectGroups(data);
     await settle(fixture);
@@ -4256,6 +4261,92 @@ describe('App', () => {
       expect(root.querySelector('[aria-label="Tags of Summer"] li')?.textContent?.trim()).toBe('summer');
     });
 
+    it('names user lists in the Audience drawer with their counts and saves them after the tags (epic targeting R4)', async () => {
+      const list = (id: string, name: string, idCount: number) => ({
+        id,
+        projectId: 'p1',
+        name,
+        idCount,
+        taleGroups: [],
+        createdAt: '2026-10-22T10:00:00.000Z',
+        updatedAt: '2026-10-23T10:00:00.000Z',
+      });
+      const loyal = list('l1', 'Loyal', 1204);
+      const fresh = list('l2', 'Newcomers', 0);
+      const data: Data = {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [], userLists: [] }] },
+        tags: { p1: [] },
+        userLists: { p1: [loyal, fresh] },
+      };
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const fieldset = [...panel.querySelectorAll('fieldset')].find(
+        (f) => f.querySelector('legend')?.textContent?.trim() === 'User lists',
+      ) as HTMLFieldSetElement;
+      expect(fieldset).toBeTruthy();
+      expect(fieldset.getAttribute('aria-describedby')).toBe('user-lists-hint');
+      const boxes = () =>
+        [...fieldset.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].map((box) => [
+          box.closest('label')?.textContent?.replace(/\s+/g, ' ').trim(),
+          box.checked,
+        ]);
+      expect(boxes()).toEqual([
+        ['Loyal (1,204 IDs)', false],
+        ['Newcomers (0 IDs)', false],
+      ]);
+      const hint = () => panel.querySelector('#user-lists-hint')?.textContent?.trim();
+      expect(hint()).toBe('With no user list, the group does not depend on who the viewer is.');
+      expect(panel.querySelector('#user-lists-hint')?.getAttribute('aria-live')).toBe('polite');
+      expect(panel.querySelector('#user-lists-note')).toBeNull();
+
+      fieldset.querySelectorAll<HTMLInputElement>('input[type=checkbox]')[1].click();
+      await settle(fixture);
+      expect(hint()).toBe(
+        'Shows only to viewers whose external user ID, set by the page with setExternalUserId, is in this list. ' +
+          'It holds no ID yet, so the group shows to nobody until one is added.',
+      );
+      expect(panel.querySelector('#user-lists-note')?.textContent).toContain('Targeting is not access control');
+      fieldset.querySelectorAll<HTMLInputElement>('input[type=checkbox]')[0].click();
+      await settle(fixture);
+      expect(hint()).toBe(
+        'Shows only to viewers whose external user ID, set by the page with setExternalUserId, is in one of these lists.',
+      );
+
+      buttonNamed(panel, 'Save').click();
+      const tags = http.expectOne(`${API_BASE}/tale-groups/g1/tags`);
+      expect(tags.request.body).toEqual({ tagIds: [], tagMatch: 'any' });
+      tags.flush({ ...group, tales: [], tags: [], userLists: [] });
+      await settle(fixture);
+      const lists = http.expectOne(`${API_BASE}/tale-groups/g1/user-lists`);
+      expect(lists.request.method).toBe('PUT');
+      expect(lists.request.body).toEqual({ userListIds: ['l2', 'l1'] });
+      const targeted = [
+        { id: 'l1', name: 'Loyal', idCount: 1204 },
+        { id: 'l2', name: 'Newcomers', idCount: 0 },
+      ];
+      lists.flush({ ...group, tales: [], tags: [], userLists: targeted });
+      await settle(fixture);
+      // The group's visibility can change with its lists (audience-empty): everything is read again.
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...group, tales: [], tags: [], userLists: targeted }] } });
+      expect(drawer()).toBeNull();
+
+      // Opened again, the drawer checks the saved lists; saving unchanged lists sends only the tags.
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const again = drawer() as HTMLElement;
+      expect(
+        [...again.querySelectorAll<HTMLInputElement>('fieldset input[type=checkbox]')].map((box) => box.checked),
+      ).toEqual([true, true]);
+      buttonNamed(again, 'Save').click();
+      http.expectOne(`${API_BASE}/tale-groups/g1/tags`).flush({ ...group, tales: [], tags: [], userLists: targeted });
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/tale-groups/g1/user-lists`);
+      expect(drawer()).toBeNull();
+    });
+
     it('picks All or Any for the tags in the Audience drawer and saves it with them (epic targeting R1)', async () => {
       const { fixture, root } = await open('/zones/z1', {
         ...oneZone,
@@ -5514,7 +5605,7 @@ describe('App', () => {
       expect(names(root)).toEqual([]);
       expect(root.querySelector('.empty__title')?.textContent).toContain('No tale groups match this filter');
       expect(root.querySelector('.empty__text')?.textContent?.trim()).toBe(
-        "No tale group is targeted. Add targeting tags in a group's Audience.",
+        "No tale group is targeted. Add targeting tags or user lists in a group's Audience.",
       );
     });
 
@@ -6052,6 +6143,7 @@ describe('App', () => {
       for (const z of given.zones ?? []) http.expectOne(`${API_BASE}/zones/${z.id}/tale-groups`).flush(given.groups?.[z.id] ?? []);
       await settle(fixture);
       for (const p of given.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(given.tags?.[p.id] ?? []);
+      for (const p of given.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/user-lists`).flush([]);
       await settle(fixture);
     }
 

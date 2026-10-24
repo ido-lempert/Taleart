@@ -25,6 +25,7 @@ export {
   taleExists,
   getTale,
   taleGroupName,
+  taleGroupNames,
   taleTitle,
   taleGroupProjectId,
   taleProjectId,

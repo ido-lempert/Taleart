@@ -60,7 +60,7 @@ export function taleGroupFilter(value: string | null | undefined): TaleGroupFilt
  * - Visible: visible on site in at least one zone, by the Delivery rule (R7).
  * - Off: stored `draft` or `paused` (the switch says Off).
  * - Scheduled: has a start or an end time, whether or not it is open now.
- * - Targeted: has an audience (epic targeting R7): targeting tags, so only some viewers see it.
+ * - Targeted: has an audience (epic targeting R7): targeting tags or user lists, so only some viewers see it.
  * - Not in a zone: placed in no zone.
  * So Scheduled overlaps Visible, Off and Not in a zone, Not in a zone overlaps Off, and Targeted
  * overlaps every filter but Archived; Visible never overlaps Off or Not in a zone. A group that is
@@ -433,7 +433,7 @@ export class TaleGroupsPage {
       case 'scheduled':
         return 'No tale group has a start or end time.';
       case 'targeted':
-        return "No tale group is targeted. Add targeting tags in a group's Audience.";
+        return "No tale group is targeted. Add targeting tags or user lists in a group's Audience.";
       case 'unplaced':
         return 'Every tale group is shown in at least one zone.';
       case 'archived':

@@ -13,6 +13,7 @@ import {
   type SetScheduleRequest,
   type SettableStatus,
   type Tag,
+  type UserList,
   type TagMatch,
   type Tale,
   type TaleGroup,
@@ -206,6 +207,11 @@ export class DashboardStore {
   readonly firstProjectRefusal = signal('');
   /** Each project's tags by name, keyed by project id. */
   readonly tags = signal<Record<string, Tag[]>>({});
+  /**
+   * Each project's user lists by name, with their ID counts, keyed by project id (epic targeting
+   * R4): what a group's Audience drawer offers. The Audience page writes its own reads here too.
+   */
+  readonly userLists = signal<Record<string, UserList[]>>({});
   /** True once the first refresh finished, successfully or not. */
   readonly loaded = signal(false);
   readonly apiDown = signal(false);
@@ -342,6 +348,11 @@ export class DashboardStore {
 
   tagsOf(projectId: string): Tag[] {
     return this.tags()[projectId] ?? [];
+  }
+
+  /** The project's user lists by name (epic targeting R4). */
+  userListsOf(projectId: string): UserList[] {
+    return this.userLists()[projectId] ?? [];
   }
 
   /** A tale as a zone's list or a group read on its own holds it (story 8.19). */
@@ -498,6 +509,7 @@ export class DashboardStore {
     this.wantedGroups.clear();
     this.createdTaleGroupId.set(null);
     this.tags.set({});
+    this.userLists.set({});
     this.loaded.set(false);
     this.apiDown.set(false);
     this.drawer.set(null);
@@ -571,9 +583,13 @@ export class DashboardStore {
       const groups = await this.loadEach<ZoneTaleGroup[]>(zones, (id) => `/zones/${id}/tale-groups`);
       if (!current()) return;
       this.taleGroups.set(this.keepPendingTales(this.keepPendingOrders(groups)));
-      const tags = await this.loadEach<Tag[]>(projects, (id) => `/projects/${encodeURIComponent(id)}/tags`);
+      const [tags, userLists] = await Promise.all([
+        this.loadEach<Tag[]>(projects, (id) => `/projects/${encodeURIComponent(id)}/tags`),
+        this.loadEach<UserList[]>(projects, (id) => `/projects/${encodeURIComponent(id)}/user-lists`),
+      ]);
       if (!current()) return;
       this.tags.set(tags);
+      this.userLists.set(userLists);
       // The groups read on its own are read with the project lists, in parallel. Each is read even
       // when a zone lists it: a zone's list gives its visibility in that zone, the Tale groups
       // page's view shows it in any zone (story 8.19).
@@ -1080,6 +1096,22 @@ export class DashboardStore {
         Object.entries(lists).map(([id, list]) => [id, list.map((g) => (g.id === taleGroupId ? { ...g, ...targeting } : g))]),
       ),
     );
+    return '';
+  }
+
+  /**
+   * Replaces the user lists a tale group is targeted to (epic targeting R4). Its visibility can
+   * change with them (audience-empty), in every zone, so the dashboard's data is read again.
+   */
+  async setTaleGroupUserLists(taleGroupId: string, userListIds: string[]): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/user-lists`, { userListIds }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The user lists were not saved. Try again.');
+    }
+    await this.refresh();
     return '';
   }
 

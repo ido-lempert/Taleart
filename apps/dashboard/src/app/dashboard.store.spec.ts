@@ -26,6 +26,7 @@ describe('DashboardStore', () => {
     http.expectOne(`${API_BASE}/frame-types`).flush([]);
     await tick();
     for (const p of projects) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush([]);
+    for (const p of projects) http.expectOne(`${API_BASE}/projects/${p.id}/user-lists`).flush([]);
     await tick();
     // Only the projects a page asked for (epic UX rework R14).
     for (const req of http.match((r) => /\/projects\/[^/]+\/tale-groups$/.test(r.url))) req.flush([]);
@@ -67,6 +68,7 @@ describe('DashboardStore', () => {
     http.expectOne(`${API_BASE}/frame-types`).flush([]);
     await tick();
     http.expectOne(`${API_BASE}/projects/p2/tags`).flush([]);
+    http.expectOne(`${API_BASE}/projects/p2/user-lists`).flush([]);
     await tick();
     // No page asked for a project's tale group list, so none is read (epic UX rework R14).
     http.expectNone(`${API_BASE}/projects/p2/tale-groups`);
@@ -94,6 +96,7 @@ describe('DashboardStore', () => {
       http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush([{ ...listed, position: 0, tales }]);
       await tick();
       http.expectOne(`${API_BASE}/projects/p1/tags`).flush([]);
+      http.expectOne(`${API_BASE}/projects/p1/user-lists`).flush([]);
       await tick();
       for (const req of http.match(`${API_BASE}/projects/p1/tale-groups`)) req.flush([listed]);
       await tick();

@@ -3,6 +3,8 @@ import { dirname, join, relative } from 'node:path';
 import {
   DEFAULT_SDK_BUILDS_KEPT,
   installSnippet,
+  looksLikeEmail,
+  looksLikePhone,
   pinnedSdkScriptTag,
   SDK_BUNDLE_PATH,
   SDK_CACHE_SECONDS,
@@ -11,8 +13,10 @@ import {
   zoneElement,
 } from '@taleart/contract/core';
 import {
+  DOCS_EXTERNAL_USER_ID_SCRIPT,
   DOCS_PINNED_SCRIPT,
   DOCS_SNIPPET,
+  DOCS_TAGS_SCRIPT,
   DOCS_THEME_SCRIPT,
   DOCS_TWO_ZONES_SNIPPET,
   EXAMPLE_INSTALL,
@@ -138,6 +142,26 @@ describe('the docs snippet', () => {
 
   it('appears in the Web SDK README as is', () => {
     expect(read(README)).toContain(DOCS_SNIPPET);
+  });
+});
+
+describe('the targeting snippets (epic targeting R10, story 5.4)', () => {
+  it('import the SDK calls from the URL of the script tag, as the README does', () => {
+    for (const [script, call] of [
+      [DOCS_TAGS_SCRIPT, 'setTags'],
+      [DOCS_EXTERNAL_USER_ID_SCRIPT, 'setExternalUserId'],
+    ] as const) {
+      const line = `import { ${call} } from '${EXAMPLE_INSTALL.sdkUrl}';`;
+      expect(script).toContain(line);
+      expect(read(README)).toContain(line);
+    }
+    expect(read(README)).toContain("setExternalUserId('cust-1001');");
+  });
+
+  it('use an opaque external user ID, never an email address or a phone number', () => {
+    const ids = [...DOCS_EXTERNAL_USER_ID_SCRIPT.matchAll(/setExternalUserId\('([^']*)'\)/g)].map((m) => m[1]);
+    expect(ids).toEqual(['cust-1001']);
+    for (const id of ids) expect(looksLikeEmail(id) || looksLikePhone(id)).toBe(false);
   });
 });
 
