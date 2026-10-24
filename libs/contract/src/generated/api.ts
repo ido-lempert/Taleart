@@ -210,6 +210,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The signed-in user's API tokens that are not revoked, newest first.
+         * @description Personal API tokens for scripts (epic developer experience 10.1). Each user sees only their own. Never returns a token or its hash, only its prefix. An expired token is listed until it is revoked. A passkey session only: an API token gets 403 `forbidden` here, so a token can never list, create or revoke tokens.
+         */
+        get: operations["listApiTokens"];
+        put?: never;
+        /**
+         * Create an API token for the signed-in user (shown only once).
+         * @description The token (`tat_` and 32 random bytes in base64url) appears only in this response, sent with `Cache-Control: no-store`; only its SHA-256 hash and its prefix are stored. It acts as the user, limited to `projectIds` (or, when null, to every project the user can access at the time of each request) and, when `readOnly`, to GET requests. The user's own access is read on every request, so a project the user loses is lost to the token too. Every listed project must exist (else 400 `project_not_found`) and be one the user can access (else 403 `forbidden`). A user holds at most 50 active tokens (409 `api_token_limit_reached`). A passkey session only: an API token gets 403 `forbidden`.
+         */
+        post: operations["createApiToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api-tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one of the signed-in user's API tokens.
+         * @description The token stops working at once: its next request answers 401 `unauthenticated`. Another user's token, an unknown or an already revoked one answers 404 `api_token_not_found`. A passkey session only: an API token gets 403 `forbidden`.
+         */
+        delete: operations["revokeApiToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects": {
         parameters: {
             query?: never;
@@ -225,7 +271,7 @@ export interface paths {
         put?: never;
         /**
          * Create a project (admins only).
-         * @description A content manager gets 403 `forbidden`.
+         * @description A content manager gets 403 `forbidden`. An admin's API token may create a project only when it covers all of the admin's projects and is read-write; any other token gets 403 `forbidden`.
          */
         post: operations["createProject"];
         delete?: never;
@@ -247,7 +293,7 @@ export interface paths {
         put?: never;
         /**
          * Invite someone to a project (admins only).
-         * @description Creates a one-time invitation, valid for 7 days. The invitee opens `url`, registers a passkey and becomes a content manager of the project. The token in `url` is shown only in this response; only its SHA-256 hash is stored. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`.
+         * @description Creates a one-time invitation, valid for 7 days. The invitee opens `url`, registers a passkey and becomes a content manager of the project. The token in `url` is shown only in this response; only its SHA-256 hash is stored. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`. An API token gets 403 `forbidden`: invitations need a passkey session.
          */
         post: operations["createInvitation"];
         delete?: never;
@@ -1580,6 +1626,46 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        /** @description A personal API token as its user sees it (epic developer experience 10.1), never the token or its hash. */
+        ApiToken: {
+            /** Format: uuid */
+            id: string;
+            /** @description What the token is for, 1 to 80 characters. */
+            name: string;
+            /** @description The start of the token, `tat_` and the next 6 characters, to recognise it. */
+            prefix: string;
+            /** @description The projects the token is limited to; null for every project its user can access. Either way the user's own access is applied too. */
+            projectIds: string[] | null;
+            /** @description When true the token may only read (GET and HEAD). */
+            readOnly: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When the token stops working; null when it does not expire.
+             */
+            expiresAt: string | null;
+            /**
+             * Format: date-time
+             * @description When the token was last used, to within a minute (it is written at most once a minute); null when it was never used.
+             */
+            lastUsedAt: string | null;
+        };
+        CreateApiTokenRequest: {
+            name: string;
+            /** @description The projects to limit the token to, or null for every project the user can access. */
+            projectIds: string[] | null;
+            readOnly: boolean;
+            /**
+             * Format: date-time
+             * @description When the token stops working, in the future; null or left out for never.
+             */
+            expiresAt?: string | null;
+        };
+        IssuedApiToken: components["schemas"]["ApiToken"] & {
+            /** @description The secret token, `tat_` and 32 random bytes in base64url. Shown only once. */
+            token: string;
+        };
         /** @description A colour as `#rrggbb`; nothing else is accepted, so no value can inject CSS. */
         ThemeColor: string;
         /** @enum {string} */
@@ -2235,7 +2321,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2824,6 +2910,79 @@ export interface operations {
             400: components["responses"]["Error"];
             409: components["responses"]["Error"];
             410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listApiTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiToken"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The new token, shown only once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedApiToken"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    revokeApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -4744,7 +4903,7 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];
