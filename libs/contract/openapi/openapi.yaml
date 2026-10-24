@@ -387,10 +387,12 @@ paths:
           $ref: '#/components/responses/Error'
   /api-tokens/current:
     get:
+      tags:
+        - API tokens
       operationId: getCurrentApiToken
       summary: The API token making the request, with its user (an API token only).
       description: >-
-        What `taleart whoami` shows (epic developer experience 10.3): the
+        What `taleart whoami` shows: the
         token's name, prefix and scope (`allProjects`, `projectIds`,
         `readOnly`, `expiresAt`) and the user it acts as, with their role.
         Never the token or its hash. Read-only tokens may read it. A passkey
@@ -1803,13 +1805,18 @@ paths:
         counts against its address's backstop, ten times that size, so a
         client inventing ids gains no more than ten visitors' allowance. Over either the API answers 429 `rate_limited` with
         `Retry-After`. CORS is open to any origin, without credentials, and
-        allows the `X-TaleArt-Visitor` header. Tale groups and their tales come in dashboard
+        allows the `X-TaleArt-Visitor` and `X-TaleArt-External-User-Id` headers. Tale groups and their tales come in dashboard
         order; only `live` groups and tales whose start and end times, and
         their group's, contain the current time are listed; each
-        tale's media URL is absolute and public. The zone is cached
-        as `private, no-cache`, varies by `Authorization` and carries an
-        ETag, so a browser revalidates it on every load (304 while
-        unchanged) and sees a change at once.
+        tale's media URL is absolute and public. A group targeted to
+        user lists is listed only when the external user ID header names an
+        ID in one of them. Without that header the zone
+        is cached as `private, no-cache`, varies by `Authorization` and
+        `X-TaleArt-External-User-Id` and carries an ETag, so a browser
+        revalidates it on every load (304 while unchanged) and sees a change
+        at once. With the header (even one that reads as no ID) the
+        answer is `private, no-store`, with no ETag and never a 304, so no
+        cache keeps a per-viewer answer.
       security:
         - siteKey: []
       parameters:
@@ -1835,6 +1842,22 @@ paths:
             type: string
             format: uuid
             pattern: '^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12})$'
+        - name: X-TaleArt-External-User-Id
+          in: header
+          required: false
+          description: >-
+            The viewer's external user ID, set by the host page
+            (`setExternalUserId`), for user-list targeting: base64url (RFC 4648 section 5, no padding) of the ID's UTF-8
+            bytes, as `encodeExternalUserIdHeader` in the contract writes it.
+            Never sent in the URL. The API decodes it, hashes it with the
+            project's secret for the lookup and drops it: it is not logged,
+            stored, put in analytics, or linked to the visitor id. A value
+            that is not canonical base64url of UTF-8, or decodes to an ID a
+            user list could not hold (blank, over 256 characters, a control
+            character), reads as no ID.
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_-]{1,1366}$'
       responses:
         '200':
           description: The zone, its display, and its tale groups by position.
@@ -2504,6 +2527,48 @@ paths:
       responses:
         '200':
           description: The tale group with its new tags.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/user-lists:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags:
+        - Targeting
+      operationId: setTaleGroupUserLists
+      summary: Replace the user lists a tale group is targeted to.
+      description: >-
+        The list becomes the group's full set of user lists; an empty list clears them, and repeated ids count once. Every id
+        must name a user list of the group's own project; otherwise nothing
+        changes and the answer is 404 `user_list_not_found`. Only admins and
+        content managers change it (403 `forbidden`). A group with user lists
+        is delivered only to viewers whose external user ID is in one of them;
+        one whose lists all hold no ID is not visible (`audience-empty`).
+        Saving it (as saving the group's tags) ends `audience-removed`.
+        Unknown tale group: 404 `tale_group_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTaleGroupUserListsRequest'
+      responses:
+        '200':
+          description: The tale group with its new user lists.
           content:
             application/json:
               schema:
@@ -3376,7 +3441,7 @@ components:
       description: >-
         A tale group belongs to its project. Zones place it, each in
         its own order; its tales, tags and media are the same in every zone.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tales, tags, tagMatch, visibility]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tales, tags, tagMatch, userLists, visibility]
       properties:
         visibility:
           $ref: '#/components/schemas/Visibility'
@@ -3442,6 +3507,15 @@ components:
             $ref: '#/components/schemas/TaleGroupTag'
         tagMatch:
           $ref: '#/components/schemas/TagMatch'
+        userLists:
+          type: array
+          description: >-
+            The user lists the group is targeted to, by
+            name ignoring case; empty when none. With any, the group shows only
+            to viewers whose external user ID is in one of them (and whose tags
+            pass its tag rule).
+          items:
+            $ref: '#/components/schemas/TaleGroupUserList'
     ZoneTaleGroup:
       description: A tale group as a zone lists it, with its position in that zone.
       allOf:
@@ -3459,7 +3533,7 @@ components:
         A tale group as the project's list shows it: the
         group's own fields, cover, tags and visibility in any zone it is placed
         in, with its tale counts instead of its tales, so the list stays small.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tags, tagMatch, visibility, taleCount, shownTaleCount]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tags, tagMatch, userLists, visibility, taleCount, shownTaleCount]
       properties:
         visibility:
           $ref: '#/components/schemas/Visibility'
@@ -3504,6 +3578,15 @@ components:
             $ref: '#/components/schemas/TaleGroupTag'
         tagMatch:
           $ref: '#/components/schemas/TagMatch'
+        userLists:
+          type: array
+          description: >-
+            The user lists the group is targeted to, by
+            name ignoring case; empty when none. With any, the group shows only
+            to viewers whose external user ID is in one of them (and whose tags
+            pass its tag rule).
+          items:
+            $ref: '#/components/schemas/TaleGroupUserList'
         taleCount:
           type: integer
           minimum: 0
@@ -3537,6 +3620,29 @@ components:
           format: uuid
         name:
           type: string
+    TaleGroupUserList:
+      type: object
+      required: [id, name, idCount]
+      description: A user list as a tale group is targeted to it, with how many IDs it holds (never which).
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        idCount:
+          type: integer
+          minimum: 0
+    UserListTaleGroup:
+      type: object
+      required: [id, name]
+      description: A tale group a user list targets.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
     CreateTagRequest:
       type: object
       required: [name]
@@ -3548,11 +3654,11 @@ components:
           description: Trimmed before it is checked and stored; unique in the project ignoring case.
     UserList:
       type: object
-      required: [id, projectId, name, idCount, createdAt, updatedAt]
+      required: [id, projectId, name, idCount, taleGroups, createdAt, updatedAt]
       description: >-
         A project's list of external user IDs. It tells
         how many IDs it holds, never which: they are stored only as keyed
-        hashes.
+        hashes, and the tale groups it targets.
       properties:
         id:
           type: string
@@ -3568,6 +3674,11 @@ components:
           type: integer
           minimum: 0
           description: How many distinct external user IDs the list holds.
+        taleGroups:
+          type: array
+          description: The tale groups targeted to the list, by name ignoring case.
+          items:
+            $ref: '#/components/schemas/UserListTaleGroup'
         createdAt:
           type: string
           format: date-time
@@ -3605,12 +3716,13 @@ components:
           $ref: '#/components/schemas/UserListRefusal'
     UserListRefusal:
       type: string
-      enum: [too-long, control-character, not-ascii, not-one-column]
+      enum: [too-long, control-character, not-one-column]
       description: >-
-        Why a row was refused: longer than 256 characters, holding a control
-        character, holding a character outside ASCII (only ASCII IDs are
-        supported until the Delivery header's encoding is defined), or more than one field (an unquoted comma or
-        quote, or a broken quoted field).
+        Why a row was refused: longer than 256 characters (code points),
+        holding a control character, or more than one field (an unquoted
+        comma or quote, or a broken quoted field). Any other Unicode text is
+        an ID: the SDKs send it base64url-encoded (`X-TaleArt-External-User-Id`),
+        and it matches exactly, case included, with no Unicode normalization.
     UserListUploadReport:
       type: object
       required: [added, alreadyPresent, refused, refusedRows, emptyRows, emailLike, phoneLike, idCount]
@@ -3663,6 +3775,16 @@ components:
         tagMatch:
           $ref: '#/components/schemas/TagMatch'
           description: How the tags combine; left out, the group keeps its match mode.
+    SetTaleGroupUserListsRequest:
+      type: object
+      required: [userListIds]
+      properties:
+        userListIds:
+          type: array
+          maxItems: 100
+          description: The ids of the group's new user lists, all of the group's project. Repeats count once; empty clears them.
+          items:
+            type: string
     TagMatch:
       type: string
       enum: [any, all]
@@ -3840,6 +3962,13 @@ components:
         zone has no active key. `media-processing`: the tale is stored
         `processing`. `media-problem`: the tale is stored `invalid-media` or
         `quota-reached`. `not-updated-yet`: nothing published to deliver.
+        `audience-empty`: the group is targeted only to user lists and none
+        of them holds an ID, so no viewer can match.
+        `audience-removed`: the group's user lists were taken away without a
+        person choosing a new audience (its last list was deleted, or it was
+        copied to another project, where its lists do not exist); it stays
+        hidden until someone saves its Audience, so it never turns public by
+        accident.
       enum:
         - group-off
         - tale-hidden
@@ -3856,6 +3985,8 @@ components:
         - not-updated-yet
         - no-visible-groups
         - no-tale-groups
+        - audience-empty
+        - audience-removed
     ContentStatus:
       type: string
       description: >-
@@ -4274,6 +4405,14 @@ components:
             type: string
         tagMatch:
           $ref: '#/components/schemas/TagMatch'
+        userListMatched:
+          type: boolean
+          description: >-
+            True when the group is targeted to user lists and the viewer's
+            external user ID (header `X-TaleArt-External-User-Id`) is in one of
+            them; left out otherwise. A group targeted to
+            lists the viewer is in none of is not in the response at all, so
+            the SDK never needs the lists.
         cover:
           description: >-
             The group's cover, or null when it has none; the bar then shows

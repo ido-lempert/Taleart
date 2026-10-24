@@ -57,6 +57,12 @@ data class DeliveryTaleGroup(
     val tags: List<String> = emptyList(),
     /** How the tags combine: `any` (the default) or `all`. */
     val tagMatch: String = "any",
+    /**
+     * True when the group is targeted to user lists and the viewer's external user ID is in one of
+     * them (epic targeting R4). Read for the contract; the native SDK sends no external user ID yet
+     * (story 5.9), so the Delivery API leaves every list-targeted group out and this stays false.
+     */
+    val userListMatched: Boolean = false,
     /** The group's cover, or null when it has none. */
     val cover: DeliveryCover? = null,
     /** The group's published tales by position. */
@@ -126,6 +132,7 @@ internal fun readZone(body: JsonObject): DeliveryZone = DeliveryZone(
             name = group.string("name"),
             tags = (group["tags"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
             tagMatch = group.string("tagMatch", "any").takeIf { it == "any" || it == "all" } ?: "any",
+            userListMatched = (group["userListMatched"] as? JsonPrimitive)?.booleanOrNull ?: false,
             cover = (group["cover"] as? JsonObject)?.let { cover ->
                 DeliveryCover(
                     kind = cover.string("kind"),

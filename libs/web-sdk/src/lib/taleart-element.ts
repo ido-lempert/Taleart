@@ -1,4 +1,4 @@
-import { tagRulePasses, viewerTagSet, type DeliveryZone } from '@taleart/contract';
+import { encodeExternalUserIdHeader, tagRulePasses, viewerTagSet, type DeliveryZone } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
@@ -84,6 +84,37 @@ export function setTags(tags: readonly string[] | null): void {
   }
   viewerTags = viewerTagSet(tags);
   for (const element of connected) element.retarget();
+}
+
+// The viewer's external user ID set with setExternalUserId, as its header value (base64url of its
+// UTF-8 bytes); null until a page sets one. Kept in memory only, never stored on the device.
+let externalUserIdHeader: string | null = null;
+
+/**
+ * Tells the SDK who the viewer is, for user-list targeting, for every `<taleart-view>` on the page,
+ * now and later (epic targeting R4): the host's own ID for the viewer, an opaque one, never an
+ * email address or a phone number. A tale group targeted to user lists shows only to a viewer
+ * whose ID is in one of them; groups without lists show as before. Every element reads its zone
+ * again with the new ID. The ID is sent to the Delivery API in the `X-TaleArt-External-User-Id`
+ * request header (base64url of its UTF-8 bytes), never in a URL, and is kept only in memory: not in
+ * storage or a cookie, and never with the visitor id. `setExternalUserId(null)` sends none again.
+ * The ID is trimmed and matched exactly (case counts). An ID no user list can hold (not text,
+ * blank, over 256 characters, a control character) logs one console warning and sends no ID, so a
+ * page never keeps showing the previous viewer's groups.
+ */
+export function setExternalUserId(id: string | null): void {
+  let header: string | null = null;
+  if (id != null) {
+    header = encodeExternalUserIdHeader(id);
+    if (header === null) {
+      console.warn(
+        'TaleArt: setExternalUserId needs an ID of 1 to 256 characters without control characters, or null; no ID is sent',
+      );
+    }
+  }
+  if (header === externalUserIdHeader) return;
+  externalUserIdHeader = header;
+  for (const element of connected) element.reload();
 }
 
 // The zone with only the tale groups whose tag rule passes for the viewer's tags.
@@ -220,6 +251,11 @@ export class TaleartElement extends HTMLElement {
     this.render(zone, this.clear(), loaded.configName);
   }
 
+  /** Reads the zone again, as for a changed attribute: the viewer's external user ID changed. */
+  reload(): void {
+    if (this.isConnected) this.scheduleLoad();
+  }
+
   /** Applies the theme again with the current SDK configuration, without a new request. */
   retheme(): void {
     const themed = this.themed;
@@ -351,7 +387,7 @@ export class TaleartElement extends HTMLElement {
     if (!apiUrl || !named || !this.isConnected) return;
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
-      const zone = await fetchZone(apiUrl, named.request);
+      const zone = await fetchZone(apiUrl, named.request, undefined, externalUserIdHeader);
       if (id !== this.loadId) return;
       this.responses = responseClient(apiUrl, named.request);
       if (!this.zoneMarked) {

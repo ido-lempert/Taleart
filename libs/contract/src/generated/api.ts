@@ -263,7 +263,7 @@ export interface paths {
         };
         /**
          * The API token making the request, with its user (an API token only).
-         * @description What `taleart whoami` shows (epic developer experience 10.3): the token's name, prefix and scope (`allProjects`, `projectIds`, `readOnly`, `expiresAt`) and the user it acts as, with their role. Never the token or its hash. Read-only tokens may read it. A passkey session has no token and gets 403 `forbidden`.
+         * @description What `taleart whoami` shows: the token's name, prefix and scope (`allProjects`, `projectIds`, `readOnly`, `expiresAt`) and the user it acts as, with their role. Never the token or its hash. Read-only tokens may read it. A passkey session has no token and gets 403 `forbidden`.
          */
         get: operations["getCurrentApiToken"];
         put?: never;
@@ -882,7 +882,7 @@ export interface paths {
         };
         /**
          * A zone, named by site key and slug, with its display and tale groups (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts only the project's site key (`tas_...`) in `Authorization: Bearer <key>`, never a session, and answers the project's zone whose slug the `zone` query parameter names. Every refusal (a missing, unknown or revoked site key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against its visitor's token bucket (by default 600 at once, 20 per second), the visitor named by the `X-TaleArt-Visitor` header; a request without a valid visitor id counts against a bucket of the same size for its address (an IPv4 address or an IPv6 /48). Every request also counts against its address's backstop, ten times that size, so a client inventing ids gains no more than ten visitors' allowance. Over either the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials, and allows the `X-TaleArt-Visitor` header. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed; each tale's media URL is absolute and public. The zone is cached as `private, no-cache`, varies by `Authorization` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once.
+         * @description Served under `/delivery/v1`. Accepts only the project's site key (`tas_...`) in `Authorization: Bearer <key>`, never a session, and answers the project's zone whose slug the `zone` query parameter names. Every refusal (a missing, unknown or revoked site key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against its visitor's token bucket (by default 600 at once, 20 per second), the visitor named by the `X-TaleArt-Visitor` header; a request without a valid visitor id counts against a bucket of the same size for its address (an IPv4 address or an IPv6 /48). Every request also counts against its address's backstop, ten times that size, so a client inventing ids gains no more than ten visitors' allowance. Over either the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials, and allows the `X-TaleArt-Visitor` and `X-TaleArt-External-User-Id` headers. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed; each tale's media URL is absolute and public. A group targeted to user lists is listed only when the external user ID header names an ID in one of them. Without that header the zone is cached as `private, no-cache`, varies by `Authorization` and `X-TaleArt-External-User-Id` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once. With the header (even one that reads as no ID) the answer is `private, no-store`, with no ETag and never a 304, so no cache keeps a per-viewer answer.
          */
         get: operations["getDeliveryZone"];
         put?: never;
@@ -1169,6 +1169,28 @@ export interface paths {
          * @description The list becomes the group's full set of tags; an empty list clears them, and repeated ids count once. Every id must name a tag of the group's own project; otherwise nothing changes and the answer is 400 `tag_not_found`. `tagMatch`, when given, sets how the tags combine (`any` or `all`); a value that is neither is 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`.
          */
         put: operations["setTaleGroupTags"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tale-groups/{taleGroupId}/user-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the user lists a tale group is targeted to.
+         * @description The list becomes the group's full set of user lists; an empty list clears them, and repeated ids count once. Every id must name a user list of the group's own project; otherwise nothing changes and the answer is 404 `user_list_not_found`. Only admins and content managers change it (403 `forbidden`). A group with user lists is delivered only to viewers whose external user ID is in one of them; one whose lists all hold no ID is not visible (`audience-empty`). Saving it (as saving the group's tags) ends `audience-removed`. Unknown tale group: 404 `tale_group_not_found`.
+         */
+        put: operations["setTaleGroupUserLists"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1551,6 +1573,8 @@ export interface components {
             /** @description The group's tags, by name ignoring case. */
             tags: components["schemas"]["TaleGroupTag"][];
             tagMatch: components["schemas"]["TagMatch"];
+            /** @description The user lists the group is targeted to, by name ignoring case; empty when none. With any, the group shows only to viewers whose external user ID is in one of them (and whose tags pass its tag rule). */
+            userLists: components["schemas"]["TaleGroupUserList"][];
         };
         /** @description A tale group as a zone lists it, with its position in that zone. */
         ZoneTaleGroup: components["schemas"]["TaleGroup"] & {
@@ -1587,6 +1611,8 @@ export interface components {
             /** @description The group's tags, by name ignoring case. */
             tags: components["schemas"]["TaleGroupTag"][];
             tagMatch: components["schemas"]["TagMatch"];
+            /** @description The user lists the group is targeted to, by name ignoring case; empty when none. With any, the group shows only to viewers whose external user ID is in one of them (and whose tags pass its tag rule). */
+            userLists: components["schemas"]["TaleGroupUserList"][];
             taleCount: number;
             /** @description The group's tales that are Shown (stored `live`). */
             shownTaleCount: number;
@@ -1604,11 +1630,24 @@ export interface components {
             id: string;
             name: string;
         };
+        /** @description A user list as a tale group is targeted to it, with how many IDs it holds (never which). */
+        TaleGroupUserList: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            idCount: number;
+        };
+        /** @description A tale group a user list targets. */
+        UserListTaleGroup: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
         CreateTagRequest: {
             /** @description Trimmed before it is checked and stored; unique in the project ignoring case. */
             name: string;
         };
-        /** @description A project's list of external user IDs. It tells how many IDs it holds, never which: they are stored only as keyed hashes. */
+        /** @description A project's list of external user IDs. It tells how many IDs it holds, never which: they are stored only as keyed hashes, and the tale groups it targets. */
         UserList: {
             /** Format: uuid */
             id: string;
@@ -1617,6 +1656,8 @@ export interface components {
             name: string;
             /** @description How many distinct external user IDs the list holds. */
             idCount: number;
+            /** @description The tale groups targeted to the list, by name ignoring case. */
+            taleGroups: components["schemas"]["UserListTaleGroup"][];
             /** Format: date-time */
             createdAt: string;
             /**
@@ -1639,10 +1680,10 @@ export interface components {
             reason: components["schemas"]["UserListRefusal"];
         };
         /**
-         * @description Why a row was refused: longer than 256 characters, holding a control character, holding a character outside ASCII (only ASCII IDs are supported until the Delivery header's encoding is defined), or more than one field (an unquoted comma or quote, or a broken quoted field).
+         * @description Why a row was refused: longer than 256 characters (code points), holding a control character, or more than one field (an unquoted comma or quote, or a broken quoted field). Any other Unicode text is an ID: the SDKs send it base64url-encoded (`X-TaleArt-External-User-Id`), and it matches exactly, case included, with no Unicode normalization.
          * @enum {string}
          */
-        UserListRefusal: "too-long" | "control-character" | "not-ascii" | "not-one-column";
+        UserListRefusal: "too-long" | "control-character" | "not-one-column";
         /** @description What an upload did, in counts only. It never holds an uploaded value. */
         UserListUploadReport: {
             /** @description IDs added to the list. */
@@ -1666,6 +1707,10 @@ export interface components {
             tagIds: string[];
             /** @description How the tags combine; left out, the group keeps its match mode. */
             tagMatch?: components["schemas"]["TagMatch"];
+        };
+        SetTaleGroupUserListsRequest: {
+            /** @description The ids of the group's new user lists, all of the group's project. Repeats count once; empty clears them. */
+            userListIds: string[];
         };
         /**
          * @description How a tale group's targeting tags combine: `any` (the default) shows the group to a viewer with at least one of its tags, `all` only to a viewer with every one of them. A group with no tags, or a viewer whose page passed no tags, always passes. The SDK decides, with `tagRulePasses` from the contract.
@@ -1751,10 +1796,10 @@ export interface components {
             at?: string;
         };
         /**
-         * @description Why content is not visible. `group-off`: the group is stored `draft` or `paused`. `tale-hidden`: the tale is. `group-blocked`: a process set the group's key (`processing`, `invalid-media`, `quota-reached`). `archived`. `no-shown-tales`: a group has no delivered tale. `no-visible-groups`: a zone has tale groups but delivers none. `no-tale-groups`: a zone has none. `not-in-any-zone`. `starts-at` and `ended-at`: outside the window. `zone-no-display`: the zone has no frame. `zone-not-installed`: the zone has no active key. `media-processing`: the tale is stored `processing`. `media-problem`: the tale is stored `invalid-media` or `quota-reached`. `not-updated-yet`: nothing published to deliver.
+         * @description Why content is not visible. `group-off`: the group is stored `draft` or `paused`. `tale-hidden`: the tale is. `group-blocked`: a process set the group's key (`processing`, `invalid-media`, `quota-reached`). `archived`. `no-shown-tales`: a group has no delivered tale. `no-visible-groups`: a zone has tale groups but delivers none. `no-tale-groups`: a zone has none. `not-in-any-zone`. `starts-at` and `ended-at`: outside the window. `zone-no-display`: the zone has no frame. `zone-not-installed`: the zone has no active key. `media-processing`: the tale is stored `processing`. `media-problem`: the tale is stored `invalid-media` or `quota-reached`. `not-updated-yet`: nothing published to deliver. `audience-empty`: the group is targeted only to user lists and none of them holds an ID, so no viewer can match. `audience-removed`: the group's user lists were taken away without a person choosing a new audience (its last list was deleted, or it was copied to another project, where its lists do not exist); it stays hidden until someone saves its Audience, so it never turns public by accident.
          * @enum {string}
          */
-        VisibilityReasonCode: "group-off" | "tale-hidden" | "group-blocked" | "archived" | "no-shown-tales" | "not-in-any-zone" | "starts-at" | "ended-at" | "zone-no-display" | "zone-not-installed" | "media-processing" | "media-problem" | "not-updated-yet" | "no-visible-groups" | "no-tale-groups";
+        VisibilityReasonCode: "group-off" | "tale-hidden" | "group-blocked" | "archived" | "no-shown-tales" | "not-in-any-zone" | "starts-at" | "ended-at" | "zone-no-display" | "zone-not-installed" | "media-processing" | "media-problem" | "not-updated-yet" | "no-visible-groups" | "no-tale-groups" | "audience-empty" | "audience-removed";
         /**
          * @description A content status key. Each key has one HTTP code, defined in `libs/contract` (`CONTENT_STATUS_HTTP_CODES`): draft 204, live 200, scheduled 202, processing 102, invalid-media 422, paused 403, blocked-by-group 423, expired 410, quota-reached 429, archived 404. `scheduled`, `expired` and `blocked-by-group` are computed when content is read and never stored.
          * @enum {string}
@@ -1968,6 +2013,8 @@ export interface components {
             /** @description The names of the group's targeting tags, ignoring case by name; empty when the group has none. The SDK compares them with the viewer's tags; every viewer gets the same list. */
             tags: string[];
             tagMatch: components["schemas"]["TagMatch"];
+            /** @description True when the group is targeted to user lists and the viewer's external user ID (header `X-TaleArt-External-User-Id`) is in one of them; left out otherwise. A group targeted to lists the viewer is in none of is not in the response at all, so the SDK never needs the lists. */
+            userListMatched?: boolean;
             /** @description The group's cover, or null when it has none; the bar then shows its first tale's lowest media element (the document's media background, else its first image or video element), or, when that tale has no media, its canvas colour. */
             cover: components["schemas"]["DeliveryCover"] | null;
             /** @description The group's published tales by position. */
@@ -4341,6 +4388,8 @@ export interface operations {
             header?: {
                 /** @description The visitor id: a random UUID v4 the SDK generates once per device and keeps there (the Web SDK in localStorage, the native SDK in its device store), with no personal data. Written all in lowercase or all in uppercase; anything else counts as no id. It is used only to rate limit per visitor. */
                 "X-TaleArt-Visitor"?: string;
+                /** @description The viewer's external user ID, set by the host page (`setExternalUserId`), for user-list targeting: base64url (RFC 4648 section 5, no padding) of the ID's UTF-8 bytes, as `encodeExternalUserIdHeader` in the contract writes it. Never sent in the URL. The API decodes it, hashes it with the project's secret for the lookup and drops it: it is not logged, stored, put in analytics, or linked to the visitor id. A value that is not canonical base64url of UTF-8, or decodes to an ID a user list could not hold (blank, over 256 characters, a control character), reads as no ID. */
+                "X-TaleArt-External-User-Id"?: string;
             };
             path?: never;
             cookie?: never;
@@ -4899,6 +4948,36 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    setTaleGroupUserLists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTaleGroupUserListsRequest"];
+            };
+        };
+        responses: {
+            /** @description The tale group with its new user lists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getTale: {
         parameters: {
             query?: never;
@@ -5341,10 +5420,10 @@ export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: Readonly
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
 export const createZoneRequestTemplateValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["CreateZoneRequest"]["template"]> = ["stories-bar", "promo-banner", "blank"];
-export const userListRefusalValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserListRefusal"]> = ["too-long", "control-character", "not-ascii", "not-one-column"];
+export const userListRefusalValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserListRefusal"]> = ["too-long", "control-character", "not-one-column"];
 export const tagMatchValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TagMatch"]> = ["any", "all"];
 export const visibilityReasonSubjectValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReason"]["subject"]> = ["zone", "group", "tale"];
-export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet", "no-visible-groups", "no-tale-groups"];
+export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet", "no-visible-groups", "no-tale-groups", "audience-empty", "audience-removed"];
 export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ContentStatus"]> = ["draft", "live", "scheduled", "processing", "invalid-media", "paused", "blocked-by-group", "expired", "quota-reached", "archived"];
 export const setStatusRequestStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SetStatusRequest"]["status"]> = ["live", "paused", "archived"];
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];

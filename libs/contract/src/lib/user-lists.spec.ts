@@ -32,12 +32,15 @@ describe('external user IDs', () => {
     expect(externalUserIdRefusal('a\u0085b')).toBe('control-character');
   });
 
-  it('refuses IDs outside ASCII until the Delivery header defines its encoding (story 5.4)', () => {
-    expect(externalUserIdRefusal('müller-7')).toBe('not-ascii');
-    expect(externalUserIdRefusal('user-😀')).toBe('not-ascii');
+  it('accepts IDs outside ASCII, counted in code points, matched exactly (story 5.4 lifts not-ascii)', () => {
+    expect(externalUserIdRefusal('müller-7')).toBeNull();
+    expect(externalUserIdRefusal('user-😀')).toBeNull();
+    expect(externalUserIdRefusal('😀'.repeat(MAX_EXTERNAL_USER_ID_LENGTH))).toBeNull();
     expect(externalUserIdRefusal('é'.repeat(MAX_EXTERNAL_USER_ID_LENGTH + 1))).toBe('too-long');
-    expect(normalizeExternalUserId('ü')).toBeNull();
-    expect(parseUserListCsvLine('"zoë"')).toEqual({ kind: 'refused', reason: 'not-ascii' });
+    expect(normalizeExternalUserId('ü')).toBe('ü');
+    // No Unicode normalization: a composed and a decomposed é stay two IDs.
+    expect(normalizeExternalUserId('zo\u00eb')).not.toBe(normalizeExternalUserId('zoe\u0308'));
+    expect(parseUserListCsvLine('"zoë"')).toEqual({ kind: 'id', id: 'zoë' });
   });
 
   it('normalizes by trimming only, case kept', () => {
