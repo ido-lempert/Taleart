@@ -1380,6 +1380,15 @@ select {
 .studio-inspector .field__hint {
   font-size: var(--text-xs);
 }
+.studio-inspector .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.studio-inspector .row .field {
+  flex: 1;
+  min-width: 100px;
+}
 /* The section's heading already says Style: the text inspector's own name stays for screen readers only. */
 .studio-inspector .text-style > legend {
   position: absolute;

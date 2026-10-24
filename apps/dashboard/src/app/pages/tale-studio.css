@@ -9,7 +9,7 @@
 .studio-menu__list {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
+  inset-inline-end: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -54,12 +54,12 @@
 .studio-help {
   position: absolute;
   top: 100%;
-  right: var(--space-3);
+  inset-inline-end: var(--space-3);
 }
 .studio-help__panel {
   position: absolute;
   top: 4px;
-  right: 0;
+  inset-inline-end: 0;
   z-index: 30;
   width: min(420px, calc(100vw - 32px));
   padding: var(--space-3) var(--space-4);
@@ -142,15 +142,16 @@ textarea.input {
 .canvas__hint {
   position: absolute;
   top: 50%;
-  left: 50%;
+  inset-inline: 0;
   width: 70%;
+  margin-inline: auto;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
   background: rgb(17 24 39 / 80%);
   color: #fff;
   font-size: var(--text-sm);
   text-align: center;
-  transform: translate(-50%, -50%);
+  transform: translateY(-50%);
   pointer-events: none;
 }
 @media (max-width: 1023.98px) {

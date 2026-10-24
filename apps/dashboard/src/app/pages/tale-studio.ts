@@ -611,7 +611,9 @@ export class TaleStudioPage implements OnChanges {
     event?.preventDefault();
     event?.stopPropagation();
     this.helpOpen.set(false);
-    (this.helpReturn ?? this.taleMenuButton()?.nativeElement)?.focus();
+    // Back where it came from; when that is gone (a layer hidden or deleted meanwhile), to the tale menu's button.
+    const back = this.helpReturn?.isConnected ? this.helpReturn : this.taleMenuButton()?.nativeElement;
+    back?.focus();
     this.helpReturn = null;
   }
 
@@ -717,6 +719,8 @@ export class TaleStudioPage implements OnChanges {
   /** The left panel's tabs (story 11.1): Elements, Templates, Media and Layers; Elements first. */
   protected readonly leftTabs = LEFT_TABS;
   protected readonly leftTab = signal<LeftTab>('elements');
+  /** How the tab rail lies, for its arrow keys' description: along the side, or along the top under 1024 px. */
+  protected readonly railOrientation = signal<'vertical' | 'horizontal'>('vertical');
 
   /** The tab rail's keys: the arrows, Home and End move to a tab and show it (automatic activation). */
   protected tabKey(event: KeyboardEvent, at: number): void {
@@ -732,12 +736,13 @@ export class TaleStudioPage implements OnChanges {
    * F6 and Shift+F6 move between the studio's five regions (epic Tale Studio 2 R1, EXPERIENCE
    * Information Architecture), wrapping: to the back link in the top bar, the selected tab, the
    * selected element on the canvas (else the canvas), the inspector, and the current tale in the
-   * strip. A drawer, a picker or a menu over the studio keeps the key to itself.
+   * strip. A drawer, a picker or a menu (the layer menu, the tale menu) over the studio keeps the key to itself.
    */
   @HostListener('document:keydown', ['$event'])
   protected onRegionKey(event: KeyboardEvent): void {
     if (event.key !== 'F6' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
     if (!this.doc() || this.duplicating() || this.picker() || this.emojiPicker() || this.menu()) return;
+    if (this.taleMenuOpen()) return;
     const active = document.activeElement;
     if (active instanceof Element && active.closest('[aria-modal=true], dialog[open]')) return;
     const regions = STUDIO_REGIONS.filter((r) => this.regionElement(r) !== null);
@@ -764,7 +769,20 @@ export class TaleStudioPage implements OnChanges {
     else if (region === 'canvas')
       target = (selected ? root.querySelector<HTMLElement>(`#studio-el-${selected}`) : null) ?? root.querySelector('#studio-canvas');
     else if (region === 'strip') target = root.querySelector('[aria-current=page]') ?? root.querySelector('a');
+    // The inspector's heading (what is selected), else its first control: the preview's Close.
+    else if (region === 'inspector') target = root.querySelector('#inspector-title') ?? root.querySelector('button');
     (target ?? root).focus();
+  }
+
+  /** Scrolls the tale strip, only it, so the current tale shows (on opening and on moving to another tale). */
+  private showCurrentTale(): void {
+    const strip = this.host.nativeElement.querySelector<HTMLElement>('.studio-strip');
+    const current = strip?.querySelector<HTMLElement>('[aria-current=page]');
+    if (!strip || !current) return;
+    const box = strip.getBoundingClientRect();
+    const at = current.getBoundingClientRect();
+    if (at.left >= box.left && at.right <= box.right) return;
+    strip.scrollLeft += at.left - box.left - (box.width - at.width) / 2;
   }
 
   /** Closes the preview and puts focus back on the Preview button (EXPERIENCE Preview pane). */
@@ -930,6 +948,20 @@ export class TaleStudioPage implements OnChanges {
   private readonly taleGroupId = signal<{ taleId: string; groupId: string } | null>(null);
 
   constructor() {
+    // The current tale in the strip, kept in view as the studio opens a tale.
+    effect(() => {
+      this.taleId();
+      this.stripTales();
+      setTimeout(() => this.showCurrentTale(), 0);
+    });
+    // The tab rail lies along the top of the left panel under 1024 px (tale-studio-panels.css).
+    const narrow = globalThis.matchMedia?.('(max-width: 1023.98px)');
+    if (narrow) {
+      const follow = () => this.railOrientation.set(narrow.matches ? 'horizontal' : 'vertical');
+      follow();
+      narrow.addEventListener?.('change', follow);
+      inject(DestroyRef).onDestroy(() => narrow.removeEventListener?.('change', follow));
+    }
     // A tale no zone lists (its group is in no zone, story 8.19): its group is read, once the store
     // is loaded, so the studio knows the tale (title, project, Update tale, Duplicate) as any other.
     // Released when the tale changes, a zone lists it after all, or the studio closes.

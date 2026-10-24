@@ -14,7 +14,7 @@
 }
 .studio-shell {
   display: grid;
-  grid-template-columns: calc(56px + var(--left-panel)) minmax(0, 1fr) var(--inspector);
+  grid-template-columns: calc(64px + var(--left-panel)) minmax(0, 1fr) var(--inspector);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     'top top top'
@@ -27,7 +27,7 @@
 }
 .studio-shell.is-previewing {
   /* The SDK viewer at its phone size, beside the canvas. */
-  --inspector: 440px;
+  --inspector: 464px;
 }
 .studio-top {
   grid-area: top;
@@ -58,29 +58,38 @@
   outline-offset: -2px;
 }
 
-/* ---------- Top bar ---------- */
+/*
+ * ---------- Top bar: one row from 1024 px ----------
+ * The tools, Preview, Update tale and the menu keep their size; the title and the status give way by
+ * wrapping, never cut (1.4.12: with wider text spacing they take another line, not lose words).
+ */
 .studio-top {
   position: relative;
   z-index: 5;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1) var(--space-2);
+  gap: var(--space-2);
   min-height: 56px;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
+.studio-top > * {
+  flex: none;
+}
 .studio-top__back {
   min-height: 32px;
   padding-inline: var(--space-2);
   font-size: var(--text-sm);
+  white-space: nowrap;
 }
-.studio-top__title {
+.studio-top > .studio-top__title {
+  flex: 0 1 auto;
   min-width: 0;
-  margin-inline-end: var(--space-2);
+  max-width: 20em;
   font-size: var(--text-md);
   font-weight: 600;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 .studio-top__number {
@@ -103,13 +112,11 @@
 .studio-top .btn[aria-expanded='true'] {
   background: var(--surface-sunken);
 }
-.studio-top__state {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+.studio-top > .studio-top__state {
+  flex: 1 1 0;
   min-width: 0;
-  margin-inline-start: auto;
   font-size: var(--text-xs);
+  line-height: 1.3;
   text-align: end;
 }
 .studio-save {
@@ -120,14 +127,13 @@
   font-weight: 600;
 }
 .studio-update__state {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   color: var(--text-secondary);
 }
-/* The indicator's dot (epic UX rework R7): filled when visible on site, hollow when not. */
+/* The indicator's dot (epic UX rework R7): filled when visible on site, hollow when not; never apart from its text. */
 .studio-update__dot {
-  flex: none;
+  display: inline-block;
+  margin-inline-end: var(--space-1);
+  vertical-align: -1px;
   width: 10px;
   height: 10px;
   border: 2px solid #b54708;
@@ -137,21 +143,20 @@
   border-color: #067647;
   background: #067647;
 }
-.studio-alerts > * {
-  margin: var(--space-2) var(--space-3);
-}
-.studio-alert p {
-  margin: 0 0 var(--space-2);
-}
 
-/* Undo, Redo and Safe area keep their names, shown as icons only when the bar is short of room. */
+/* Undo, Redo, Safe area and Preview keep their names, shown as icons (with a tooltip) when the bar is short of room. */
 @media (max-width: 1279.98px) {
   :host {
-    --left-panel: 232px;
+    --left-panel: 224px;
     --inspector: 296px;
   }
-  .studio-top__state {
-    max-width: 240px;
+  /* The save state and the status run on as one text, two lines at most at normal spacing. */
+  .studio-save,
+  .studio-update__state {
+    display: inline;
+  }
+  .studio-save::after {
+    content: ' · ';
   }
   .studio-top__label {
     position: absolute;
@@ -163,18 +168,19 @@
   }
 }
 
-/* Under 1024 px: one column, the regions in focus order, the page scrolls (story 11.16 brings drawers and sheets). */
+/* Under 1024 px: one column, the regions in focus order, the page scrolls; the top bar wraps instead of cutting (story 11.16 brings drawers and sheets). */
 @media (max-width: 1023.98px) {
   .studio-shell {
     display: flex;
     flex-direction: column;
     height: auto;
   }
-  .studio-top__state {
-    align-items: flex-start;
+  .studio-top {
+    flex-wrap: wrap;
+  }
+  .studio-top > .studio-top__state {
     flex-basis: 100%;
     order: 9;
-    margin-inline-start: 0;
     text-align: start;
   }
 }
