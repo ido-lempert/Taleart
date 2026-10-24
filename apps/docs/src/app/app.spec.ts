@@ -25,6 +25,15 @@ describe('docs app', () => {
     expect(links.map((a) => a.textContent?.trim())).toEqual(DOCS_PAGES.map((page) => page.label));
   });
 
+  it("points the skip link at the current page's main, not the base href's", async () => {
+    const fixture = TestBed.createComponent(App);
+    await TestBed.inject(Router).navigateByUrl('/concepts?x=1#glossary');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const skip = (fixture.nativeElement as HTMLElement).querySelector('.skip-link');
+    expect(skip?.getAttribute('href')).toBe('/concepts#main');
+  });
+
   it('opens on Getting started with the snippet', async () => {
     const harness = await RouterTestingHarness.create('/');
     const text = harness.routeNativeElement?.textContent ?? '';

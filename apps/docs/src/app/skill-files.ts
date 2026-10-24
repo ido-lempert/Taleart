@@ -1,6 +1,6 @@
 // The TaleArt agent skill's files (skills/taleart, epic developer experience 10.4), as text: the
 // "AI agents" page shows them, prerendered. Each file is imported as text (the import attribute
-// `loader: text`); the build copies the folder to /skill/taleart/ for download.
+// `loader: text`); the build copies the folder to skill/taleart/ (under the base href) for download.
 import concepts from '@taleart/agent-skill/reference/concepts.md' with { loader: 'text' };
 import recipes from '@taleart/agent-skill/reference/recipes.md' with { loader: 'text' };
 import setup from '@taleart/agent-skill/reference/setup.md' with { loader: 'text' };
@@ -15,8 +15,8 @@ export interface SkillFile {
   content: string;
 }
 
-/** Where the docs serve the skill's files for download. */
-export const SKILL_DOWNLOAD_BASE = '/skill/taleart/';
+/** Where the docs serve the skill's files for download, relative to the base href (`/` or `/Taleart/` on GitHub Pages). */
+export const SKILL_DOWNLOAD_BASE = 'skill/taleart/';
 
 export const SKILL_FILES: readonly SkillFile[] = [
   { path: 'SKILL.md', about: 'when to use it, the operating rules, exit codes and the main recipe', content: skill },
