@@ -206,4 +206,32 @@ describe('TaleViewer with a poll (C7)', () => {
     tea.blur();
     expect(dialog().hasAttribute('data-paused')).toBe(false);
   });
+
+  it('once voted, Space on an option does nothing: no press and no pause (story 4.3)', async () => {
+    const tea = dialog().querySelector('button.ta-poll-opt') as HTMLButtonElement;
+    tea.focus();
+    tea.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tea.getAttribute('aria-disabled')).toBe('true');
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    tea.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    const up = new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true });
+    tea.dispatchEvent(up);
+    expect(up.defaultPrevented).toBe(true);
+    expect(dialog().hasAttribute('data-paused')).toBe(true);
+    expect(dialog().querySelector('.pause')?.getAttribute('aria-label')).toBe('Pause');
+    expect(fake.send).toHaveBeenCalledTimes(1);
+    tea.blur();
+    expect(dialog().hasAttribute('data-paused')).toBe(false);
+  });
+
+  it('a tap on the question or the padding of the card does not step (C7)', () => {
+    const card = dialog().querySelector('.ta-poll') as HTMLElement;
+    for (const target of [card.querySelector('.ta-poll-q') as HTMLElement, card]) {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, clientX: 300, clientY: 300 }));
+    }
+    expect(position()).toBe('1');
+    expect(fake.send).not.toHaveBeenCalled();
+  });
 });

@@ -886,6 +886,125 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
         }
       }
     }
+  },
+  {
+    "key": "rating",
+    "label": "Rating",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "RatingElementProps",
+      "description": "The props of a Rating (epic interactive components R1, R5): an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question",
+        "emoji",
+        "theme"
+      ],
+      "properties": {
+        "title": {
+          "description": "A short heading above the question; none when left out.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "question": {
+          "description": "The question visitors answer; the slider's accessible name.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "emoji": {
+          "description": "The emoji on the slider's thumb: one RGI emoji, drawn as text.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "theme": {
+          "description": "`light` draws dark text on a light card; `dark` light text on a dark card.",
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "key": "quiz",
+    "label": "Quiz",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "QuizElementProps",
+      "description": "The props of a quiz (epic interactive components R1, R3): an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question",
+        "answers",
+        "theme"
+      ],
+      "properties": {
+        "title": {
+          "description": "A short heading above the question; none when left out.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "question": {
+          "description": "The question visitors answer.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "answers": {
+          "description": "The two to four answers, in the order they show.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "description": "The answer's id, unique in the quiz and kept when its text changes or it moves: answers are counted by it.",
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "label": {
+                "description": "The answer as visitors read it: its accessible name.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+              }
+            }
+          }
+        },
+        "correctAnswerId": {
+          "description": "The id of the correct answer, one of `answers`; when left out the quiz works as a survey.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "theme": {
+          "description": "`light` draws dark text on a light card; `dark` light text on a dark card.",
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      }
+    }
   }
 ];
 

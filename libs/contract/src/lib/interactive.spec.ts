@@ -1,12 +1,19 @@
 import Ajv2020 from 'ajv/dist/2020';
 import {
+  CHOICE_PROPS,
+  choiceIds,
   choiceResult,
   ELEMENT_TYPE_LIMITS,
   elementName,
   elementTypeEntry,
   INTERACTIONS,
+  isChoiceResult,
+  isChoiceElementType,
   isInteractiveElementType,
   pollOptionIds,
+  quizCorrectAnswerId,
+  ratingResult,
+  ratingValue,
   TALE_ELEMENT_TYPE_REGISTRY,
 } from '../index';
 
@@ -105,5 +112,122 @@ describe('choiceResult', () => {
     const result = choiceResult(['a', 'b'], new Map([['a', 1], ['removed', 5]]));
     expect(result.total).toBe(1);
     expect(result.choices.map((c) => c.percent)).toEqual([100, 0]);
+  });
+});
+
+describe('rating element type (epic interactive components R1, R5)', () => {
+  const rating = elementTypeEntry('rating');
+  const validate = new Ajv2020().compile(rating?.schema ?? {});
+  const valid = { question: 'How was it?', emoji: '❤️', theme: 'dark' };
+
+  it('is registered, interactive, rated once and limited to one per tale', () => {
+    expect(rating?.label).toBe('Rating');
+    expect(isInteractiveElementType('rating')).toBe(true);
+    expect(INTERACTIONS['rating']).toEqual(['rate']);
+    expect(ELEMENT_TYPE_LIMITS['rating']).toBe(1);
+  });
+
+  it('accepts a question, an emoji and a theme, with an optional title', () => {
+    expect(validate(valid)).toBe(true);
+    expect(validate({ ...valid, title: 'Quick one' })).toBe(true);
+  });
+
+  it('refuses missing or unknown props, long text and another theme', () => {
+    expect(validate({ question: 'Q', theme: 'light' })).toBe(false);
+    expect(validate({ ...valid, value: 50 })).toBe(false);
+    expect(validate({ ...valid, question: 'x'.repeat(201) })).toBe(false);
+    expect(validate({ ...valid, emoji: '' })).toBe(false);
+    expect(validate({ ...valid, theme: 'blue' })).toBe(false);
+    expect(validate({ ...valid, question: 'a\u0007b' })).toBe(false);
+  });
+
+  it('is named by its question in the layers list', () => {
+    const element = { id: 'r', type: 'rating', box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 }, a11y: {}, props: valid };
+    expect(elementName([element] as never, 0)).toBe('How was it?');
+  });
+});
+
+describe('ratingValue and ratingResult (epic interactive components R5)', () => {
+  it('takes whole numbers from 0 to 100 written plainly', () => {
+    expect(['0', '7', '40', '80', '100'].map(ratingValue)).toEqual([0, 7, 40, 80, 100]);
+    for (const bad of ['', '-1', '101', '080', '8.0', ' 8', '1e1', 'abc', '00', 80, null]) {
+      expect(ratingValue(bad)).toBeNull();
+    }
+  });
+
+  it('counts the ratings and rounds their average half up', () => {
+    expect(ratingResult(new Map())).toEqual({ total: 0, average: 0 });
+    expect(ratingResult(new Map([['80', 1], ['40', 1]]))).toEqual({ total: 2, average: 60 });
+    expect(ratingResult(new Map([['0', 1], ['1', 1]]))).toEqual({ total: 2, average: 1 });
+    expect(ratingResult(new Map([['100', 3], ['0', 1]]))).toEqual({ total: 4, average: 75 });
+  });
+
+  it('leaves out values that are no rating', () => {
+    expect(ratingResult(new Map([['80', 1], ['tea', 4], ['50', 0]]))).toEqual({ total: 1, average: 80 });
+  });
+
+  it('tells a choice result from a rating result', () => {
+    expect(isChoiceResult({ total: 0, choices: [] })).toBe(true);
+    expect(isChoiceResult({ total: 0, average: 0 })).toBe(false);
+  });
+});
+
+describe('quiz element type (epic interactive components R1, R3)', () => {
+  const quiz = elementTypeEntry('quiz');
+  const validate = new Ajv2020().compile(quiz?.schema ?? {});
+  const answers = [
+    { id: 'a', label: 'Mercury' },
+    { id: 'b', label: 'Venus' },
+    { id: 'c', label: 'Earth' },
+    { id: 'd', label: 'Mars' },
+  ];
+  const valid = { question: 'Which planet is hottest?', answers, correctAnswerId: 'b', theme: 'light' };
+
+  it('is registered, interactive, answered once and limited to one per tale', () => {
+    expect(quiz?.label).toBe('Quiz');
+    expect(isInteractiveElementType('quiz')).toBe(true);
+    expect(isChoiceElementType('quiz')).toBe(true);
+    expect(isChoiceElementType('rating')).toBe(false);
+    expect(isChoiceElementType('toString')).toBe(false);
+    expect(CHOICE_PROPS['quiz']).toBe('answers');
+    expect(INTERACTIONS['quiz']).toEqual(['answer']);
+    expect(ELEMENT_TYPE_LIMITS['quiz']).toBe(1);
+  });
+
+  it('accepts two to four answers, with or without a correct answer and a title', () => {
+    expect(validate(valid)).toBe(true);
+    expect(validate({ ...valid, answers: answers.slice(0, 2), correctAnswerId: undefined })).toBe(true);
+    const survey: Record<string, unknown> = { ...valid, title: 'Space' };
+    delete survey['correctAnswerId'];
+    expect(validate(survey)).toBe(true);
+  });
+
+  it('refuses one or five answers, an answer without an id, a malformed correct id and extra props', () => {
+    expect(validate({ ...valid, answers: answers.slice(0, 1) })).toBe(false);
+    expect(validate({ ...valid, answers: [...answers, { id: 'e', label: 'Jupiter' }] })).toBe(false);
+    expect(validate({ ...valid, answers: [{ label: 'Mercury' }, ...answers.slice(1)] })).toBe(false);
+    expect(validate({ ...valid, correctAnswerId: 'b c' })).toBe(false);
+    expect(validate({ ...valid, correctAnswerId: '' })).toBe(false);
+    expect(validate({ ...valid, options: answers })).toBe(false);
+    expect(validate({ ...valid, answers: [{ id: 'a', label: 'x'.repeat(61) }, answers[1]] })).toBe(false);
+    expect(validate({ ...valid, question: 'Which\nplanet?' })).toBe(false);
+  });
+
+  it('is named by its question in the layers list', () => {
+    const element = { type: 'quiz', a11y: {}, props: valid };
+    expect(elementName([element], 0)).toBe('Which planet is hottest?');
+    expect(elementName([{ ...element, props: {} }], 0)).toBe('Quiz');
+  });
+
+  it("reads a choice component's ids in order, and a quiz's correct answer when it is one of them", () => {
+    expect(choiceIds('quiz', valid)).toEqual(['a', 'b', 'c', 'd']);
+    expect(choiceIds('poll', { options: [{ id: 'tea' }] })).toEqual(['tea']);
+    expect(choiceIds('poll', valid)).toEqual([]);
+    expect(choiceIds('rating', valid)).toEqual([]);
+    expect(choiceIds('quiz', null)).toEqual([]);
+    expect(quizCorrectAnswerId(valid)).toBe('b');
+    expect(quizCorrectAnswerId({ ...valid, correctAnswerId: 'z' })).toBeNull();
+    expect(quizCorrectAnswerId({ ...valid, correctAnswerId: undefined })).toBeNull();
+    expect(quizCorrectAnswerId(null)).toBeNull();
   });
 });

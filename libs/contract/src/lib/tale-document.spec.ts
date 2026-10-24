@@ -57,6 +57,8 @@ describe('tale document schemas', () => {
       'image-button',
       'swipe-up',
       'poll',
+      'rating',
+      'quiz',
     ];
     expect(TALE_ELEMENT_TYPE_REGISTRY.map((type) => type.key)).toEqual(keys);
   });

@@ -921,6 +921,259 @@ try {
     check(errors.length === 0, `no console errors with the ${theme} poll${errors.length ? `: ${errors.join('; ')}` : ''}`);
     await context.close();
   }
+
+  // A Rating (epic interactive components story 4.2, R5, R10): a slider named and valued for
+  // assistive technology, set by keyboard (arrows, Home, End, Enter) in the light theme and by a touch
+  // drag in the dark one; neither steps the tale nor swipes to the next group; the result is
+  // announced; scanned before and after rating.
+  const ratingId = '00000000-0000-4000-8000-0000000000dd';
+  const ratingZone = (theme) => ({
+    ...ZONE,
+    id: 'zr',
+    slug: 'rated',
+    taleGroups: [
+      {
+        id: 'gr',
+        name: 'Sunset',
+        cover: null,
+        tales: [
+          {
+            id: 'tr1',
+            title: 'Rating',
+            media: null,
+            document: {
+              version: 1,
+              canvas: { background: { type: 'color', color: '#1f2937' } },
+              elements: [
+                {
+                  id: ratingId,
+                  type: 'rating',
+                  box: { x: 0.1, y: 0.4, w: 0.8, h: 0.24, rotation: 0 },
+                  a11y: {},
+                  props: { title: 'Quick one', question: 'How was the sunset?', emoji: '❤️', theme },
+                },
+              ],
+            },
+          },
+          { id: 'tr2', title: 'After', media: null, document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] } },
+        ],
+      },
+      { id: 'gr2', name: 'Mountains', cover: null, tales: [{ id: 'tr3', title: 'Peak', media: null, document: { version: 1, canvas: { background: { type: 'color', color: '#0f766e' } }, elements: [] } }] },
+    ],
+  });
+  for (const theme of ['light', 'dark']) {
+    const touch = theme === 'dark';
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: touch, isMobile: touch });
+    const view = await context.newPage();
+    const errors = [];
+    view.on('pageerror', (err) => errors.push(String(err)));
+    view.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
+    await serve(view, { rated: ratingZone(theme) });
+    const posted = [];
+    await view.route(
+      (url) => url.href.startsWith(`${API}/delivery/v1/responses?`),
+      (route) => {
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { ...CORS, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-TaleArt-Visitor' } });
+        const body = route.request().postDataJSON();
+        posted.push(body);
+        return route.fulfill({
+          status: 201,
+          headers: CORS,
+          json: { elementId: ratingId, value: body.value, recorded: true, result: { total: 3, average: 70 } },
+        });
+      },
+    );
+    await view.goto(pageUrl(port, ['rated']));
+    const host = view.locator('taleart-view');
+    await host.locator('button.item').first().click();
+    const slider = host.locator('dialog .ta-rating [role="slider"]');
+    await slider.waitFor();
+    const dialog = host.locator('dialog');
+    const groupName = await dialog.getAttribute('aria-label');
+    check((await host.locator('dialog [role="group"][aria-label="How was the sunset?"]').count()) === 1, `the ${theme} Rating is a group named by its question`);
+    const attrs = await slider.evaluate((el) => ['aria-label', 'aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'tabindex'].map((a) => el.getAttribute(a)));
+    check(attrs.join() === 'Your rating,0,100,50,0', `the ${theme} Rating is a named slider from 0 to 100 (${attrs.join()})`);
+    violations += await scan(view, `${theme} Rating before rating`, axe);
+    if (!touch) {
+      await slider.focus();
+      check((await host.locator('dialog[data-paused]').count()) === 1, 'focus on the Rating pauses the tale');
+      for (const key of ['ArrowRight', 'ArrowRight', 'End', 'ArrowLeft', 'Home', 'ArrowUp', 'ArrowUp']) await view.keyboard.press(key);
+      const now = await slider.getAttribute('aria-valuenow');
+      check(now === '20', `the arrow keys, Home and End move the Rating in steps of 10 (${now})`);
+      check(posted.length === 0, 'moving the slider by keyboard posts nothing before Enter');
+      await view.keyboard.press('Enter');
+    } else {
+      // A touch drag from near the end back to 70, through the browser's own touch events, measured
+      // once the viewer's opening motion is over: the same box in five reads in a row, 50 ms apart.
+      let box = null;
+      for (let last = '', same = 0, tries = 0; tries < 100; tries++) {
+        box = await slider.boundingBox();
+        const now = JSON.stringify(box);
+        same = box && now === last ? same + 1 : 0;
+        last = now;
+        if (same >= 4) break;
+        await view.waitForTimeout(50);
+      }
+      const y = box.y + box.height / 2;
+      const cdp = await context.newCDPSession(view);
+      const touchAt = (type, x) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+      await touchAt('touchStart', box.x + box.width * 0.95);
+      for (const share of [0.8, 0.5, 0.2, 0.5, 0.7]) await touchAt('touchMove', box.x + box.width * share);
+      await touchAt('touchEnd', box.x + box.width * 0.7);
+    }
+    await host.locator('dialog .ta-rated').waitFor();
+    const said = await host.locator('dialog .ta-rating [aria-live="polite"]').textContent();
+    const expected = touch ? 70 : 20;
+    check(said === `You rated ${expected}. Average 70 from 3 ratings.`, `the ${theme} Rating announces the result (${said})`);
+    check(posted.length === 1 && posted[0].value === String(expected), `the ${theme} rating is posted once, on ${touch ? 'release' : 'Enter'} (${JSON.stringify(posted)})`);
+    check((await dialog.getAttribute('aria-label')) === groupName, `rating by ${touch ? 'touch drag' : 'keyboard'} does not swipe to another group`);
+    check((await host.locator('dialog .segment.done').count()) === 0, `rating by ${touch ? 'touch drag' : 'keyboard'} does not step the tale`);
+    if (process.env.A11Y_SHOTS) await view.screenshot({ path: `${process.env.A11Y_SHOTS}/sample-rating-${theme}.png` });
+    violations += await scan(view, `${theme} Rating after rating`, axe);
+    check(errors.length === 0, `no console errors with the ${theme} Rating${errors.length ? `: ${errors.join('; ')}` : ''}`);
+    await context.close();
+  }
+
+  // A quiz (epic interactive components story 4.3, R3, R10): answers named by their text, answered
+  // by keyboard, the right and the wrong answer marked in words as well as colour and announced,
+  // the tale paused while it has focus and never stepped by it; scanned before and after answering,
+  // in both themes, with a correct answer (answered wrongly) and without one (a survey).
+  const quizId = '00000000-0000-4000-8000-0000000000cc';
+  const quizAnswers = [
+    { id: 'a', label: 'Mercury' },
+    { id: 'b', label: 'Venus' },
+    { id: 'c', label: 'Earth' },
+    { id: 'd', label: 'Mars' },
+  ];
+  const quizZone = (theme, correct) => ({
+    ...ZONE,
+    id: 'zq',
+    slug: 'quizzed',
+    taleGroups: [
+      {
+        id: 'gq',
+        name: 'Space',
+        cover: null,
+        tales: [
+          {
+            id: 'tq1',
+            title: 'Quiz',
+            media: null,
+            document: {
+              version: 1,
+              canvas: { background: { type: 'color', color: '#1f2937' } },
+              elements: [
+                {
+                  id: quizId,
+                  type: 'quiz',
+                  box: { x: 0.08, y: 0.24, w: 0.84, h: 0.5, rotation: 0 },
+                  a11y: {},
+                  props: {
+                    title: 'Space quiz',
+                    question: 'Which planet is hottest?',
+                    theme,
+                    answers: quizAnswers,
+                    ...(correct ? { correctAnswerId: 'b' } : {}),
+                  },
+                },
+              ],
+            },
+          },
+          { id: 'tq2', title: 'After', media: null, document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] } },
+        ],
+      },
+    ],
+  });
+  for (const [theme, correct] of [['light', true], ['dark', true], ['light', false], ['dark', false]]) {
+    const kind = `${theme} quiz ${correct ? 'with a correct answer' : 'without a correct answer'}`;
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const view = await context.newPage();
+    const errors = [];
+    view.on('pageerror', (err) => errors.push(String(err)));
+    view.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
+    await serve(view, { quizzed: quizZone(theme, correct) });
+    const posted = [];
+    await view.route(
+      (url) => url.href.startsWith(`${API}/delivery/v1/responses?`),
+      (route) => {
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { ...CORS, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-TaleArt-Visitor' } });
+        const body = route.request().postDataJSON();
+        posted.push(body);
+        const counts = { a: 1, b: 5, c: 3, d: 1 };
+        return route.fulfill({
+          status: 201,
+          headers: CORS,
+          json: {
+            elementId: quizId,
+            value: body.value,
+            recorded: true,
+            result: { total: 10, choices: quizAnswers.map((a) => ({ id: a.id, count: counts[a.id], percent: counts[a.id] * 10 })) },
+          },
+        });
+      },
+    );
+    await view.goto(pageUrl(port, ['quizzed']));
+    const host = view.locator('taleart-view');
+    await host.locator('button.item').first().click();
+    const earth = host.locator('dialog .ta-quiz button', { hasText: 'Earth' });
+    await earth.waitFor();
+    check((await host.locator('dialog [role="group"][aria-label="Which planet is hottest?"]').count()) === 1, `the ${kind} is a group named by its question`);
+    check((await host.locator('dialog .ta-quiz button').count()) === 4, `the ${kind} has one button per answer`);
+    await earth.focus();
+    check((await host.locator('dialog[data-paused]').count()) === 1, `focus inside the ${kind} pauses the tale`);
+    if (process.env.A11Y_SHOTS) await view.screenshot({ path: `${process.env.A11Y_SHOTS}/sample-quiz-${correct ? 'right' : 'survey'}-${theme}-before.png` });
+    violations += await scan(view, `${kind} before answering`, axe);
+    await view.keyboard.press('Enter');
+    await host.locator('dialog .ta-poll-pct').first().waitFor();
+    const said = await host.locator('dialog .ta-quiz [aria-live="polite"]').textContent();
+    const shares = 'Mercury 10%, Venus 50%, Earth 30%, Mars 10%';
+    const expected = correct ? `Wrong: you answered Earth. The correct answer is Venus. ${shares}` : `You answered Earth. ${shares}`;
+    check(said === expected, `the ${kind} announces the result (${said})`);
+    const marked = await host.locator('dialog .ta-quiz button').evaluateAll((all) =>
+      all.map((b) => (b.classList.contains('ta-quiz-right') ? 'right' : b.classList.contains('ta-quiz-wrong') ? 'wrong' : '-')),
+    );
+    check(marked.join() === (correct ? '-,right,wrong,-' : '-,-,-,-'), `the ${kind} marks ${correct ? 'Venus right and Earth wrong' : 'nothing'} (${marked.join()})`);
+    // Text contrast on every answer once the fills have grown: each text part (label, mark,
+    // percentage) against the card and against its button's fill laid over the card, the worse of
+    // the two, at least 4.5:1 (WCAG 1.4.3); each marked border at least 3:1 against the card (1.4.11).
+    await view.waitForTimeout(600);
+    const contrast = await host.locator('dialog .ta-quiz').evaluate((card) => {
+      const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number);
+      const lum = ([r, g, b]) =>
+        [r, g, b].map((v) => (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const ratio = (a, b) => {
+        const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+        return (x + 0.05) / (y + 0.05);
+      };
+      const over = (top, alpha, under) => top.map((v, i) => v * alpha + under[i] * (1 - alpha));
+      const cardBg = rgb(getComputedStyle(card).backgroundColor);
+      return [...card.querySelectorAll('button')].map((button) => {
+        const fill = button.querySelector('.ta-poll-fill');
+        const fs = getComputedStyle(fill);
+        const fillBg = over(rgb(fs.backgroundColor).slice(0, 3), Number(fs.opacity), cardBg);
+        const parts = [...button.querySelectorAll('.ta-poll-label, .ta-quiz-mark, .ta-poll-pct')].map((part) => {
+          const color = rgb(getComputedStyle(part).color);
+          return Math.min(ratio(color, cardBg), ratio(color, fillBg));
+        });
+        const border = ratio(rgb(getComputedStyle(button).borderTopColor), cardBg);
+        return { text: Math.min(...parts), border };
+      });
+    });
+    const worstText = Math.min(...contrast.map((c) => c.text));
+    const worstBorder = Math.min(...contrast.map((c) => c.border));
+    check(worstText >= 4.5, `the ${kind} answers' text keeps at least 4.5:1 over the card and the fills (worst ${worstText.toFixed(2)}:1)`);
+    check(worstBorder >= 3, `the ${kind} answers' borders keep at least 3:1 against the card (worst ${worstBorder.toFixed(2)}:1)`);
+    // A real tap on the question, after answering, does not step the tale (C7).
+    await host.locator('dialog .ta-quiz .ta-poll-q').click();
+    check((await host.locator('dialog .segment.done').count()) === 0, `a tap on the ${kind}'s question does not step the tale`);
+    check((await earth.getAttribute('aria-pressed')) === 'true', `the ${kind} presses the visitor's answer`);
+    check(posted.length === 1 && posted[0].value === 'c', `the ${kind} answer is posted once (${JSON.stringify(posted)})`);
+    check((await host.locator('dialog .segment.done').count()) === 0, `answering the ${kind} does not step the tale`);
+    if (process.env.A11Y_SHOTS) await view.screenshot({ path: `${process.env.A11Y_SHOTS}/sample-quiz-${correct ? 'right' : 'survey'}-${theme}-after.png` });
+    violations += await scan(view, `${kind} after answering`, axe);
+    check(errors.length === 0, `no console errors with the ${kind}${errors.length ? `: ${errors.join('; ')}` : ''}`);
+    await context.close();
+  }
 } finally {
   await browser.close();
   server.kill();
