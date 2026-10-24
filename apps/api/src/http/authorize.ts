@@ -1,17 +1,23 @@
 import { ErrorCodes, type User } from '@taleart/contract';
-import { accessibleProjectIds, canAccessProject, projectExists, type ProjectScope } from '@taleart/server-access';
+import { accessibleProjectIds, canAccessProject, projectExists, type Caller, type ProjectScope } from '@taleart/server-access';
 import { taleGroupProjectId, taleProjectId } from '@taleart/server-tales';
 import { zoneProjectId } from '@taleart/server-zones';
 import type { RequestHandler, Response } from 'express';
 import type { Pool } from 'pg';
+import { credential } from './credentials';
 import { HttpError } from './errors';
 
 /** The kinds of resource a Management API route acts on; each belongs to one project (AD-4). */
 export type ResourceKind = 'project' | 'zone' | 'taleGroup' | 'tale';
 
-/** The signed-in user that requireSession put on the response. */
-export function caller(res: Response): User {
-  return res.locals['user'] as User;
+/**
+ * The signed-in user that requireCaller put on the response. With an API token (epic developer
+ * experience 10.1) it also carries the token's projects, which every project check below applies.
+ */
+export function caller(res: Response): User & Caller {
+  const user = res.locals['user'] as User;
+  const used = credential(res);
+  return used.kind === 'token' ? { ...user, tokenProjects: used.projects } : user;
 }
 
 // The project of a resource, through the owning module's public interface; null when it does not exist.

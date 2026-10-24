@@ -11,6 +11,7 @@ servers:
   - url: /api/v1
 security:
   - session: []
+  - token: []
 paths:
   /health:
     get:
@@ -242,6 +243,95 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api-tokens:
+    get:
+      operationId: listApiTokens
+      summary: The signed-in user's API tokens that are not revoked, newest first.
+      description: >-
+        Personal API tokens for scripts (epic developer experience 10.1). Each
+        user sees only their own. Never returns a token or its hash, only its
+        prefix. An expired token is listed until it is revoked. A passkey
+        session only: an API token gets 403 `forbidden` here, so a token can
+        never list, create or revoke tokens.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The caller's tokens.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiToken'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createApiToken
+      summary: Create an API token for the signed-in user (shown only once).
+      description: >-
+        The token (`tat_` and 32 random bytes in base64url) appears only in
+        this response, sent with `Cache-Control: no-store`; only its SHA-256
+        hash and its prefix are stored. It acts as the user, limited to
+        `projectIds` (or, when null, to every project the user can access at
+        the time of each request) and, when `readOnly`, to GET requests. The
+        user's own access is read on every request, so a project the user
+        loses is lost to the token too. Every listed project must exist (else
+        400 `project_not_found`) and be one the user can access (else 403
+        `forbidden`). A user holds at most 50 active tokens (409
+        `api_token_limit_reached`). A passkey session only: an API token gets
+        403 `forbidden`.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiTokenRequest'
+      responses:
+        '201':
+          description: The new token, shown only once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedApiToken'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api-tokens/{tokenId}:
+    parameters:
+      - name: tokenId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: revokeApiToken
+      summary: Revoke one of the signed-in user's API tokens.
+      description: >-
+        The token stops working at once: its next request answers 401
+        `unauthenticated`. Another user's token, an unknown or an already
+        revoked one answers 404 `api_token_not_found`. A passkey session only:
+        an API token gets 403 `forbidden`.
+      security:
+        - session: []
+      responses:
+        '204':
+          description: The token is revoked.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects:
     get:
       operationId: listProjects
@@ -261,7 +351,10 @@ paths:
     post:
       operationId: createProject
       summary: Create a project (admins only).
-      description: A content manager gets 403 `forbidden`.
+      description: >-
+        A content manager gets 403 `forbidden`. An admin's API token may create
+        a project only when it covers all of the admin's projects and is
+        read-write; any other token gets 403 `forbidden`.
       requestBody:
         required: true
         content:
@@ -291,12 +384,16 @@ paths:
     post:
       operationId: createInvitation
       summary: Invite someone to a project (admins only).
+      # An invitation mints a new person's passkey: a passkey session only, never an API token.
+      security:
+        - session: []
       description: >-
         Creates a one-time invitation, valid for 7 days. The invitee opens `url`,
         registers a passkey and becomes a content manager of the project. The
         token in `url` is shown only in this response; only its SHA-256 hash is
         stored. A content manager gets 403 `forbidden`; an unknown project 404
-        `project_not_found`.
+        `project_not_found`. An API token gets 403 `forbidden`: invitations
+        need a passkey session.
       responses:
         '201':
           description: The invitation, with its one-time link.
@@ -2589,6 +2686,31 @@ components:
         session every route except `/health` and `/auth/*` answers 401 `unauthenticated`.
         A signed-in user who cannot access the project of a resource gets 403
         `forbidden`; a resource that does not exist still answers 404.
+        When a request carries an `Authorization` header, the cookie is not
+        read (see `token`).
+    token:
+      type: http
+      scheme: bearer
+      bearerFormat: tat_
+      description: >-
+        A personal API token (`tat_...`) created in the dashboard under
+        Settings > API tokens (epic developer experience 10.1), sent as
+        `Authorization: Bearer <token>`. It acts as the user who created it,
+        within the token's scope: its projects (or all of the user's projects)
+        intersected with the user's access read on every request, and, for a
+        read-only token, GET and HEAD only (anything else answers 403
+        `forbidden`). Admin-only routes stay admin-only. A missing, unknown,
+        revoked or expired token, or any other credential in the header (such
+        as a `tas_` site key), answers 401 `unauthenticated`; when a request
+        carries an `Authorization` header the session cookie is ignored, even
+        if the header is refused. Failed attempts count against the caller's
+        address (by default 10 at once, refilled at 10 a minute); past that,
+        every bearer request from the address answers 429 `rate_limited` with
+        `Retry-After`. A token can never create, list or revoke tokens, use
+        `/auth/*` (sign-in, sign-out, setup, invitations: 403 `forbidden`),
+        manage passkeys or sessions, or create invitations; a token limited to
+        some projects cannot create projects. Only the Management API accepts
+        it; the Delivery API refuses it.
     siteKey:
       type: http
       scheme: bearer
@@ -3311,6 +3433,76 @@ components:
         createdAt:
           type: string
           format: date-time
+    ApiToken:
+      type: object
+      description: A personal API token as its user sees it (epic developer experience 10.1), never the token or its hash.
+      required: [id, name, prefix, projectIds, readOnly, createdAt, expiresAt, lastUsedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: What the token is for, 1 to 80 characters.
+        prefix:
+          type: string
+          description: The start of the token, `tat_` and the next 6 characters, to recognise it.
+        projectIds:
+          type: [array, 'null']
+          items:
+            type: string
+            format: uuid
+          description: >-
+            The projects the token is limited to; null for every project its
+            user can access. Either way the user's own access is applied too.
+        readOnly:
+          type: boolean
+          description: When true the token may only read (GET and HEAD).
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: When the token stops working; null when it does not expire.
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When the token was last used, to within a minute (it is written at
+            most once a minute); null when it was never used.
+    CreateApiTokenRequest:
+      type: object
+      required: [name, projectIds, readOnly]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        projectIds:
+          type: [array, 'null']
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: The projects to limit the token to, or null for every project the user can access.
+        readOnly:
+          type: boolean
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: When the token stops working, in the future; null or left out for never.
+    IssuedApiToken:
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: The secret token, `tat_` and 32 random bytes in base64url. Shown only once.
     ThemeColor:
       type: string
       pattern: '^#[0-9a-fA-F]{6}$'
@@ -4581,6 +4773,8 @@ components:
         - site_key_not_found
         - site_key_exists
         - invalid_site_key
+        - api_token_not_found
+        - api_token_limit_reached
         - rate_limited
         - storyly_token_invalid
         - storyly_unavailable

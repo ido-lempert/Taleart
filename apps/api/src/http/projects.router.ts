@@ -3,6 +3,7 @@ import { createInvitation, createProject, listProjects, projectExists } from '@t
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { accessibleScope, caller, requireAdmin } from './authorize';
+import { requireAllProjects, sessionOnly } from './credentials';
 import { HttpError } from './errors';
 import { requiredString } from './validation';
 
@@ -23,7 +24,8 @@ export function projectsRouter(pool: Pool, { dashboardOrigin }: ProjectsOptions)
     }
   });
 
-  router.post('/', requireAdmin, async (req, res, next) => {
+  // An admin's API token creates a project only when it covers all of the admin's projects.
+  router.post('/', requireAdmin, requireAllProjects, async (req, res, next) => {
     try {
       const input: CreateProjectRequest = { name: requiredString(req.body, 'name') };
       res.status(201).json(await createProject(pool, input));
@@ -32,8 +34,9 @@ export function projectsRouter(pool: Pool, { dashboardOrigin }: ProjectsOptions)
     }
   });
 
-  // One-time invitation link; the token is in this response only (AD-9).
-  router.post('/:projectId/invitations', requireAdmin, async (req, res, next) => {
+  // One-time invitation link; the token is in this response only (AD-9). It mints a new person's
+  // passkey, so only a passkey session may create one, never an API token.
+  router.post('/:projectId/invitations', sessionOnly, requireAdmin, async (req, res, next) => {
     try {
       const { projectId } = req.params;
       if (!(await projectExists(pool, projectId))) {
