@@ -24,7 +24,7 @@ describe('readUserListCsv', () => {
     { kind: 'empty', line: 3 },
     { kind: 'id', id: 'u,3', line: 4 },
     { kind: 'refused', reason: 'not-one-column', line: 5 },
-    { kind: 'refused', reason: 'not-ascii', line: 6 },
+    { kind: 'id', id: 'ü-5', line: 6 },
   ];
 
   it.each([1, 2, 3, 7, 1024])('reads LF, CRLF and CR lines in chunks of %i bytes', async (size) => {

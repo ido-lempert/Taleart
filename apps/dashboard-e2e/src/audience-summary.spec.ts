@@ -161,7 +161,7 @@ test.describe.serial('a targeted group says who it is for (epic targeting story 
     await page.goto('/tale-groups?filter=targeted');
     await expect(page.getByRole('radio', { name: /^Targeted/ })).toHaveAccessibleName('Targeted , 0');
     await expect(page.locator('.empty__title')).toHaveText('No tale groups match this filter');
-    await expect(page.locator('.empty__text')).toHaveText("No tale group is targeted. Add targeting tags in a group's Audience.");
+    await expect(page.locator('.empty__text')).toHaveText("No tale group is targeted. Add targeting tags or user lists in a group's Audience.");
     await shot(page, 'targeting-5-2-tale-groups-targeted-empty');
   });
 });

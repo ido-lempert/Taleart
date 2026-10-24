@@ -72,22 +72,16 @@ export function normalizeUserListName(value: unknown): string | null {
 }
 
 /**
- * Why a trimmed, non-empty external user ID is refused, or null when it is accepted. IDs are matched
- * exactly: case counts and no Unicode normalization is applied. Until the Delivery API's
- * external-user-ID header defines its encoding (epic targeting story 4: percent-encoded or base64url
- * UTF-8, decoded before {@link normalizeExternalUserId}), only ASCII IDs are accepted, so no uploaded
- * ID can be one a viewer's header could never match.
+ * Why a trimmed, non-empty external user ID is refused, or null when it is accepted: longer than
+ * {@link MAX_EXTERNAL_USER_ID_LENGTH} code points, or holding a control character. Any other
+ * Unicode text is an ID. IDs are matched exactly: case counts and no Unicode normalization is
+ * applied. The SDKs send the viewer's ID base64url-encoded (`external-user-id.ts`), so an ID outside
+ * ASCII travels in the Delivery API's header as it was uploaded.
  */
 export function externalUserIdRefusal(id: string): Exclude<UserListRefusal, 'not-one-column'> | null {
   if (codePoints(id) > MAX_EXTERNAL_USER_ID_LENGTH) return 'too-long';
   if (hasControl(id)) return 'control-character';
-  if (!isAscii(id)) return 'not-ascii';
   return null;
-}
-
-function isAscii(text: string): boolean {
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) > 0x7f) return false;
-  return true;
 }
 
 /**

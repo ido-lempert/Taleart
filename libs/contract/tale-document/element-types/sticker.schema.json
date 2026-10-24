@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "StickerElementProps",
-  "description": "The props of an image sticker (epic Tale Studio R6): a PNG, WebP or GIF of the tale's project, by its storage key (AD-11), never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+  "description": "The props of an image sticker: a PNG, WebP or GIF of the tale's project, by its storage key, never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
   "type": "object",
   "additionalProperties": false,
   "required": ["mediaKey"],

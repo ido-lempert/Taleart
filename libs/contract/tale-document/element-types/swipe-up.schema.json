@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SwipeUpElementProps",
-  "description": "The props of a swipe-up link (epic Tale Studio R7): a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.",
+  "description": "The props of a swipe-up link: a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.",
   "type": "object",
   "additionalProperties": false,
   "required": ["label", "color", "background"],
@@ -13,7 +13,7 @@
       "maxLength": 80
     },
     "href": {
-      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters.",
       "type": "string",
       "maxLength": 2048,
       "pattern": "^[hH][tT][tT][pP][sS]?://"

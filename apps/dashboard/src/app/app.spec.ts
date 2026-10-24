@@ -97,6 +97,8 @@ interface Data {
   groups?: Record<string, unknown[]>;
   /** Each project's tags, keyed by project id. */
   tags?: Record<string, unknown[]>;
+  /** Each project's user lists, keyed by project id (epic targeting R4). */
+  userLists?: Record<string, unknown[]>;
   /** Each project's tale groups (the Tale groups page), keyed by project id. */
   projectGroups?: Record<string, unknown[]>;
   /** Tale groups read on their own with their tales (`GET /tale-groups/{id}`, story 8.19), keyed by id; 404 when missing. */
@@ -288,6 +290,9 @@ describe('App', () => {
     }
     await settle(fixture);
     for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
+    for (const p of data.projects ?? []) {
+      http.expectOne(`${API_BASE}/projects/${p.id}/user-lists`).flush(data.userLists?.[p.id] ?? []);
+    }
     await settle(fixture);
     flushProjectGroups(data);
     await settle(fixture);
@@ -2327,6 +2332,53 @@ describe('App', () => {
       expect(root.querySelector('[aria-label="Tale groups in Acme"] li')?.textContent).toContain('In: Product page');
     });
 
+    it('says a copy to another project leaves its user lists behind and shows to nobody until its Audience changes (story 5.4)', async () => {
+      const listed = { ...group, tales: [], userLists: [{ id: 'l1', name: 'Loyal', idCount: 2 }] };
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [listed] } });
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Copy to zone');
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-hint')?.textContent).toContain(
+        'a copy to another project does not show to anyone until you change its Audience',
+      );
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyProject]') ?? null, 'p2');
+      await settle(fixture);
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z2');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      const copy = { id: 'g7', projectId: 'p2', name: 'Summer', position: 0, zoneIds: ['z2'], tales: [], tags: [], userLists: [] };
+      http.expectOne(`${API_BASE}/tale-groups/g1/copy`).flush(copy, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z1: [listed], z2: [copy] } });
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-lists-note')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Its user lists belong to the original project, so the copy is not targeted to them. It does not show to anyone until you change its Audience.',
+      );
+    });
+
+    it('says a copy of a held group is hidden too, before and after copying (story 5.4)', async () => {
+      const removed = { visible: false, reasons: [{ code: 'audience-removed', subject: 'group' }] };
+      const heldGroup = { ...group, tales: [], userLists: [], visibility: removed };
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [heldGroup] } });
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Copy to zone');
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-hint')?.textContent).toContain(
+        'Its user lists were removed, so the copy is hidden too until you change its Audience.',
+      );
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z3');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      const copy = { id: 'g8', projectId: 'p1', name: 'Summer', position: 0, zoneIds: ['z3'], tales: [], tags: [], userLists: [], visibility: removed };
+      http.expectOne(`${API_BASE}/tale-groups/g1/copy`).flush(copy, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z1: [heldGroup], z3: [copy] } });
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-lists-note')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Like the original, whose user lists were removed, the copy is hidden: it does not show to anyone until you change its Audience.',
+      );
+    });
+
     it('copies a group to a zone of another project from the drawer and links to the target zone', async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
 
@@ -4256,6 +4308,138 @@ describe('App', () => {
       expect(root.querySelector('[aria-label="Tags of Summer"] li')?.textContent?.trim()).toBe('summer');
     });
 
+    it('names user lists in the Audience drawer with their counts and saves them after the tags (epic targeting R4)', async () => {
+      const list = (id: string, name: string, idCount: number) => ({
+        id,
+        projectId: 'p1',
+        name,
+        idCount,
+        taleGroups: [],
+        createdAt: '2026-10-22T10:00:00.000Z',
+        updatedAt: '2026-10-23T10:00:00.000Z',
+      });
+      const loyal = list('l1', 'Loyal', 1204);
+      const fresh = list('l2', 'Newcomers', 0);
+      const data: Data = {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [], userLists: [] }] },
+        tags: { p1: [] },
+        userLists: { p1: [loyal, fresh] },
+      };
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const fieldset = [...panel.querySelectorAll('fieldset')].find(
+        (f) => f.querySelector('legend')?.textContent?.trim() === 'User lists',
+      ) as HTMLFieldSetElement;
+      expect(fieldset).toBeTruthy();
+      expect(fieldset.getAttribute('aria-describedby')).toBe('user-lists-hint');
+      const boxes = () =>
+        [...fieldset.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].map((box) => [
+          box.closest('label')?.textContent?.replace(/\s+/g, ' ').trim(),
+          box.checked,
+        ]);
+      expect(boxes()).toEqual([
+        ['Loyal (1,204 IDs)', false],
+        ['Newcomers (0 IDs)', false],
+      ]);
+      const hint = () => panel.querySelector('#user-lists-hint')?.textContent?.trim();
+      expect(hint()).toBe('With no user list, the group does not depend on who the viewer is.');
+      expect(panel.querySelector('#user-lists-hint')?.getAttribute('aria-live')).toBe('polite');
+      expect(panel.querySelector('#user-lists-note')).toBeNull();
+
+      fieldset.querySelectorAll<HTMLInputElement>('input[type=checkbox]')[1].click();
+      await settle(fixture);
+      expect(hint()).toBe(
+        'Shows only to viewers whose external user ID, set by the page with setExternalUserId, is in this list. ' +
+          'It holds no ID yet, so the group shows to nobody until one is added.',
+      );
+      expect(panel.querySelector('#user-lists-note')?.textContent).toContain('Targeting is not access control');
+      fieldset.querySelectorAll<HTMLInputElement>('input[type=checkbox]')[0].click();
+      await settle(fixture);
+      expect(hint()).toBe(
+        'Shows only to viewers whose external user ID, set by the page with setExternalUserId, is in one of these lists.',
+      );
+
+      buttonNamed(panel, 'Save').click();
+      const tags = http.expectOne(`${API_BASE}/tale-groups/g1/tags`);
+      expect(tags.request.body).toEqual({ tagIds: [], tagMatch: 'any' });
+      tags.flush({ ...group, tales: [], tags: [], userLists: [] });
+      await settle(fixture);
+      const lists = http.expectOne(`${API_BASE}/tale-groups/g1/user-lists`);
+      expect(lists.request.method).toBe('PUT');
+      expect(lists.request.body).toEqual({ userListIds: ['l2', 'l1'] });
+      const targeted = [
+        { id: 'l1', name: 'Loyal', idCount: 1204 },
+        { id: 'l2', name: 'Newcomers', idCount: 0 },
+      ];
+      lists.flush({ ...group, tales: [], tags: [], userLists: targeted });
+      await settle(fixture);
+      // The group's visibility can change with its lists (audience-empty): everything is read again.
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...group, tales: [], tags: [], userLists: targeted }] } });
+      expect(drawer()).toBeNull();
+
+      // Opened again, the drawer checks the saved lists; saving unchanged lists sends only the tags.
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const again = drawer() as HTMLElement;
+      expect(
+        [...again.querySelectorAll<HTMLInputElement>('fieldset input[type=checkbox]')].map((box) => box.checked),
+      ).toEqual([true, true]);
+      buttonNamed(again, 'Save').click();
+      http.expectOne(`${API_BASE}/tale-groups/g1/tags`).flush({ ...group, tales: [], tags: [], userLists: targeted });
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/tale-groups/g1/user-lists`);
+      expect(drawer()).toBeNull();
+    });
+
+    it('says who saving will show a held group to, and saving its Audience makes it visible, read again (story 5.4)', async () => {
+      const removed = { visible: false, reasons: [{ code: 'audience-removed', subject: 'group' }] };
+      const heldGroup = { ...group, tales: [], tags: [], userLists: [], visibility: removed };
+      const loyal = { id: 'l1', projectId: 'p1', name: 'Loyal', idCount: 2, taleGroups: [], createdAt: '2026-10-22T10:00:00.000Z', updatedAt: '2026-10-22T10:00:00.000Z' };
+      const data: Data = { ...oneZone, groups: { z1: [heldGroup] }, tags: { p1: [] }, userLists: { p1: [loyal] } };
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const note = () => panel.querySelector('#audience-held-note')?.textContent?.trim();
+      expect(note()).toBe(
+        'Its user lists were removed, so it shows to nobody now. Saving the audience will make this group visible to every viewer.',
+      );
+      panel.querySelector<HTMLInputElement>('fieldset input[type=checkbox]')?.click();
+      await settle(fixture);
+      expect(note()).toBe(
+        'Its user lists were removed, so it shows to nobody now. Saving the audience will make this group visible to viewers in user list Loyal (2).',
+      );
+      panel.querySelector<HTMLInputElement>('fieldset input[type=checkbox]')?.click();
+      await settle(fixture);
+
+      // Saved unchanged: the tags (which leave the hold), then the lists, which end it; read again each time.
+      buttonNamed(panel, 'Save').click();
+      http.expectOne(`${API_BASE}/tale-groups/g1/tags`).flush(heldGroup);
+      await settle(fixture);
+      await flushRefresh(fixture, data);
+      const lists = http.expectOne(`${API_BASE}/tale-groups/g1/user-lists`);
+      expect(lists.request.body).toEqual({ userListIds: [] });
+      const shown = { ...heldGroup, visibility: { visible: true, reasons: [] } };
+      lists.flush(shown);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [shown] } });
+      expect(drawer()).toBeNull();
+      expect(root.textContent).not.toContain('its user lists were removed');
+      expect([...root.querySelectorAll('app-group-row app-visibility')].map((v) => v.textContent?.trim())).toContain('Visible on site');
+    });
+
+    it('does not offer the held-group line for a group that is not held', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [], tags: [] }] }, tags: { p1: [] } });
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      expect((drawer() as HTMLElement).querySelector('#audience-held-note')).toBeNull();
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+    });
+
     it('picks All or Any for the tags in the Audience drawer and saves it with them (epic targeting R1)', async () => {
       const { fixture, root } = await open('/zones/z1', {
         ...oneZone,
@@ -5515,7 +5699,7 @@ describe('App', () => {
       expect(names(root)).toEqual([]);
       expect(root.querySelector('.empty__title')?.textContent).toContain('No tale groups match this filter');
       expect(root.querySelector('.empty__text')?.textContent?.trim()).toBe(
-        "No tale group is targeted. Add targeting tags in a group's Audience.",
+        "No tale group is targeted. Add targeting tags or user lists in a group's Audience.",
       );
     });
 
@@ -6053,6 +6237,7 @@ describe('App', () => {
       for (const z of given.zones ?? []) http.expectOne(`${API_BASE}/zones/${z.id}/tale-groups`).flush(given.groups?.[z.id] ?? []);
       await settle(fixture);
       for (const p of given.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(given.tags?.[p.id] ?? []);
+      for (const p of given.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/user-lists`).flush([]);
       await settle(fixture);
     }
 

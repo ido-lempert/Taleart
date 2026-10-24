@@ -112,9 +112,12 @@ one-line CSV reader and the email and phone heuristics of the dashboard's warnin
 
 - An external user ID is trimmed and then **matched exactly**: case counts, and no Unicode
   normalization is applied (`User-1`, `user-1` and a decomposed `é` are all different IDs).
-- Only **ASCII** IDs are accepted for now. A row with any other character is refused as
-  `not-ascii` ("only ASCII IDs are supported for now"). Story 5.4 must define how the Delivery
-  request header carries the ID (percent-encoded or base64url UTF-8) and decode it before
-  `normalizeExternalUserId`; non-ASCII IDs can then be allowed.
+- Any Unicode text is an ID (at most 256 code points, no control characters). The viewer's ID
+  travels to the Delivery API in the `X-TaleArt-External-User-Id` request header
+  (`src/lib/external-user-id.ts`): base64url (RFC 4648 section 5, no padding) of its UTF-8 bytes,
+  written by `encodeExternalUserIdHeader`. The server reads it with `decodeExternalUserIdHeader`,
+  which refuses anything but canonical base64url of valid UTF-8 and then applies
+  `normalizeExternalUserId`, so an ID outside ASCII matches as it was uploaded. The header is
+  separate from the visitor id (`X-TaleArt-Visitor`) and never linked to it. Never put the ID in a URL.
 - The server stores each ID only as HMAC-SHA-256 under a per-project secret; no response, log or
   error names one.

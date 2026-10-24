@@ -7,6 +7,7 @@ import {
   type UserListUploadReport,
 } from '@taleart/contract';
 import { projectExists } from '@taleart/server-access';
+import { clearPublicFontCache, clearPublicMediaCache, taleGroupNames } from '@taleart/server-tales';
 import {
   addUserListRows,
   createUserList,
@@ -15,6 +16,8 @@ import {
   listUserLists,
   readUserListCsv,
   renameUserList,
+  type StoredUserList,
+  taleGroupIdsForUserLists,
   UserListFileNotUtf8Error,
   UserListFileTooLargeError,
 } from '@taleart/server-targeting';
@@ -79,6 +82,34 @@ function requireEditor(res: Response): void {
   }
 }
 
+/** Refuses a caller who may not change user lists or what a tale group is targeted to (403). */
+export const requireListEditor = requireEditor;
+
+/**
+ * Called once a change to user lists is done (or failed): a list's IDs or a group's lists decide
+ * whether the group is audience-empty, which the public media and font routes serve by, so this
+ * process forgets their public answers at once (as the tales module does for its own changes).
+ */
+export function userListsChanged(): void {
+  clearPublicMediaCache();
+  clearPublicFontCache();
+}
+
+/** User lists with the tale groups each targets, by name ignoring case (epic targeting R4). */
+async function withTaleGroups(pool: Pool, projectId: string, lists: StoredUserList[]): Promise<UserList[]> {
+  const byList = await taleGroupIdsForUserLists(pool, projectId);
+  const names = await taleGroupNames(pool, projectId, [...new Set([...byList.values()].flat())]);
+  return lists.map((list) => ({
+    ...list,
+    taleGroups: (byList.get(list.id) ?? [])
+      .flatMap((id) => {
+        const name = names.get(id);
+        return name === undefined ? [] : [{ id, name }];
+      })
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+  }));
+}
+
 function tooLarge(limit: number): HttpError {
   return new HttpError(413, ErrorCodes.userListFileTooLarge, `A CSV is at most ${limit / (1024 * 1024)} MB`);
 }
@@ -138,7 +169,8 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
   router.get('/:projectId/user-lists', projectAccess, async (req, res, next) => {
     try {
       await requireProject(pool, req.params.projectId);
-      res.json((await listUserLists(pool, req.params.projectId)) satisfies UserList[]);
+      const { projectId } = req.params;
+      res.json((await withTaleGroups(pool, projectId, await listUserLists(pool, projectId))) satisfies UserList[]);
     } catch (err) {
       next(err);
     }
@@ -150,7 +182,7 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
       const { projectId } = req.params;
       await requireProject(pool, projectId);
       const name = requiredString(req.body, 'name');
-      res.status(201).json((await createUserList(pool, { projectId, name })) satisfies UserList);
+      res.status(201).json({ ...(await createUserList(pool, { projectId, name })), taleGroups: [] } satisfies UserList);
     } catch (err) {
       next(err);
     }
@@ -162,7 +194,8 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
       const { projectId, userListId } = req.params;
       await requireProject(pool, projectId);
       const name = requiredString(req.body, 'name');
-      res.json((await renameUserList(pool, { projectId, userListId, name })) satisfies UserList);
+      const [renamed] = await withTaleGroups(pool, projectId, [await renameUserList(pool, { projectId, userListId, name })]);
+      res.json(renamed satisfies UserList);
     } catch (err) {
       next(err);
     }
@@ -173,7 +206,11 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
       requireEditor(res);
       const { projectId, userListId } = req.params;
       await requireProject(pool, projectId);
-      await deleteUserList(pool, { projectId, userListId });
+      try {
+        await deleteUserList(pool, { projectId, userListId });
+      } finally {
+        userListsChanged();
+      }
       res.status(204).end();
     } catch (err) {
       next(err);
@@ -230,6 +267,7 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
       const header = req.query['header'] === 'true';
       let report: UserListUploadReport;
       try {
+        // The list's first IDs can make its groups visible (audience-empty no longer holds).
         report = await addUserListRows(
           pool,
           { projectId, userListId },
@@ -263,6 +301,8 @@ export function userListsRouter(pool: Pool, options: UserListOptions = {}): Rout
         // Anything else (the database, a bug) answers 500: the rest of the body is drained, unread.
         req.resume();
         throw err;
+      } finally {
+        userListsChanged();
       }
       res.json(report satisfies UserListUploadReport);
     } catch (err) {

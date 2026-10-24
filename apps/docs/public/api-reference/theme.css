@@ -1,0 +1,454 @@
+/*
+ * The docs' look over Swagger UI (epic developer experience 10.2), loaded only by the API reference
+ * page after swagger-ui.css. Colours come from the docs' tokens (apps/docs/src/styles.css), so the
+ * light and dark themes follow the docs; Swagger UI's own dark theme is on while `html.dark-mode` is
+ * set, which the page does when the docs are dark. Method colours are darkened (light) or lightened
+ * (dark) so their text keeps WCAG AA contrast.
+ */
+.swagger-ui {
+  --method-get: #0b5cad;
+  --method-post: #13703f;
+  --method-put: #8f4700;
+  --method-delete: #b3261e;
+  --method-patch: #0f6b63;
+  --method-head: #5b3ea6;
+  --method-options: #3d4a5c;
+  --method-text: #ffffff;
+  font-family: inherit;
+  color: var(--text);
+}
+
+html.dark-mode .swagger-ui {
+  --method-get: #9cc7ff;
+  --method-post: #8fe0b0;
+  --method-put: #ffc58a;
+  --method-delete: #ffb4ab;
+  --method-patch: #8ee6dc;
+  --method-head: #cdbcff;
+  --method-options: #c5ccd8;
+  --method-text: #131418;
+}
+
+html.dark-mode {
+  background: var(--bg);
+}
+
+.swagger-ui,
+html.dark-mode .swagger-ui {
+  background: transparent;
+  color: var(--text);
+}
+
+.swagger-ui .wrapper {
+  padding: 0;
+  max-width: none;
+}
+
+/* The page has its own title and introduction. */
+.swagger-ui .information-container {
+  display: none;
+}
+
+.swagger-ui .info .title,
+.swagger-ui .opblock-tag,
+.swagger-ui .opblock .opblock-summary-path,
+.swagger-ui .opblock .opblock-summary-description,
+.swagger-ui .opblock-description-wrapper p,
+.swagger-ui .opblock-external-docs-wrapper p,
+.swagger-ui .opblock-title_normal p,
+.swagger-ui .markdown p,
+.swagger-ui .renderedMarkdown p,
+.swagger-ui .markdown li,
+.swagger-ui .renderedMarkdown li,
+.swagger-ui table thead tr td,
+.swagger-ui table thead tr th,
+.swagger-ui .parameter__name,
+.swagger-ui .parameter__type,
+.swagger-ui .parameter__in,
+.swagger-ui .parameter__deprecated,
+.swagger-ui .response-col_status,
+.swagger-ui .response-col_links,
+.swagger-ui .responses-inner h4,
+.swagger-ui .responses-inner h5,
+.swagger-ui .opblock .opblock-section-header h4,
+.swagger-ui .opblock .opblock-section-header > label,
+.swagger-ui .tab li,
+.swagger-ui .model-title,
+.swagger-ui .model,
+.swagger-ui section.models h4,
+.swagger-ui .scheme-container .schemes > label,
+.swagger-ui label,
+.swagger-ui .btn,
+.swagger-ui .dialog-ux .modal-ux-header h3,
+.swagger-ui .dialog-ux .modal-ux-content p,
+.swagger-ui .dialog-ux .modal-ux-content h4,
+.swagger-ui .auth-container h4,
+.swagger-ui .auth-container h6,
+.swagger-ui .prop-type,
+.swagger-ui .prop-format {
+  font-family: inherit;
+  color: var(--text);
+}
+
+.swagger-ui .opblock-tag small,
+.swagger-ui .parameter__in,
+.swagger-ui .parameter__type,
+.swagger-ui .prop-format,
+.swagger-ui .response-control-media-type__accept-message,
+.swagger-ui .opblock .opblock-summary-operation-id {
+  color: var(--muted);
+}
+
+.swagger-ui .parameter__name.required::after,
+.swagger-ui .parameter__name.required span {
+  color: var(--error);
+}
+
+.swagger-ui code,
+.swagger-ui pre,
+.swagger-ui .microlight,
+.swagger-ui .opblock .opblock-summary-path,
+.swagger-ui .opblock-body pre.microlight,
+.swagger-ui .highlight-code > .microlight {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.swagger-ui .opblock-body pre.microlight,
+.swagger-ui .highlight-code > .microlight,
+.swagger-ui .responses-inner pre,
+.swagger-ui .curl-command pre {
+  background: var(--code-bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.swagger-ui .markdown code,
+.swagger-ui .renderedMarkdown code,
+html.dark-mode .swagger-ui .markdown code,
+html.dark-mode .swagger-ui .renderedMarkdown code {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.swagger-ui a,
+.swagger-ui .info a,
+.swagger-ui .info .link {
+  color: var(--accent-text);
+}
+
+/* Tags and operations */
+.swagger-ui .opblock-tag {
+  border-bottom: 1px solid var(--line);
+}
+
+.swagger-ui .opblock-tag:hover {
+  background: var(--hover);
+}
+
+.swagger-ui .opblock {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.swagger-ui .opblock .opblock-summary {
+  border-color: var(--line);
+}
+
+.swagger-ui .opblock .opblock-section-header {
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.swagger-ui .opblock.opblock-get,
+.swagger-ui .opblock.opblock-post,
+.swagger-ui .opblock.opblock-put,
+.swagger-ui .opblock.opblock-delete,
+.swagger-ui .opblock.opblock-patch,
+.swagger-ui .opblock.opblock-head,
+.swagger-ui .opblock.opblock-options {
+  background: var(--surface);
+}
+
+.swagger-ui .opblock.opblock-get,
+.swagger-ui .opblock.opblock-get .opblock-summary {
+  border-color: var(--method-get);
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary-method,
+.swagger-ui .opblock.opblock-get .tab-header .tab-item.active h4 span::after {
+  background: var(--method-get);
+}
+
+.swagger-ui .opblock.opblock-post,
+.swagger-ui .opblock.opblock-post .opblock-summary {
+  border-color: var(--method-post);
+}
+
+.swagger-ui .opblock.opblock-post .opblock-summary-method,
+.swagger-ui .opblock.opblock-post .tab-header .tab-item.active h4 span::after {
+  background: var(--method-post);
+}
+
+.swagger-ui .opblock.opblock-put,
+.swagger-ui .opblock.opblock-put .opblock-summary {
+  border-color: var(--method-put);
+}
+
+.swagger-ui .opblock.opblock-put .opblock-summary-method,
+.swagger-ui .opblock.opblock-put .tab-header .tab-item.active h4 span::after {
+  background: var(--method-put);
+}
+
+.swagger-ui .opblock.opblock-delete,
+.swagger-ui .opblock.opblock-delete .opblock-summary {
+  border-color: var(--method-delete);
+}
+
+.swagger-ui .opblock.opblock-delete .opblock-summary-method,
+.swagger-ui .opblock.opblock-delete .tab-header .tab-item.active h4 span::after {
+  background: var(--method-delete);
+}
+
+.swagger-ui .opblock.opblock-patch,
+.swagger-ui .opblock.opblock-patch .opblock-summary {
+  border-color: var(--method-patch);
+}
+
+.swagger-ui .opblock.opblock-patch .opblock-summary-method,
+.swagger-ui .opblock.opblock-patch .tab-header .tab-item.active h4 span::after {
+  background: var(--method-patch);
+}
+
+.swagger-ui .opblock.opblock-head,
+.swagger-ui .opblock.opblock-head .opblock-summary {
+  border-color: var(--method-head);
+}
+
+.swagger-ui .opblock.opblock-head .opblock-summary-method,
+.swagger-ui .opblock.opblock-head .tab-header .tab-item.active h4 span::after {
+  background: var(--method-head);
+}
+
+.swagger-ui .opblock.opblock-options,
+.swagger-ui .opblock.opblock-options .opblock-summary {
+  border-color: var(--method-options);
+}
+
+.swagger-ui .opblock.opblock-options .opblock-summary-method,
+.swagger-ui .opblock.opblock-options .tab-header .tab-item.active h4 span::after {
+  background: var(--method-options);
+}
+
+.swagger-ui .opblock .tab-header .tab-item.active h4 span::after {
+  background: var(--accent);
+}
+
+/* Controls */
+.swagger-ui input[type='text'],
+.swagger-ui input[type='password'],
+.swagger-ui input[type='search'],
+.swagger-ui input[type='email'],
+.swagger-ui input[type='file'],
+.swagger-ui textarea,
+.swagger-ui select,
+html.dark-mode .swagger-ui input,
+html.dark-mode .swagger-ui textarea,
+html.dark-mode .swagger-ui select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--muted);
+  font-family: inherit;
+}
+
+.swagger-ui .btn {
+  background: var(--bg);
+  border: 1px solid var(--muted);
+  box-shadow: none;
+}
+
+.swagger-ui .btn.authorize,
+.swagger-ui .btn.execute,
+.swagger-ui .btn.modal-btn.auth.authorize {
+  background: var(--accent-text);
+  border-color: var(--accent-text);
+  color: var(--on-accent);
+}
+
+.swagger-ui .btn.authorize svg {
+  fill: var(--on-accent);
+}
+
+.swagger-ui .btn.cancel,
+.swagger-ui .btn.try-out__btn.cancel {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.swagger-ui .btn:focus-visible,
+.swagger-ui button:focus-visible,
+.swagger-ui input:focus-visible,
+.swagger-ui select:focus-visible,
+.swagger-ui textarea:focus-visible,
+.swagger-ui a:focus-visible,
+.swagger-ui .opblock-summary-control:focus-visible,
+.swagger-ui .opblock-tag:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.swagger-ui svg:not(:root) {
+  fill: currentColor;
+}
+
+.swagger-ui .arrow,
+.swagger-ui .opblock-control-arrow svg,
+.swagger-ui .authorization__btn svg,
+.swagger-ui .copy-to-clipboard button {
+  color: var(--text);
+  fill: var(--text);
+}
+
+.swagger-ui .scheme-container {
+  background: var(--surface);
+  box-shadow: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0 0 1rem;
+  padding: 1rem;
+}
+
+/* The Authorize dialog */
+.swagger-ui .dialog-ux .backdrop-ux {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.swagger-ui .dialog-ux .modal-ux,
+html.dark-mode .swagger-ui .dialog-ux .modal-ux {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.swagger-ui .dialog-ux .modal-ux-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.swagger-ui .dialog-ux .modal-ux-header .close-modal svg {
+  fill: var(--text);
+}
+
+.swagger-ui .auth-container {
+  border-bottom: 1px solid var(--line);
+}
+
+/* Models (schemas) */
+.swagger-ui section.models {
+  border-color: var(--line);
+}
+
+.swagger-ui section.models .model-container {
+  background: var(--surface);
+}
+
+.swagger-ui .model-toggle::after {
+  filter: none;
+}
+
+html.dark-mode .swagger-ui .model-toggle::after {
+  filter: invert(1);
+}
+
+/* Responses */
+.swagger-ui .responses-inner h4,
+.swagger-ui .responses-inner h5 {
+  color: var(--text);
+}
+
+.swagger-ui table tbody tr td {
+  border-color: var(--line);
+}
+
+.swagger-ui .response-col_status .response-undocumented {
+  color: var(--muted);
+}
+
+.swagger-ui .loading-container .loading::after {
+  color: var(--text);
+}
+
+/* The API URL field above the reference sets the server; Swagger UI's own server list has no label. */
+.swagger-ui .scheme-container .schemes > .schemes-server-container {
+  display: none;
+}
+
+.swagger-ui .scheme-container .schemes {
+  justify-content: flex-end;
+}
+
+/* Buttons keep the docs' colours in both themes (Swagger UI's dark theme recolours them). */
+.swagger-ui .btn,
+html.dark-mode .swagger-ui .btn {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--muted);
+}
+
+.swagger-ui .btn.authorize,
+.swagger-ui .btn.execute,
+.swagger-ui .btn.modal-btn.auth.authorize,
+html.dark-mode .swagger-ui .btn.authorize,
+html.dark-mode .swagger-ui .btn.execute,
+html.dark-mode .swagger-ui .btn.modal-btn.auth.authorize,
+html.dark-mode .swagger-ui .scheme-container .btn.authorize {
+  color: var(--on-accent);
+  background: var(--accent-text);
+  border-color: var(--accent-text);
+}
+
+.swagger-ui .btn.authorize span,
+html.dark-mode .swagger-ui .btn.authorize span,
+.swagger-ui .btn > span,
+html.dark-mode .swagger-ui .btn > span {
+  color: inherit;
+}
+
+.swagger-ui .btn.authorize svg,
+html.dark-mode .swagger-ui .btn.authorize svg,
+html.dark-mode .swagger-ui .scheme-container .btn.authorize svg {
+  color: var(--on-accent);
+  fill: var(--on-accent);
+}
+
+.swagger-ui .btn.cancel,
+.swagger-ui .btn.try-out__btn.cancel,
+html.dark-mode .swagger-ui .btn.cancel,
+html.dark-mode .swagger-ui .btn.try-out__btn.cancel {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.swagger-ui .download-contents,
+html.dark-mode .swagger-ui .download-contents {
+  color: var(--bg);
+  background: var(--muted);
+}
+
+/* The copy-path button: at least 24 by 24 pixels (WCAG 2.5.8). */
+.swagger-ui .opblock .opblock-summary .view-line-link.copy-to-clipboard {
+  width: 24px;
+  height: 24px;
+  margin: 0 0.25rem;
+}
+
+.swagger-ui .opblock .opblock-summary .view-line-link.copy-to-clipboard button {
+  width: 24px;
+  height: 24px;
+}
+
+/* At 320 px wide (WCAG 1.4.10) wide tables scroll inside their block, not the page. */
+.swagger-ui .responses-inner,
+.swagger-ui .table-container,
+.swagger-ui .parameters-container {
+  overflow-x: auto;
+}

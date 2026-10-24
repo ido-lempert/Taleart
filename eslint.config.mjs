@@ -43,6 +43,11 @@ export default [
               onlyDependOnLibsWithTags: ['type:contract'],
             },
             {
+              // The taleart CLI (epic developer experience 10.3) calls the Management API over HTTP.
+              sourceTag: 'scope:cli',
+              onlyDependOnLibsWithTags: ['type:contract'],
+            },
+            {
               sourceTag: 'type:sdk',
               onlyDependOnLibsWithTags: ['type:contract'],
             },
@@ -66,6 +71,7 @@ export default [
               group: [
                 '@taleart/*/**',
                 '!@taleart/contract/core',
+                '!@taleart/contract/openapi.json',
                 '!@taleart/contract/project-fonts',
                 '!@taleart/contract/tale-document',
                 '!@taleart/contract/text-style',

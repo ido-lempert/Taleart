@@ -41,6 +41,9 @@ export const USER_LIST_INSERT_BATCH = 5000;
  */
 export const USER_LIST_UPLOAD_DATABASE_IDLE_TIMEOUT = '120s';
 
+/** A user list as this module stores it; the API adds the tale groups it targets. */
+export type StoredUserList = Omit<UserList, 'taleGroups'>;
+
 interface UserListRow {
   id: string;
   projectId: string;
@@ -50,7 +53,7 @@ interface UserListRow {
   updatedAt: Date;
 }
 
-function toUserList(row: UserListRow): UserList {
+function toUserList(row: UserListRow): StoredUserList {
   return { ...row, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
 }
 
@@ -78,7 +81,7 @@ function translate(err: unknown): never {
 }
 
 /** The project's user lists by name, ignoring case. Ids that are not UUIDs have none. */
-export async function listUserLists(db: Db, projectId: string): Promise<UserList[]> {
+export async function listUserLists(db: Db, projectId: string): Promise<StoredUserList[]> {
   if (!UUID.test(projectId)) return [];
   const { rows } = await db.query<UserListRow>(
     `SELECT ${LIST_COLUMNS} FROM user_lists WHERE project_id = $1 ORDER BY lower(name), name, id`,
@@ -88,7 +91,7 @@ export async function listUserLists(db: Db, projectId: string): Promise<UserList
 }
 
 /** One user list of the project; null when there is none (or the id names another project's). */
-export async function getUserList(db: Db, projectId: string, userListId: string): Promise<UserList | null> {
+export async function getUserList(db: Db, projectId: string, userListId: string): Promise<StoredUserList | null> {
   if (!UUID.test(projectId) || !UUID.test(userListId)) return null;
   const { rows } = await db.query<UserListRow>(
     `SELECT ${LIST_COLUMNS} FROM user_lists WHERE id = $1 AND project_id = $2`,
@@ -106,7 +109,7 @@ export async function getUserList(db: Db, projectId: string, userListId: string)
 export async function createUserList(
   db: TransactionalDb,
   input: { projectId: string; name: string },
-): Promise<UserList> {
+): Promise<StoredUserList> {
   const name = normalizeUserListName(input.name);
   if (name === null) throw new InvalidUserListNameError();
   if (!UUID.test(input.projectId)) throw new UserListProjectNotFoundError();
@@ -137,7 +140,7 @@ export async function createUserList(
 export async function renameUserList(
   db: Db,
   input: { projectId: string; userListId: string; name: string },
-): Promise<UserList> {
+): Promise<StoredUserList> {
   const name = normalizeUserListName(input.name);
   if (name === null) throw new InvalidUserListNameError();
   if (!UUID.test(input.projectId) || !UUID.test(input.userListId)) throw new UserListNotFoundError();
@@ -156,7 +159,9 @@ export async function renameUserList(
 
 /**
  * Deletes a user list and every hash it holds, for good, in one transaction (epic targeting R5).
- * With the project's last list, its secret goes too, so the next list starts with a new one.
+ * It leaves every group's Audience; a group it was the only list of is held hidden
+ * (`audience-removed`) until a person saves its Audience. With the project's last list, its secret
+ * goes too, so the next list starts with a new one.
  */
 export async function deleteUserList(
   db: TransactionalDb,
@@ -165,6 +170,26 @@ export async function deleteUserList(
   if (!UUID.test(input.projectId) || !UUID.test(input.userListId)) throw new UserListNotFoundError();
   await inTransaction(db, async (tx) => {
     await lockProject(tx, input.projectId);
+    // The list's row first, FOR UPDATE: it waits for every transaction that holds it FOR KEY SHARE
+    // (one setting a group's lists to or from it, a copy linking it) to commit, so the statement
+    // below reads the groups' links as they are now, not as they were before such a change. Without
+    // it a concurrent set or copy could leave a group with no list and no hold: public.
+    const { rows: locked } = await tx.query('SELECT id FROM user_lists WHERE id = $1 AND project_id = $2 FOR UPDATE', [
+      input.userListId,
+      input.projectId,
+    ]);
+    if (locked.length === 0) throw new UserListNotFoundError();
+    // A group targeted to this list and no other is held hidden (`audience-removed`) rather than
+    // shown to everyone once the list is gone (owner decision, story 5.4 review).
+    await tx.query(
+      `INSERT INTO tale_group_audience_holds (tale_group_id, project_id)
+       SELECT l.tale_group_id, l.project_id FROM tale_group_user_lists l
+       WHERE l.user_list_id = $1 AND l.project_id = $2
+         AND NOT EXISTS (SELECT 1 FROM tale_group_user_lists o
+                         WHERE o.tale_group_id = l.tale_group_id AND o.user_list_id <> $1)
+       ON CONFLICT (tale_group_id) DO NOTHING`,
+      [input.userListId, input.projectId],
+    );
     const { rowCount } = await tx.query('DELETE FROM user_lists WHERE id = $1 AND project_id = $2', [
       input.userListId,
       input.projectId,
