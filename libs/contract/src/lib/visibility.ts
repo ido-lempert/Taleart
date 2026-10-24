@@ -27,6 +27,8 @@ export const VISIBILITY_REASON_ORDER: readonly VisibilityReasonCode[] = [
   'zone-not-installed',
   'no-tale-groups',
   'no-shown-tales',
+  'audience-empty',
+  'audience-removed',
   'no-visible-groups',
 ];
 
@@ -123,6 +125,10 @@ export function visibilityReasonText(
       return 'media problem';
     case 'not-updated-yet':
       return 'not updated yet';
+    case 'audience-empty':
+      return own ? 'its user lists are empty' : "group's user lists are empty";
+    case 'audience-removed':
+      return own ? 'its user lists were removed' : "group's user lists were removed";
   }
 }
 

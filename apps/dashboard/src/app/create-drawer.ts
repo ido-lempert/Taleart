@@ -36,10 +36,12 @@ import {
   type SettableStatus,
   type Tale,
   type TagMatch,
+  audienceSummary,
+  type UserList,
   type ZoneTemplateKey,
 } from '@taleart/contract/core';
 import { CoverEditor } from './cover-editor';
-import { DashboardStore, type DrawerRequest, type ZoneField } from './dashboard.store';
+import { DashboardStore, isAudienceHeld, type DrawerRequest, type ZoneField } from './dashboard.store';
 import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { initialSettings, SettingsForm, type Settings } from './settings-form';
@@ -172,6 +174,41 @@ export class CreateDrawer implements OnInit {
     const joined = `${names.slice(0, -1).join(', ')} ${this.selectedTagMatch() === 'all' ? 'and' : 'or'} ${names.at(-1)}`;
     return `Shows to viewers tagged ${joined}, and on pages that pass no tags.`;
   });
+  /** The project's user lists an Audience drawer offers (epic targeting R4), as the store last read them. */
+  protected readonly projectLists = computed((): UserList[] => {
+    const group = this.tagGroup();
+    return group ? this.store.userListsOf(group.projectId) : [];
+  });
+  /** The user lists checked in an Audience drawer. */
+  protected readonly selectedListIds = signal<string[]>([]);
+  /** What the checked user lists mean for a viewer. */
+  protected readonly userListHint = computed(() => {
+    const checked = this.projectLists().filter((list) => this.selectedListIds().includes(list.id));
+    if (checked.length === 0) return 'With no user list, the group does not depend on who the viewer is.';
+    const shown =
+      'Shows only to viewers whose external user ID, set by the page with setExternalUserId, is in ' +
+      (checked.length === 1 ? 'this list.' : 'one of these lists.');
+    return checked.every((list) => list.idCount === 0)
+      ? `${shown} ${checked.length === 1 ? 'It holds' : 'They hold'} no ID yet, so the group shows to nobody until one is added.`
+      : shown;
+  });
+  /** True when the Audience drawer's group is held hidden since its user lists were removed. */
+  protected readonly audienceHeld = computed(() => isAudienceHeld(this.tagGroup()));
+  /**
+   * For a held group: who saving will show it to, from the tags and lists checked now, such as
+   * "every viewer" or "viewers in user list Loyal (2)".
+   */
+  protected readonly heldAudienceLine = computed(() => {
+    const tags = this.projectTags().filter((tag) => this.selectedTagIds().includes(tag.id));
+    const lists = this.projectLists().filter((list) => this.selectedListIds().includes(list.id));
+    const summary = audienceSummary({ tags, tagMatch: this.selectedTagMatch(), userLists: lists }, Number.MAX_SAFE_INTEGER);
+    const who = summary === null ? 'every viewer' : tags.length === 0 ? `viewers in ${summary}` : summary;
+    return `Its user lists were removed, so it shows to nobody now. Saving the audience will make this group visible to ${who}.`;
+  });
+  /** "1,204 IDs", for a list's checkbox. */
+  protected listCount(list: UserList): string {
+    return `${list.idCount.toLocaleString('en-US')} ${list.idCount === 1 ? 'ID' : 'IDs'}`;
+  }
   /** The name typed in a tags drawer's "New tag" field. */
   protected newTag = '';
   /** The zone picked in a "Show in another zone" drawer. */
@@ -213,7 +250,15 @@ export class CreateDrawer implements OnInit {
   /** The zone picked in a "Copy to zone…" drawer. */
   protected readonly copyZoneId = signal('');
   /** The copy a "Copy to zone…" drawer made, with its zone; the drawer then shows only the result. */
-  protected readonly copied = signal<{ name: string; zoneId: string; zoneName: string } | null>(null);
+  protected readonly copied = signal<{
+    name: string;
+    zoneId: string;
+    zoneName: string;
+    listsLeftBehind: boolean;
+    held: boolean;
+  } | null>(null);
+  /** True when the group a copy drawer copies is held hidden since its user lists were removed. */
+  protected readonly copyHeld = computed(() => isAudienceHeld(this.placementGroup()));
 
   /** The projects a copy can go to: every project the user can access, the group's own first. */
   protected readonly copyProjects = computed(() => {
@@ -567,6 +612,7 @@ export class CreateDrawer implements OnInit {
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     this.selectedTagMatch.set(this.tagGroup()?.tagMatch ?? DEFAULT_TAG_MATCH);
+    this.selectedListIds.set(this.tagGroup()?.userLists?.map((list) => list.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
     const edited = this.editedZone();
     if (edited) {
@@ -583,6 +629,18 @@ export class CreateDrawer implements OnInit {
     this.copyProjectId.set(projectId);
     this.copyZoneId.set('');
     this.error.set('');
+  }
+
+  protected isListSelected(listId: string): boolean {
+    return this.selectedListIds().includes(listId);
+  }
+
+  protected toggleList(listId: string, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.selectedListIds.update((ids) => {
+      const others = ids.filter((id) => id !== listId);
+      return checked ? [...others, listId] : others;
+    });
   }
 
   protected isTagSelected(tagId: string): boolean {
@@ -883,9 +941,18 @@ export class CreateDrawer implements OnInit {
         // The drawer stays open to show the link.
         return;
       }
-      case 'tags':
+      case 'tags': {
+        // The lists the group had, read before the tags are saved (which updates the group).
+        const before = [...(this.tagGroup()?.userLists?.map((list) => list.id) ?? [])].sort().join();
         message = await this.store.setTaleGroupTags(request.taleGroupId, this.selectedTagIds(), this.selectedTagMatch());
+        // The user lists when they changed, and always for a held group: saving its Audience is the
+        // person choosing who sees it, which ends the hold (the drawer said who, before Save).
+        const lists = this.selectedListIds();
+        if (!message && ([...lists].sort().join() !== before || this.audienceHeld())) {
+          message = await this.store.setTaleGroupUserLists(request.taleGroupId, lists);
+        }
         break;
+      }
       case 'renameTaleGroup':
         message = await this.store.renameTaleGroup(request.taleGroupId, this.text);
         break;
@@ -924,10 +991,15 @@ export class CreateDrawer implements OnInit {
           const zone = this.store.zone(zoneId);
           // Name the project too when the copy went to another project: zone names repeat across projects.
           const zoneName = zone?.name ?? 'the zone';
+          // User lists belong to a project: a copy to another one leaves them behind and is held
+          // hidden until its Audience is changed (epic targeting story 5.4 review).
+          const source = this.placementGroup();
           this.copied.set({
             name: copy.name,
             zoneId,
             zoneName: zone && zone.projectId !== this.store.selectedProjectId() ? `${zoneName} in ${this.store.projectName(zone.projectId)}` : zoneName,
+            listsLeftBehind: !!source?.userLists?.length && !!zone && zone.projectId !== source.projectId,
+            held: isAudienceHeld(source),
           });
         }
         this.saving.set(false);

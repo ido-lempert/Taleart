@@ -4,7 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 import type { UserList, UserListUploadReport } from '@taleart/contract/core';
 import { API_BASE, DashboardStore } from '../dashboard.store';
-import { AudiencePage, reportLines, warningText } from './audience';
+import { AudiencePage, deleteGroupsText, reportLines, targetsText, warningText } from './audience';
 
 const listUrl = `${API_BASE}/projects/p1/user-lists`;
 
@@ -13,6 +13,7 @@ const list = (over: Partial<UserList> = {}): UserList => ({
   projectId: 'p1',
   name: 'Loyal customers',
   idCount: 1204,
+  taleGroups: [],
   createdAt: '2026-10-22T10:00:00.000Z',
   updatedAt: '2026-10-23T10:00:00.000Z',
   ...over,
@@ -35,6 +36,24 @@ async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 20));
   fixture.detectChanges();
 }
+
+describe('the tale groups a list targets (story 5.4)', () => {
+  const groups = (...names: string[]) => names.map((name, i) => ({ id: `g${i}`, name }));
+
+  it('names them on the row, and what deleting the list does to them', () => {
+    expect(targetsText({ taleGroups: [] })).toBe('Targets no tale group yet');
+    expect(targetsText({ taleGroups: groups('Summer') })).toBe('Targets Summer');
+    expect(targetsText({ taleGroups: groups('Summer', 'VIP') })).toBe('Targets Summer and VIP');
+    expect(targetsText({ taleGroups: groups('a', 'b', 'c', 'd', 'e') })).toBe('Targets a, b, c and 2 more');
+    expect(deleteGroupsText({ taleGroups: [] })).toBe('');
+    expect(deleteGroupsText({ taleGroups: groups('Summer') })).toBe(
+      'It is removed from the tale group Summer. Groups targeted only to this list will stop showing until you change their Audience.',
+    );
+    expect(deleteGroupsText({ taleGroups: groups('Summer', 'VIP') })).toBe(
+      'It is removed from 2 tale groups Summer and VIP. Groups targeted only to this list will stop showing until you change their Audience.',
+    );
+  });
+});
 
 describe('reportLines and warningText', () => {
   it('words a report in counts and line numbers only', () => {

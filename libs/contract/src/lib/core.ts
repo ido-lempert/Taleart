@@ -38,6 +38,11 @@ export type Tag = Schemas['Tag'];
 export type TaleGroupTag = Schemas['TaleGroupTag'];
 export type CreateTagRequest = Schemas['CreateTagRequest'];
 export type SetTaleGroupTagsRequest = Schemas['SetTaleGroupTagsRequest'];
+/** A user list as a tale group is targeted to it (epic targeting R4), with its ID count, never its IDs. */
+export type TaleGroupUserList = Schemas['TaleGroupUserList'];
+export type SetTaleGroupUserListsRequest = Schemas['SetTaleGroupUserListsRequest'];
+/** A tale group a user list targets. */
+export type UserListTaleGroup = Schemas['UserListTaleGroup'];
 export type Tale = Schemas['Tale'];
 export type CreateTaleRequest = Schemas['CreateTaleRequest'];
 export type OrderTaleGroupsRequest = Schemas['OrderTaleGroupsRequest'];
@@ -132,6 +137,7 @@ export * from './visibility';
 export * from './targeting';
 export * from './audience';
 export * from './user-lists';
+export * from './external-user-id';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;

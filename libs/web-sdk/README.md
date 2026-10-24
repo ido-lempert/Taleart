@@ -144,6 +144,39 @@ request. The SDK decides in the browser: the tags are never sent to TaleArt. The
 zone with its tag names, so targeting is not access control: anyone with the site key can read every visible group
 and its tag names. Keep anything private out of tag names.
 
+## User lists and the external user ID
+
+A tale group can also be targeted to **user lists**: lists of your site's own user IDs, uploaded as a CSV on the
+dashboard's Audience page. Tell the SDK who the viewer is once for the whole page, for example after sign-in:
+
+```js
+import { setExternalUserId } from 'https://api.example.com/sdk/v1/taleart.js';
+
+// Your own opaque ID for the signed-in user; null after sign-out.
+setExternalUserId('cust-1001');
+```
+
+- A group with user lists shows only when the viewer's ID is in one of them, and its tag rule (above) also passes.
+  A viewer with no ID, or one in none of its lists, does not get the group: the Delivery API leaves it out.
+- Groups without user lists show as before, so a page that never calls `setExternalUserId` sees only those.
+- Use an **opaque ID**, never an email address or a phone number. It is trimmed and matched exactly (case counts);
+  any Unicode text of up to 256 characters without control characters works. Another value logs one console warning
+  and sends no ID.
+- The SDK sends the ID in the `X-TaleArt-External-User-Id` request header, as base64url of its UTF-8 bytes (RFC 4648
+  section 5, no padding), and never in a URL. It keeps the ID in memory only: not in storage or a cookie, and never
+  with the visitor id.
+- Every element on the page reads its zone again when the ID changes; `setExternalUserId(null)` sends none again.
+- The Delivery API hashes the ID for the lookup and drops it: it is not logged or stored. Its answer to a request
+  with the header is `Cache-Control: private, no-store`, with no ETag, so no cache keeps one viewer's groups for
+  another.
+- TaleArt stores user lists only as keyed hashes (HMAC-SHA-256 under a secret of the project) and shows how many IDs
+  a list holds, never which. Deleting a list deletes its hashes for good and removes it from every group; a group
+  targeted only to that list stops showing (to anyone) until someone changes its Audience in the dashboard.
+
+Targeting is not access control: a targeted group's tales are public media, and anyone with the site key can try IDs
+and see which groups come back. Responses to a tale's interactive components (polls, quizzes, ratings) are accepted
+from any viewer of a delivered tale, without checking its user lists. Do not use targeting to protect content.
+
 ## Theme
 
 The project's theme, set in the dashboard, styles the zone's display and the viewer. A host page can override any of its fields
