@@ -33,9 +33,9 @@ describe('the rating descriptor and the emoji field', () => {
   const rating = () => studioElementTypes().find((t) => t.key === 'rating');
 
   it('is offered beside the poll, limited to one per tale', () => {
-    const add = rating()?.add[0];
-    expect(add?.id).toBe('studio-add-rating');
-    expect(add?.row).toBe(3);
+    const add = rating()?.palette;
+    expect(add?.category).toBe('interactive');
+    expect(add?.order).toBe(1);
     expect(add?.limit?.reached({ elements: [{ type: 'rating' }] })).toBe(true);
     expect(add?.limit?.reached({ elements: [{ type: 'poll' }] })).toBe(false);
     expect((rating()?.inspector as { fields: InspectorField[] }).fields.map((f) => [f.prop, f.control])).toEqual([
@@ -62,7 +62,7 @@ describe('the rating descriptor and the emoji field', () => {
         registry: [{ key: 'widget', label: 'Widget', schema: { type: 'object', properties: { e: { type: 'integer' } } } }],
         descriptors: {
           widget: {
-            add: [],
+            create: { box: { x: 0, y: 0, w: 0.5, h: 0.1, rotation: 0 }, props: () => ({}) },
             inspector: { fields: [{ prop: 'e', label: 'E', control: 'emoji' }] },
           },
         },

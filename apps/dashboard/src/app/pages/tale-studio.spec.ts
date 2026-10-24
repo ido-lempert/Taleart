@@ -485,7 +485,7 @@ describe('TaleStudioPage', () => {
 
   it('adds text, types it in place, moves it with arrow keys and saves it with the revision', async () => {
     await open({ document: null, revision: 0 });
-    buttonNamed(root, 'Add text').click();
+    buttonNamed(root, 'Add body text').click();
     await settle(fixture);
     const field = root.querySelector('textarea.el-edit') as HTMLTextAreaElement;
     expect(field).not.toBeNull();
@@ -1280,7 +1280,7 @@ describe('TaleStudioPage', () => {
         await settle(fixture);
         states.push(docNow());
       };
-      await step(() => buttonNamed(root, 'Add text').click());
+      await step(() => buttonNamed(root, 'Add body text').click());
       key(root.querySelector('textarea.el-edit') as HTMLElement, 'Escape');
       await settle(fixture);
       await step(() => key(canvasEl(1), 'ArrowDown'));
@@ -1624,7 +1624,7 @@ describe('TaleStudioPage', () => {
         publishButton().click();
         await settle(fixture);
         http.expectNone(`${url}/publish`);
-        buttonNamed(root, 'Add text').click();
+        buttonNamed(root, 'Add body text').click();
         await settle(fixture);
         expect(publishButton().hasAttribute('aria-disabled')).toBe(false);
       });
@@ -1725,7 +1725,7 @@ describe('TaleStudioPage', () => {
         (root.querySelector('#studio-el-00000000-0000-4000-8000-0000000000ee') as HTMLElement).click();
         await settle(fixture);
         scan();
-        buttonNamed(root, 'Add text').click();
+        buttonNamed(root, 'Add body text').click();
         await settle(fixture);
         scan();
         // The line with changes, a status, and an update refused by the server.
@@ -2728,7 +2728,7 @@ describe('TaleStudioPage', () => {
     // Adds a text (an unsaved change), presses Duplicate and answers the save that goes first.
     async function openDrawer(): Promise<HTMLElement> {
       await open({ document: existing, revision: 1 });
-      buttonNamed(root, 'Add text').click();
+      buttonNamed(root, 'Add body text').click();
       await settle(fixture);
       menuItem('studio-duplicate').click();
       await settle(fixture);
@@ -2810,7 +2810,7 @@ describe('TaleStudioPage', () => {
 
     it('says to wait while Update tale is running instead of doing nothing', async () => {
       await open({ document: existing, revision: 1 });
-      buttonNamed(root, 'Add text').click();
+      buttonNamed(root, 'Add body text').click();
       await settle(fixture);
       (root.querySelector('#studio-update') as HTMLButtonElement).click();
       await settle(fixture);
@@ -2832,7 +2832,7 @@ describe('TaleStudioPage', () => {
 
     it('does not open while the latest changes cannot be saved', async () => {
       await open({ document: existing, revision: 1 });
-      buttonNamed(root, 'Add text').click();
+      buttonNamed(root, 'Add body text').click();
       await settle(fixture);
       menuItem('studio-duplicate').click();
       await settle(fixture);
