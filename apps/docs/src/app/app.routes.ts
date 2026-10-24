@@ -1,4 +1,5 @@
 import { Route } from '@angular/router';
+import { ApiTokensPage } from './pages/api-tokens';
 import { ConceptsPage } from './pages/concepts';
 import { GettingStartedPage } from './pages/getting-started';
 import { InstallPage } from './pages/install';
@@ -12,6 +13,7 @@ export const DOCS_PAGES = [
   { path: 'concepts', label: 'Concepts', title: 'Concepts', component: ConceptsPage },
   { path: 'install', label: 'Install a zone', title: 'Install a zone', component: InstallPage },
   { path: 'targeting', label: 'Targeting', title: 'Targeting', component: TargetingPage },
+  { path: 'api-tokens', label: 'API tokens', title: 'API tokens', component: ApiTokensPage },
   { path: 'moving-from-stages', label: 'Stages and zone keys', title: 'Stages and zone keys', component: MovingPage },
 ] as const;
 
