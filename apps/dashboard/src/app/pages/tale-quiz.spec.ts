@@ -92,17 +92,13 @@ describe('applyChoiceEdit', () => {
 });
 
 describe('the quiz descriptor and the list field', () => {
-  const add = [
-    {
-      id: 'studio-add-widget',
-      label: 'Add widget',
-      icon: 'plus' as const,
-      row: 3,
-      small: true,
-      needsProject: false,
-      action: { kind: 'configured' as const },
-    },
-  ];
+  const palette = {
+    category: 'interactive' as const,
+    order: 9,
+    keywords: ['widget'],
+    icon: 'plus' as const,
+    action: { kind: 'configured' as const },
+  };
   const create = { box: { x: 0, y: 0, w: 0.5, h: 0.1, rotation: 0 }, props: () => ({}) };
   const item = {
     type: 'object',
@@ -133,13 +129,14 @@ describe('the quiz descriptor and the list field', () => {
         },
       ],
       descriptors: {
-        widget: { add, create, inspector: { fields: [{ prop: 'q', label: 'Q', control: 'text' }] as InspectorField[], choices: list } },
+        widget: { palette, create, inspector: { fields: [{ prop: 'q', label: 'Q', control: 'text' }] as InspectorField[], choices: list } },
       },
     });
 
-  it('lets the real quiz through, on the Add menu after the rating', () => {
+  it('lets the real quiz through, in the palette after the rating', () => {
     const quiz = studioElementTypes().find((t) => t.key === 'quiz');
-    expect(quiz?.add[0]).toMatchObject({ id: 'studio-add-quiz', label: 'Add quiz', row: 3 });
+    expect(quiz?.palette).toMatchObject({ category: 'interactive', order: 2, icon: 'quiz' });
+    expect(quiz?.palette?.keywords).toContain('trivia');
   });
 
   it('accepts a list of two to four with a label for new items and an optional correct pick', () => {

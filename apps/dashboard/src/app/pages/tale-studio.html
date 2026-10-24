@@ -195,6 +195,11 @@
               tales of the group: in Tale Studio, F6 does not go to the browser's address bar. Outside text fields, ?
               shows these shortcuts.
             </p>
+            <p>
+              Outside text fields, / searches elements: Arrow Down goes to the first one found, Escape clears the
+              search and a second Escape goes back to the canvas. Arrow keys move between tiles; Enter or Space adds
+              one.
+            </p>
           </div>
         </div>
       </div>
@@ -280,40 +285,94 @@
         aria-labelledby="studio-tab-elements"
         [hidden]="leftTab() !== 'elements'"
       >
-        <h2 class="studio-panel__title">Elements</h2>
-        <p class="studio-panel__hint">Click a tile, or press Enter on it, to add it to the tale.</p>
-        <!-- Today's Add menu, from the element-type registry and each type's studio descriptor (R8), in its rows. -->
-        @for (group of addGroups; track group.name; let g = $index) {
-          <div class="tile-group" role="group" [attr.aria-labelledby]="'studio-tiles-' + g">
-            <h3 class="tile-group__name" [id]="'studio-tiles-' + g">{{ group.name }}</h3>
-            <div class="tiles">
-              @for (item of group.items; track item.entry.id) {
-                @let limited = limitReached(item.entry);
-                <button
-                  type="button"
-                  class="tile"
-                  [id]="item.entry.id"
-                  [disabled]="d.elements.length >= maxElements || (item.entry.needsProject && !projectId())"
-                  [attr.aria-disabled]="limited ? 'true' : null"
-                  [attr.aria-describedby]="limited ? item.entry.limit?.hintId : null"
-                  (click)="addFromMenu(item.entry, item.type)"
-                >
-                  <app-icon [name]="item.entry.icon" />
-                  <!-- Named "Add poll", shown as "Poll" (label in name, 2.5.3). -->
-                  <span class="tile__label"
-                    >@if (item.entry.label.startsWith('Add ')) {<span class="visually-hidden">Add </span>}<span
-                      class="tile__word"
-                      >{{ tileWord(item.entry) }}</span
-                    ></span
+        <h2 class="visually-hidden">Elements</h2>
+        <!-- The palette (epic Tale Studio 2 R2): every registered type from its descriptor's palette entry. -->
+        <div class="palette-search" role="search" aria-label="Elements">
+          <span class="palette-search__icon"><app-icon name="search" /></span>
+          <label class="visually-hidden" for="studio-palette-search">Search elements</label>
+          <input
+            type="search"
+            id="studio-palette-search"
+            class="palette-search__field"
+            placeholder="Search elements"
+            autocomplete="off"
+            spellcheck="false"
+            aria-keyshortcuts="/"
+            aria-controls="studio-palette-groups"
+            aria-describedby="studio-palette-help"
+            [value]="paletteQuery()"
+            (input)="searchPalette($any($event.target).value)"
+            (keydown)="paletteSearchKey($event)"
+          />
+          @if (!paletteQuery()) {
+            <kbd class="palette-search__key" aria-hidden="true">/</kbd>
+          }
+        </div>
+        <p class="visually-hidden" id="studio-palette-help">
+          Finds elements by name or by what they are for. Arrow Down goes to the first one found.
+        </p>
+        @if (paletteQuery().trim()) {
+          <p class="palette-count" id="studio-palette-count">{{ paletteCount() }}</p>
+        }
+        @if (taleFull()) {
+          <p class="field__hint palette-reason" id="studio-full-hint">
+            A tale holds up to {{ maxElements }} elements. Delete one to add another.
+          </p>
+        }
+        @if (noProjectMedia()) {
+          <p class="field__hint palette-reason" id="studio-project-hint">{{ noProjectReason }}</p>
+        }
+        <div id="studio-palette-groups">
+          @for (group of paletteGroups(); track group.key) {
+            <div class="tile-group" role="group" [attr.aria-labelledby]="'studio-tiles-' + group.key">
+              <h3 class="tile-group__name" [id]="'studio-tiles-' + group.key">{{ group.name }}</h3>
+              <div class="tiles" [class.tiles--text]="group.key === 'text'">
+                @for (tile of group.tiles; track tile.id) {
+                  @let block = tileBlock(tile);
+                  <button
+                    type="button"
+                    class="tile"
+                    [class.tile--text]="tile.sample"
+                    [id]="tile.id"
+                    [attr.aria-disabled]="block ? 'true' : null"
+                    [attr.aria-describedby]="block?.id ?? null"
+                    (click)="addFromTile(tile)"
+                    (keydown)="tileKey($event)"
                   >
-                </button>
+                    @if (tile.sample; as s) {
+                      <!-- A text preset shows its word in its own style, in place of an icon. -->
+                      <span class="tile__label"
+                        ><span class="visually-hidden">Add </span
+                        ><span
+                          class="tile__word tile__sample"
+                          [class.tile__sample--boxed]="s.boxed"
+                          [style.font-size]="s.fontSize"
+                          [style.font-weight]="s.fontWeight"
+                          [style.font-style]="s.fontStyle"
+                          >{{ tile.word }}</span
+                        ></span
+                      >
+                    } @else {
+                      <app-icon [name]="tile.icon" />
+                      <!-- Named "Add poll", shown as "Poll" (label in name, 2.5.3). -->
+                      <span class="tile__label"
+                        ><span class="visually-hidden">Add </span><span class="tile__word">{{ tile.word }}</span></span
+                      >
+                    }
+                  </button>
+                }
+              </div>
+              @for (why of groupReasons(group.tiles); track why.id) {
+                <p class="field__hint palette-reason" [id]="why.id">{{ why.reason }}</p>
               }
             </div>
-          </div>
-        }
-        @for (limit of reachedLimits(); track limit.hintId) {
-          <p class="field__hint" [id]="limit.hintId">{{ limit.hint }}</p>
-        }
+          } @empty {
+            <div class="palette-empty">
+              <p>No elements match “{{ paletteQuery().trim() }}”.</p>
+              <button type="button" class="btn btn--secondary btn--sm" (click)="clearPaletteSearch()">Clear search</button>
+            </div>
+          }
+        </div>
       </div>
       <div
         class="studio-panel"
