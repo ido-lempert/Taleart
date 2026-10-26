@@ -5,7 +5,10 @@
 <div class="layout">
   <nav class="side-nav" aria-label="Docs">
     <ul>
-      @for (page of pages; track page.path) {
+      @for (page of pages; track page.path; let i = $index) {
+        @if (i === 0 || pages[i - 1].group !== page.group) {
+          <li class="side-nav__group">{{ page.group }}</li>
+        }
         <li>
           <a
             [routerLink]="'/' + page.path"
