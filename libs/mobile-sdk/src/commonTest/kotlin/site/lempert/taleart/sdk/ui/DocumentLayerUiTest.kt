@@ -214,13 +214,13 @@ class DocumentLayerUiTest : ComposeUiTestBase() {
     @Test
     fun anUnknownElementTypeIsSkipped() = runComposeUiTest {
         val layer = layerOf(
-            """{"id":"poll","type":"poll","box":{"x":0,"y":0,"w":1,"h":0.5,"rotation":0},"a11y":{},"props":{"question":"?"}}""",
+            """{"id":"spinner","type":"spinner","box":{"x":0,"y":0,"w":1,"h":0.5,"rotation":0},"a11y":{},"props":{"question":"?"}}""",
             """{"id":"text","type":"text","box":{"x":0.1,"y":0.6,"w":0.8,"h":0.1,"rotation":0},"a11y":{},"props":{"text":"Still here"}}""",
         )
         canvas(layer)
         onAllNodesWithTag(DOCUMENT_ELEMENT_TAG, useUnmergedTree = true).assertCountEquals(1)
         onNodeWithText("Still here", useUnmergedTree = true).assertExists()
-        assertEquals(listOf("poll"), layer.skipped)
+        assertEquals(listOf("spinner"), layer.skipped)
     }
 
     @Test

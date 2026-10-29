@@ -8,8 +8,10 @@ package site.lempert.taleart.sdk
  * it. [locale] is the SDK's locale (BCP 47, `he-IL`); empty means the device's locale, then English.
  * [strings] are the texts per locale, and [stringsForEveryLocale] the texts for every locale (see
  * `i18n.Translate` for the lookup order). [listener] gets the hooks of every view. [externalUserId]
- * and [tags] are the viewer's targeting values; the native SDK stores them but does not send them
- * yet.
+ * is sent with each zone read in the `X-TaleArt-External-User-Id` header (base64url, never in a URL),
+ * so the Delivery API can show the tale groups targeted to user lists its ID is in. [tags] are the
+ * viewer's targeting tags: a group whose tags do not pass its rule is left out on the device, the
+ * tags are never sent (as in the Web SDK's `setTags`).
  *
  * [fallback] is what a view shows when its zone fails to load: nothing ([FallbackMode.None], the
  * default), or the translated `load.failed` text with a `load.retry` button ([FallbackMode.Message]).

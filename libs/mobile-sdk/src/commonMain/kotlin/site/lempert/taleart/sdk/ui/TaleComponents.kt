@@ -1,12 +1,15 @@
 package site.lempert.taleart.sdk.ui
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Instant
 
-// The components of a tale document that the native SDK draws (components, 2026-10-29): a countdown
-// and a promo code, read with the contract's rules as the Web SDK reads them
-// (libs/contract/tale-document/element-types/countdown.schema.json, promo-code.schema.json). A prop
+// The components of a tale document that the native SDK draws (components, 2026-10-29): a countdown,
+// a promo code, and the interactive components a visitor answers (a poll, a quiz, a rating and a
+// reaction), read with the contract's rules as the Web SDK reads them
+// (libs/contract/tale-document/element-types/countdown.schema.json, promo-code.schema.json, poll,
+// quiz, rating and reaction schemas). A prop
 // that is there and breaks its rule makes the element invalid, so the element is skipped, as an
 // element of an unknown type is; a prop left out takes its default.
 
@@ -124,3 +127,86 @@ internal fun countdownLeft(endsAt: Instant, now: Instant): CountdownLeft? {
 
 /** A countdown's number: two digits at least, as the Web SDK shows it (`03`, `12`, `100`). */
 internal fun countdownNumber(value: Long): String = value.toString().padStart(2, '0')
+
+/** A plain line of text the schema allows, required: from 1 to [max] code points, else null. */
+private fun requiredPlain(props: JsonObject, key: String, max: Int): String? =
+    props.stringOf(key)?.takeIf { isPlainLine(it, max) }
+
+// A choice id as the schema allows it: one to 64 letters, digits, underscores or hyphens.
+private val CHOICE_ID = Regex("^[A-Za-z0-9_-]{1,64}$")
+
+/**
+ * A poll's options or a quiz's answers from `{ id, label }` items (`options`, `answers`): [min] to [max]
+ * of them, each id by its pattern and unique, each label a plain line that is not blank. Null when any
+ * breaks its rule.
+ */
+private fun readChoices(props: JsonObject, key: String, min: Int, max: Int): List<Choice>? {
+    val items = props[key] as? JsonArray ?: return null
+    if (items.size !in min..max) return null
+    val choices = items.map { item ->
+        val o = item as? JsonObject ?: return null
+        val choiceId = o.stringOf("id")?.takeIf { CHOICE_ID.matches(it) } ?: return null
+        val label = o.stringOf("label")?.takeIf { isPlainLine(it, 60) && it.isNotBlank() } ?: return null
+        Choice(choiceId, label)
+    }
+    return if (choices.map { it.id }.toSet().size == choices.size) choices else null
+}
+
+/** A poll from its props (`poll.schema.json`): two options; null when the element is invalid. */
+internal fun readPoll(id: String, box: ElementBox, layer: Int, props: JsonObject): DocumentElement.Poll? {
+    val question = requiredPlain(props, "question", 200) ?: return null
+    val title = optionalPlain(props, "title", 80)
+    val options = readChoices(props, "options", 2, 2) ?: return null
+    val dark = themeIsDark(props) ?: return null
+    if (title === Optional.Invalid) return null
+    return DocumentElement.Poll(id, box, layer, (title as? Optional.Value)?.value, question, options, dark)
+}
+
+/**
+ * A quiz from its props (`quiz.schema.json`): two to four answers and an optional correct answer. A
+ * correct answer id that is none of the answers reads as no correct answer (a survey), as the Web SDK
+ * reads it; one that breaks the id pattern makes the element invalid.
+ */
+internal fun readQuiz(id: String, box: ElementBox, layer: Int, props: JsonObject): DocumentElement.Quiz? {
+    val question = requiredPlain(props, "question", 200) ?: return null
+    val title = optionalPlain(props, "title", 80)
+    val answers = readChoices(props, "answers", 2, 4) ?: return null
+    val correct = if (props.containsKey("correctAnswerId")) {
+        props.stringOf("correctAnswerId")?.takeIf { CHOICE_ID.matches(it) } ?: return null
+    } else {
+        null
+    }
+    val dark = themeIsDark(props) ?: return null
+    if (title === Optional.Invalid) return null
+    return DocumentElement.Quiz(
+        id, box, layer, (title as? Optional.Value)?.value, question, answers,
+        correctAnswerId = correct?.takeIf { c -> answers.any { it.id == c } },
+        dark = dark,
+    )
+}
+
+/** A Rating from its props (`rating.schema.json`): one emoji for the thumb; null when the element is invalid. */
+internal fun readRating(id: String, box: ElementBox, layer: Int, props: JsonObject): DocumentElement.Rating? {
+    val question = requiredPlain(props, "question", 200) ?: return null
+    val title = optionalPlain(props, "title", 80)
+    val emoji = props.stringOf("emoji")?.takeIf { isPlainLine(it, 64) && it.isNotBlank() } ?: return null
+    val dark = themeIsDark(props) ?: return null
+    if (title === Optional.Invalid) return null
+    return DocumentElement.Rating(id, box, layer, (title as? Optional.Value)?.value, question, emoji, dark)
+}
+
+/**
+ * A Reaction from its props (`reaction.schema.json`): two to six different emoji, each a plain line of
+ * up to 64 code points; null when the element is invalid.
+ */
+internal fun readReaction(id: String, box: ElementBox, layer: Int, props: JsonObject): DocumentElement.Reaction? {
+    val question = requiredPlain(props, "question", 200) ?: return null
+    val title = optionalPlain(props, "title", 80)
+    val items = props["emojis"] as? JsonArray ?: return null
+    if (items.size !in 2..6) return null
+    val emojis = items.map { item -> (item as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { isPlainLine(it, 64) && it.isNotBlank() } ?: return null }
+    if (emojis.toSet().size != emojis.size) return null
+    val dark = themeIsDark(props) ?: return null
+    if (title === Optional.Invalid) return null
+    return DocumentElement.Reaction(id, box, layer, (title as? Optional.Value)?.value, question, emojis, dark)
+}

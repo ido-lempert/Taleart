@@ -63,12 +63,12 @@ private val CardDark = Color(0xFF111827)
 private val InkDark = Color(0xFFFFFFFF)
 
 /** The card's and text's colours for a theme. */
-private fun cardColors(dark: Boolean): Pair<Color, Color> = if (dark) CardDark to InkDark else CardLight to InkLight
+internal fun cardColors(dark: Boolean): Pair<Color, Color> = if (dark) CardDark to InkDark else CardLight to InkLight
 
 /** The card's corner radius and padding, as the web's `.ta-poll`. */
-private const val CARD_RADIUS = 0.018
-private const val CARD_PADDING = 0.016
-private const val CARD_FONT = 0.024
+internal const val CARD_RADIUS = 0.018
+internal const val CARD_PADDING = 0.016
+internal const val CARD_FONT = 0.024
 
 /**
  * A countdown (`renderCountdown`): an optional title over the days, hours, minutes and seconds left, each

@@ -42,6 +42,32 @@ object TaleartStrings {
         "promo.copied" to "Copied",
         "promo.copyFailed" to "Could not copy. Select the code and copy it yourself.",
 
+        "poll.voted" to "You voted {label}.",
+        "poll.chose" to "You chose {label}.",
+        "poll.previewNotRecorded" to "Votes are not recorded in the preview.",
+        "poll.failed" to "Your vote could not be sent. Try again.",
+
+        "quiz.answered" to "You answered {label}.",
+        "quiz.right" to "Right! You answered {label}.",
+        "quiz.wrongAnswer" to "Wrong: you answered {label}. The correct answer is {correct}.",
+        "quiz.correct" to " correct answer",
+        "quiz.wrong" to " wrong",
+        "quiz.previewNotRecorded" to "Answers are not recorded in the preview.",
+        "quiz.failed" to "Your answer could not be sent. Try again.",
+
+        "rating.sliderLabel" to "Your rating",
+        "rating.valueText" to "{value} out of {max}",
+        "rating.ratedValueText" to "You rated {value} out of {max}",
+        "rating.sent" to "You rated {value}.",
+        "rating.previewRated" to "You rated {value}. Ratings are not recorded in the preview.",
+        "rating.failed" to "Your rating could not be sent. Try again.",
+        "rating.summary" to "Average {average} from {total} {count}",
+        "rating.singular" to "rating",
+        "rating.plural" to "ratings",
+
+        "reaction.count" to "Reactions: {count}",
+        "reaction.failed" to "Your reaction could not be sent. Try again.",
+
         // Native only: a link leaves the app for the browser (the Web SDK says the same with `links.newTab`).
         "links.open" to "Open in browser",
     )

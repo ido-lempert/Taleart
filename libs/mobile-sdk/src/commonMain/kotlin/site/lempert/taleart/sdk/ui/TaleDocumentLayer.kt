@@ -126,6 +126,8 @@ internal fun DocumentElementsLayer(
     // web's `left:`; each text keeps its own direction (`TextStyle.textDirection`).
     // A preview (inert links) reports no component events: it is a still of a tale in transition.
     val reporter = if (inertLinks) null else LocalComponentReporter.current
+    // The answers of the interactive elements go nowhere in a preview either (no request is sent).
+    val responder = if (inertLinks) null else LocalElementResponder.current
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr, LocalProjectFonts provides projectFonts) {
         BoxWithConstraints(modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
             val density = LocalDensity.current
@@ -135,7 +137,7 @@ internal fun DocumentElementsLayer(
             val canvas = CanvasMetrics(width, height, density)
             layer.elements.forEachIndexed { index, element ->
                 key(element.id, index) {
-                    Element(element, index, canvas, themeFont, imageLoader, video, inertLinks, layer.elements.filter { it.layer > element.layer }, topChrome, reporter)
+                    Element(element, index, canvas, themeFont, imageLoader, video, inertLinks, layer.elements.filter { it.layer > element.layer }, topChrome, reporter, responder)
                 }
             }
         }
@@ -183,6 +185,7 @@ private fun Element(
     above: List<DocumentElement>,
     topChrome: Dp,
     reporter: ComponentReporter?,
+    responder: ElementResponder?,
 ) {
     val player = LocalTaleVideoPlayer.current ?: remember { platformTaleVideoPlayer() }
     // A native video view that draws its own look takes no Compose rotation.
@@ -209,6 +212,10 @@ private fun Element(
         is DocumentElement.SwipeUp -> SwipeUpElement(element, canvas, themeFont, inertLinks, placed)
         is DocumentElement.Countdown -> CountdownElement(element, canvas, reporter, placed)
         is DocumentElement.PromoCode -> PromoCodeElement(element, canvas, reporter, placed)
+        is DocumentElement.Poll -> PollElement(element, canvas, responder, placed)
+        is DocumentElement.Quiz -> QuizElement(element, canvas, responder, placed)
+        is DocumentElement.Rating -> RatingElement(element, canvas, responder, placed)
+        is DocumentElement.Reaction -> ReactionElement(element, canvas, responder, placed)
     }
 }
 

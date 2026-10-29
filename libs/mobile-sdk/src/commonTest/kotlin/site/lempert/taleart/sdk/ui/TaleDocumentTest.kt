@@ -50,6 +50,10 @@ class TaleDocumentTest {
         is DocumentElement.SwipeUp -> "swipe-up"
         is DocumentElement.Countdown -> "countdown"
         is DocumentElement.PromoCode -> "promo-code"
+        is DocumentElement.Poll -> "poll"
+        is DocumentElement.Quiz -> "quiz"
+        is DocumentElement.Rating -> "rating"
+        is DocumentElement.Reaction -> "reaction"
     }
 
     @Test
@@ -153,7 +157,7 @@ class TaleDocumentTest {
     @Test
     fun unknownTypesHiddenElementsAndUnusableValuesAreSkipped() {
         val layer = doc(
-            element("poll", """{"question":"?"}"""),
+            element("spinner", """{"question":"?"}"""),
             element("test-badge", """{"label":"x","color":"#ff0000","tone":"solid"}"""),
             element("text", """{"text":"hidden"}""").replace("\"a11y\"", "\"hidden\":true,\"a11y\""),
             element("text", """{"text":"\u0007"}""", id = "empty"),
@@ -165,7 +169,7 @@ class TaleDocumentTest {
             element("text", """{"text":"kept"}""", id = "kept"),
         )
         assertEquals(listOf("kept"), layer.elements.map { it.id })
-        assertEquals(listOf("poll", "test-badge"), layer.skipped)
+        assertEquals(listOf("spinner", "test-badge"), layer.skipped)
     }
 
     @Test

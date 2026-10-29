@@ -99,7 +99,15 @@ fun TaleartZone(
             controller.reload()
         }
     }
-    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, locale ?: controller.locale, strings ?: controller.strings, listener ?: controller.listener, controller.tracker)
+    val context = rememberTaleartContext(
+        controller.zoneKey,
+        controller.zoneSlug,
+        locale ?: controller.locale,
+        strings ?: controller.strings,
+        listener ?: controller.listener,
+        controller.tracker,
+        ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
+    )
     CompositionLocalProvider(LocalTaleartContext provides context) {
         val zone = controller.zone
         if (zone != null) {
@@ -128,7 +136,15 @@ fun TaleartZone(
 ) {
     val sdkApiUrl = TaleartSdk.config.apiUrl
     LaunchedEffect(sdkApiUrl) { controller.refreshApi() }
-    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, controller.locale, controller.strings, controller.listener, controller.tracker)
+    val context = rememberTaleartContext(
+        controller.zoneKey,
+        controller.zoneSlug,
+        controller.locale,
+        controller.strings,
+        controller.listener,
+        controller.tracker,
+        ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
+    )
     CompositionLocalProvider(LocalTaleartContext provides context) {
         val zone = controller.zone
         if (zone != null) {

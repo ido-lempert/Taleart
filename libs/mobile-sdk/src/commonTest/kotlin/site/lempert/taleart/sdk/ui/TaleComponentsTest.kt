@@ -142,13 +142,17 @@ class TaleComponentsTest {
     }
 
     @Test
-    fun theNativeSdkDrawsBothTypesAndStillSkipsPollsByName() {
+    fun theNativeSdkDrawsTheComponentTypesAndStillSkipsUnknownOnesByName() {
         assertTrue("countdown" in DOCUMENT_ELEMENT_TYPES)
         assertTrue("promo-code" in DOCUMENT_ELEMENT_TYPES)
-        // Interactive components the native SDK does not draw yet are skipped, and named.
-        val layer = layerOf(element("poll", """{"question":"?","options":["a","b"]}""", id = "p"))
+        assertTrue("poll" in DOCUMENT_ELEMENT_TYPES)
+        assertTrue("quiz" in DOCUMENT_ELEMENT_TYPES)
+        assertTrue("rating" in DOCUMENT_ELEMENT_TYPES)
+        assertTrue("reaction" in DOCUMENT_ELEMENT_TYPES)
+        // A type this SDK does not know is skipped, and named.
+        val layer = layerOf(element("spinner", """{"question":"?"}""", id = "p"))
         assertTrue(layer.elements.isEmpty())
-        assertEquals(listOf("poll"), layer.skipped)
+        assertEquals(listOf("spinner"), layer.skipped)
     }
 
     @Test

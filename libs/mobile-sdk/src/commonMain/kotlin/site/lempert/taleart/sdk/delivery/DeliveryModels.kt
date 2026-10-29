@@ -51,16 +51,16 @@ data class DeliveryTaleGroup(
     /** The group's title. */
     val name: String = "",
     /**
-     * The names of the group's targeting tags (epic targeting R2), empty when it has none. Read for
-     * the contract; the mobile SDKs do not target by tag yet, so every group shows.
+     * The names of the group's targeting tags (epic targeting R2), empty when it has none. The SDK
+     * shows the group when the viewer's tags pass its rule (`TaleartConfig.tags`), never sending them.
      */
     val tags: List<String> = emptyList(),
     /** How the tags combine: `any` (the default) or `all`. */
     val tagMatch: String = "any",
     /**
      * True when the group is targeted to user lists and the viewer's external user ID is in one of
-     * them (epic targeting R4). Read for the contract; the native SDK sends no external user ID yet
-     * (story 5.9), so the Delivery API leaves every list-targeted group out and this stays false.
+     * them (epic targeting R4). The SDK sends the viewer's external user ID in its own header
+     * (`TaleartConfig.externalUserId`), and the Delivery API sets this flag from it.
      */
     val userListMatched: Boolean = false,
     /** The group's cover, or null when it has none. */

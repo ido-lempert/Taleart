@@ -121,9 +121,11 @@ describe('native docs: pages and navigation', () => {
       expect(heading).toBeDefined();
       for (const line of NOT_YET_NATIVE) expect(page.textContent).toContain(line);
       expect(page.textContent).toContain('onGroupImpression');
-      expect(page.textContent).toContain('onUserInteracted');
-      expect(page.textContent).toContain('externalUserId');
-      expect(page.textContent).toContain('tags');
+      // The answers, the external user ID and the tags are sent by the native SDK now: no page says otherwise.
+      expect(page.textContent).not.toContain('not rendered by the native SDKs');
+      expect(page.textContent).not.toContain('not called by the native SDK');
+      expect(page.textContent).not.toContain('stored, not sent');
+      expect(page.textContent).not.toContain('not sent with the zone read');
     }
   });
 });
@@ -137,7 +139,7 @@ describe('native docs: the reference rows match the SDK sources', () => {
     expect(listenerMethods().length).toBe(11);
     expect(sorted(LISTENER_HOOKS.map((h) => h.name))).toEqual(sorted(listenerMethods()));
     const notFiring = LISTENER_HOOKS.filter((h) => !h.native).map((h) => h.name);
-    expect(sorted(notFiring)).toEqual(['onUserInteracted']);
+    expect(sorted(notFiring)).toEqual([]);
   });
 
   it('lists every TaleartConfig field', () => {

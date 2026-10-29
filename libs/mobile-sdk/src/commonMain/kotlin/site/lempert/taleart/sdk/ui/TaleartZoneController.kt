@@ -26,6 +26,9 @@ import site.lempert.taleart.sdk.cappedGroupIds
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.delivery.ZoneRequest
+import site.lempert.taleart.sdk.delivery.encodeExternalUserIdHeader
+import site.lempert.taleart.sdk.targeting.tagRulePasses
+import site.lempert.taleart.sdk.targeting.viewerTagSet
 import site.lempert.taleart.sdk.delivery.ZoneResult
 import site.lempert.taleart.sdk.deliver
 import site.lempert.taleart.sdk.keyPrefix
@@ -155,13 +158,15 @@ class TaleartZoneController(
         readApiUrl = api
         // A new read clears the placeholder of a failed one: it shows again only if this read fails too.
         failure = null
+        // The viewer's external user ID travels in its own header, never in the URL (as the Web SDK).
+        val externalUserIdHeader = encodeExternalUserIdHeader(TaleartSdk.config.externalUserId)
         load = scope.launch {
-            when (val result = client.fetchZone(api, ZoneRequest(key = key))) {
+            when (val result = client.fetchZone(api, ZoneRequest(key = key), externalUserIdHeader)) {
                 is ZoneResult.Success -> {
                     analyticsTarget = AnalyticsTarget(api, key)
                     val event = TaleartEvent(name = "loaded", zoneKeyPrefix = keyPrefix(key), zoneSlug = result.zone.slug)
                     deliver(listener, event) { it.onLoaded(event) }
-                    zone = withinFrequency(result.zone, key)
+                    zone = withinFrequency(targeted(result.zone), key)
                 }
                 is ZoneResult.Failure -> {
                     zone = null
@@ -174,6 +179,15 @@ class TaleartZoneController(
                 }
             }
         }
+    }
+
+    /**
+     * The zone without the groups the viewer's tags leave out (epic targeting R2): the tag rule is
+     * applied here, as the Web SDK applies it to the zone it read; the tags are never sent.
+     */
+    private fun targeted(zone: DeliveryZone): DeliveryZone {
+        val tags = viewerTagSet(TaleartSdk.config.tags)
+        return zone.copy(taleGroups = zone.taleGroups.filter { tagRulePasses(it.tags, it.tagMatch, tags) })
     }
 
     /**

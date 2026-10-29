@@ -355,8 +355,8 @@ export const LISTENER_HOOKS: readonly HookRow[] = [
   { name: 'onDismissed', fired: 'The viewer closed. event.group is the group it showed last.', payload: 'event.group', handles: 'Nothing to return.', native: true },
   { name: 'onTaleShown', fired: 'A tale came on screen in the viewer.', payload: 'event.group, event.tale', handles: 'Nothing to return.', native: true },
   { name: 'onActionClicked', fired: 'A call to action was activated, before it opens its URL.', payload: 'event.url, event.newTab (false on native), event.component, event.group, event.tale', handles: 'Return true when your app routed the link. Return false (the default) and the system browser opens it.', native: true },
-  { name: 'onUserInteracted', fired: 'The server accepted a poll, quiz or rating answer. Not yet on native: the method exists, but the SDK does not call it yet.', payload: 'event.component (value), event.group, event.tale', handles: 'Nothing to return.', native: false },
-  { name: 'onComponentEvent', fired: 'A component of the tale did something: a countdown reached its end (action ended), or a promo code was copied (action copied, component.value the code). The listeners hear it; no analytics event is sent for it.', payload: 'event.component (type, value), event.action, event.group, event.tale', handles: 'Nothing to return.', native: true },
+  { name: 'onUserInteracted', fired: 'The server accepted a visitor’s answer to a poll, a quiz, a rating or a reaction. Once per answer; an answer kept from an earlier visit is not reported again.', payload: 'event.component (type, value: the answer), event.group, event.tale', handles: 'Nothing to return.', native: true },
+  { name: 'onComponentEvent', fired: 'A component of the tale did something: a countdown reached its end (action ended), a promo code was copied (action copied, component.value the code), or the server accepted an answer (action selected, component.value the answer). The listeners hear it; no analytics event is sent for it.', payload: 'event.component (type, value), event.action, event.group, event.tale', handles: 'Nothing to return.', native: true },
   { name: 'onEvent', fired: 'Every event, after its named method.', payload: 'The event', handles: 'Nothing to return.', native: true },
 ];
 
@@ -374,8 +374,8 @@ export const CONFIG_FIELDS: readonly FieldRow[] = [
   { name: 'strings', type: 'Map<String, Map<String, String>>', def: 'empty', meaning: 'Texts per locale, keyed by the locale (he-IL, or its language he), then by string key.' },
   { name: 'stringsForEveryLocale', type: 'Map<String, String>', def: 'empty', meaning: 'Texts for every locale, looked up after the locale’s own.' },
   { name: 'listener', type: 'TaleartListener?', def: 'null', meaning: 'The hooks of every view. It runs after a view’s own listener.' },
-  { name: 'externalUserId', type: 'String?', def: 'null', meaning: 'The viewer’s external user ID. Stored, but not sent by the native SDK yet.' },
-  { name: 'tags', type: 'List<String>', def: 'empty', meaning: 'The viewer’s targeting tags. Stored, but not sent by the native SDK yet.' },
+  { name: 'externalUserId', type: 'String?', def: 'null', meaning: 'The viewer’s external user ID, for groups targeted to user lists. Sent with each zone read in its own header (X-TaleArt-External-User-Id, base64url), never in a URL; the API does not keep it. Null sends none.' },
+  { name: 'tags', type: 'List<String>', def: 'empty', meaning: 'The viewer’s targeting tags. A group whose tags do not pass its rule (any or all of them) is left out on the device; the tags are never sent. Empty: every group shows.' },
   { name: 'fallback', type: 'FallbackMode', def: 'FallbackMode.None', meaning: 'What a view shows when its zone fails to load. None: nothing, as before. Message: the translated load.failed text and a load.retry button that reads the zone again. A view’s own fallbackView (Android) or fallbackViewController (iOS) wins over both.' },
   { name: 'frequency', type: 'FrequencyRule?', def: 'null (no cap)', meaning: 'How often a viewer sees a tale group. Once: hide a group after its first view. Daily: at most one view per 24 hours. Weekly: one per 7 days. Count(views): hide after N views, N from 1 to 50. A view is one opening of the viewer on a group, counted only on this device in the SDK’s store, never sent to TaleArt. Groups over the cap leave the display; when none remain, nothing is shown. An out-of-range Count throws IllegalArgumentException when it is built.' },
   { name: 'analytics', type: 'Boolean', def: 'true', meaning: 'false turns the SDK’s analytics events off: impression, open, view and click. Per zone they are queued and sent every 5 seconds, when 20 are queued, and when the app goes to the background, in requests of at most 50. A request is retried once; a failure is silent. Each event carries only its type, the group id, the tale id (view and click only) and the time, with the zone key and the anonymous visitor id header. A view’s own setting wins over it.' },
@@ -387,8 +387,8 @@ export const EVENT_FIELDS: readonly FieldRow[] = [
   { name: 'zoneSlug', type: 'String', def: '""', meaning: 'The zone’s slug, such as home-top. Empty when the read failed before the zone came.' },
   { name: 'group', type: 'GroupRef?', def: 'null', meaning: 'The group: its id, name and position in the zone (from 0).' },
   { name: 'tale', type: 'TaleRef?', def: 'null', meaning: 'The tale: its id, position in the group (from 0) and title.' },
-  { name: 'component', type: 'ComponentRef?', def: 'null', meaning: 'A call to action or a component: its id, its type (button, image-button, swipe-up, countdown, promo-code) and, for a promo code, its value (the code).' },
-  { name: 'action', type: 'String?', def: 'null', meaning: 'On componentEvent: what the component did. ended (a countdown reached its end) or copied (a promo code was copied). Null for other events.' },
+  { name: 'component', type: 'ComponentRef?', def: 'null', meaning: 'A call to action or a component: its id, its type (button, image-button, swipe-up, countdown, promo-code, poll, quiz, rating, reaction) and its value: a promo code’s code, or a visitor’s answer (a poll’s option id, a quiz’s answer id, a rating’s number from 0 to 100, a reaction’s emoji).' },
+  { name: 'action', type: 'String?', def: 'null', meaning: 'On componentEvent: what the component did. ended (a countdown reached its end), copied (a promo code was copied) or selected (the server accepted a visitor’s answer). Null for other events.' },
   { name: 'url', type: 'String?', def: 'null', meaning: 'The destination of an action that opens one.' },
   { name: 'newTab', type: 'Boolean', def: 'false', meaning: 'Always false on native: links open in the system browser.' },
   { name: 'error', type: 'String?', def: 'null', meaning: 'The message of a failed load.' },
@@ -431,6 +431,28 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'promo.copy', english: 'Copy', note: 'The Copy button of a promo code.' },
   { key: 'promo.copied', english: 'Copied', note: 'The status line after the code reached the clipboard; it clears after two seconds.' },
   { key: 'promo.copyFailed', english: 'Could not copy. Select the code and copy it yourself.', note: 'The status line when the clipboard refused the code.' },
+  { key: 'poll.voted', english: 'You voted {label}.', note: 'The live line after a vote, before the shares.' },
+  { key: 'poll.chose', english: 'You chose {label}.', note: 'The live line after a press in a preview, before the note.' },
+  { key: 'poll.previewNotRecorded', english: 'Votes are not recorded in the preview.', note: 'The note after a press in a preview.' },
+  { key: 'poll.failed', english: 'Your vote could not be sent. Try again.', note: 'The live line when the vote was refused or could not be sent; the options stay open.' },
+  { key: 'quiz.answered', english: 'You answered {label}.', note: 'The live line after an answer to a survey (a quiz without a correct answer).' },
+  { key: 'quiz.right', english: 'Right! You answered {label}.', note: 'The live line when the answer is the correct one.' },
+  { key: 'quiz.wrongAnswer', english: 'Wrong: you answered {label}. The correct answer is {correct}.', note: 'The live line when the answer is wrong.' },
+  { key: 'quiz.correct', english: ' correct answer', note: 'Added to the name of the correct answer, once answered (screen readers only).' },
+  { key: 'quiz.wrong', english: ' wrong', note: 'Added to the name of the visitor’s wrong answer, once answered (screen readers only).' },
+  { key: 'quiz.previewNotRecorded', english: 'Answers are not recorded in the preview.', note: 'The note after a press in a preview.' },
+  { key: 'quiz.failed', english: 'Your answer could not be sent. Try again.', note: 'The live line when the answer was refused or could not be sent; the answers stay open.' },
+  { key: 'rating.sliderLabel', english: 'Your rating', note: 'The slider’s name, for screen readers.' },
+  { key: 'rating.valueText', english: '{value} out of {max}', note: 'The slider’s value before it is rated.' },
+  { key: 'rating.ratedValueText', english: 'You rated {value} out of {max}', note: 'The slider’s value once rated.' },
+  { key: 'rating.sent', english: 'You rated {value}.', note: 'The live line after a rating, before the summary.' },
+  { key: 'rating.previewRated', english: 'You rated {value}. Ratings are not recorded in the preview.', note: 'The live line after a release in a preview.' },
+  { key: 'rating.failed', english: 'Your rating could not be sent. Try again.', note: 'The live line when the rating was refused or could not be sent; the slider stays open.' },
+  { key: 'rating.summary', english: 'Average {average} from {total} {count}', note: 'The count and average once rated.' },
+  { key: 'rating.singular', english: 'rating', note: 'The word for one rating, in the summary.' },
+  { key: 'rating.plural', english: 'ratings', note: 'The word for several ratings, in the summary.' },
+  { key: 'reaction.count', english: 'Reactions: {count}', note: 'Each emoji’s count, read by screen readers once a reaction is tapped.' },
+  { key: 'reaction.failed', english: 'Your reaction could not be sent. Try again.', note: 'The live line when the reaction was refused or could not be sent; the emoji stay open.' },
 ];
 
 // ---------- Android and iOS member tables ----------
@@ -531,7 +553,7 @@ export const MAPPING: readonly MappingRow[] = [
   { topic: 'Hooks', web: 'init({ hooks }) or the element’s hooks property', android: 'TaleartConfig.listener, or TaleartView.listener, or TaleartZone(listener =)', ios: 'TaleartConfig(listener:) or zone.listener; subclass TaleartListenerBase' },
   { topic: 'Action override (route the link yourself)', web: 'hooks.onActionClicked: e.preventDefault()', android: 'onActionClicked returns true', ios: 'override onActionClicked and return true' },
   { topic: 'Tap opens the viewer', web: 'Built in; the onPresented hook fires', android: 'opensViewer = false, then onGroupClickListener', ios: 'opensViewer = false, then onGroupClick' },
-  { topic: 'External user ID and tags', web: 'setExternalUserId(), setTags(), or init()', android: 'TaleartConfig.externalUserId and tags: stored, not sent yet', ios: 'TaleartConfig(externalUserId:, tags:): stored, not sent yet' },
+  { topic: 'External user ID and tags', web: 'setExternalUserId(), setTags(), or init()', android: 'TaleartConfig.externalUserId (sent in a header) and tags (applied on the device)', ios: 'TaleartConfig(externalUserId:, tags:): the same as Android' },
   { topic: 'Fallback when the zone fails', web: 'fallback="message" or init({ fallback }); a slot="fallback" child', android: 'TaleartConfig.fallback; TaleartView.fallbackView; TaleartZone(fallback =)', ios: 'TaleartConfig(fallback:); zone.fallbackViewController and fallbackHeight' },
   { topic: 'Frequency cap', web: 'frequency attribute or init({ frequency })', android: 'TaleartConfig.frequency', ios: 'TaleartConfig(frequency:)' },
   { topic: 'Analytics events', web: 'analytics="off" or init({ analytics: false })', android: 'TaleartConfig.analytics; app:taleartAnalytics; TaleartZone(analytics =)', ios: 'TaleartConfig(analytics:); zone.analytics' },
@@ -539,6 +561,5 @@ export const MAPPING: readonly MappingRow[] = [
 
 /** What the native SDKs do not do yet, said once and linked from both guides and both references. */
 export const NOT_YET_NATIVE: readonly string[] = [
-  'onUserInteracted is declared but not called: the native SDK does not fire it yet. The web SDK does.',
-  'externalUserId and tags are accepted and stored, but not sent with the zone read yet. Targeting by them does not apply in a native app yet.',
+  'onGroupImpression counts a group when it is first shown in a render, not when it is on screen: the native SDK does not measure visibility yet.',
 ];

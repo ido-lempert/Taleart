@@ -16,8 +16,9 @@ data class TaleRef(
 
 /**
  * A call to action or a component of a tale: its element id, its type (`button`, `image-button`,
- * `swipe-up`, `countdown`, `promo-code`) and, for a component that reports a value, the value (a
- * promo code's code).
+ * `swipe-up`, `countdown`, `promo-code`, `poll`, `quiz`, `rating`, `reaction`) and, for a component
+ * that reports a value, the value: a promo code's code, or a visitor's answer (a poll's option id, a
+ * quiz's answer id, a Rating's number from 0 to 100, a Reaction's emoji).
  */
 data class ComponentRef(
     val id: String,
@@ -44,7 +45,8 @@ data class TaleartEvent(
     val component: ComponentRef? = null,
     /**
      * What a component of the tale did (`componentEvent`): `ended` (a countdown reached its end), or
-     * `copied` (a promo code was copied, its value the code). [component] names the component.
+     * `copied` (a promo code was copied, its value the code), or `selected` (a visitor's answer was
+     * accepted, its value the answer). [component] names the component.
      */
     val action: String? = null,
     /** The destination of an action, when it opens one. */
@@ -100,13 +102,18 @@ interface TaleartListener {
      */
     fun onActionClicked(event: TaleartEvent): Boolean = false
 
-    /** The server accepted a visitor's answer to a poll, a quiz or a rating. */
+    /**
+     * The server accepted a visitor's answer to a poll, a quiz, a rating or a reaction: `event.component`
+     * names the element and its value is the answer. Once per answer; an answer kept from an earlier
+     * visit is not reported again. Fired in addition to `onComponentEvent` (`selected`).
+     */
     fun onUserInteracted(event: TaleartEvent) {}
 
     /**
      * A component of a tale did something (components, 2026-10-29), as the Web SDK's `componentEvent`:
      * `event.component` names it and `event.action` says what it did (`ended` for a countdown, `copied`
-     * for a promo code, whose `component.value` is the code). Fired in addition to the other events.
+     * for a promo code, whose `component.value` is the code, or `selected` for an answer accepted by the
+     * server, whose value is the answer). Fired in addition to the other events.
      */
     fun onComponentEvent(event: TaleartEvent) {}
 

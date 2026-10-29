@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.Clock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -72,11 +73,14 @@ class DeliveryClient(
     /**
      * Reads the zone [request] names from the Delivery API at [apiUrl]. Never throws for a refused
      * request, a network failure or a closed client: those come back as a [ZoneResult.Failure].
+     * With [externalUserIdHeader] (the viewer's external user ID, already encoded by
+     * [encodeExternalUserIdHeader]) the header is sent, and the answer is never kept or revalidated,
+     * as the Web SDK does (the API answers `no-store` for it).
      */
-    suspend fun fetchZone(apiUrl: String, request: ZoneRequest): ZoneResult {
+    suspend fun fetchZone(apiUrl: String, request: ZoneRequest, externalUserIdHeader: String? = null): ZoneResult {
         if (!scope.isActive) return closedResult()
         val url = zoneUrl(apiUrl)
-        val id = "$url\n${request.key}"
+        val id = "$url\n${request.key}\n${externalUserIdHeader.orEmpty()}"
         val (shared, started) = lock.withLock {
             inFlight[id]?.let { it to false }
                 ?: CompletableDeferred<RawResponse>().also { inFlight[id] = it }.let { it to true }
@@ -85,7 +89,7 @@ class DeliveryClient(
             // ATOMIC: the body runs even when close() comes first, so the shared answer always settles.
             scope.launch(start = CoroutineStart.ATOMIC) {
                 val raw = try {
-                    read(url, request.key, id)
+                    read(url, request.key, id, externalUserIdHeader)
                 } catch (e: CancellationException) {
                     // close() cancelled the read; the callers still get an answer.
                     RawResponse.Closed
@@ -132,6 +136,55 @@ class DeliveryClient(
         }
     }
 
+    /**
+     * Posts the visitor's answer to the interactive element [elementId] of the tale [taleId] to
+     * `<apiUrl>/delivery/v1/responses`, with the zone key as the bearer token and the visitor id header,
+     * as the Web SDK's `responseClient` does. The answer comes back typed (see [ResponseOutcome]): the
+     * stored value (the first answer of the visitor wins) and the component's result now. Never throws:
+     * a refusal, a network failure or a closed client is [ResponseOutcome.Failed].
+     */
+    suspend fun postResponse(apiUrl: String, key: String, taleId: String, elementId: String, value: String): ResponseOutcome {
+        if (!scope.isActive) return ResponseOutcome.Failed(CLOSED_MESSAGE, null)
+        val visitorId = lock.withLock { visitor.current() }
+        val body = JsonObject(
+            mapOf(
+                "taleId" to JsonPrimitive(taleId),
+                "elementId" to JsonPrimitive(elementId),
+                "value" to JsonPrimitive(value),
+                "clientAt" to JsonPrimitive(Clock.System.now().toString()),
+            ),
+        ).toString()
+        val response = try {
+            httpClient.post("${apiUrl.trimEnd('/')}$DELIVERY_PATH/responses") {
+                header(HttpHeaders.Authorization, "Bearer $key")
+                header(VISITOR_HEADER, visitorId)
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            return ResponseOutcome.Failed("Could not reach the TaleArt API: ${e.message ?: e.toString()}", null)
+        }
+        val status = response.status.value
+        val text = try {
+            response.bodyAsText()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            ""
+        }
+        if (status !in 200..299) {
+            val error = ((parseOrNull(text) as? JsonObject)?.get("error") as? JsonObject)
+            val message = (error?.get("message") as? JsonPrimitive)?.takeIf { it.isString }?.content
+                ?: "The TaleArt API answered $status"
+            return ResponseOutcome.Failed(message, status)
+        }
+        val answer = parseInteractiveResponse(parseOrNull(text) as? JsonObject)
+            ?: return ResponseOutcome.Failed("The TaleArt API answered $status", status)
+        return ResponseOutcome.Answered(answer)
+    }
+
     /** Stops every read in progress (each answers [ZoneResult.Offline]) and closes the HTTP client. */
     override fun close() {
         scope.cancel()
@@ -140,12 +193,14 @@ class DeliveryClient(
 
     private fun closedResult() = ZoneResult.Offline(CLOSED_MESSAGE, null)
 
-    private suspend fun read(url: String, key: String, id: String): RawResponse {
-        val (cached, visitorId) = lock.withLock { etags[id] to visitor.current() }
+    private suspend fun read(url: String, key: String, id: String, externalUserIdHeader: String?): RawResponse {
+        // A per-viewer answer is never revalidated: its copy is not kept either.
+        val (cached, visitorId) = lock.withLock { (if (externalUserIdHeader == null) etags[id] else null) to visitor.current() }
         val response = try {
             httpClient.get(url) {
                 header(HttpHeaders.Authorization, "Bearer $key")
                 header(VISITOR_HEADER, visitorId)
+                if (externalUserIdHeader != null) header(EXTERNAL_USER_ID_HEADER, externalUserIdHeader)
                 if (cached != null) header(HttpHeaders.IfNoneMatch, cached.etag)
             }
         } catch (e: CancellationException) {
@@ -173,7 +228,7 @@ class DeliveryClient(
         }
         val etag = response.headers[HttpHeaders.ETag]
         // Only a zone is kept: an HTML page or a partial body with an ETag is never revalidated.
-        val keep = status == 200 && etag != null && parseOrNull(text)?.let(::isZone) == true
+        val keep = externalUserIdHeader == null && status == 200 && etag != null && parseOrNull(text)?.let(::isZone) == true
         lock.withLock {
             etags.remove(id)
             if (keep) {

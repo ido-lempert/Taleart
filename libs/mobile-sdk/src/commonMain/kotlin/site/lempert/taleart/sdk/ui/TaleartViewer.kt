@@ -288,6 +288,14 @@ internal fun ViewerContent(
         }
     }
     // A component of the tale that did something (a countdown ended, a promo code copied): the listeners hear it.
+    // The visitor's answers to the interactive elements of the tale on screen (none without a zone to post to).
+    val responder = remember(state, context) {
+        context.responses?.let { zone ->
+            TaleResponder(zone, context, current = {
+                state.group.tales.getOrNull(state.taleIndex)?.let { CurrentTale(groupRef(state.groups, state.group), taleRef(it, state.taleIndex)) }
+            })
+        }
+    }
     val reporter = remember(state, context) {
         ComponentReporter { component, action ->
             val tale = state.group.tales.getOrNull(state.taleIndex)
@@ -466,7 +474,7 @@ internal fun ViewerContent(
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val width = if (maxWidth < maxHeight * 9f / 16f) maxWidth else maxHeight * 9f / 16f
             Box(Modifier.width(width).fillMaxHeight()) {
-                CompositionLocalProvider(LocalLinkOpener provides opener, LocalComponentReporter provides reporter) {
+                CompositionLocalProvider(LocalLinkOpener provides opener, LocalComponentReporter provides reporter, LocalElementResponder provides responder) {
                     Stage(state, rtl, theme.fontFamily, motion, dragDown)
                 }
                 TopBar(state, accent, font)

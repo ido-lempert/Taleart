@@ -22,6 +22,7 @@ import kotlin.math.sin
 /** The element types of the registry (`libs/contract/tale-document/element-types/registry.json`) this SDK draws; test-only types are not among them. */
 val DOCUMENT_ELEMENT_TYPES: Set<String> = setOf(
     "text", "image", "video", "shape", "emoji", "sticker", "button", "image-button", "swipe-up", "countdown", "promo-code",
+    "poll", "quiz", "rating", "reaction",
 )
 
 /** The canvas's width to height (`TALE_CANVAS_ASPECT`). */
@@ -232,6 +233,63 @@ sealed interface DocumentElement {
         override val decorative: Boolean get() = false
     }
 
+    /** A poll (`poll`, components 2026-10-29): a question over two options a visitor votes for; its result shows once answered. */
+    data class Poll(
+        override val id: String,
+        override val box: ElementBox,
+        override val layer: Int,
+        val title: String?,
+        val question: String,
+        val options: List<Choice>,
+        /** The card is dark (`theme` `dark`), else light. */
+        val dark: Boolean,
+    ) : DocumentElement {
+        override val decorative: Boolean get() = false
+    }
+
+    /** A quiz (`quiz`): a question over two to four answers; [correctAnswerId] (null: a survey) is marked once answered. */
+    data class Quiz(
+        override val id: String,
+        override val box: ElementBox,
+        override val layer: Int,
+        val title: String?,
+        val question: String,
+        val answers: List<Choice>,
+        val correctAnswerId: String?,
+        /** The card is dark (`theme` `dark`), else light. */
+        val dark: Boolean,
+    ) : DocumentElement {
+        override val decorative: Boolean get() = false
+    }
+
+    /** A Rating (`rating`): a slider from 0 to 100 whose thumb is [emoji], rated once. */
+    data class Rating(
+        override val id: String,
+        override val box: ElementBox,
+        override val layer: Int,
+        val title: String?,
+        val question: String,
+        val emoji: String,
+        /** The card is dark (`theme` `dark`), else light. */
+        val dark: Boolean,
+    ) : DocumentElement {
+        override val decorative: Boolean get() = false
+    }
+
+    /** A Reaction (`reaction`): a row of two to six emoji a visitor taps one of; the counts show once tapped. */
+    data class Reaction(
+        override val id: String,
+        override val box: ElementBox,
+        override val layer: Int,
+        val title: String?,
+        val question: String,
+        val emojis: List<String>,
+        /** The card is dark (`theme` `dark`), else light. */
+        val dark: Boolean,
+    ) : DocumentElement {
+        override val decorative: Boolean get() = false
+    }
+
     /** The swipe-up link (`swipe-up`): a label under an arrow, pinned to the bottom safe area. */
     data class SwipeUp(
         override val id: String,
@@ -374,6 +432,10 @@ private fun readElement(p: Placed, layer: Int): DocumentElement? {
         }
         "countdown" -> readCountdown(id, p.box, layer, props)
         "promo-code" -> readPromoCode(id, p.box, layer, props)
+        "poll" -> readPoll(id, p.box, layer, props)
+        "quiz" -> readQuiz(id, p.box, layer, props)
+        "rating" -> readRating(id, p.box, layer, props)
+        "reaction" -> readReaction(id, p.box, layer, props)
         "swipe-up" -> {
             val label = linkLabel(props.text("label"))
             val href = linkHref(props.text("href"))
@@ -711,3 +773,6 @@ private fun JsonObject.numberIn(key: String, min: Double, max: Double, fallback:
     number(key)?.takeIf { it in min..max } ?: fallback
 
 private fun JsonObject.color(key: String): String? = text(key)?.takeIf { HEX_COLOR.matches(it) }
+
+/** One choice of a poll or a quiz: its id, kept when its label changes, and its label as visitors read it. */
+data class Choice(val id: String, val label: String)

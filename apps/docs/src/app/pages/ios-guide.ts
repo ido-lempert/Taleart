@@ -146,8 +146,8 @@ import {
         <p>
           The methods, their payloads and the events are in the <a routerLink="/reference/ios-sdk">iOS SDK reference</a>.
           <code>onGroupImpression</code> fires on native too, once per group per load. <code>onComponentEvent</code> reports a
-          countdown's end and a promo code's copy. <code>onUserInteracted</code> is not
-          called by the native SDK yet.
+          countdown's end and a promo code's copy, and <code>onUserInteracted</code> reports each answer the server accepts to a
+          poll, a quiz, a rating or a reaction.
         </p>
         <figure class="native-figure">
           <img
@@ -258,6 +258,38 @@ import {
     </p>
     <pre tabindex="0" role="region" aria-label="Countdown and promo code events"><code>{{ swiftComponents }}</code></pre>
 
+    <h2 id="answers">Polls, quizzes, ratings and reactions</h2>
+    <p>
+      A tale can hold one poll, one quiz, one rating and one reaction, each added in the dashboard as any element of a
+      tale. A visitor answers each once: the answer is kept on the device, so a tale opened again shows the result at once.
+      The server counts the answers and the SDK draws the counts it returns. In a preview nothing is sent or kept.
+    </p>
+    <h3 id="answer-poll">Poll</h3>
+    <p>
+      Two options as buttons. A vote shows each option's share, with the vote selected, and the result is read to VoiceOver.
+    </p>
+    <h3 id="answer-quiz">Quiz</h3>
+    <p>
+      Two to four answers. Once answered, the quiz says whether the answer was right: the correct answer is marked with a
+      tick and a wrong one with a cross, as words too. Without a correct answer the quiz works as a survey and shows only the
+      shares. The correct answer comes with the tale, so a quiz is not a secure test.
+    </p>
+    <h3 id="answer-rating">Rating</h3>
+    <p>
+      A slider from 0 to 100 whose thumb is an emoji you choose. The visitor drags it or taps the track, and the rating is
+      sent when they let go. Once rated, the count and the average show.
+    </p>
+    <h3 id="answer-reaction">Reaction</h3>
+    <p>
+      Two to six different emoji. A tap sends that emoji; every emoji then shows its count, and the tapped one is selected.
+    </p>
+    <p>
+      Each accepted answer reaches your listener as <code>onUserInteracted</code>, with the element in
+      <code>event.component</code> and the answer as its value, and as <code>onComponentEvent</code> with
+      <code>event.action</code> "selected". An answer kept from an earlier visit is not reported again. When an answer fails,
+      the SDK says so on screen and the visitor can answer again.
+    </p>
+
     <h2 id="backups">Backups and the visitor id</h2>
     <p>
       The SDK makes a visitor id once and keeps it in its own store on the device: the <code>taleart-sdk</code>
@@ -273,10 +305,8 @@ import {
         <li>{{ line }}</li>
       }
     </ul>
-    <p>Polls, quizzes, ratings and reactions are not rendered by the native SDKs yet.</p>
     <p>
-      The Web SDK sends these and the native SDK does not yet. The <a routerLink="/install">Install a zone</a> page
-      covers the Web SDK.
+      The <a routerLink="/install">Install a zone</a> page covers the Web SDK, which draws the same elements.
     </p>
   `,
 })

@@ -31,6 +31,8 @@ internal class TaleartContext(
     val zoneKeyPrefix: String,
     val zoneSlug: String,
     private val tracker: TaleartTracker? = null,
+    /** Where the zone's interactive elements post the visitor's answers; null for a zone with none (a preview). */
+    val responses: ZoneResponses? = null,
 ) {
     /** Queues an analytics event of this zone (none without a tracker, as for a zone the host passed in). */
     fun track(type: AnalyticsEventType, group: GroupRef, tale: TaleRef? = null) {
@@ -125,10 +127,11 @@ internal fun rememberTaleartContext(
     strings: Map<String, StringOverrides>?,
     listener: TaleartListener?,
     tracker: TaleartTracker? = null,
+    responses: ZoneResponses? = null,
 ): TaleartContext {
     val config = TaleartSdk.config
-    return remember(config, locale, strings, listener, zoneKey, zoneSlug, tracker) {
-        TaleartContext(viewTranslate(locale, strings), listener, keyPrefix(zoneKey), zoneSlug, tracker)
+    return remember(config, locale, strings, listener, zoneKey, zoneSlug, tracker, responses) {
+        TaleartContext(viewTranslate(locale, strings), listener, keyPrefix(zoneKey), zoneSlug, tracker, responses)
     }
 }
 
