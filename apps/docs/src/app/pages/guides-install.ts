@@ -26,7 +26,7 @@ npx nx serve dashboard   # documented, not executed for this guide
 <code>npx nx serve dashboard</code> itself was not completed: the Gradle Nx plugin needs JVM 17 or later and the test machine had JVM 11. Passkey creation was done with a browser's virtual authenticator.</li>
 </ul>
 <h2 id="first-run-setup">First-run setup</h2>
-<p>The first screen creates the admin and your first project. You give a name, an email and a project name, then create a passkey (stored on your device or in your password manager).</p>
+<p>The first screen creates the admin and your first project. You give a name, an email and a project name, then create a passkey (stored on your device or in your password manager), or a username and password if your server has TALEART_SETUP_PASSWORD=true.</p>
 <p><img class="guide-img" alt="First-run setup screen" src="guides/images/01-setup.png" /></p>
 <p>After setup you land on the Zones page of your new project.</p>
 <p><img class="guide-img" alt="Dashboard after setup, no zones yet" src="guides/images/02-dashboard.png" /></p>

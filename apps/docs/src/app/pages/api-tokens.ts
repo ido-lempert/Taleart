@@ -64,7 +64,7 @@ import { RouterLink } from '@angular/router';
       <li>Invite people to a project.</li>
       <li>Create a project, unless it is an admin's read-write token for all projects.</li>
     </ul>
-    <p>Those need you, signed in to the dashboard with your passkey.</p>
+    <p>Those need you, signed in to the dashboard with one of your sign-in methods (a passkey, a password or a linked provider).</p>
 
     <h2>Revoke and limits</h2>
     <ul>
