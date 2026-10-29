@@ -95,13 +95,15 @@ describe('native docs: pages and navigation', () => {
       const steps = [...page.querySelectorAll('ol.steps > li')];
       expect(steps.length).toBe(7);
       for (const step of steps) {
-        const img = step.querySelector('figure img');
-        expect(img).not.toBeNull();
-        expect(img?.getAttribute('alt')?.length ?? 0).toBeGreaterThan(40);
-        const src = img?.getAttribute('src') ?? '';
-        expect(src).toMatch(path === '/android-guide' ? /^images\/android-/ : /^images\/ios-/);
-        expect(existsSync(join(IMAGES, src.replace(/^images\//, '')))).toBe(true);
-        referenced.push(src.replace(/^images\//, ''));
+        const imgs = [...step.querySelectorAll('figure img')];
+        expect(imgs.length).toBeGreaterThan(0);
+        for (const img of imgs) {
+          expect(img.getAttribute('alt')?.length ?? 0).toBeGreaterThan(40);
+          const src = img.getAttribute('src') ?? '';
+          expect(src).toMatch(path === '/android-guide' ? /^images\/android-/ : /^images\/ios-/);
+          expect(existsSync(join(IMAGES, src.replace(/^images\//, '')))).toBe(true);
+          referenced.push(src.replace(/^images\//, ''));
+        }
       }
       expect(page.textContent).toContain('Backups and the visitor id');
     }

@@ -99,15 +99,18 @@ import {
           the one set in step 4.
         </p>
         <pre tabindex="0" role="region" aria-label="Compose TaleartZone"><code>{{ composeZone }}</code></pre>
-        <figure class="native-figure">
+        <figure class="native-figure native-shot">
           <img
-            src="images/android-3-place-view.svg"
-            width="800"
-            height="450"
+            src="images/android-shot-zone.png"
+            width="506"
+            height="900"
             loading="lazy"
-            alt="Diagram: two phones show the same bar of circles above the app's content. One is an XML TaleartView, the other a Compose TaleartZone."
+            alt="Screenshot of the TaleArt sample app on Android: a bar of three round covers with group names under them (Summer sale, Staff picks and a Hebrew group), below the app's title and Settings button."
           />
-          <figcaption class="muted">Diagram: the same bar in both ways (not a screenshot).</figcaption>
+          <figcaption class="muted">
+            The bar in the TaleArt sample app (taller) on Android, a real screenshot. The lines below it are the sample
+            app's own debug text, not part of the SDK.
+          </figcaption>
         </figure>
       </li>
 
@@ -176,15 +179,18 @@ import {
           The key names are in the <a routerLink="/reference/android-sdk">Android SDK reference</a>. Each string key has its
           English default there.
         </p>
-        <figure class="native-figure">
+        <figure class="native-figure native-shot">
           <img
-            src="images/android-6-localise.svg"
-            width="800"
-            height="450"
+            src="images/android-shot-viewer-he.png"
+            width="506"
+            height="900"
             loading="lazy"
-            alt="Diagram: a configuration with locale he-IL and Hebrew strings, and a phone whose viewer shows the close label in Hebrew and a seen label reading name then, in Hebrew."
+            alt="Screenshot of the TaleArt sample app's viewer on Android, open on a Hebrew group: a right-to-left Hebrew headline, text and call-to-action button over an illustrated slide, with the group name in a chip and pause and close buttons."
           />
-          <figcaption class="muted">Diagram of the localised result (not a screenshot).</figcaption>
+          <figcaption class="muted">
+            A Hebrew tale in the sample app's viewer (taller), a real screenshot. The group name and the caption are right
+            to left. The viewer's buttons are icons in this shot, so it does not show their localised labels.
+          </figcaption>
         </figure>
       </li>
 
@@ -199,15 +205,32 @@ import {
             logs one failure; <code>onLoadFailed</code> gets the message.
           </li>
         </ul>
-        <figure class="native-figure">
+        <p>
+          When the API runs on your own computer, newer Android versions can ask once to allow access to nearby devices
+          or the local network; allow it, then reload.
+        </p>
+        <figure class="native-figure native-shot">
           <img
-            src="images/android-7-verify.svg"
-            width="800"
-            height="450"
+            src="images/android-shot-viewer.png"
+            width="506"
+            height="900"
             loading="lazy"
-            alt="Diagram: a phone with the viewer open, and a checklist: the bar shows the zone, a tap opens the viewer, Close returns to the bar, and onLoaded is logged."
+            alt="Screenshot of the TaleArt sample app's viewer on Android, open on the Summer sale group: a Summer sale poster slide with a headline, a line of text and a Shop the sale button, with a group chip, pause and close buttons and four progress bars."
           />
-          <figcaption class="muted">Diagram of the checks (not a screenshot).</figcaption>
+          <figcaption class="muted">A tale open in the viewer, a real screenshot of the TaleArt sample app (taller).</figcaption>
+        </figure>
+        <figure class="native-figure native-shot">
+          <img
+            src="images/android-shot-settings.png"
+            width="506"
+            height="900"
+            loading="lazy"
+            alt="Screenshot of the TaleArt sample app's debug settings screen on Android, not an SDK screen: an API URL field, a zone key field with the key partly masked, and Load and Cancel buttons."
+          />
+          <figcaption class="muted">
+            The settings screen of the TaleArt sample app (taller), not an SDK screen. It is where the sample app takes its
+            API URL and zone key. The key is partly masked here.
+          </figcaption>
         </figure>
       </li>
     </ol>

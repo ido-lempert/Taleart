@@ -18,6 +18,7 @@ export const NATIVE_STYLES = [
   `.native-figure { margin: 14px 0 6px; }
    .native-figure img { display: block; width: 100%; max-width: 800px; height: auto; border: 1px solid #c3cbd9; border-radius: 8px; }
    .native-figure figcaption { font-size: 0.9em; margin-top: 4px; }
+   .native-shot img { width: auto; max-width: 300px; }
    .steps > li { margin-bottom: 18px; }
    .steps > li > p:first-child { margin-top: 0; }`,
 ];

@@ -90,15 +90,18 @@ import {
           <code>TaleartZoneView</code>, and the height goes back to a state value:
         </p>
         <pre tabindex="0" role="region" aria-label="SwiftUI representable"><code>{{ swiftUI }}</code></pre>
-        <figure class="native-figure">
+        <figure class="native-figure native-shot">
           <img
-            src="images/ios-3-place-view.svg"
-            width="800"
-            height="450"
+            src="images/ios-shot-zone.png"
+            width="415"
+            height="900"
             loading="lazy"
-            alt="Diagram: two phones show the same bar above the app's content. One embeds the zone as a UIKit child controller, the other wraps it in a SwiftUI representable."
+            alt="Screenshot of the TaleArt sample app on iOS: a bar of three round covers with group names under them (Summer sale, Staff picks and a Hebrew group), below the app's title and Settings button, above a list of the zone's groups."
           />
-          <figcaption class="muted">Diagram: the same bar in both ways (not a screenshot).</figcaption>
+          <figcaption class="muted">
+            The bar in the TaleArt sample app (taller) on iOS, a real screenshot. The list below it is the sample app's own
+            text, not part of the SDK.
+          </figcaption>
         </figure>
       </li>
 
