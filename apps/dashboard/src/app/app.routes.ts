@@ -136,6 +136,13 @@ export const appRoutes: Route[] = [
         data: { heading: 'Settings' } satisfies ShellData,
       },
       {
+        // Settings > Users (admins only): who can sign in, how, and reset links for them.
+        path: 'settings/users',
+        loadComponent: () => import('./pages/users').then((m) => m.UsersPage),
+        title: 'Users · Settings · TaleArt',
+        data: { heading: 'Settings' } satisfies ShellData,
+      },
+      {
         // Settings > My sign-in methods: the signed-in user's passkeys, password and linked providers.
         path: 'settings/my-sign-in-methods',
         loadComponent: () => import('./pages/my-sign-in-methods').then((m) => m.MySignInMethodsPage),

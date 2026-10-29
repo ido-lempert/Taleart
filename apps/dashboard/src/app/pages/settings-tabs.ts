@@ -4,7 +4,7 @@ import { AuthStore } from '../auth';
 
 /**
  * The tabs of Settings: API tokens, the signed-in user's own sign-in methods, and (admins only) the
- * sign-in methods of the install.
+ * sign-in methods and users of the install.
  */
 @Component({
   selector: 'app-settings-tabs',
@@ -39,6 +39,7 @@ import { AuthStore } from '../auth';
         <a routerLink="/settings/sign-in-methods" routerLinkActive="active" ariaCurrentWhenActive="page"
           >Sign-in methods</a
         >
+        <a routerLink="/settings/users" routerLinkActive="active" ariaCurrentWhenActive="page">Users</a>
       }
     </nav>
   `,

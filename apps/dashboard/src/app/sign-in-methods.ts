@@ -287,3 +287,12 @@ export function providerTestText(result: ProviderTestResult): string {
   const endpoints = checked.length > 0 ? ` Endpoints found: ${checked.join(', ')}.` : '';
   return `The provider's settings work.${result.issuer ? ` Issuer: ${result.issuer}.` : ''}${endpoints}`;
 }
+
+/** The name of a provider method as the people who manage it read it: its label when the state lists it, else its slug. */
+export function providerNameOf(id: string, methods: readonly Pick<AuthMethod, 'id' | 'label'>[] = []): string {
+  const known = methods.find((m) => m.id === id);
+  if (known) return known.label;
+  if (id === 'google') return 'Google';
+  if (id === 'apple') return 'Apple';
+  return slugOfMethod(id);
+}

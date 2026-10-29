@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import type {
   AccountMethods,
+  AdminUserList,
   AuthProvider,
   AuthSettings,
   PasswordResetLink,
@@ -22,6 +23,11 @@ const AUTH = `${API_BASE}/auth`;
 @Injectable({ providedIn: 'root' })
 export class SignInMethodsApi {
   private readonly http = inject(HttpClient);
+
+  /** The install's users with their sign-in methods, at most 500 (admins only). */
+  users(): Promise<AdminUserList> {
+    return firstValueFrom(this.http.get<AdminUserList>(`${API_BASE}/users`));
+  }
 
   settings(): Promise<AuthSettings> {
     return firstValueFrom(this.http.get<AuthSettings>(`${AUTH}/settings`));
