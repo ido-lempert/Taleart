@@ -1449,7 +1449,7 @@ export interface paths {
         };
         /**
          * Read the responses to a tale's interactive components.
-         * @description The visitors' responses to the tale's interactive components, as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id, a quiz's answer id, a Rating's value from 0 to 100), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         * @description The visitors' responses to the tale's interactive components, as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id, a quiz's answer id, a Rating's value from 0 to 100, a Reaction's emoji), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTaleResponses"];
         put?: never;
@@ -1471,7 +1471,7 @@ export interface paths {
         put?: never;
         /**
          * Record a visitor's response to an interactive component (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a quiz's answer id; a Rating's whole number from 0 to 100, written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's or a quiz's counts and percentages per option or answer, a Rating's count and average). A quiz's correct answer is not in the answer: it is in the published document (C10). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times; no user data. Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
+         * @description Served under `/delivery/v1`. Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a quiz's answer id; a Rating's whole number from 0 to 100, written plainly, such as `80`; a Reaction's emoji, one of its `emojis`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's or a quiz's counts and percentages per option or answer, a Rating's count and average, a Reaction's count per emoji). A quiz's correct answer is not in the answer: it is in the published document (C10). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times; no user data. Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
          */
         post: operations["postDeliveryResponse"];
         delete?: never;
@@ -2103,7 +2103,7 @@ export interface components {
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll`, `rating`, `quiz`, `countdown` or `promo-code`. */
+            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll`, `rating`, `quiz`, `countdown`, `promo-code` or `reaction`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
@@ -2125,6 +2125,7 @@ export interface components {
         QuizElementProps: components["schemas"]["quiz.schema"];
         CountdownElementProps: components["schemas"]["countdown.schema"];
         PromoCodeElementProps: components["schemas"]["promo-code.schema"];
+        ReactionElementProps: components["schemas"]["reaction.schema"];
         ChoiceCount: {
             /** @description The choice's id (a poll's option id, a quiz's answer id). */
             id: string;
@@ -2143,12 +2144,20 @@ export interface components {
             /** @description The ratings' mean on the 0 to 100 scale, rounded to a whole number (half up); 0 without a rating. */
             average: number;
         };
+        /** @description A Reaction's result: how many visitors tapped it, and each emoji's count, over the emoji its published document holds now, in their order. */
+        ReactionResult: {
+            total: number;
+            reactions: {
+                emoji: string;
+                count: number;
+            }[];
+        };
         InteractiveResponseRequest: {
             /** Format: uuid */
             taleId: string;
             /** Format: uuid */
             elementId: string;
-            /** @description The response, such as a poll's option id, a quiz's answer id or a Rating's whole number from 0 to 100 (`80`). */
+            /** @description The response, such as a poll's option id, a quiz's answer id, a Rating's whole number from 0 to 100 (`80`) or a Reaction's emoji (`❤️`). */
             value: string;
             /**
              * Format: date-time
@@ -2163,8 +2172,8 @@ export interface components {
             value: string;
             /** @description True when this request recorded it; false for a repeat. */
             recorded: boolean;
-            /** @description The component's result now: a poll's or a quiz's counts and percentages per choice, or a Rating's count and average. */
-            result: components["schemas"]["ChoiceResult"] | components["schemas"]["RatingResult"];
+            /** @description The component's result now: a poll's or a quiz's counts and percentages per choice, a Rating's count and average, or a Reaction's count per emoji. */
+            result: components["schemas"]["ChoiceResult"] | components["schemas"]["RatingResult"] | components["schemas"]["ReactionResult"];
         };
         ElementResponseCounts: {
             /** Format: uuid */
@@ -2992,6 +3001,23 @@ export interface components {
             code: string;
             /** @description A short line under the code, such as its terms; none when left out. */
             note?: string;
+            /**
+             * @description `light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.
+             * @enum {string}
+             */
+            theme?: "light" | "dark";
+        };
+        /**
+         * ReactionElementProps
+         * @description The props of a Reaction: an optional title, a question, two to six distinct emoji a visitor taps one of, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji for each entry (`isEmojiGlyph`), as for the `emoji` type, and no emoji twice. Clients render a row of emoji buttons; a visitor's tap is posted to the Delivery API as the emoji, and the Reaction then shows each emoji's count. A tale holds at most one Reaction.
+         */
+        "reaction.schema": {
+            /** @description A short heading above the question; none when left out. */
+            title?: string;
+            /** @description The question visitors answer with an emoji; the row's accessible group name. */
+            question: string;
+            /** @description The emoji a visitor can tap, in the order they show: two to six, each one RGI emoji drawn as text, all different. A tap is counted by its emoji, so an emoji kept keeps its count. */
+            emojis: string[];
             /**
              * @description `light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.
              * @enum {string}
@@ -5614,3 +5640,4 @@ export const ratingSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<compon
 export const quizSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["quiz.schema"]["theme"]> = ["light", "dark"];
 export const countdownSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["countdown.schema"]["theme"]> = ["light", "dark"];
 export const promoCodeSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["promo-code.schema"]["theme"]> = ["light", "dark"];
+export const reactionSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["reaction.schema"]["theme"]> = ["light", "dark"];

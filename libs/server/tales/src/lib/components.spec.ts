@@ -30,6 +30,8 @@ function refused(value: unknown): InvalidTaleDocumentError {
 
 const countdown = (props: Record<string, unknown> = {}) => doc([element('countdown', { endsAt: '2026-12-31T21:00:00Z', ...props })]);
 const promo = (props: Record<string, unknown> = {}) => doc([element('promo-code', { code: 'SPRING26', ...props })]);
+const reaction = (props: Record<string, unknown> = {}) =>
+  doc([element('reaction', { question: 'How was it?', emojis: ['❤️', '😂'], ...props })]);
 
 describe('checkTaleDocument: a countdown (components, 2026-10-29)', () => {
   it('accepts an instant in UTC with optional title, endedText and theme', () => {
@@ -93,5 +95,44 @@ describe('checkTaleDocument: a promo code (components, 2026-10-29)', () => {
     expect(refused(promo({ code: undefined })).pointer).toBe('/elements/0/props/code');
     expect(refused(promo({ note: 'x'.repeat(121) })).pointer).toBe('/elements/0/props/note');
     expect(refused(promo({ note: 'Terms\u0000' })).pointer).toBe('/elements/0/props/note');
+  });
+});
+
+describe('checkTaleDocument: a reaction (components, 2026-10-29)', () => {
+  it('accepts two to six distinct emoji, with optional title and theme', () => {
+    expect(() => checkTaleDocument(reaction())).not.toThrow();
+    expect(() => checkTaleDocument(reaction({ emojis: ['👍', '👎', '🤔', '🔥', '🎉', '👏'] }))).not.toThrow();
+    expect(() => checkTaleDocument(reaction({ title: 'Your mood', theme: 'dark' }))).not.toThrow();
+  });
+
+  it('refuses one emoji and seven', () => {
+    expect(refused(reaction({ emojis: ['❤️'] })).pointer).toBe('/elements/0/props/emojis');
+    expect(refused(reaction({ emojis: ['👍', '👎', '🤔', '🔥', '🎉', '👏', '😮'] })).pointer).toBe('/elements/0/props/emojis');
+  });
+
+  it('refuses duplicate emoji', () => {
+    expect(refused(reaction({ emojis: ['❤️', '❤️'] })).pointer).toBe('/elements/0/props/emojis');
+  });
+
+  it.each([
+    ['a word', 'love'],
+    ['a digit', '1'],
+    ['two emoji in one entry', '❤️😂'],
+    ['markup', '<b>x</b>'],
+    ['an empty entry', ''],
+    ['a letter with an emoji', 'A😂'],
+  ])('refuses an entry that is not one emoji: %s', (_name, emoji) => {
+    expect(refused(reaction({ emojis: ['❤️', emoji] })).pointer).toMatch(/^\/elements\/0\/props\/emojis/);
+  });
+
+  it('refuses a second reaction in one tale', () => {
+    const second = { ...element('reaction', { question: 'Q', emojis: ['👍', '👎'] }), id: id(2) };
+    const twice = doc([element('reaction', { question: 'Q', emojis: ['👍', '👎'] }), second]);
+    expect(refused(twice).pointer).toBe('/elements/1/type');
+  });
+
+  it('refuses a question with a line break and a missing emojis prop', () => {
+    expect(refused(reaction({ question: 'How\nwas it?' })).pointer).toBe('/elements/0/props/question');
+    expect(refused(reaction({ emojis: undefined })).pointer).toBe('/elements/0/props/emojis');
   });
 });

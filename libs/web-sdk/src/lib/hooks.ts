@@ -88,7 +88,7 @@ export interface GroupCappedEvent extends EventBase {
   rule: FrequencyRule;
 }
 
-/** The visitor's answer to a poll, a quiz or a Rating was accepted by the server. */
+/** The visitor's answer to a poll, a quiz, a Rating or a Reaction was accepted by the server. */
 export interface UserInteractedEvent extends EventBase {
   name: 'userInteracted';
   group: GroupRef;
@@ -104,8 +104,8 @@ export type ComponentAction = 'ended' | 'copied' | 'selected';
 
 /**
  * A component of a tale did something: `component` is its element type (`countdown`, `promo-code`, `poll`,
- * `quiz`, `rating`), `action` what it did, and `value` what it did it with: a promo code's code, a poll's
- * option id, a quiz's answer id or a Rating's number as text. Fired in addition to `userInteracted`, which
+ * `quiz`, `rating`, `reaction`), `action` what it did, and `value` what it did it with: a promo code's code, a
+ * poll's option id, a quiz's answer id, a Rating's number or a Reaction's emoji as text. Fired in addition to `userInteracted`, which
  * stays as it is, and reaches `onEvent` too.
  */
 export interface ComponentEvent extends EventBase {

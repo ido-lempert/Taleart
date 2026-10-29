@@ -15263,6 +15263,91 @@ describe('Management API v1: projects and zones', () => {
       });
     });
 
+    describe('Reactions (components, 2026-10-29)', () => {
+      const reactionId = '00000000-0000-4000-8000-0000000000ff';
+      const visitorC = '33333333-3333-4333-8333-333333333333';
+
+      function reactionElement(extra: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
+        return {
+          id: reactionId,
+          type: 'reaction',
+          box: { x: 0.1, y: 0.7, w: 0.8, h: 0.2, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { question: 'How was the beach?', emojis: ['❤️', '😂', '😮'], theme: 'dark', ...props },
+          ...extra,
+        };
+      }
+
+      function tap(handle: string, taleId: string, value: unknown, visitor: string | null = visitorA) {
+        return respond(handle, { taleId, elementId: reactionId, value }, visitor);
+      }
+
+      async function newTale() {
+        const zone = await createZone();
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+        return (await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json()) as { id: string };
+      }
+
+      async function refusedAt(document: unknown): Promise<string> {
+        const tale = await newTale();
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error.code).toBe('invalid_tale_document');
+        return body.error.pointer;
+      }
+
+      it('saves a Reaction beside a poll and reads it back', async () => {
+        const tale = await newTale();
+        const document = pollDoc([pollElement(), reactionElement({}, { title: 'Your mood' })]);
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document).toEqual(document);
+      });
+
+      it('refuses one emoji, seven, a duplicate, a non-emoji entry and a second Reaction', async () => {
+        expect(await refusedAt(pollDoc([reactionElement({}, { emojis: ['❤️'] })]))).toBe('/elements/0/props/emojis');
+        expect(
+          await refusedAt(pollDoc([reactionElement({}, { emojis: ['👍', '👎', '🤔', '🔥', '🎉', '👏', '😮'] })])),
+        ).toBe('/elements/0/props/emojis');
+        expect(await refusedAt(pollDoc([reactionElement({}, { emojis: ['❤️', '❤️'] })]))).toBe('/elements/0/props/emojis');
+        expect(await refusedAt(pollDoc([reactionElement({}, { emojis: ['❤️', 'love'] })]))).toBe('/elements/0/props/emojis/1');
+        const second = { ...reactionElement({ hidden: true }), id: '00000000-0000-4000-8000-0000000000fe' };
+        expect(await refusedAt(pollDoc([reactionElement(), second]))).toBe('/elements/1/type');
+      });
+
+      it('records one tap per visitor, counts each emoji and refuses an emoji the reaction does not offer', async () => {
+        const { tale, handle } = await livePoll([textElement(), reactionElement()]);
+        const first = await tap(handle, tale.id, '😂');
+        expect(first.status).toBe(201);
+        expect(await first.json()).toEqual({
+          elementId: reactionId,
+          value: '😂',
+          recorded: true,
+          result: { total: 1, reactions: [{ emoji: '❤️', count: 0 }, { emoji: '😂', count: 1 }, { emoji: '😮', count: 0 }] },
+        });
+        const second = await tap(handle, tale.id, '❤️', visitorB);
+        expect((await second.json()).result.total).toBe(2);
+        // The first tap wins (C9).
+        const repeat = await tap(handle, tale.id, '😮');
+        expect(repeat.status).toBe(200);
+        expect(await repeat.json()).toMatchObject({ value: '😂', recorded: false });
+        for (const value of ['🔥', 'tea', '', '❤', 1, null]) {
+          expect((await tap(handle, tale.id, value, visitorC)).status).toBe(422);
+        }
+        expect((await rows()).map((r) => [r.elementType, r.interaction, r.value])).toEqual([
+          ['reaction', 'react', '😂'],
+          ['reaction', 'react', '❤️'],
+        ]);
+        const counts = await (await fetch(`${base}/tales/${tale.id}/responses`)).json();
+        expect(counts.elements).toEqual([
+          { elementId: reactionId, elementType: 'reaction', total: 2, values: [{ value: '❤️', count: 1 }, { value: '😂', count: 1 }] },
+        ]);
+      });
+    });
+
     describe('quizzes (epic interactive components, story 4.3)', () => {
       const quizId = '00000000-0000-4000-8000-0000000000cc';
       const answers = [

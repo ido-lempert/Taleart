@@ -342,6 +342,8 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>promo.copy</code></td><td>Copy</td></tr>
           <tr><td><code>promo.copied</code></td><td>Copied</td></tr>
           <tr><td><code>promo.copyFailed</code></td><td>Could not copy. Select the code and copy it yourself.</td></tr>
+          <tr><td><code>reaction.count</code></td><td>Reactions: &#123;count&#125;</td></tr>
+          <tr><td><code>reaction.failed</code></td><td>Your reaction could not be sent. Try again.</td></tr>
           <tr><td><code>preview.stop</code></td><td>Stop preview</td></tr>
           <tr><td><code>preview.size.small</code></td><td>Small</td></tr>
           <tr><td><code>preview.size.default</code></td><td>Default</td></tr>
@@ -411,14 +413,14 @@ import { RouterLink } from '@angular/router';
           </tr>
           <tr>
             <td><code>onUserInteracted</code></td>
-            <td>The server accepted a poll, quiz or rating answer.</td>
+            <td>The server accepted a poll, quiz, rating or reaction answer.</td>
             <td><code>group</code>, <code>tale</code>; <code>component</code>: <code>id</code>, <code>type</code>, <code>value</code></td>
             <td>No</td>
           </tr>
           <tr>
             <td><code>onComponentEvent</code></td>
-            <td>A component of a tale did something: a countdown <code>ended</code>, a promo code was <code>copied</code>, a poll, quiz or rating answer was <code>selected</code> (it fires with <code>onUserInteracted</code> for an answer).</td>
-            <td><code>groupId</code>, <code>taleId</code>, <code>component</code> (the element type, such as <code>countdown</code>), <code>action</code>, <code>value</code> (the promo code, the option id, the answer id or the rating's number, when there is one)</td>
+            <td>A component of a tale did something: a countdown <code>ended</code>, a promo code was <code>copied</code>, a poll, quiz, rating or reaction answer was <code>selected</code> (it fires with <code>onUserInteracted</code> for an answer).</td>
+            <td><code>groupId</code>, <code>taleId</code>, <code>component</code> (the element type, such as <code>countdown</code>), <code>action</code>, <code>value</code> (the promo code, the option id, the answer id, the rating's number or the reaction's emoji, when there is one)</td>
             <td>No</td>
           </tr>
           <tr>

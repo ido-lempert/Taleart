@@ -14,6 +14,7 @@
     { "key": "quiz", "label": "Quiz", "schema": "quiz.schema.json" },
     { "key": "countdown", "label": "Countdown", "schema": "countdown.schema.json" },
     { "key": "promo-code", "label": "Promo code", "schema": "promo-code.schema.json" },
+    { "key": "reaction", "label": "Reaction", "schema": "reaction.schema.json" },
     { "key": "test-badge", "label": "Test badge", "schema": "test-badge.schema.json", "testOnly": true }
   ]
 }

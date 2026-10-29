@@ -6,6 +6,8 @@ import {
   MAX_RESPONSE_VALUE_LENGTH,
   ratingResult,
   ratingValue,
+  reactionEmojis,
+  reactionResult,
   type ElementResponseCounts,
   type ResponseResult,
   type TaleResponses,
@@ -39,7 +41,7 @@ export interface RecordedResponse {
   value: string;
   /** True when this request stored it. */
   recorded: boolean;
-  /** A poll's or a quiz's counts and percentages per choice, or a Rating's count and average. */
+  /** A poll's or a quiz's counts and percentages per choice, a Rating's count and average, or a Reaction's count per emoji. */
   result: ResponseResult;
 }
 
@@ -63,7 +65,8 @@ const choiceKind = (type: string, refused?: string): ResponseKind => ({
 
 // Each interactive type's kind: a poll takes one of its option ids and a quiz one of its answer ids,
 // each counted per choice (a quiz's correct answer is in its published document, C10, not in the
-// result); a Rating takes a whole number from 0 to 100 and answers the count and average.
+// result); a Rating takes a whole number from 0 to 100 and answers the count and average; a Reaction
+// takes one of its emoji and answers the count per emoji.
 const RESPONSE_KINDS: Readonly<Record<string, ResponseKind>> = {
   poll: choiceKind('poll'),
   quiz: choiceKind('quiz', "An answer is one of the quiz's answer ids"),
@@ -72,6 +75,11 @@ const RESPONSE_KINDS: Readonly<Record<string, ResponseKind>> = {
     result: (counts) => ratingResult(counts),
     refused: 'A rating is a whole number from 0 to 100',
   },
+  reaction: {
+    valid: (value, props) => reactionEmojis(props).includes(value),
+    result: (counts, props) => reactionResult(reactionEmojis(props), counts),
+    refused: 'A reaction is one of the emoji of its component',
+  },
 };
 
 /**
@@ -79,7 +87,7 @@ const RESPONSE_KINDS: Readonly<Record<string, ResponseKind>> = {
  * answers the component's result. The tale must be delivered in the zone now and its published
  * document must show the element, of an interactive type (otherwise
  * {@link ResponseTargetNotFoundError}); the value must be one its kind takes, a poll's option id, a
- * quiz's answer id or a Rating's whole number from 0 to 100 (otherwise
+ * quiz's answer id, a Rating's whole number from 0 to 100 or a Reaction's emoji (otherwise
  * {@link InvalidResponseValueError}); the visitor id must be a UUID v4 (otherwise
  * {@link VisitorIdRequiredError}). The first response per visitor, tale, element and interaction kind
  * is kept (C9); a repeat changes nothing and answers the stored one.

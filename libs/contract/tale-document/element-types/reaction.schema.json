@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReactionElementProps",
+  "description": "The props of a Reaction: an optional title, a question, two to six distinct emoji a visitor taps one of, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji for each entry (`isEmojiGlyph`), as for the `emoji` type, and no emoji twice. Clients render a row of emoji buttons; a visitor's tap is posted to the Delivery API as the emoji, and the Reaction then shows each emoji's count. A tale holds at most one Reaction.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question", "emojis"],
+  "properties": {
+    "title": {
+      "description": "A short heading above the question; none when left out.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "question": {
+      "description": "The question visitors answer with an emoji; the row's accessible group name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "emojis": {
+      "description": "The emoji a visitor can tap, in the order they show: two to six, each one RGI emoji drawn as text, all different. A tap is counted by its emoji, so an emoji kept keeps its count.",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "theme": {
+      "description": "`light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.",
+      "type": "string",
+      "enum": ["light", "dark"]
+    }
+  }
+}

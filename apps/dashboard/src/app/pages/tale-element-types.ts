@@ -174,11 +174,27 @@ export function applyChoiceEdit(
   return { ...props, [edit.prop]: moved };
 }
 
+/**
+ * A list of emoji (a Reaction's `emojis`, components 2026-10-29): each is picked from the emoji picker,
+ * and the list is added to, moved and removed from, within the fewest and most its array prop allows.
+ */
+export interface EmojiListField {
+  /** The array prop, of strings. */
+  prop: string;
+  /** The group's name, such as "Emoji". */
+  label: string;
+  /** The name of the emoji at `index` (from 0), such as "Emoji 1". */
+  itemLabel(index: number): string;
+  hint?: string;
+}
+
 /** A new type's inspector: its fields, in order, checked against its props schema as people edit. */
 export interface FieldsInspector {
   fields: readonly InspectorField[];
   /** Its choices, after the fields. */
   choices?: ChoicesField;
+  /** Its emoji list, after the fields and the choices. */
+  emojis?: EmojiListField;
 }
 
 /** The inspector of each built-in type, or a new type's fields. */
@@ -266,6 +282,17 @@ function checkCountdownProps(props: Readonly<Record<string, unknown>>): string |
 // 2026-10-29).
 function checkPromoCodeProps(props: Readonly<Record<string, unknown>>): string | null {
   return lineTextProblem([props['title'], props['note']]);
+}
+
+// A reaction's rules its schema cannot state, as the server's `PROPS_RULES` holds them: its texts show
+// on one line, and each of its emoji is one RGI emoji, all different (components, 2026-10-29).
+function checkReactionProps(props: Readonly<Record<string, unknown>>): string | null {
+  const problem = lineTextProblem([props['question'], props['title']]);
+  if (problem) return problem;
+  const emojis = Array.isArray(props['emojis']) ? (props['emojis'] as unknown[]) : [];
+  if (emojis.length < 2 || emojis.length > 6) return 'Pick two to six emoji.';
+  if (new Set(emojis).size !== emojis.length) return 'Each emoji can be picked once.';
+  return emojis.every((emoji) => isEmojiGlyph(emoji)) ? null : 'Choose one emoji for each.';
 }
 
 // The instant a week from now, in UTC as the schema spells it (`2026-11-05T10:00:00Z`): a new
@@ -624,6 +651,36 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     preview: (props) => (typeof props['code'] === 'string' ? props['code'] : 'Promo code'),
     check: checkPromoCodeProps,
   },
+  reaction: {
+    palette: {
+      category: 'interactive',
+      order: 5,
+      keywords: ['emoji', 'emojis', 'react', 'reactions', 'like', 'mood', 'feedback', 'tap'],
+      icon: 'reaction',
+      action: { kind: 'configured' },
+      limit: oneOf('reaction', 'studio-reaction-hint', 'A tale holds one reaction. Delete it to add another.'),
+    },
+    inspector: {
+      fields: [
+        { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
+        { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
+        THEME_FIELD,
+      ],
+      emojis: {
+        prop: 'emojis',
+        label: 'Emoji',
+        itemLabel: (index) => `Emoji ${index + 1}`,
+        hint: 'Two to six different emoji. Visitors tap one; each shows its count.',
+      },
+    },
+    create: {
+      box: { x: 0.1, y: 0.62, w: 0.8, h: 0.22, rotation: 0 },
+      props: () => ({ question: 'How do you feel?', emojis: ['❤️', '😂', '😮'], theme: 'light' }),
+    },
+    // The canvas shows its question; the preview pane draws the emoji row as visitors see it (AD-16).
+    preview: (props) => (typeof props['question'] === 'string' ? props['question'] : 'Reaction'),
+    check: checkReactionProps,
+  },
   'swipe-up': {
     palette: {
       category: 'actions',
@@ -724,7 +781,7 @@ function checkFieldsInspector(type: ElementTypeEntry, inspector: FieldsInspector
   const choices = inspector.choices;
   const required = Array.isArray(type.schema['required']) ? (type.schema['required'] as unknown[]) : [];
   for (const [name, prop] of Object.entries(properties)) {
-    if (name === choices?.prop) continue;
+    if (name === choices?.prop || name === inspector.emojis?.prop) continue;
     for (const keyword of Object.keys(prop)) {
       if (!FIELDS_PROP_KEYWORDS.includes(keyword)) fail(`"${name}" uses "${keyword}", which the fields inspector does not check`);
     }
@@ -747,6 +804,42 @@ function checkFieldsInspector(type: ElementTypeEntry, inspector: FieldsInspector
     }
   }
   if (choices) checkChoicesField(properties, required, choices, fail);
+  if (inspector.emojis) checkEmojiListField(properties, inspector.emojis, fail);
+}
+
+/** The JSON Schema keywords an emoji list's array prop may use. */
+export const EMOJI_LIST_PROP_KEYWORDS: readonly string[] = [
+  'title',
+  'description',
+  'type',
+  'minItems',
+  'maxItems',
+  'uniqueItems',
+  'items',
+];
+
+// An emoji list edits an array of strings a descriptor can add to and shorten: a `minItems` to `maxItems`
+// range of at least one, and items the inspector checks as text (components, 2026-10-29).
+function checkEmojiListField(
+  properties: Record<string, Record<string, unknown>>,
+  list: EmojiListField,
+  fail: (why: string) => void,
+): void {
+  const prop = Object.prototype.hasOwnProperty.call(properties, list.prop) ? properties[list.prop] : undefined;
+  if (!prop) return fail(`the inspector edits emoji "${list.prop}", which its schema lacks`);
+  for (const keyword of Object.keys(prop)) {
+    if (!EMOJI_LIST_PROP_KEYWORDS.includes(keyword)) fail(`"${list.prop}" uses "${keyword}", which the emoji list does not check`);
+  }
+  const min = prop['minItems'];
+  const max = prop['maxItems'];
+  if (prop['type'] !== 'array' || typeof min !== 'number' || typeof max !== 'number' || min < 1 || min > max) {
+    fail(`"${list.prop}" must be an array with a number of items at least and at most`);
+  }
+  const items = (prop['items'] ?? {}) as Record<string, unknown>;
+  if (items['type'] !== 'string') fail(`the items of "${list.prop}" must be strings`);
+  for (const keyword of Object.keys(items)) {
+    if (!FIELDS_PROP_KEYWORDS.includes(keyword)) fail(`the items of "${list.prop}" use "${keyword}", which the emoji list does not check`);
+  }
 }
 
 /** The JSON Schema keywords a choices field's array prop may use. */

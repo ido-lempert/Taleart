@@ -1502,6 +1502,41 @@ describe('TaleartElement: strings, hooks and events', () => {
       ]);
     });
 
+    it("reports a reaction's tap as selected, with its emoji, next to userInteracted (components, 2026-10-29)", async () => {
+      const REACTION_ID = '00000000-0000-4000-8000-0000000000ff';
+      const reaction = ({
+        id: REACTION_ID,
+        type: 'reaction',
+        box: { x: 0.1, y: 0.5, w: 0.8, h: 0.2, rotation: 0 },
+        a11y: {},
+        props: { question: 'How was it?', emojis: ['❤️', '😂'] },
+      }) as unknown as DeliveryTaleElement;
+      fetchMock.mockImplementation(async (url: string) =>
+        url.endsWith('/delivery/v1/responses')
+          ? respond(200, { value: '😂', result: { total: 1, reactions: [{ emoji: '❤️', count: 0 }, { emoji: '😂', count: 1 }] } })
+          : respond(200, zoneWith([reaction])),
+      );
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      el.shadowRoot?.querySelectorAll<HTMLButtonElement>('dialog.viewer .ta-reaction-btn')[1]?.click();
+      await settle();
+      expect(names(events)).toEqual(expect.arrayContaining(['userInteracted', 'componentEvent']));
+      expect(ofName(events, 'userInteracted')).toEqual([
+        {
+          name: 'userInteracted',
+          zoneKeyPrefix: 'tak_test',
+          zoneSlug: 'home',
+          group: { id: 'ga', name: 'Summer', index: 0 },
+          tale: { id: 't1', index: 0, title: 'Beach' },
+          component: { id: REACTION_ID, type: 'reaction', value: '😂' },
+        },
+      ]);
+      expect(ofName(events, 'componentEvent')).toEqual([
+        { name: 'componentEvent', ...base, component: 'reaction', action: 'selected', value: '😂' },
+      ]);
+    });
+
     it('reaches the element hook and the DOM event as well as the global hook', async () => {
       fetchMock.mockImplementation(async () => respond(200, zoneWith([countdown('2020-01-01T00:00:00Z')])));
       const own: unknown[] = [];

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
 import { EMOJI_FONT_STACK, propSchema, propValueProblem, type PropSchema } from '@taleart/contract/tale-document';
 import { emojiName, TaleEmojiPicker, type ElementChange, type EmojiChoice } from './tale-shapes';
-import type { ChoicesField, FieldsInspector, InspectorField, StudioElementType } from './tale-element-types';
+import type { ChoicesField, EmojiListField, FieldsInspector, InspectorField, StudioElementType } from './tale-element-types';
 
 /** One choice's label as the inspector shows it (epic interactive components R1). */
 interface ChoiceView {
@@ -28,6 +28,34 @@ interface ChoicesView extends ChoicesField {
   max: number;
   /** The correct choice's id now, or '' for none. */
   correctId: string;
+}
+
+/** One emoji of an emoji list as the inspector shows it (components, 2026-10-29). */
+interface EmojiItemView {
+  index: number;
+  /** Its button's DOM id; its list buttons add `-up`, `-down` and `-remove`. */
+  id: string;
+  /** The name the list gives it, such as "Emoji 1". */
+  label: string;
+  /** The emoji now. */
+  value: string;
+}
+
+/** An emoji list as the inspector shows it: its emoji and the counts its array prop allows. */
+interface EmojiListView extends EmojiListField {
+  id: string;
+  /** The fewest and the most emoji its schema allows. */
+  min: number;
+  max: number;
+  items: EmojiItemView[];
+}
+
+/** An open emoji picker: for the emoji at `index`, or for a new one (null), and where focus returns. */
+interface EmojiPick {
+  index: number | null;
+  heading: string;
+  current: string | null;
+  returnFocus: HTMLElement | null;
 }
 
 /** One field as the inspector shows it: the descriptor's field with its schema rules. */
@@ -157,6 +185,76 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
         <span class="field__error" aria-live="polite" [id]="field.id + '-error'">{{ errors()[field.prop] ?? '' }}</span>
       </div>
     }
+    @if (emojiList(); as list) {
+      <fieldset class="field fields-choices" [attr.aria-describedby]="list.hint ? list.id + '-hint' : null">
+        <legend class="field__label">{{ list.label }}</legend>
+        @if (list.hint) {
+          <span class="field__hint" [id]="list.id + '-hint'">{{ list.hint }}</span>
+        }
+        @for (item of list.items; track item.index) {
+          <div class="field">
+            <div class="row fields-emoji">
+              <span class="fields-emoji__glyph" aria-hidden="true" [style.font-family]="emojiFont">{{ item.value }}</span>
+              <button
+                type="button"
+                class="btn btn--secondary btn--sm"
+                [id]="item.id"
+                [attr.aria-label]="emojiItemName(item)"
+                [attr.aria-describedby]="list.id + '-error'"
+                [attr.aria-disabled]="locked() ? 'true' : null"
+                (click)="openEmojiItem(item, $event)"
+              >
+                Choose emoji…
+              </button>
+            </div>
+            <!-- Each button's name starts with its visible text (WCAG 2.5.3), then names the emoji. -->
+            <div class="row fields-choice__actions">
+              <button
+                type="button"
+                class="btn btn--ghost btn--sm"
+                [id]="item.id + '-up'"
+                [attr.aria-disabled]="locked() || $first ? 'true' : null"
+                (click)="moveEmoji(list, item, -1)"
+              >
+                Move up<span class="visually-hidden">: {{ item.label }}</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn--ghost btn--sm"
+                [id]="item.id + '-down'"
+                [attr.aria-disabled]="locked() || $last ? 'true' : null"
+                (click)="moveEmoji(list, item, 1)"
+              >
+                Move down<span class="visually-hidden">: {{ item.label }}</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn--ghost btn--sm"
+                [id]="item.id + '-remove'"
+                [attr.aria-disabled]="locked() || list.items.length <= list.min ? 'true' : null"
+                (click)="removeEmoji(list, item)"
+              >
+                Remove<span class="visually-hidden">: {{ item.label }}</span>
+              </button>
+            </div>
+          </div>
+        }
+        <div class="field">
+          <button
+            type="button"
+            class="btn btn--secondary btn--sm fields-choices__add"
+            [id]="list.id + '-add'"
+            [attr.aria-describedby]="list.id + '-count'"
+            [attr.aria-disabled]="locked() || list.items.length >= list.max ? 'true' : null"
+            (click)="openEmojiAdd(list, $event)"
+          >
+            Add emoji
+          </button>
+          <span class="field__hint" [id]="list.id + '-count'">{{ emojiCountHint(list) }}</span>
+        </div>
+        <span class="field__error" aria-live="polite" [id]="list.id + '-error'">{{ errors()[list.prop] ?? '' }}</span>
+      </fieldset>
+    }
     @if (choices(); as group) {
       <fieldset class="field fields-choices" [attr.aria-describedby]="group.hint ? group.id + '-hint' : null">
         <legend class="field__label">{{ group.label }}</legend>
@@ -261,6 +359,15 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
         (closed)="picking.set(null)"
       />
     }
+    @if (emojiPick(); as pick) {
+      <app-tale-emoji-picker
+        [heading]="pick.heading"
+        [current]="pick.current"
+        [returnFocus]="pick.returnFocus"
+        (chosen)="pickedListEmoji($event)"
+        (closed)="emojiPick.set(null)"
+      />
+    }
   `,
   styles: `
     .fields-emoji { align-items: center; }
@@ -278,6 +385,8 @@ export class TaleFieldsInspector {
   protected readonly emojiFont = EMOJI_FONT_STACK;
   /** The emoji picker, while it is open for an emoji field, and the control focus returns to. */
   protected readonly picking = signal<{ field: FieldView; returnFocus: HTMLElement | null } | null>(null);
+  /** The emoji picker, while it is open for an emoji list's item or to add one. */
+  protected readonly emojiPick = signal<EmojiPick | null>(null);
 
   private readonly edited = computed<Edited>(() => ({ id: this.element().id, props: propsOf(this.element()) }));
 
@@ -326,6 +435,23 @@ export class TaleFieldsInspector {
         },
       ];
     });
+  });
+
+  /** The descriptor's emoji list now, or null for a type without one (components, 2026-10-29). */
+  protected readonly emojiList = computed<EmojiListView | null>(() => {
+    const type = this.type();
+    const list = (type.inspector as FieldsInspector).emojis;
+    if (!list) return null;
+    const array = propSchema(type.schema, list.prop)?.schema as { minItems?: number; maxItems?: number } | undefined;
+    const emojis = this.currentEmojis(list.prop);
+    const id = `field-${type.key}-${list.prop}-${this.element().id}`;
+    return {
+      ...list,
+      id,
+      min: array?.minItems ?? emojis.length,
+      max: array?.maxItems ?? emojis.length,
+      items: emojis.map((value, index) => ({ index, id: `${id}-${index}`, label: list.itemLabel(index), value })),
+    };
   });
 
   /** The descriptor's choices with their labels now, or null for a type without choices. */
@@ -466,6 +592,108 @@ export class TaleFieldsInspector {
       props: { [correct.prop]: value || undefined },
       said: item ? `${correct.label}: ${item.label.toLowerCase()}, ${item.value}` : `No ${correct.label.toLowerCase()}`,
     });
+  }
+
+  // The strings an emoji list's prop holds now; anything else is left out.
+  private currentEmojis(prop: string): string[] {
+    const value = this.edited().props[prop];
+    return Array.isArray(value) ? value.filter((e): e is string => typeof e === 'string') : [];
+  }
+
+  /** The emoji list's counts, as the Add button is described: how many it holds, of how many. */
+  protected emojiCountHint(list: EmojiListView): string {
+    const n = list.items.length;
+    if (n >= list.max) return `${n} of ${list.max}: the most it holds.`;
+    if (n <= list.min) return `${n} of ${list.max}: it needs at least ${list.min}.`;
+    return `${n} of ${list.max}.`;
+  }
+
+  /** An emoji item's button name: its visible text first, then the emoji now by its Unicode name. */
+  protected emojiItemName(item: EmojiItemView): string {
+    return `Choose emoji… ${item.label}. Current: ${emojiName(item.value) ?? item.value}`;
+  }
+
+  /** Opens the picker for the emoji at an item, unless the inspector is locked. */
+  protected openEmojiItem(item: EmojiItemView, event: Event): void {
+    if (this.locked()) return;
+    this.emojiPick.set({
+      index: item.index,
+      heading: `Choose ${item.label.toLowerCase()}`,
+      current: item.value,
+      returnFocus: event.currentTarget instanceof HTMLElement ? event.currentTarget : null,
+    });
+  }
+
+  /** Opens the picker to add an emoji at the end, while the list holds fewer than its most. */
+  protected openEmojiAdd(list: EmojiListView, event: Event): void {
+    if (this.locked() || list.items.length >= list.max) return;
+    this.emojiPick.set({
+      index: null,
+      heading: 'Add an emoji',
+      current: null,
+      returnFocus: event.currentTarget instanceof HTMLElement ? event.currentTarget : null,
+    });
+  }
+
+  // Applies the emoji list as `emojis`, one history step, when the descriptor's check accepts it.
+  private applyEmojis(list: EmojiListView, emojis: string[], label: string, said: string): boolean {
+    const problem = this.type().check?.({ ...this.edited().props, [list.prop]: emojis }) ?? null;
+    this.setError(list.prop, problem);
+    if (problem) return false;
+    this.changed.emit({ label, props: { [list.prop]: emojis }, said });
+    return true;
+  }
+
+  /** The picker's emoji: replaces the one at its item, or is added at the end. */
+  protected pickedListEmoji(choice: EmojiChoice): void {
+    const pick = this.emojiPick();
+    this.emojiPick.set(null);
+    const list = this.emojiList();
+    if (!pick || !list || this.locked()) return;
+    const emojis = this.currentEmojis(list.prop);
+    if (pick.index === null) {
+      if (emojis.length >= list.max) return;
+      const name = list.itemLabel(emojis.length);
+      if (this.applyEmojis(list, [...emojis, choice.emoji], `${name} added`, `${name} added. ${emojis.length + 1} of ${list.max}.`)) {
+        this.focusSoon(`${list.id}-${emojis.length}`);
+      }
+      return;
+    }
+    if (emojis[pick.index] === choice.emoji) return;
+    const name = list.itemLabel(pick.index);
+    this.applyEmojis(
+      list,
+      emojis.map((e, i) => (i === pick.index ? choice.emoji : e)),
+      `${name} changed`,
+      `${name} set`,
+    );
+  }
+
+  /** Removes an emoji from an emoji list, down to the fewest its schema allows. */
+  protected removeEmoji(list: EmojiListView, item: EmojiItemView): void {
+    if (this.locked() || list.items.length <= list.min) return;
+    const emojis = this.currentEmojis(list.prop);
+    const applied = this.applyEmojis(
+      list,
+      emojis.filter((_, i) => i !== item.index),
+      `${item.label} removed`,
+      `${item.label} removed. ${emojis.length - 1} of ${list.max}.`,
+    );
+    if (applied) this.focusSoon(`${list.id}-${Math.min(item.index, emojis.length - 2)}`);
+  }
+
+  /** Moves an emoji one place up (-1) or down (1) in an emoji list. */
+  protected moveEmoji(list: EmojiListView, item: EmojiItemView, by: -1 | 1): void {
+    const to = item.index + by;
+    const emojis = this.currentEmojis(list.prop);
+    if (this.locked() || to < 0 || to >= emojis.length) return;
+    const moved = [...emojis];
+    [moved[item.index], moved[to]] = [moved[to], moved[item.index]];
+    const applied = this.applyEmojis(list, moved, `${item.label} moved`, `${item.label} moved ${by < 0 ? 'up' : 'down'}; it is now ${list.itemLabel(to).toLowerCase()}.`);
+    if (!applied) return;
+    const end = by < 0 ? to === 0 : to === emojis.length - 1;
+    const button = by < 0 ? (end ? 'down' : 'up') : end ? 'up' : 'down';
+    this.focusSoon(`${list.id}-${to}-${button}`);
   }
 
   // Focuses a control of the inspector once the change has drawn it.

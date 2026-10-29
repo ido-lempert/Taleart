@@ -3175,7 +3175,7 @@ paths:
         The visitors' responses to the tale's interactive components, as Tale Studio's inspector shows them:
         per component, the number of responses in all and per stored value
         (a poll's option id, a quiz's answer id, a Rating's value from 0 to
-        100), whatever the
+        100, a Reaction's emoji), whatever the
         tale's documents hold now. A
         component without a response is not listed. Counts include only
         responses from the site; the studio preview records none. Any member
@@ -3219,12 +3219,13 @@ paths:
         same for a tale of another project, a hidden tale and an unknown
         element. The value must be valid for the element (a poll's option
         id; a quiz's answer id; a Rating's whole number from 0 to 100,
-        written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response
+        written plainly, such as `80`; a Reaction's emoji, one of its
+        `emojis`), else 422 `validation_failed`. Each visitor keeps one response
         per tale, component and interaction kind, and the first is kept
         (C9): a new response answers 201, a repeat 200 with the stored value
         and `recorded: false`. Either way the answer carries the current
         result (a poll's or a quiz's counts and percentages per option or
-        answer, a Rating's count and average). A quiz's correct answer is
+        answer, a Rating's count and average, a Reaction's count per emoji). A quiz's correct answer is
         not in the answer: it is in the published document (C10). The row records
         the project, zone, display, tale group and tale ids, the element's
         id and type, the value, the visitor id and the client's and the
@@ -4626,7 +4627,7 @@ components:
           description: >-
             A key of the element-type registry, such as `text`, `image`,
             `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`,
-            `swipe-up`, `poll`, `rating`, `quiz`, `countdown` or `promo-code`.
+            `swipe-up`, `poll`, `rating`, `quiz`, `countdown`, `promo-code` or `reaction`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
@@ -4667,6 +4668,8 @@ components:
       $ref: '../tale-document/element-types/countdown.schema.json'
     PromoCodeElementProps:
       $ref: '../tale-document/element-types/promo-code.schema.json'
+    ReactionElementProps:
+      $ref: '../tale-document/element-types/reaction.schema.json'
     ChoiceCount:
       type: object
       required: [id, count, percent]
@@ -4715,6 +4718,28 @@ components:
           description: >-
             The ratings' mean on the 0 to 100 scale, rounded to a whole
             number (half up); 0 without a rating.
+    ReactionResult:
+      type: object
+      description: >-
+        A Reaction's result: how many visitors
+        tapped it, and each emoji's count, over the emoji its published
+        document holds now, in their order.
+      required: [total, reactions]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        reactions:
+          type: array
+          items:
+            type: object
+            required: [emoji, count]
+            properties:
+              emoji:
+                type: string
+              count:
+                type: integer
+                minimum: 0
     InteractiveResponseRequest:
       type: object
       additionalProperties: false
@@ -4731,8 +4756,8 @@ components:
           minLength: 1
           maxLength: 64
           description: >-
-            The response, such as a poll's option id, a quiz's answer id or
-            a Rating's whole number from 0 to 100 (`80`).
+            The response, such as a poll's option id, a quiz's answer id, a
+            Rating's whole number from 0 to 100 (`80`) or a Reaction's emoji (`❤️`).
         clientAt:
           type: string
           format: date-time
@@ -4753,10 +4778,12 @@ components:
         result:
           description: >-
             The component's result now: a poll's or a quiz's counts and
-            percentages per choice, or a Rating's count and average.
+            percentages per choice, a Rating's count and average, or a
+            Reaction's count per emoji.
           oneOf:
             - $ref: '#/components/schemas/ChoiceResult'
             - $ref: '#/components/schemas/RatingResult'
+            - $ref: '#/components/schemas/ReactionResult'
     ElementResponseCounts:
       type: object
       required: [elementId, elementType, total, values]

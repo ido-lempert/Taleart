@@ -90,7 +90,7 @@ local storage under `taleart.visitor`. It is random, not derived from the person
 but it is a stable identifier of a browser, so cover it in your privacy notice and in your consent setup like other
 local storage. The SDK sends it only to the Delivery API, in the `X-TaleArt-Visitor` header, which limits requests per
 visitor rather than per address, so many visitors behind one network each get their own allowance, and counts each
-visitor's answer to a poll, a quiz or a Rating once (answering needs the id); proxies, CDNs and
+visitor's answer to a poll, a quiz, a Rating or a Reaction once (answering needs the id); proxies, CDNs and
 access logs in front of the API can see the header too. Clearing the site's data makes a new one, and Safari may clear
 script-written storage after seven days without a visit. Where local storage is blocked, the id lasts one page load; a
 request without an id is limited by its address. The native SDKs keep the same kind of id in the SDK's own device store
@@ -230,6 +230,8 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 | `promo.copy` | Copy |
 | `promo.copied` | Copied |
 | `promo.copyFailed` | Could not copy. Select the code and copy it yourself. |
+| `reaction.count` | Reactions: {count} |
+| `reaction.failed` | Your reaction could not be sent. Try again. |
 | `preview.stop` | Stop preview |
 | `preview.size.small` | Small |
 | `preview.size.default` | Default |
@@ -266,8 +268,8 @@ init({
 | `onPresented` | The full-screen viewer opened. | `group` |
 | `onTaleShown` | A tale came on screen in the viewer. | `group`, `tale` |
 | `onActionClicked` | A button, an image button or the swipe-up link was activated, before it navigates. Cancelable. | `group`, `tale`, `component` (`id`, `type`), `url`, `newTab`, `preventDefault()` |
-| `onUserInteracted` | The server accepted a poll, quiz or Rating answer. | `group`, `tale`, `component` (`id`, `type`, `value`) |
-| `onComponentEvent` | A component of a tale did something: a countdown `ended`, a promo code was `copied`, a poll, quiz or Rating answer was `selected`. Fires with `userInteracted` for an answer, and reaches `onEvent`. | `groupId`, `taleId`, `component` (the element type, such as `countdown`), `action`, `value` (the promo code, the option id, the answer id or the Rating's number, when there is one) |
+| `onUserInteracted` | The server accepted a poll, quiz, Rating or Reaction answer. | `group`, `tale`, `component` (`id`, `type`, `value`) |
+| `onComponentEvent` | A component of a tale did something: a countdown `ended`, a promo code was `copied`, a poll, quiz, Rating or Reaction answer was `selected`. Fires with `userInteracted` for an answer, and reaches `onEvent`. | `groupId`, `taleId`, `component` (the element type, such as `countdown`), `action`, `value` (the promo code, the option id, the answer id, the Rating's number or the Reaction's emoji, when there is one) |
 | `onDismissed` | The viewer closed. | `group` |
 | `onGroupCapped` | The frequency cap left a tale group out of the display. Once per group per render. | `groupId`, `rule` |
 | `onEvent` | Every event above, in one stream. | the same as the event |

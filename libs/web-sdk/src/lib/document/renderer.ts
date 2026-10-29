@@ -14,6 +14,7 @@ import { POLL_STYLES, renderPoll } from './poll';
 import { PROMO_STYLES, renderPromoCode } from './promo-code';
 import { renderQuiz } from './quiz';
 import { RATING_STYLES, renderRating } from './rating';
+import { REACTION_STYLES, renderReaction } from './reaction';
 import { renderEmoji, renderShape } from './shapes';
 import { renderText } from './text';
 
@@ -38,6 +39,7 @@ const RENDERERS: { readonly [K in TaleElementType]: ElementRenderer } = {
   quiz: renderQuiz,
   countdown: renderCountdown,
   'promo-code': renderPromoCode,
+  reaction: renderReaction,
 };
 
 /**
@@ -150,7 +152,7 @@ export const DOCUMENT_STYLES = `
   -webkit-user-select: text;
   -webkit-touch-callout: default;
 }
-${POLL_STYLES}${RATING_STYLES}${COUNTDOWN_STYLES}${PROMO_STYLES}`;
+${POLL_STYLES}${RATING_STYLES}${COUNTDOWN_STYLES}${PROMO_STYLES}${REACTION_STYLES}`;
 
 const warned = new Set<string>();
 

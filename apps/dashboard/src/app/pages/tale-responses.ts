@@ -5,6 +5,7 @@ import {
   choiceIds,
   quizCorrectAnswerId,
   ratingResult,
+  reactionEmojis,
   type ElementResponseCounts,
   type TaleResponses,
 } from '@taleart/contract/tale-document';
@@ -44,14 +45,21 @@ const QUIZ_WORDS: ResponseWords = {
   note: "This quiz already has answers. Editing an answer's text or moving it keeps its count; removing an answer drops its count.",
 };
 
-const WORDS: Readonly<Record<string, ResponseWords>> = { poll: POLL_WORDS, quiz: QUIZ_WORDS };
-
 const RATING_WORDS: ResponseWords = {
   heading: 'Ratings',
   one: 'rating',
   many: 'ratings',
   note: 'This rating already has ratings. Editing its question or emoji keeps them.',
 };
+
+const REACTION_WORDS: ResponseWords = {
+  heading: 'Reactions',
+  one: 'reaction',
+  many: 'reactions',
+  note: 'This reaction already has taps. Editing its question keeps them; an emoji that is replaced drops its count.',
+};
+
+const WORDS: Readonly<Record<string, ResponseWords>> = { poll: POLL_WORDS, quiz: QUIZ_WORDS, reaction: REACTION_WORDS };
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en')} ${n === 1 ? one : many}`;
 
@@ -164,6 +172,17 @@ export class TaleResponsesPanel {
     const recorded: ElementResponseCounts | undefined = read.responses.elements.find((e) => e.elementId === element.id);
     const byValue = new Map((recorded?.values ?? []).map((v) => [v.value, v.count]));
     const hasResponses = (recorded?.total ?? 0) > 0;
+    if (element.type === 'reaction') {
+      // A Reaction's taps per emoji, as the draft holds its emoji now: a replaced emoji drops out.
+      const choices: ChoiceCountView[] = reactionEmojis(element.props).map((emoji) => ({
+        id: emoji,
+        label: emoji,
+        count: byValue.get(emoji) ?? 0,
+        correct: false,
+      }));
+      const total = choices.reduce((sum, c) => sum + c.count, 0);
+      return { choices, total: plural(total, REACTION_WORDS.one, REACTION_WORDS.many), hasResponses };
+    }
     if (element.type === 'rating') {
       // A Rating's count and average, as visitors see them (R5).
       const result = ratingResult(byValue);

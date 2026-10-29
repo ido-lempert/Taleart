@@ -109,6 +109,38 @@ describe('recordResponse', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('records a reaction as one of its emoji and answers the count per emoji (components, 2026-10-29)', async () => {
+    const reaction = { ...poll, element: { id: elementId, type: 'reaction', props: { question: 'How was it?', emojis: ['❤️', '😂', '😮'], theme: 'light' } } };
+    delivered.mockResolvedValue(reaction);
+    const { db, query } = fakeDb([{ rows: [{ value: '😂' }] }, { rows: [{ value: '😂', count: '2' }, { value: '❤️', count: '1' }, { value: '🔥', count: '5' }] }]);
+    const result = await recordResponse(db, { ...input, value: '😂' }, now);
+    expect(result).toEqual({
+      elementId,
+      value: '😂',
+      recorded: true,
+      result: {
+        total: 3,
+        reactions: [
+          { emoji: '❤️', count: 1 },
+          { emoji: '😂', count: 2 },
+          { emoji: '😮', count: 0 },
+        ],
+      },
+    });
+    const params = (query.mock.calls[0] as unknown[])[1];
+    expect(params).toEqual([taleId, elementId, 'react', visitorId, projectId, zoneId, frameId, groupId, 'reaction', '😂', null, now]);
+  });
+
+  it('refuses a reaction value that is not one of its emoji, whatever the element holds elsewhere', async () => {
+    const reaction = { ...poll, element: { id: elementId, type: 'reaction', props: { question: 'Q', emojis: ['❤️', '😂'], theme: 'dark' } } };
+    delivered.mockResolvedValue(reaction);
+    const { db, query } = fakeDb([]);
+    for (const value of ['🔥', 'tea', '', '❤', 'love', '❤️😂', 1, null]) {
+      await expect(recordResponse(db, { ...input, value }, now)).rejects.toBeInstanceOf(InvalidResponseValueError);
+    }
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("records a quiz answer as one of its answer ids and answers the counts per answer, whatever is correct (R3, C10)", async () => {
     const answers = [{ id: 'a', label: 'Mercury' }, { id: 'b', label: 'Venus' }, { id: 'c', label: 'Earth' }];
     const quiz = { ...poll, element: { id: elementId, type: 'quiz', props: { question: 'Hottest?', answers, correctAnswerId: 'b', theme: 'light' } } };

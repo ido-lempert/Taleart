@@ -11,8 +11,10 @@ export type ChoiceCount = Schemas['ChoiceCount'];
 export type ChoiceResult = Schemas['ChoiceResult'];
 /** A Rating's result: how many visitors rated it, and their average from 0 to 100. */
 export type RatingResult = Schemas['RatingResult'];
+/** A Reaction's result: how many visitors tapped it, and each emoji's count, in the order of its emojis. */
+export type ReactionResult = Schemas['ReactionResult'];
 /** Any interactive component's result, as `POST /delivery/v1/responses` answers it. */
-export type ResponseResult = ChoiceResult | RatingResult;
+export type ResponseResult = ChoiceResult | RatingResult | ReactionResult;
 /** What the Web SDK posts to `POST /delivery/v1/responses`. */
 export type InteractiveResponseRequest = Schemas['InteractiveResponseRequest'];
 /** What `POST /delivery/v1/responses` answers: the visitor's stored response and the current result. */
@@ -29,7 +31,7 @@ export const RESPONSES_PATH = '/responses';
  * The most elements of a type one tale holds (C3), for each type that has a limit: one of each
  * interactive component. The server refuses a document over it, and Tale Studio's Add menu says so.
  */
-export const ELEMENT_TYPE_LIMITS: Readonly<Record<string, number>> = { poll: 1, rating: 1, quiz: 1 };
+export const ELEMENT_TYPE_LIMITS: Readonly<Record<string, number>> = { poll: 1, rating: 1, quiz: 1, reaction: 1 };
 
 /**
  * The interaction kinds each interactive component records, its first the default. A visitor has
@@ -39,6 +41,7 @@ export const INTERACTIONS: Readonly<Record<string, readonly string[]>> = {
   poll: ['vote'],
   rating: ['rate'],
   quiz: ['answer'],
+  reaction: ['react'],
 };
 
 /** True for an element type a visitor responds to. */
@@ -110,9 +113,35 @@ export function choiceResult(choiceIds: readonly string[], counts: ReadonlyMap<s
   return { total, choices: raw.map((c, i) => ({ ...c, percent: percents[i] })) };
 }
 
-/** True for a choice component's result (a poll's or a quiz's), as opposed to a Rating's. */
+/** True for a choice component's result (a poll's or a quiz's), as opposed to a Rating's or a Reaction's. */
 export function isChoiceResult(result: ResponseResult): result is ChoiceResult {
   return Array.isArray((result as Partial<ChoiceResult>).choices);
+}
+
+/** True for a Reaction's result, as opposed to a choice component's or a Rating's. */
+export function isReactionResult(result: ResponseResult): result is ReactionResult {
+  return Array.isArray((result as Partial<ReactionResult>).reactions);
+}
+
+/**
+ * The emoji a Reaction offers, in order: its `emojis` prop, or an empty list for props that hold none.
+ * Whether each one is an emoji is the server's check (`isEmojiGlyph`), not this list's.
+ */
+export function reactionEmojis(props: unknown): string[] {
+  const emojis = (props as { emojis?: unknown } | null)?.emojis;
+  return Array.isArray(emojis) ? emojis.filter((emoji): emoji is string => typeof emoji === 'string') : [];
+}
+
+/**
+ * A Reaction's result: each offered emoji's count, in the Reaction's order, and the taps in all. Counts
+ * of values that are no emoji of the Reaction any more are left out, so they count toward nothing.
+ */
+export function reactionResult(emojis: readonly string[], counts: ReadonlyMap<string, number>): ReactionResult {
+  const reactions = emojis.map((emoji) => {
+    const count = counts.get(emoji) ?? 0;
+    return { emoji, count: Number.isSafeInteger(count) && count > 0 ? count : 0 };
+  });
+  return { total: reactions.reduce((sum, r) => sum + r.count, 0), reactions };
 }
 
 /** The lowest value of a Rating's scale. */

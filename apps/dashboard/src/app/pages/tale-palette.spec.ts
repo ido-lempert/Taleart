@@ -41,7 +41,7 @@ describe('the element palette (epic Tale Studio 2 R2)', () => {
       ['Shapes', ['studio-add-rectangle', 'studio-add-ellipse', 'studio-add-line']],
       ['Stickers & emoji', ['studio-add-emoji', 'studio-add-sticker']],
       ['Buttons & links', ['studio-add-button', 'studio-add-image-button', 'studio-add-swipe-up']],
-      ['Interactive', ['studio-add-poll', 'studio-add-rating', 'studio-add-quiz', 'studio-add-countdown', 'studio-add-promo-code']],
+      ['Interactive', ['studio-add-poll', 'studio-add-rating', 'studio-add-quiz', 'studio-add-countdown', 'studio-add-promo-code', 'studio-add-reaction']],
     ]);
     expect(PALETTE_GROUPS.map((g) => g.name)).toEqual([
       'Text',

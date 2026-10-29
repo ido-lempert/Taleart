@@ -63,6 +63,9 @@ export const DEFAULT_STRINGS = {
   'countdown.minutes': 'Min',
   'countdown.seconds': 'Sec',
 
+  'reaction.count': 'Reactions: {count}',
+  'reaction.failed': 'Your reaction could not be sent. Try again.',
+
   'promo.copy': 'Copy',
   'promo.copied': 'Copied',
   'promo.copyFailed': 'Could not copy. Select the code and copy it yourself.',

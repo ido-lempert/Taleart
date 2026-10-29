@@ -31,6 +31,7 @@ export type IconName =
   | 'quiz'
   | 'countdown'
   | 'promo-code'
+  | 'reaction'
   | 'eye'
   | 'eye-off'
   | 'lock'
@@ -181,6 +182,10 @@ export type IconName =
         @case ('promo-code') {
           <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9z" />
           <circle cx="7.5" cy="7.5" r="1.5" />
+        }
+        @case ('reaction') {
+          <circle cx="12" cy="12" r="9" />
+          <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9.5h.01M15 9.5h.01" />
         }
         @case ('eye') {
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

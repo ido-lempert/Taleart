@@ -1,5 +1,5 @@
 // Types only: nothing from the contract ends up in the bundle (AD-3).
-import type { ChoiceResult, InteractiveResponse, RatingResult, ResponseResult } from '@taleart/contract';
+import type { ChoiceResult, InteractiveResponse, RatingResult, ReactionResult, ResponseResult } from '@taleart/contract';
 import { DeliveryError, type ZoneRequest } from './delivery-client';
 import { VISITOR_HEADER, visitorId } from './visitor';
 
@@ -12,7 +12,7 @@ export const MAX_STORED_RESPONSES = 200;
 /** A visitor's answer as the SDK keeps it: the stored value and the result the server answered then. */
 export interface StoredResponse {
   value: string;
-  /** A poll's counts and percentages per option, or a Rating's count and average. */
+  /** A poll's counts and percentages per option, a Rating's count and average, or a Reaction's count per emoji. */
   result: ResponseResult;
 }
 
@@ -50,20 +50,17 @@ function readAll(): Record<string, Kept> {
   }
 }
 
-// True for a result a renderer can draw: counts and whole percentages per choice (a poll's), or a
-// count and an average (a Rating's).
+// True for a result a renderer can draw: counts and whole percentages per choice (a poll's), a count
+// and an average (a Rating's), or a count per emoji (a Reaction's).
 function isResult(value: unknown): value is ResponseResult {
-  const result = value as Partial<ChoiceResult & RatingResult> | null;
-  return (
-    typeof result === 'object' &&
-    result !== null &&
-    typeof result.total === 'number' &&
-    (Array.isArray(result.choices)
-      ? result.choices.every(
-          (c) => typeof c?.id === 'string' && typeof c.count === 'number' && typeof c.percent === 'number',
-        )
-      : typeof result.average === 'number')
-  );
+  const result = value as Partial<ChoiceResult & RatingResult & ReactionResult> | null;
+  if (typeof result !== 'object' || result === null || typeof result.total !== 'number') return false;
+  if (Array.isArray(result.reactions)) {
+    return result.reactions.every((r) => typeof r?.emoji === 'string' && typeof r.count === 'number');
+  }
+  return Array.isArray(result.choices)
+    ? result.choices.every((c) => typeof c?.id === 'string' && typeof c.count === 'number' && typeof c.percent === 'number')
+    : typeof result.average === 'number';
 }
 
 /** The answer this device keeps for the component, or null. */

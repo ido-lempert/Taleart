@@ -10,10 +10,13 @@ import {
   isChoiceResult,
   isChoiceElementType,
   isInteractiveElementType,
+  isReactionResult,
   pollOptionIds,
   quizCorrectAnswerId,
   ratingResult,
   ratingValue,
+  reactionEmojis,
+  reactionResult,
   TALE_ELEMENT_TYPE_REGISTRY,
 } from '../index';
 
@@ -169,6 +172,65 @@ describe('ratingValue and ratingResult (epic interactive components R5)', () => 
   it('tells a choice result from a rating result', () => {
     expect(isChoiceResult({ total: 0, choices: [] })).toBe(true);
     expect(isChoiceResult({ total: 0, average: 0 })).toBe(false);
+  });
+});
+
+describe('reaction element type (components, 2026-10-29)', () => {
+  const reaction = elementTypeEntry('reaction');
+  const validate = new Ajv2020().compile(reaction?.schema ?? {});
+  const valid = { question: 'How was it?', emojis: ['❤️', '😂', '😮'], theme: 'dark' };
+
+  it('is registered, interactive, tapped once and limited to one per tale', () => {
+    expect(reaction?.label).toBe('Reaction');
+    expect(TALE_ELEMENT_TYPE_REGISTRY.map((t) => t.key)).toContain('reaction');
+    expect(isInteractiveElementType('reaction')).toBe(true);
+    expect(INTERACTIONS['reaction']).toEqual(['react']);
+    expect(ELEMENT_TYPE_LIMITS['reaction']).toBe(1);
+    expect(isChoiceElementType('reaction')).toBe(false);
+  });
+
+  it('accepts a question and two to six emoji, with an optional title and theme', () => {
+    expect(validate(valid)).toBe(true);
+    expect(validate({ question: 'Q', emojis: ['👍', '👎'] })).toBe(true);
+    expect(validate({ ...valid, title: 'Quick one' })).toBe(true);
+    expect(validate({ ...valid, emojis: ['👍', '👎', '🤔', '🔥', '🎉', '😂'] })).toBe(true);
+  });
+
+  it('refuses one emoji and seven, duplicates, empty entries and extra or malformed props', () => {
+    expect(validate({ ...valid, emojis: ['❤️'] })).toBe(false);
+    expect(validate({ ...valid, emojis: [] })).toBe(false);
+    expect(validate({ ...valid, emojis: ['👍', '👎', '🤔', '🔥', '🎉', '😂', '😮'] })).toBe(false);
+    expect(validate({ ...valid, emojis: ['❤️', '❤️'] })).toBe(false);
+    expect(validate({ ...valid, emojis: ['❤️', ''] })).toBe(false);
+    expect(validate({ ...valid, emojis: ['❤️', 42] })).toBe(false);
+    expect(validate({ ...valid, emojis: 'hearts' })).toBe(false);
+    expect(validate({ question: 'Q' })).toBe(false);
+    expect(validate({ ...valid, theme: 'blue' })).toBe(false);
+    expect(validate({ ...valid, question: 'a\u0007b' })).toBe(false);
+    expect(validate({ ...valid, options: valid.emojis })).toBe(false);
+  });
+
+  it('is named by its question in the layers list', () => {
+    const element = { type: 'reaction', a11y: {}, props: valid };
+    expect(elementName([element], 0)).toBe('How was it?');
+    expect(elementName([{ ...element, props: {} }], 0)).toBe('Reaction');
+  });
+
+  it('reads its emoji in order, and counts each emoji it offers', () => {
+    expect(reactionEmojis(valid)).toEqual(['❤️', '😂', '😮']);
+    expect(reactionEmojis({ emojis: ['👍', 3] })).toEqual(['👍']);
+    expect(reactionEmojis(null)).toEqual([]);
+    expect(reactionResult(['❤️', '😂'], new Map([['😂', 2], ['❤️', 1], ['🔥', 9]]))).toEqual({
+      total: 3,
+      reactions: [
+        { emoji: '❤️', count: 1 },
+        { emoji: '😂', count: 2 },
+      ],
+    });
+    expect(reactionResult(['❤️'], new Map())).toEqual({ total: 0, reactions: [{ emoji: '❤️', count: 0 }] });
+    expect(isReactionResult(reactionResult(['❤️'], new Map()))).toBe(true);
+    expect(isReactionResult({ total: 0, average: 0 })).toBe(false);
+    expect(isChoiceResult(reactionResult(['❤️'], new Map()))).toBe(false);
   });
 });
 

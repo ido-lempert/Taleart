@@ -267,6 +267,16 @@ const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
     checkLineText(props['title'], `${pointer}/title`);
     checkLineText(props['note'], `${pointer}/note`);
   },
+  // A reaction (components, 2026-10-29): text that shows, and each of its emoji one RGI emoji; the schema
+  // states how many there are and that they differ.
+  reaction: (props, pointer) => {
+    checkLineText(props['title'], `${pointer}/title`);
+    checkLineText(props['question'], `${pointer}/question`);
+    const emojis = Array.isArray(props['emojis']) ? props['emojis'] : [];
+    emojis.forEach((emoji, i) => {
+      if (!isEmojiGlyph(emoji)) throw new InvalidTaleDocumentError(`${pointer}/emojis/${i}`, 'must be one emoji');
+    });
+  },
 };
 
 interface Validators {

@@ -179,6 +179,10 @@ export type CountdownElement = TaleElementOf<'countdown', CountdownElementProps>
 export type PromoCodeElementProps = Schemas['PromoCodeElementProps'];
 /** A promo code: a code in a chip with a Copy button, visible to every visitor. */
 export type PromoCodeElement = TaleElementOf<'promo-code', PromoCodeElementProps>;
+/** The props of a `reaction` element, from `element-types/reaction.schema.json` (components, 2026-10-29). */
+export type ReactionElementProps = Schemas['ReactionElementProps'];
+/** A Reaction: a question and a row of two to six emoji a visitor taps one of, once (components, 2026-10-29). */
+export type ReactionElement = TaleElementOf<'reaction', ReactionElementProps>;
 /** A call to action: an element that is a link to its destination (R7). */
 export type LinkElement = ButtonElement | ImageButtonElement | SwipeUpElement;
 /** An element that shows media of the tale's project. */
@@ -199,7 +203,8 @@ export type TaleElement =
   | RatingElement
   | QuizElement
   | CountdownElement
-  | PromoCodeElement;
+  | PromoCodeElement
+  | ReactionElement;
 
 /** The registered element type keys. */
 export type TaleElementType = TaleElement['type'];
@@ -899,6 +904,8 @@ export function elementName(
       return shortName((props as { title?: unknown }).title) || 'Countdown';
     case 'promo-code':
       return shortName((props as { title?: unknown }).title) || shortName((props as { code?: unknown }).code) || 'Promo code';
+    case 'reaction':
+      return shortName((props as { question?: unknown }).question) || 'Reaction';
     case 'emoji': {
       const emoji = typeof props.emoji === 'string' ? props.emoji : '';
       const label = shortName(element.a11y?.label);
