@@ -222,6 +222,14 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 | `rating.summary` | Average {average} from {total} {count} |
 | `rating.singular` | rating |
 | `rating.plural` | ratings |
+| `countdown.ended` | Ended |
+| `countdown.days` | Days |
+| `countdown.hours` | Hours |
+| `countdown.minutes` | Min |
+| `countdown.seconds` | Sec |
+| `promo.copy` | Copy |
+| `promo.copied` | Copied |
+| `promo.copyFailed` | Could not copy. Select the code and copy it yourself. |
 | `preview.stop` | Stop preview |
 | `preview.size.small` | Small |
 | `preview.size.default` | Default |
@@ -259,6 +267,7 @@ init({
 | `onTaleShown` | A tale came on screen in the viewer. | `group`, `tale` |
 | `onActionClicked` | A button, an image button or the swipe-up link was activated, before it navigates. Cancelable. | `group`, `tale`, `component` (`id`, `type`), `url`, `newTab`, `preventDefault()` |
 | `onUserInteracted` | The server accepted a poll, quiz or Rating answer. | `group`, `tale`, `component` (`id`, `type`, `value`) |
+| `onComponentEvent` | A component of a tale did something: a countdown `ended`, a promo code was `copied`, a poll, quiz or Rating answer was `selected`. Fires with `userInteracted` for an answer, and reaches `onEvent`. | `groupId`, `taleId`, `component` (the element type, such as `countdown`), `action`, `value` (the promo code, the option id, the answer id or the Rating's number, when there is one) |
 | `onDismissed` | The viewer closed. | `group` |
 | `onGroupCapped` | The frequency cap left a tale group out of the display. Once per group per render. | `groupId`, `rule` |
 | `onEvent` | Every event above, in one stream. | the same as the event |
@@ -271,7 +280,7 @@ init({
 
 Each event is also a DOM event on the `<taleart-view>` element: bubbling and composed, named `taleart:` and the event's
 name in kebab case (`taleart:load-failed`, `taleart:group-impression`, `taleart:tale-shown`, `taleart:action-clicked`,
-`taleart:user-interacted`, `taleart:group-capped`). Its `detail` is the payload. Only `taleart:action-clicked` is cancelable.
+`taleart:user-interacted`, `taleart:group-capped`, `taleart:component-event`). Its `detail` is the payload. Only `taleart:action-clicked` is cancelable.
 
 ```js
 document.querySelector('taleart-view').addEventListener('taleart:user-interacted', (e) => {

@@ -4626,7 +4626,7 @@ components:
           description: >-
             A key of the element-type registry, such as `text`, `image`,
             `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`,
-            `swipe-up`, `poll`, `rating` or `quiz`.
+            `swipe-up`, `poll`, `rating`, `quiz`, `countdown` or `promo-code`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
@@ -4663,6 +4663,10 @@ components:
       $ref: '../tale-document/element-types/rating.schema.json'
     QuizElementProps:
       $ref: '../tale-document/element-types/quiz.schema.json'
+    CountdownElementProps:
+      $ref: '../tale-document/element-types/countdown.schema.json'
+    PromoCodeElementProps:
+      $ref: '../tale-document/element-types/promo-code.schema.json'
     ChoiceCount:
       type: object
       required: [id, count, percent]

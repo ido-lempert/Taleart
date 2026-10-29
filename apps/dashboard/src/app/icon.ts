@@ -29,6 +29,8 @@ export type IconName =
   | 'poll'
   | 'rating'
   | 'quiz'
+  | 'countdown'
+  | 'promo-code'
   | 'eye'
   | 'eye-off'
   | 'lock'
@@ -171,6 +173,14 @@ export type IconName =
         @case ('quiz') {
           <circle cx="12" cy="12" r="9" />
           <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" />
+        }
+        @case ('countdown') {
+          <circle cx="12" cy="13" r="8" />
+          <path d="M12 9v4l2.5 2.5M9 2h6" />
+        }
+        @case ('promo-code') {
+          <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9z" />
+          <circle cx="7.5" cy="7.5" r="1.5" />
         }
         @case ('eye') {
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

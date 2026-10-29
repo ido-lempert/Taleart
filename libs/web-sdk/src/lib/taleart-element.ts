@@ -656,6 +656,15 @@ export class TaleartElement extends ElementBase {
             tale: taleRef(zone, found.groupId, found.taleIndex),
             component: { id: elementId, type, value: response.value },
           });
+          // The answer selected (components, 2026-10-29): its value is the option id, the answer id or the number.
+          emit(this, 'componentEvent', {
+            ...base,
+            groupId: found.groupId,
+            taleId: taleRef(zone, found.groupId, found.taleIndex).id,
+            component: type,
+            action: 'selected',
+            value: response.value,
+          });
         }
         return response;
       },
@@ -685,6 +694,13 @@ export class TaleartElement extends ElementBase {
           tale: taleRef(zone, groupId, taleIndex),
         });
       },
+      onComponentEvent: (groupId, taleIndex, fire) =>
+        emit(this, 'componentEvent', {
+          ...base,
+          groupId,
+          taleId: taleRef(zone, groupId, taleIndex).id,
+          ...fire,
+        }),
       onAction: (groupId, taleIndex, action) =>
         emit(
           this,

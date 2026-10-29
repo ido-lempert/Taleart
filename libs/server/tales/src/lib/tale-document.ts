@@ -23,6 +23,7 @@ import {
   missingAltText,
   missingAltTextMessage,
   elementName,
+  isUtcInstant,
   documentMediaRefs,
   UNKNOWN_MEDIA_REASON,
   projectFontIds,
@@ -251,6 +252,20 @@ const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
     checkLineText(props['title'], `${pointer}/title`);
     checkLineText(props['question'], `${pointer}/question`);
     if (!isEmojiGlyph(props['emoji'])) throw new InvalidTaleDocumentError(`${pointer}/emoji`, 'must be one emoji');
+  },
+  // A countdown (components, 2026-10-29): text that shows, and an instant that is a real date and time
+  // (the schema's pattern alone takes a 30 February).
+  countdown: (props, pointer) => {
+    checkLineText(props['title'], `${pointer}/title`);
+    checkLineText(props['endedText'], `${pointer}/endedText`);
+    if (!isUtcInstant(props['endsAt'])) {
+      throw new InvalidTaleDocumentError(`${pointer}/endsAt`, 'must be a real date and time in UTC, such as 2026-12-31T21:00:00Z');
+    }
+  },
+  // A promo code (components, 2026-10-29): text that shows; its code is checked by the schema.
+  'promo-code': (props, pointer) => {
+    checkLineText(props['title'], `${pointer}/title`);
+    checkLineText(props['note'], `${pointer}/note`);
   },
 };
 

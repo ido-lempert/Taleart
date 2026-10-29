@@ -7,6 +7,7 @@ import {
   ELEMENT_TYPE_LIMITS,
   hasDisallowedCharacter,
   isEmojiGlyph,
+  isUtcInstant,
   LABEL_TEXT_RULE,
   limitedVideoCount,
   MAX_SWIPE_UP_ELEMENTS,
@@ -251,6 +252,26 @@ function checkRatingProps(props: Readonly<Record<string, unknown>>): string | nu
   return (
     lineTextProblem([props['question'], props['title']]) ?? (isEmojiGlyph(props['emoji']) ? null : 'Choose one emoji.')
   );
+}
+
+// A countdown's rules its schema cannot state, as the server's `PROPS_RULES` holds them: its texts show
+// on one line, and its end is a real date and time in UTC (components, 2026-10-29).
+function checkCountdownProps(props: Readonly<Record<string, unknown>>): string | null {
+  const problem = lineTextProblem([props['title'], props['endedText']]);
+  if (problem) return problem;
+  return isUtcInstant(props['endsAt']) ? null : 'Use a real date and time in UTC, such as 2026-12-31T21:00:00Z.';
+}
+
+// A promo code's rules its schema cannot state: its title and note show on one line (components,
+// 2026-10-29).
+function checkPromoCodeProps(props: Readonly<Record<string, unknown>>): string | null {
+  return lineTextProblem([props['title'], props['note']]);
+}
+
+// The instant a week from now, in UTC as the schema spells it (`2026-11-05T10:00:00Z`): a new
+// countdown's default end.
+function aWeekFromNow(): string {
+  return new Date(Date.now() + 7 * 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 // A limit of one element of `type` per tale (epic interactive components C3), said by its tile.
@@ -544,6 +565,64 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     // The canvas shows its question; the preview pane draws it as visitors see it (AD-16).
     preview: (props) => (typeof props['question'] === 'string' ? props['question'] : ''),
     check: checkQuizProps,
+  },
+  countdown: {
+    palette: {
+      category: 'interactive',
+      order: 3,
+      keywords: ['timer', 'clock', 'days', 'deadline', 'ends', 'expires', 'sale', 'time', 'launch'],
+      icon: 'countdown',
+      action: { kind: 'configured' },
+    },
+    inspector: {
+      fields: [
+        {
+          prop: 'endsAt',
+          label: 'Ends at (UTC)',
+          control: 'text',
+          hint: 'ISO 8601 in UTC, such as 2026-12-31T21:00:00Z. Visitors count down by their own clock.',
+        },
+        { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
+        { prop: 'endedText', label: 'Text when it ends', control: 'text', hint: 'Optional, up to 80 characters. Left out, the page says "Ended".' },
+        THEME_FIELD,
+      ],
+    },
+    create: {
+      box: { x: 0.1, y: 0.4, w: 0.8, h: 0.2, rotation: 0 },
+      props: () => ({ endsAt: aWeekFromNow(), theme: 'light' }),
+    },
+    // The canvas shows its title; the preview pane draws the countdown as visitors see it (AD-16).
+    preview: (props) => (typeof props['title'] === 'string' ? props['title'] : 'Countdown'),
+    check: checkCountdownProps,
+  },
+  'promo-code': {
+    palette: {
+      category: 'interactive',
+      order: 4,
+      keywords: ['coupon', 'discount', 'voucher', 'code', 'offer', 'copy', 'deal'],
+      icon: 'promo-code',
+      action: { kind: 'configured' },
+    },
+    inspector: {
+      fields: [
+        {
+          prop: 'code',
+          label: 'Code',
+          control: 'text',
+          hint: 'Letters, digits, _ or -; up to 32 characters. Every visitor sees it, so it is not a secret.',
+        },
+        { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
+        { prop: 'note', label: 'Note', control: 'text', hint: 'Optional, up to 120 characters, such as the terms.' },
+        THEME_FIELD,
+      ],
+    },
+    create: {
+      box: { x: 0.1, y: 0.62, w: 0.8, h: 0.22, rotation: 0 },
+      props: () => ({ code: 'WELCOME10', theme: 'light' }),
+    },
+    // The canvas shows its code; the preview pane draws the chip and Copy button as visitors see them (AD-16).
+    preview: (props) => (typeof props['code'] === 'string' ? props['code'] : 'Promo code'),
+    check: checkPromoCodeProps,
   },
   'swipe-up': {
     palette: {

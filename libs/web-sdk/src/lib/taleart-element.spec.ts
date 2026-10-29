@@ -1428,6 +1428,98 @@ describe('TaleartElement: strings, hooks and events', () => {
     });
   });
 
+  describe('componentEvent (components, 2026-10-29)', () => {
+    const COUNTDOWN_ID = '00000000-0000-4000-8000-0000000000cc';
+    const PROMO_ID = '00000000-0000-4000-8000-0000000000dd';
+    const countdown = (endsAt: string): DeliveryTaleElement =>
+      ({
+        id: COUNTDOWN_ID,
+        type: 'countdown',
+        box: { x: 0.1, y: 0.1, w: 0.8, h: 0.2, rotation: 0 },
+        a11y: {},
+        props: { endsAt, endedText: 'Sale over' },
+      }) as unknown as DeliveryTaleElement;
+    const promo = (): DeliveryTaleElement =>
+      ({
+        id: PROMO_ID,
+        type: 'promo-code',
+        box: { x: 0.1, y: 0.5, w: 0.8, h: 0.2, rotation: 0 },
+        a11y: {},
+        props: { code: 'SPRING26', note: 'Once per visitor' },
+      }) as unknown as DeliveryTaleElement;
+    const base = { zoneKeyPrefix: 'tak_test', zoneSlug: 'home', groupId: 'ga', taleId: 't1' };
+
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    });
+
+    it('reports a countdown that has ended when its tale shows, with no value', async () => {
+      fetchMock.mockImplementation(async () => respond(200, zoneWith([countdown('2020-01-01T00:00:00Z')])));
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      expect(ofName(events, 'componentEvent')).toEqual([
+        { name: 'componentEvent', ...base, component: 'countdown', action: 'ended' },
+      ]);
+      expect(el.shadowRoot?.querySelector('dialog.viewer .ta-cd-ended')?.textContent).toBe('Sale over');
+    });
+
+    it('reports a copied promo code with its code, and a failed copy with nothing', async () => {
+      fetchMock.mockImplementation(async () => respond(200, zoneWith([promo()])));
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-promo-copy')?.click();
+      await settle();
+      expect(writeText).toHaveBeenCalledWith('SPRING26');
+      expect(ofName(events, 'componentEvent')).toEqual([
+        { name: 'componentEvent', ...base, component: 'promo-code', action: 'copied', value: 'SPRING26' },
+      ]);
+
+      events.length = 0;
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => Promise.reject(new Error('no'))) }, configurable: true });
+      el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-promo-copy')?.click();
+      await settle();
+      expect(ofName(events, 'componentEvent')).toEqual([]);
+    });
+
+    it('reports a poll answer as selected, with its option id, next to userInteracted', async () => {
+      fetchMock.mockImplementation(async (url: string) =>
+        url.endsWith('/delivery/v1/responses')
+          ? respond(200, { value: 'o1', result: { total: 1, choices: [{ id: 'o1', count: 1, percent: 100 }, { id: 'o2', count: 0, percent: 0 }] } })
+          : respond(200, zoneWith([poll()])),
+      );
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-poll-opt')?.click();
+      await settle();
+      expect(names(events)).toEqual(expect.arrayContaining(['userInteracted', 'componentEvent']));
+      expect(ofName(events, 'componentEvent')).toEqual([
+        { name: 'componentEvent', ...base, component: 'poll', action: 'selected', value: 'o1' },
+      ]);
+    });
+
+    it('reaches the element hook and the DOM event as well as the global hook', async () => {
+      fetchMock.mockImplementation(async () => respond(200, zoneWith([countdown('2020-01-01T00:00:00Z')])));
+      const own: unknown[] = [];
+      const domEvents: CustomEvent[] = [];
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      el.hooks = { onComponentEvent: (e) => own.push(e) };
+      el.addEventListener('taleart:component-event', (e) => domEvents.push(e as CustomEvent));
+      const global: unknown[] = [];
+      init({ hooks: { onComponentEvent: (e) => global.push(e) } });
+      items(el)[0].click();
+      const expected = { name: 'componentEvent', ...base, component: 'countdown', action: 'ended' };
+      expect(own).toEqual([expected]);
+      expect(global).toEqual([expected]);
+      expect(domEvents.map((e) => e.detail)).toEqual([expected]);
+      el.hooks = null;
+    });
+  });
+
   describe('actionClicked', () => {
     async function openButton(): Promise<HTMLAnchorElement> {
       fetchMock.mockImplementation(async () => respond(200, zoneWith([button()])));

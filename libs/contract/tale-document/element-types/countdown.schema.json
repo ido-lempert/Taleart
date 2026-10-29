@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CountdownElementProps",
+  "description": "The props of a Countdown: an optional title, the instant it ends in UTC, the text it shows from then on, and a light or dark theme. It shows days, hours, minutes and seconds left by the visitor's clock, ticking each second, and at and after `endsAt` the `endedText`. All text is plain, on one line, without control characters. A tale may hold several Countdowns.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["endsAt"],
+  "properties": {
+    "title": {
+      "description": "A short heading above the countdown; none when left out.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "endsAt": {
+      "description": "The instant the countdown ends, as ISO 8601 in UTC with a `Z`, such as `2026-12-31T21:00:00Z`. The server also checks that it is a real date and time.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$",
+      "maxLength": 40
+    },
+    "endedText": {
+      "description": "The text shown at and after `endsAt`; the SDK's \"ended\" string when left out.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "theme": {
+      "description": "`light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.",
+      "type": "string",
+      "enum": ["light", "dark"]
+    }
+  }
+}

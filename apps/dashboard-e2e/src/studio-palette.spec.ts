@@ -103,7 +103,7 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
     await page.keyboard.press('Escape');
     await expect(search()).toHaveValue('');
     await expect(search()).toBeFocused();
-    expect((await tileIds()).length).toBe(18);
+    expect((await tileIds()).length).toBe(20);
     await page.keyboard.press('Escape');
     await expect(page.locator('[id^="studio-el-"]').first()).toBeFocused();
 
@@ -119,7 +119,7 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('#studio-add-image')).toBeFocused();
     await page.keyboard.press('End');
-    await expect(page.locator('#studio-add-quiz')).toBeFocused();
+    await expect(page.locator('#studio-add-promo-code')).toBeFocused();
     await page.keyboard.press('Home');
     await expect(page.locator('#studio-add-heading')).toBeFocused();
     await page.keyboard.press('ArrowUp');

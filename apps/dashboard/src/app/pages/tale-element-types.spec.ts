@@ -180,6 +180,8 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
       'studio-add-poll',
       'studio-add-rating',
       'studio-add-quiz',
+      'studio-add-countdown',
+      'studio-add-promo-code',
     ]);
     // Buttons in groups named by their headings (Tale Studio 2, story 11.3).
     const groups = [...root.querySelectorAll('#studio-panel-elements [role=group]')];
@@ -237,7 +239,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
       vi.advanceTimersByTime(10);
       fixture.detectChanges();
       expect(search.value).toBe('');
-      expect(tiles().length).toBe(18);
+      expect(tiles().length).toBe(20);
       expect(document.activeElement).toBe(search);
       search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
       vi.advanceTimersByTime(10);

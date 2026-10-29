@@ -18,6 +18,7 @@ import {
   taleReadingDirection,
   elementBounds,
   isOutsideSafeArea,
+  isUtcInstant,
   safeAreaBounds,
   TALE_DOCUMENT_V1_SCHEMA,
   TALE_DOCUMENT_VERSION,
@@ -59,6 +60,8 @@ describe('tale document schemas', () => {
       'poll',
       'rating',
       'quiz',
+      'countdown',
+      'promo-code',
     ];
     expect(TALE_ELEMENT_TYPE_REGISTRY.map((type) => type.key)).toEqual(keys);
   });
@@ -290,5 +293,19 @@ describe('tale document helpers', () => {
     // Upright it fits; turned, its corners reach up into the top area.
     expect(isOutsideSafeArea({ x: 0.1, y: 0.13, w: 0.8, h: 0.05, rotation: 0 })).toBe(false);
     expect(isOutsideSafeArea({ x: 0.1, y: 0.13, w: 0.8, h: 0.05, rotation: 20 })).toBe(true);
+  });
+});
+
+describe('isUtcInstant (components, 2026-10-29)', () => {
+  it('accepts a real date and time in UTC, with or without fractions of a second', () => {
+    expect(isUtcInstant('2026-12-31T21:00:00Z')).toBe(true);
+    expect(isUtcInstant('2028-02-29T00:00:00Z')).toBe(true);
+    expect(isUtcInstant('2026-12-31T21:00:00.123456789Z')).toBe(true);
+  });
+
+  it('refuses another zone, a missing zone, a rolled-over date and a non-string', () => {
+    for (const value of ['2026-12-31T21:00:00+00:00', '2026-12-31T21:00:00', '2026-02-30T10:00:00Z', '2027-02-29T10:00:00Z', '2026-13-01T00:00:00Z', '2026-06-30T23:59:60Z', 1798750800000, null]) {
+      expect(isUtcInstant(value)).toBe(false);
+    }
   });
 });

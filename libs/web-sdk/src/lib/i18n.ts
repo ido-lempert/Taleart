@@ -57,6 +57,16 @@ export const DEFAULT_STRINGS = {
   'rating.singular': 'rating',
   'rating.plural': 'ratings',
 
+  'countdown.ended': 'Ended',
+  'countdown.days': 'Days',
+  'countdown.hours': 'Hours',
+  'countdown.minutes': 'Min',
+  'countdown.seconds': 'Sec',
+
+  'promo.copy': 'Copy',
+  'promo.copied': 'Copied',
+  'promo.copyFailed': 'Could not copy. Select the code and copy it yourself.',
+
   'preview.stop': 'Stop preview',
   'preview.size.small': 'Small',
   'preview.size.default': 'Default',

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromoCodeElementProps",
+  "description": "The props of a Promo code: an optional title, the code itself, an optional note and a light or dark theme. The code shows in a chip with a Copy button, and it is visible to every visitor, so it is not a secret. All text is plain, on one line, without control characters. A tale may hold several Promo codes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code"],
+  "properties": {
+    "title": {
+      "description": "A short heading above the code; none when left out.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "code": {
+      "description": "The code visitors copy: 1 to 32 letters, digits, underscores or hyphens (`A-Z`, `a-z`, `0-9`, `_`, `-`).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "note": {
+      "description": "A short line under the code, such as its terms; none when left out.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "theme": {
+      "description": "`light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.",
+      "type": "string",
+      "enum": ["light", "dark"]
+    }
+  }
+}

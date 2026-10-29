@@ -12,6 +12,8 @@
     { "key": "poll", "label": "Poll", "schema": "poll.schema.json" },
     { "key": "rating", "label": "Rating", "schema": "rating.schema.json" },
     { "key": "quiz", "label": "Quiz", "schema": "quiz.schema.json" },
+    { "key": "countdown", "label": "Countdown", "schema": "countdown.schema.json" },
+    { "key": "promo-code", "label": "Promo code", "schema": "promo-code.schema.json" },
     { "key": "test-badge", "label": "Test badge", "schema": "test-badge.schema.json", "testOnly": true }
   ]
 }

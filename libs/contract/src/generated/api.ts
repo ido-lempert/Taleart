@@ -2103,7 +2103,7 @@ export interface components {
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll`, `rating` or `quiz`. */
+            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll`, `rating`, `quiz`, `countdown` or `promo-code`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
@@ -2123,6 +2123,8 @@ export interface components {
         PollElementProps: components["schemas"]["poll.schema"];
         RatingElementProps: components["schemas"]["rating.schema"];
         QuizElementProps: components["schemas"]["quiz.schema"];
+        CountdownElementProps: components["schemas"]["countdown.schema"];
+        PromoCodeElementProps: components["schemas"]["promo-code.schema"];
         ChoiceCount: {
             /** @description The choice's id (a poll's option id, a quiz's answer id). */
             id: string;
@@ -2961,6 +2963,40 @@ export interface components {
              * @enum {string}
              */
             theme: "light" | "dark";
+        };
+        /**
+         * CountdownElementProps
+         * @description The props of a Countdown: an optional title, the instant it ends in UTC, the text it shows from then on, and a light or dark theme. It shows days, hours, minutes and seconds left by the visitor's clock, ticking each second, and at and after `endsAt` the `endedText`. All text is plain, on one line, without control characters. A tale may hold several Countdowns.
+         */
+        "countdown.schema": {
+            /** @description A short heading above the countdown; none when left out. */
+            title?: string;
+            /** @description The instant the countdown ends, as ISO 8601 in UTC with a `Z`, such as `2026-12-31T21:00:00Z`. The server also checks that it is a real date and time. */
+            endsAt: string;
+            /** @description The text shown at and after `endsAt`; the SDK's "ended" string when left out. */
+            endedText?: string;
+            /**
+             * @description `light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.
+             * @enum {string}
+             */
+            theme?: "light" | "dark";
+        };
+        /**
+         * PromoCodeElementProps
+         * @description The props of a Promo code: an optional title, the code itself, an optional note and a light or dark theme. The code shows in a chip with a Copy button, and it is visible to every visitor, so it is not a secret. All text is plain, on one line, without control characters. A tale may hold several Promo codes.
+         */
+        "promo-code.schema": {
+            /** @description A short heading above the code; none when left out. */
+            title?: string;
+            /** @description The code visitors copy: 1 to 32 letters, digits, underscores or hyphens (`A-Z`, `a-z`, `0-9`, `_`, `-`). */
+            code: string;
+            /** @description A short line under the code, such as its terms; none when left out. */
+            note?: string;
+            /**
+             * @description `light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.
+             * @enum {string}
+             */
+            theme?: "light" | "dark";
         };
     };
     responses: {
@@ -5576,3 +5612,5 @@ export const buttonSchemaVariantValues: ReadonlyArray<FlattenedDeepRequired<comp
 export const pollSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["poll.schema"]["theme"]> = ["light", "dark"];
 export const ratingSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["rating.schema"]["theme"]> = ["light", "dark"];
 export const quizSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["quiz.schema"]["theme"]> = ["light", "dark"];
+export const countdownSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["countdown.schema"]["theme"]> = ["light", "dark"];
+export const promoCodeSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["promo-code.schema"]["theme"]> = ["light", "dark"];

@@ -15,6 +15,8 @@ export type { ConfigKey, FallbackMode, ResolvedTaleartConfig, TaleartConfig } fr
 export type { FrequencyRule } from './lib/frequency';
 export type {
   ActionClickedEvent,
+  ComponentAction,
+  ComponentEvent,
   ComponentRef,
   DismissedEvent,
   GroupCappedEvent,

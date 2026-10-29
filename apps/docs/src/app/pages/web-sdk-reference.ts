@@ -329,6 +329,14 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>rating.summary</code></td><td>Average &#123;average&#125; from &#123;total&#125; &#123;count&#125;</td></tr>
           <tr><td><code>rating.singular</code></td><td>rating</td></tr>
           <tr><td><code>rating.plural</code></td><td>ratings</td></tr>
+          <tr><td><code>countdown.ended</code></td><td>Ended</td></tr>
+          <tr><td><code>countdown.days</code></td><td>Days</td></tr>
+          <tr><td><code>countdown.hours</code></td><td>Hours</td></tr>
+          <tr><td><code>countdown.minutes</code></td><td>Min</td></tr>
+          <tr><td><code>countdown.seconds</code></td><td>Sec</td></tr>
+          <tr><td><code>promo.copy</code></td><td>Copy</td></tr>
+          <tr><td><code>promo.copied</code></td><td>Copied</td></tr>
+          <tr><td><code>promo.copyFailed</code></td><td>Could not copy. Select the code and copy it yourself.</td></tr>
           <tr><td><code>preview.stop</code></td><td>Stop preview</td></tr>
           <tr><td><code>preview.size.small</code></td><td>Small</td></tr>
           <tr><td><code>preview.size.default</code></td><td>Default</td></tr>
@@ -403,6 +411,12 @@ import { RouterLink } from '@angular/router';
             <td>No</td>
           </tr>
           <tr>
+            <td><code>onComponentEvent</code></td>
+            <td>A component of a tale did something: a countdown <code>ended</code>, a promo code was <code>copied</code>, a poll, quiz or rating answer was <code>selected</code> (it fires with <code>onUserInteracted</code> for an answer).</td>
+            <td><code>groupId</code>, <code>taleId</code>, <code>component</code> (the element type, such as <code>countdown</code>), <code>action</code>, <code>value</code> (the promo code, the option id, the answer id or the rating's number, when there is one)</td>
+            <td>No</td>
+          </tr>
+          <tr>
             <td><code>onDismissed</code></td>
             <td>The viewer closed.</td>
             <td><code>group</code></td>
@@ -449,6 +463,7 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>taleart:tale-shown</code></td><td><code>onTaleShown</code></td><td>No</td></tr>
           <tr><td><code>taleart:action-clicked</code></td><td><code>onActionClicked</code></td><td>Yes</td></tr>
           <tr><td><code>taleart:user-interacted</code></td><td><code>onUserInteracted</code></td><td>No</td></tr>
+          <tr><td><code>taleart:component-event</code></td><td><code>onComponentEvent</code></td><td>No</td></tr>
           <tr><td><code>taleart:dismissed</code></td><td><code>onDismissed</code></td><td>No</td></tr>
           <tr><td><code>taleart:group-capped</code></td><td><code>onGroupCapped</code></td><td>No</td></tr>
         </tbody>

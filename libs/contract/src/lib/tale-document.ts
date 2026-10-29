@@ -171,6 +171,14 @@ export type RatingElement = TaleElementOf<'rating', RatingElementProps>;
 export type QuizElementProps = Schemas['QuizElementProps'];
 /** A quiz: a question with two to four answers, one of them perhaps correct, a visitor answers once (R3). */
 export type QuizElement = TaleElementOf<'quiz', QuizElementProps>;
+/** The props of a `countdown` element, from `element-types/countdown.schema.json` (components, 2026-10-29). */
+export type CountdownElementProps = Schemas['CountdownElementProps'];
+/** A countdown: the days, hours, minutes and seconds left to an instant, then a line of text. */
+export type CountdownElement = TaleElementOf<'countdown', CountdownElementProps>;
+/** The props of a `promo-code` element, from `element-types/promo-code.schema.json` (components, 2026-10-29). */
+export type PromoCodeElementProps = Schemas['PromoCodeElementProps'];
+/** A promo code: a code in a chip with a Copy button, visible to every visitor. */
+export type PromoCodeElement = TaleElementOf<'promo-code', PromoCodeElementProps>;
 /** A call to action: an element that is a link to its destination (R7). */
 export type LinkElement = ButtonElement | ImageButtonElement | SwipeUpElement;
 /** An element that shows media of the tale's project. */
@@ -189,7 +197,9 @@ export type TaleElement =
   | SwipeUpElement
   | PollElement
   | RatingElement
-  | QuizElement;
+  | QuizElement
+  | CountdownElement
+  | PromoCodeElement;
 
 /** The registered element type keys. */
 export type TaleElementType = TaleElement['type'];
@@ -885,6 +895,10 @@ export function elementName(
       return shortName((props as { question?: unknown }).question) || 'Rating';
     case 'quiz':
       return shortName((props as { question?: unknown }).question) || 'Quiz';
+    case 'countdown':
+      return shortName((props as { title?: unknown }).title) || 'Countdown';
+    case 'promo-code':
+      return shortName((props as { title?: unknown }).title) || shortName((props as { code?: unknown }).code) || 'Promo code';
     case 'emoji': {
       const emoji = typeof props.emoji === 'string' ? props.emoji : '';
       const label = shortName(element.a11y?.label);
@@ -990,6 +1004,18 @@ export function assertEmojiCheckSupported(): void {
 export function isEmojiGlyph(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_EMOJI_LENGTH) return false;
   return emojiRegExp().test(value);
+}
+
+/**
+ * True when `value` is an instant in UTC as ISO 8601 with a `Z` (`2026-12-31T21:00:00Z`, fractions of
+ * a second allowed), and a real date and time: the pattern alone takes a 30 February or a month 13.
+ * A countdown's `endsAt` (components, 2026-10-29).
+ */
+export function isUtcInstant(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/.test(value)) return false;
+  const ms = Date.parse(value);
+  // JavaScript rolls an impossible day over (30 February becomes 2 March): the date must read back as written.
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === value.slice(0, 19);
 }
 
 // ---- Calls to action: buttons, image buttons and the swipe-up link (epic Tale Studio R7, R14; AD-15, AD-16) ----

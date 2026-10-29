@@ -96,6 +96,27 @@ export interface UserInteractedEvent extends EventBase {
   component: ComponentRef & { value: string };
 }
 
+/**
+ * What an element of a tale did (components, 2026-10-29): a countdown `ended`, a promo code was `copied`,
+ * and a visitor's answer was `selected` (a poll's option, a quiz's answer or a Rating's number).
+ */
+export type ComponentAction = 'ended' | 'copied' | 'selected';
+
+/**
+ * A component of a tale did something: `component` is its element type (`countdown`, `promo-code`, `poll`,
+ * `quiz`, `rating`), `action` what it did, and `value` what it did it with: a promo code's code, a poll's
+ * option id, a quiz's answer id or a Rating's number as text. Fired in addition to `userInteracted`, which
+ * stays as it is, and reaches `onEvent` too.
+ */
+export interface ComponentEvent extends EventBase {
+  name: 'componentEvent';
+  groupId: string;
+  taleId: string;
+  component: string;
+  action: ComponentAction;
+  value?: string;
+}
+
 /** Every event the SDK emits. */
 export type TaleartEvent =
   | LoadedEvent
@@ -106,7 +127,8 @@ export type TaleartEvent =
   | TaleShownEvent
   | ActionClickedEvent
   | UserInteractedEvent
-  | GroupCappedEvent;
+  | GroupCappedEvent
+  | ComponentEvent;
 
 /** The name of an event, as in `onLoaded` (the hook is `on` plus the name). */
 export type TaleartEventName = TaleartEvent['name'];
@@ -122,6 +144,7 @@ export interface TaleartHooks {
   onActionClicked?: (event: ActionClickedEvent) => void;
   onUserInteracted?: (event: UserInteractedEvent) => void;
   onGroupCapped?: (event: GroupCappedEvent) => void;
+  onComponentEvent?: (event: ComponentEvent) => void;
   onEvent?: (event: TaleartEvent) => void;
 }
 

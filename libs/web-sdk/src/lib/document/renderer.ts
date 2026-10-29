@@ -8,8 +8,10 @@ import {
 } from '@taleart/contract';
 import { defaultTranslate, type Translate } from '../i18n';
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
-import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
+import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type ComponentFire, type RenderContext } from './media';
+import { COUNTDOWN_STYLES, renderCountdown } from './countdown';
 import { POLL_STYLES, renderPoll } from './poll';
+import { PROMO_STYLES, renderPromoCode } from './promo-code';
 import { renderQuiz } from './quiz';
 import { RATING_STYLES, renderRating } from './rating';
 import { renderEmoji, renderShape } from './shapes';
@@ -34,6 +36,8 @@ const RENDERERS: { readonly [K in TaleElementType]: ElementRenderer } = {
   poll: renderPoll,
   rating: renderRating,
   quiz: renderQuiz,
+  countdown: renderCountdown,
+  'promo-code': renderPromoCode,
 };
 
 /**
@@ -146,7 +150,7 @@ export const DOCUMENT_STYLES = `
   -webkit-user-select: text;
   -webkit-touch-callout: default;
 }
-${POLL_STYLES}${RATING_STYLES}`;
+${POLL_STYLES}${RATING_STYLES}${COUNTDOWN_STYLES}${PROMO_STYLES}`;
 
 const warned = new Set<string>();
 
@@ -186,6 +190,8 @@ export interface DocumentRenderOptions {
   responses?: RenderContext['responses'];
   /** Told when the visitor activates a link of the tale, before it navigates; returning false stops it (see `RenderContext`). */
   onAction?: RenderContext['onAction'];
+  /** Told when a component of the tale does something (components, 2026-10-29); left out, nothing is reported. */
+  onComponentEvent?: (event: ComponentFire) => void;
   /** The strings the document's elements show or announce, in the page's locale (see `i18n.ts`); English when left out. */
   t?: Translate;
 }
@@ -231,6 +237,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   if (options.inertLinks) context.inertLinks = true;
   if (options.responses) context.responses = options.responses;
   if (options.onAction) context.onAction = options.onAction;
+  if (options.onComponentEvent) context.onComponentEvent = options.onComponentEvent;
   const media = backgroundMedia(doc, context.reducedMotion);
   // A media background paints its band colour with it, over the tale's media too.
   if ((options.background || media) && color) canvas.style.backgroundColor = color;

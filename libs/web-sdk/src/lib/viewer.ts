@@ -13,7 +13,7 @@ import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOptions } from './document/renderer';
 import type { ResponseClient } from './responses';
-import type { LinkAction } from './document/media';
+import type { ComponentFire, LinkAction } from './document/media';
 
 /** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
 export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
@@ -336,6 +336,11 @@ export interface TaleViewerOptions {
    * Returning false stops the navigation; left out, links navigate as always.
    */
   onAction?: (groupId: string, tale: number, action: LinkAction) => boolean;
+  /**
+   * Called when a component of a tale does something (components, 2026-10-29), with the group and the tale's
+   * index: a countdown ends, a promo code is copied. Left out, nothing is reported.
+   */
+  onComponentEvent?: (groupId: string, tale: number, event: ComponentFire) => void;
   /** Sends the visitor's responses to interactive components (epic interactive components R9); none records nothing. */
   responses?: ResponseClient;
   /** The viewer's strings, in the page's locale (see `i18n.ts`); English when left out. */
@@ -869,6 +874,9 @@ export class TaleViewer {
         t: this.t,
         ...(this.options.onAction && {
           onAction: (action: LinkAction) => this.options.onAction?.(this.groups[this.group].id, tale, action) ?? true,
+        }),
+        ...(this.options.onComponentEvent && {
+          onComponentEvent: (event: ComponentFire) => this.options.onComponentEvent?.(this.groups[this.group].id, tale, event),
         }),
         ...this.renderOptions,
       });

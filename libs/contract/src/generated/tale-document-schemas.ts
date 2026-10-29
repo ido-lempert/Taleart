@@ -1005,6 +1005,95 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
         }
       }
     }
+  },
+  {
+    "key": "countdown",
+    "label": "Countdown",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "CountdownElementProps",
+      "description": "The props of a Countdown: an optional title, the instant it ends in UTC, the text it shows from then on, and a light or dark theme. It shows days, hours, minutes and seconds left by the visitor's clock, ticking each second, and at and after `endsAt` the `endedText`. All text is plain, on one line, without control characters. A tale may hold several Countdowns.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "endsAt"
+      ],
+      "properties": {
+        "title": {
+          "description": "A short heading above the countdown; none when left out.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "endsAt": {
+          "description": "The instant the countdown ends, as ISO 8601 in UTC with a `Z`, such as `2026-12-31T21:00:00Z`. The server also checks that it is a real date and time.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$",
+          "maxLength": 40
+        },
+        "endedText": {
+          "description": "The text shown at and after `endsAt`; the SDK's \"ended\" string when left out.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "theme": {
+          "description": "`light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.",
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "key": "promo-code",
+    "label": "Promo code",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "PromoCodeElementProps",
+      "description": "The props of a Promo code: an optional title, the code itself, an optional note and a light or dark theme. The code shows in a chip with a Copy button, and it is visible to every visitor, so it is not a secret. All text is plain, on one line, without control characters. A tale may hold several Promo codes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "title": {
+          "description": "A short heading above the code; none when left out.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "code": {
+          "description": "The code visitors copy: 1 to 32 letters, digits, underscores or hyphens (`A-Z`, `a-z`, `0-9`, `_`, `-`).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "note": {
+          "description": "A short line under the code, such as its terms; none when left out.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+        },
+        "theme": {
+          "description": "`light` draws dark text on a light card; `dark` light text on a dark card. Light when left out.",
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      }
+    }
   }
 ];
 

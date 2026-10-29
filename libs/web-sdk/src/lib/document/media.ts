@@ -1,5 +1,6 @@
 import type { DeliveryTaleElement } from '@taleart/contract';
 import type { Translate } from '../i18n';
+import type { ComponentAction } from '../hooks';
 import type { ResponseClient } from '../responses';
 
 /** What a renderer knows about where it renders. */
@@ -29,6 +30,18 @@ export interface RenderContext {
    * it navigates. Returning false stops the navigation. Left out, links navigate as always.
    */
   onAction?: (action: LinkAction) => boolean;
+  /**
+   * Told when a component of the tale does something (components, 2026-10-29): a countdown ends, a promo code
+   * is copied, a visitor's answer is selected. The viewer adds the group and tale. Left out, nothing is reported.
+   */
+  onComponentEvent?: (event: ComponentFire) => void;
+}
+
+/** What a component reports to {@link RenderContext.onComponentEvent}: its type, what it did and with what. */
+export interface ComponentFire {
+  component: string;
+  action: ComponentAction;
+  value?: string;
 }
 
 /** Images that may move: a GIF, an animated WebP, an APNG or an animated AVIF. Under reduced motion they are drawn once. */
