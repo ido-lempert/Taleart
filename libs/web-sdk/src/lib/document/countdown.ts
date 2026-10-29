@@ -28,9 +28,17 @@ export const COUNTDOWN_STYLES = `
   gap: 1.2cqh;
   font-variant-numeric: tabular-nums;
 }
+/* A number is one line, two digits wide at most in its column: 3.2em of the card's size, capped by the canvas width
+   so four columns fit at 320 to 420 px wide. Digits take equal widths, so the numbers do not jiggle as they tick. */
 .ta-cd-unit { display: flex; flex-direction: column; align-items: center; min-width: 0; }
-.ta-cd-num { font-size: 3.2em; font-weight: 700; line-height: 1.1; }
-.ta-cd-label { font-size: 0.9em; opacity: 0.75; }
+.ta-cd-num {
+  font-size: min(7.68cqh, 11cqw);
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ta-cd-label { font-size: 0.9em; opacity: 0.75; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ta-cd-ended { margin: 0; font-size: 1.6em; font-weight: 700; }
 `;
 

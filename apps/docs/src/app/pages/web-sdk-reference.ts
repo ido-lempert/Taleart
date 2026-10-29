@@ -124,6 +124,11 @@ import { RouterLink } from '@angular/router';
       <code>fallback="message"</code> calls it.
     </p>
 
+    <p>
+      The props of a tale's elements, such as a countdown's <code>endsAt</code> or a promo code's <code>code</code>, are
+      set in Tale Studio, not on this element. Their types and limits are on the
+      <a routerLink="/interactive-components">Interactive components</a> page.
+    </p>
     <h2 id="init">Taleart.init options</h2>
     <p>
       <code>init(config)</code> sets the page's options, before or after the elements connect. Every option is

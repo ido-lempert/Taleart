@@ -1,7 +1,8 @@
 import type { DeliveryTaleElement } from '@taleart/contract';
 import { createTranslate } from '../i18n';
 import { renderCountdown, timeLeft } from './countdown';
-import { ELEMENT_RENDERERS } from './renderer';
+import { DOCUMENT_STYLES, ELEMENT_RENDERERS } from './renderer';
+import { COUNTDOWN_STYLES } from './countdown';
 
 // Components (2026-10-29): the countdown renderer; it ticks by the visitor's clock, reports its end once,
 // and draws nothing for an instant it cannot read.
@@ -174,5 +175,23 @@ describe('renderCountdown', () => {
     const node = renderCountdown(countdown({ endedText: '<img src=x>\u0007Over' }), { reducedMotion: false }) as HTMLElement;
     expect(node.querySelector('img')).toBeNull();
     expect(node.querySelector('.ta-cd-ended')?.textContent).toBe('<img src=x>Over');
+  });
+});
+
+describe('the countdown stylesheet', () => {
+  // jsdom does not lay out, so the rule is read from the injected stylesheet: a number stays on one line, with
+  // equal digit widths, and its size is capped by the canvas width (four columns at 320 px and up).
+  const ruleFor = (css: string, selector: string) => new RegExp(`${selector.replace('.', '\\.')} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+
+  it('keeps each number on one line, with tabular digits, sized by the canvas width', () => {
+    const rule = ruleFor(COUNTDOWN_STYLES, '.ta-cd-num');
+    expect(rule).toMatch(/white-space:\s*nowrap/);
+    expect(rule).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    expect(rule).toMatch(/font-size:\s*min\(7\.68cqh,\s*11cqw\)/);
+  });
+
+  it('is in the stylesheet every document is drawn with', () => {
+    expect(DOCUMENT_STYLES).toContain(COUNTDOWN_STYLES);
+    expect(DOCUMENT_STYLES).toMatch(/\.ta-cd-num \{[^}]*white-space:\s*nowrap/);
   });
 });

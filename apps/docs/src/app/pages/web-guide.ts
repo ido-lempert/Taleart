@@ -48,6 +48,23 @@ const FREQUENCY_SAMPLE = `<!-- Once per group in each browser, for every element
   });
 </script>`;
 
+const COMPONENT_SAMPLE = `import { init } from '${EXAMPLE_INSTALL.sdkUrl}';
+
+init({
+  hooks: {
+    onComponentEvent: (e) => {
+      // A countdown reached its end, or a visitor copied a promo code (e.value is the code).
+      if (e.component === 'countdown' && e.action === 'ended') analytics.track('countdown_ended', { group: e.groupId });
+      if (e.component === 'promo-code' && e.action === 'copied') analytics.track('promo_copied', { code: e.value });
+    },
+  },
+});`;
+
+const COMPONENT_DOM_SAMPLE = `document.querySelector('taleart-view').addEventListener('taleart:component-event', (e) => {
+  // The same payload as the hook: component, action, and value when there is one.
+  console.log(e.detail.component, e.detail.action, e.detail.value);
+});`;
+
 const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
 <!-- Give the element its height before it renders, so the page does not shift: -->
@@ -63,7 +80,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
     <h1 tabindex="-1">Web guide</h1>
     <p class="lede">
       This guide puts a TaleArt zone on a web page, step by step: the zone key, the script, the element, the options, the
-      hooks, a check on the test page, and two optional steps: a placeholder for a zone that cannot load, and a limit on how often a group shows. The full list of attributes, options, strings, hooks and events is in the
+      hooks, a check on the test page, and four optional steps: a placeholder for a zone that cannot load, a limit on how often a group shows, countdown and promo-code elements, and component events. The full list of attributes, options, strings, hooks and events is in the
       <a routerLink="/reference/web-sdk">Web SDK reference</a>.
     </p>
 
@@ -218,12 +235,27 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Load-failure placeholder"><code>{{ fallbackSample }}</code></pre>
         <figure>
           <img
-            src="/images/web-step-7-fallback.svg"
-            alt="Diagram of what a zone shows when it cannot be loaded: a child with slot fallback is shown if there is one; otherwise, with fallback message, the SDK's text and a Try again button; with neither, nothing renders."
-            width="640"
-            height="310"
+            src="/images/web-shot-failure-slot.png"
+            alt="A home page with the heading Home and a zone that cannot load. In the zone's place is a card with a yellow-to-violet gradient and the text Today's stories are on their way and Check back in a moment, the placeholder from the slot."
+            width="1120"
+            height="376"
           />
-          <figcaption>The placeholder rules, in order. A diagram, not a screenshot.</figcaption>
+          <figcaption>
+            A slot placeholder, a real screenshot of the SDK: the zone's key is refused, so the card of the page shows in
+            its place.
+          </figcaption>
+        </figure>
+        <figure>
+          <img
+            src="/images/web-shot-failure-message.png"
+            alt="The same home page with the zone set to fallback message: the text Stories could not be loaded. in the zone's place, and a Try again button below it."
+            width="1120"
+            height="416"
+          />
+          <figcaption>
+            <code>fallback="message"</code>, a real screenshot of the SDK with the same refused key: its text and a Try again
+            button.
+          </figcaption>
         </figure>
       </li>
 
@@ -248,12 +280,79 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Frequency cap"><code>{{ frequencySample }}</code></pre>
         <figure>
           <img
-            src="/images/web-step-8-frequency.svg"
-            alt="Diagram of the frequency cap: a viewer opens a group, the view is counted in local storage, and the cap is checked. Under the cap the group shows; over the cap it is left out and onGroupCapped fires."
-            width="640"
-            height="316"
+            src="/images/web-shot-frequency-before.png"
+            alt="A bar of three circles, each with a picture and a name under it: Morning, Afternoon and Evening. Nothing has been viewed yet."
+            width="1120"
+            height="284"
           />
-          <figcaption>How a group is counted and left out. A diagram, not a screenshot.</figcaption>
+          <figcaption>Before: three groups on the bar, with <code>frequency="once"</code>. A real screenshot of the SDK.</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="/images/web-shot-frequency-after.png"
+            alt="The same bar after a viewer opened the Morning group and the page was reloaded: the Morning circle is gone, and Afternoon and Evening remain."
+            width="1120"
+            height="284"
+          />
+          <figcaption>
+            After: the Morning group was viewed once, so it is left out. A real screenshot of the SDK, after a reload.
+          </figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <strong>Add a countdown or a promo code.</strong> Both are elements of a tale, in the Interactive group of Tale
+        Studio's palette. A countdown shows the days, hours, minutes and seconds to an instant in UTC, counted by the
+        visitor's own clock, and then its end text. A promo code shows a code with a Copy button. The code is visible to
+        every visitor, so it is not a secret. A tale may hold several of each.
+        <ol class="substeps">
+          <li>
+            In the tale's studio, add <em>Countdown</em> or <em>Promo code</em> from the palette, then set its end time
+            (UTC) or its code in the inspector. Every field and its limit is in the
+            <a routerLink="/interactive-components">Interactive components</a> page.
+          </li>
+          <li>
+            Check it on the test page or in the viewer: the countdown ticks each second, and the promo code has its Copy
+            button.
+          </li>
+        </ol>
+        <figure>
+          <img
+            src="/images/web-shot-countdown.png"
+            alt="A tale in the viewer at phone size: a sunset sale picture with a white card that reads Sale ends in, and the days, hours and minutes left: 2 days, 5 hours and 40 minutes."
+            width="780"
+            height="1400"
+          />
+          <figcaption>A countdown in the viewer, a real screenshot of the SDK with a sample tale.</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="/images/web-shot-promo.png"
+            alt="A tale in the viewer at phone size: a teal picture with a gift box, and a white card with the title Your welcome gift, the code SUMMER25 in a dashed chip, its note, and a Copy button."
+            width="780"
+            height="1400"
+          />
+          <figcaption>A promo code in the viewer, a real screenshot of the SDK, before anyone copies it.</figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <strong>Listen for component events.</strong> A countdown that ends and a promo code that is copied report a
+        component event: the component's type, the action and, for a copy, the code. Set the hook for every element with
+        <code>init</code>, or use the DOM event on one element. Poll, quiz and rating answers report one too, as
+        <code>selected</code>, alongside <code>onUserInteracted</code>.
+        <pre tabindex="0" role="region" aria-label="Component event hook"><code>{{ componentSample }}</code></pre>
+        <pre tabindex="0" role="region" aria-label="Component event DOM event"><code>{{ componentDomSample }}</code></pre>
+        <figure>
+          <img
+            src="/images/web-shot-promo-copied.png"
+            alt="The promo code card after a visitor pressed Copy: the code SUMMER25 in its chip, and the status under the button, Copied. The viewer's header at the top names the group, Welcome gift."
+            width="780"
+            height="1400"
+          />
+          <figcaption>
+            After Copy, a real screenshot of the SDK: the status reads Copied, and the hook has fired with the code.
+          </figcaption>
         </figure>
       </li>
     </ol>
@@ -277,4 +376,6 @@ export class WebGuidePage {
   protected readonly testPageSample = DOCS_TEST_PAGE_WITH_KEY;
   protected readonly fallbackSample = FALLBACK_SAMPLE;
   protected readonly frequencySample = FREQUENCY_SAMPLE;
+  protected readonly componentSample = COMPONENT_SAMPLE;
+  protected readonly componentDomSample = COMPONENT_DOM_SAMPLE;
 }

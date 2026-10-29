@@ -34,12 +34,12 @@ import { RouterLink } from '@angular/router';
           <tr>
             <td>ES module build (<code>index.js</code>), gzipped</td>
             <td>50 KB</td>
-            <td>35.32 KB</td>
+            <td>35.49 KB</td>
           </tr>
           <tr>
             <td>UMD build (<code>index.umd.cjs</code>), gzipped</td>
             <td>50 KB</td>
-            <td>32.25 KB</td>
+            <td>32.41 KB</td>
           </tr>
           <tr>
             <td>Script requests per page</td>

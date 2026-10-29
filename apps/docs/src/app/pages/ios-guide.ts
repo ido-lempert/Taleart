@@ -218,6 +218,7 @@ import {
         <li>{{ line }}</li>
       }
     </ul>
+    <p>Interactive components, such as the countdown and the promo code, are not rendered by the native SDKs yet.</p>
     <p>
       The Web SDK sends these and the native SDK does not yet. The <a routerLink="/install">Install a zone</a> page
       covers the Web SDK.
