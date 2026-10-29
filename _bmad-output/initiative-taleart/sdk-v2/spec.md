@@ -27,3 +27,20 @@ publish only on owner go-ahead. Packages: npm `@lempert/taleart`, Maven `site.le
 Each also dispatched as bubbling DOM CustomEvent `taleart:<name>` (cancelable for action-clicked) on the element.
 Payload: { zoneKey prefix only, zone slug, group {id,name,index}, tale {id,index,title}, component {id,type,value}? }. Never the full key.
 Hook exceptions are caught and logged, never break the viewer.
+
+## Quick wins (2026-10-29)
+
+### QW1 Load-failure placeholder
+- Light-DOM child `<div slot="fallback">…</div>` of `<taleart-view>` is shown only when the zone load fails (shadow root gets `<slot name="fallback" hidden>`; the host gets `data-state="failed"` while failed, removed on success/reload).
+- Attribute `fallback="message"` (also `Taleart.init({ fallback: 'message' })`, element wins) shows the translated string `load.failed` ("Stories could not be loaded.") in the shadow root when no slotted child exists. Default `fallback="none"` renders nothing (today's behaviour).
+- Element method `retry()` reloads the zone. `onLoadFailed` payload unchanged.
+- New i18n key `load.failed` plus `load.retry` ("Try again"); `fallback="message"` shows a retry button calling `retry()`.
+
+### QW2 Size and speed budget page
+- Docs page `/reference/performance` with: budget table (gzipped size budget 50 KB, measured value from the real build, max requests = 1 script + 1 zone call, no third-party calls), loading rules (script once, async/defer, zone call after connect, lazy media), and how to verify. Measured numbers come from a generated file written by `libs/web-sdk/scripts/measure-budget.mjs` (gzip of the built ESM and UMD bundles) and a docs spec fails when the page and the file differ.
+
+### QW3 Frequency cap
+- Attribute `frequency` on `<taleart-view>` and `Taleart.init({ frequency })`; element wins. Values: `once` (hide a group after its first view), `daily` (at most one view per 24 h), `weekly` (one per 7 days), or a positive integer N (hide after N views, lifetime). Default none.
+- A "view" is a viewer open of that tale group (same moment the group is marked seen). Stored in local storage key `taleart.views` as `{ [groupId]: number[] }` (timestamps, newest last, max 50 per group, max 500 groups). Never sent to the server.
+- Groups over the cap are removed from the rendered display; if none remain the display renders nothing. Invalid value: ignored with one console warning.
+- Hook payload unchanged; `onEvent` gets a `groupCapped` event (`{groupId, rule}`) once per group per render.
