@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { request as httpRequest, type Server } from 'node:http';
+import { createServer as createHttpServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +39,9 @@ import {
   VISIBILITY_REASON_CODES,
   type ImportReport,
 } from '@taleart/contract';
+import { createInvitation, createProject, encryptSecret } from '@taleart/server-access';
+import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
+import type { RateLimitOptions } from './http/rate-limit';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import {
   clearDeliveryCache,
@@ -16012,7 +16015,8 @@ describe('Management API v1: projects and zones', () => {
           engagementRate: 66.7,
           ctr: 33.3,
         });
-        expect(body.groups).toEqual([
+        // The two groups tie on impressions and the query breaks the tie by group id (random): compare by name.
+        expect([...body.groups].sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name))).toEqual([
           {
             groupId: summer.id,
             name: 'Summer',
@@ -17100,7 +17104,7 @@ describe('Management API v1: API tokens for scripts (epic developer experience 1
 describe('Management API v1: sign-in methods (password sign-in, method settings, providers, reset links, account)', () => {
   let pool: Pool;
   let base = '';
-  let servers: Server[] = [];
+  const servers: Server[] = [];
   // Everything the process printed during a test: a secret must never be among it.
   let printed: string[] = [];
   let adminId = '';
@@ -17705,4 +17709,696 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
     expect((await gone.json()).error.code).toBe('last_sign_in_method');
     expect((await send('GET', '/auth/providers')).status).toBe(200);
   });
+});
+
+// Provider sign-in (sign-in methods, part 2): a fake OpenID Connect provider runs in this process and
+// signs real ID tokens; the API talks to it over localhost (http is allowed for localhost issuers).
+describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
+  const clientId = 'taleart-client';
+  const clientSecret = 'provider-client-secret-value';
+  const dashboard = 'http://localhost:4200';
+  const appleTeam = 'ABCDE12345';
+  const appleKeyId = 'KEYID12345';
+  const sessionKey = randomBytes(32);
+  type KeyPair = Awaited<ReturnType<typeof generateKeyPair>>;
+  let rsa: KeyPair;
+  let ec: KeyPair;
+  let wrong: KeyPair;
+  let applePem: string;
+  let applePublic: KeyPair['publicKey'];
+
+  // What the fake provider does for the next authorization: the claims and signature it gives.
+  interface Mode {
+    nonce?: string;
+    omitNonce?: boolean;
+    aud?: string;
+    iss?: string;
+    expiresIn?: number;
+    sub?: string;
+    email?: string | null;
+    emailVerified?: unknown;
+    signer?: 'rsa' | 'ec';
+    alg?: 'signed' | 'bad-signature' | 'none' | 'HS256';
+    issuerInDiscovery?: string;
+    redirectDiscovery?: string;
+    paddedDiscovery?: boolean;
+  }
+
+  interface Fake {
+    base: string;
+    mode: Mode;
+    secretCheck: 'plain' | 'apple';
+    close(): Promise<void>;
+  }
+
+  let fake: Fake;
+  let pool: Pool;
+  let server: Server | null;
+  let origin: string;
+  let adminSession: string;
+
+  function readBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve) => {
+      let text = '';
+      req.on('data', (chunk: Buffer) => (text += chunk.toString('utf8')));
+      req.on('end', () => resolve(text));
+    });
+  }
+
+  function sendJson(res: ServerResponse, status: number, body: unknown): void {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  }
+
+  // The claims of an ID token for the request that asked for it.
+  async function idTokenFor(base: string, params: URLSearchParams, mode: Mode): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    const claims: Record<string, unknown> = {
+      iss: mode.iss ?? base,
+      aud: mode.aud ?? clientId,
+      sub: mode.sub ?? 'provider-subject-1',
+      iat: now,
+      exp: now + (mode.expiresIn ?? 300),
+      nonce: mode.nonce ?? params.get('nonce') ?? undefined,
+      name: 'Provider Person',
+    };
+    if (mode.omitNonce) delete claims['nonce'];
+    if (mode.email !== null) {
+      claims['email'] = mode.email ?? 'person@example.com';
+      claims['email_verified'] = mode.emailVerified === undefined ? true : mode.emailVerified;
+    }
+    if (mode.alg === 'none') {
+      const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+      return `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.`;
+    }
+    if (mode.alg === 'HS256') {
+      return new SignJWT(claims).setProtectedHeader({ alg: 'HS256' }).sign(new TextEncoder().encode('s'.repeat(32)));
+    }
+    if (mode.signer === 'ec') {
+      return new SignJWT(claims).setProtectedHeader({ alg: 'ES256', kid: 'ec-1' }).sign(ec.privateKey);
+    }
+    const key = mode.alg === 'bad-signature' ? wrong.privateKey : rsa.privateKey;
+    return new SignJWT(claims).setProtectedHeader({ alg: 'RS256', kid: 'rsa-1' }).sign(key);
+  }
+
+  async function startFake(): Promise<Fake> {
+    const codes = new Map<string, { idToken: string; codeChallenge: string | null }>();
+    const fakeState = {
+      base: '',
+      mode: {} as Mode,
+      secretCheck: 'plain' as Fake['secretCheck'],
+    };
+    const http = createHttpServer(async (req, res) => {
+      const url = new URL(req.url ?? '/', fakeState.base);
+      if (url.pathname === '/.well-known/openid-configuration') {
+        if (fakeState.mode.redirectDiscovery) {
+          res.writeHead(302, { location: fakeState.mode.redirectDiscovery }).end();
+          return;
+        }
+        if (fakeState.mode.paddedDiscovery) {
+          sendJson(res, 200, { issuer: fakeState.base, padding: 'x'.repeat(300 * 1024) });
+          return;
+        }
+        sendJson(res, 200, {
+          issuer: fakeState.mode.issuerInDiscovery ?? fakeState.base,
+          authorization_endpoint: `${fakeState.base}/authorize`,
+          token_endpoint: `${fakeState.base}/token`,
+          jwks_uri: `${fakeState.base}/jwks`,
+        });
+        return;
+      }
+      if (url.pathname === '/jwks') {
+        sendJson(res, 200, {
+          keys: [
+            { ...(await exportJWK(rsa.publicKey)), kid: 'rsa-1', alg: 'RS256', use: 'sig' },
+            { ...(await exportJWK(ec.publicKey)), kid: 'ec-1', alg: 'ES256', use: 'sig' },
+          ],
+        });
+        return;
+      }
+      if (url.pathname === '/authorize') {
+        const code = randomUUID();
+        const idToken = await idTokenFor(fakeState.base, url.searchParams, fakeState.mode);
+        codes.set(code, { idToken, codeChallenge: url.searchParams.get('code_challenge') });
+        const redirect = new URL(url.searchParams.get('redirect_uri') ?? '');
+        redirect.searchParams.set('code', code);
+        redirect.searchParams.set('state', url.searchParams.get('state') ?? '');
+        res.writeHead(302, { location: redirect.toString() }).end();
+        return;
+      }
+      if (url.pathname === '/token') {
+        const form = new URLSearchParams(await readBody(req));
+        const entry = codes.get(form.get('code') ?? '');
+        codes.delete(form.get('code') ?? '');
+        const verifier = form.get('code_verifier') ?? '';
+        const pkce = createHash('sha256').update(verifier).digest('base64url');
+        if (!entry || entry.codeChallenge !== pkce || form.get('client_id') !== clientId) {
+          sendJson(res, 400, { error: 'invalid_grant' });
+          return;
+        }
+        const secret = form.get('client_secret') ?? '';
+        try {
+          if (fakeState.secretCheck === 'apple') {
+            await jwtVerify(secret, applePublic, { issuer: appleTeam, audience: 'https://appleid.apple.com', subject: clientId, algorithms: ['ES256'] });
+          } else if (secret !== clientSecret) {
+            throw new Error('wrong secret');
+          }
+        } catch {
+          sendJson(res, 401, { error: 'invalid_client' });
+          return;
+        }
+        sendJson(res, 200, { id_token: entry.idToken, token_type: 'Bearer' });
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', () => resolve()));
+    const port = (http.address() as AddressInfo).port;
+    fakeState.base = `http://127.0.0.1:${port}`;
+    return {
+      get base() {
+        return fakeState.base;
+      },
+      get mode() {
+        return fakeState.mode;
+      },
+      set mode(value: Mode) {
+        fakeState.mode = value;
+      },
+      get secretCheck() {
+        return fakeState.secretCheck;
+      },
+      set secretCheck(value: Fake['secretCheck']) {
+        fakeState.secretCheck = value;
+      },
+      close: () => new Promise<void>((resolve) => http.close(() => resolve())),
+    } as Fake;
+  }
+
+  // The API, with the fake as the Google and Apple issuers, and a flow limit that does not refuse tests.
+  function boot(extra: { allowHttpIssuer?: boolean; flowLimit?: RateLimitOptions | null } = {}): Promise<Server> {
+    const app = createApp(
+      pool,
+      loadFrameTypeRegistry(frameTypesDir),
+      new LocalDiskStorage(mediaDir),
+      {
+        verifier: fakeVerifier,
+        secretKey: sessionKey,
+        dashboardOrigin: dashboard,
+        allowHttpIssuer: extra.allowHttpIssuer ?? true,
+        presetIssuers: { google: fake.base, apple: fake.base },
+        providerFlowLimit: extra.flowLimit === undefined ? null : extra.flowLimit,
+      },
+      { publicApiUrl },
+      undefined,
+      undefined,
+      { rateLimit: null },
+    );
+    return new Promise((resolve) => {
+      const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
+    });
+  }
+
+  async function addProvider(slug: string, kind: 'oidc' | 'google' | 'apple', config: Record<string, string>, secret: string | null, enabled = true) {
+    const enc = secret === null ? null : encryptSecret(secret, sessionKey);
+    await pool.query(
+      'INSERT INTO auth_providers (slug, kind, display_name, enabled, config, secret_enc) VALUES ($1, $2, $3, $4, $5, $6)',
+      [slug, kind, slug, enabled, JSON.stringify(config), enc],
+    );
+  }
+
+  async function addIdentity(userId: string, provider: string, subject = 'provider-subject-1') {
+    await pool.query('INSERT INTO user_identities (user_id, provider, subject) VALUES ($1, $2, $3)', [userId, provider, subject]);
+  }
+
+  // The two halves of a flow: the start (the browser goes to the provider) and the callback (back).
+  async function start(slug: string, query: string, cookie?: string): Promise<Response> {
+    return globalThis.fetch(`${origin}/api/v1/auth/providers/${slug}/start?${query}`, {
+      redirect: 'manual',
+      headers: cookie ? { cookie } : {},
+    });
+  }
+
+  // The provider's own step: it signs the user in and redirects back with the code and state.
+  async function providerRedirect(startResponse: Response): Promise<{ code: string; state: string }> {
+    const toProvider = startResponse.headers.get('location');
+    if (!toProvider) throw new Error('start did not redirect to the provider');
+    const back = await globalThis.fetch(toProvider, { redirect: 'manual' });
+    const location = new URL(back.headers.get('location') ?? '');
+    return { code: location.searchParams.get('code') ?? '', state: location.searchParams.get('state') ?? '' };
+  }
+
+  function oauthCookie(res: Response): string {
+    for (const line of res.headers.getSetCookie()) {
+      const match = /^taleart_oauth=([^;]*)/.exec(line);
+      if (match) return `taleart_oauth=${match[1]}`;
+    }
+    return '';
+  }
+
+  // The cookies a browser would send: none at all when empty.
+  const cookieHeader = (cookies: string[]): Record<string, string> => {
+    const joined = cookies.filter(Boolean).join('; ');
+    return joined ? { cookie: joined } : {};
+  };
+
+  async function callback(slug: string, params: Record<string, string>, cookies: string[]): Promise<Response> {
+    const query = new URLSearchParams(params).toString();
+    return globalThis.fetch(`${origin}/api/v1/auth/callback/${slug}?${query}`, {
+      redirect: 'manual',
+      headers: cookieHeader(cookies),
+    });
+  }
+
+  async function callbackPost(slug: string, body: string, cookies: string[], contentType = 'application/x-www-form-urlencoded'): Promise<Response> {
+    return globalThis.fetch(`${origin}/api/v1/auth/callback/${slug}`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { 'content-type': contentType, ...cookieHeader(cookies) },
+      body,
+    });
+  }
+
+  const authError = (res: Response) => new URL(res.headers.get('location') ?? '', dashboard).searchParams.get('auth_error');
+  const signedIn = (res: Response) => res.headers.getSetCookie().some((line) => line.startsWith('taleart_session='));
+
+  // A full sign-in as a browser runs it: the start (with the session cookie, for a link), the provider,
+  // then the callback with only the Lax oauth cookie. Apple's form POST carries no cookie: it stores the
+  // code and the GET that resumes the flow is what completes the login. Returns the completing response.
+  async function signInFlow(slug: string, query: string, opts: { session?: string; apple?: boolean } = {}): Promise<Response> {
+    const startRes = await start(slug, query, opts.session);
+    const cookie = oauthCookie(startRes);
+    const { code, state } = await providerRedirect(startRes);
+    if (opts.apple) {
+      const posted = await callbackPost(slug, new URLSearchParams({ code, state }).toString(), []);
+      const resume = new URL(posted.headers.get('location') ?? '', origin);
+      return callback(slug, { state: resume.searchParams.get('state') ?? '', resume: '1' }, [cookie]);
+    }
+    return callback(slug, { code, state }, [cookie]);
+  }
+
+  beforeAll(async () => {
+    rsa = await generateKeyPair('RS256');
+    ec = await generateKeyPair('ES256');
+    wrong = await generateKeyPair('RS256');
+    const apple = await generateKeyPair('ES256', { extractable: true });
+    applePem = await exportPKCS8(apple.privateKey);
+    applePublic = apple.publicKey;
+    pool = createPool(testDatabaseUrl);
+    await migrate(pool);
+    fake = await startFake();
+  });
+
+  afterAll(async () => {
+    await fake.close();
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    fake.mode = {};
+    fake.secretCheck = 'plain';
+    await pool.query(
+      'TRUNCATE users, projects, auth_providers, auth_settings, auth_challenges CASCADE',
+    );
+    const admin = await createUser(pool, { name: 'Admin', email: 'admin@example.com', role: 'admin' });
+    adminSession = `taleart_session=${(await createSession(pool, admin.id)).token}`;
+    server = await boot();
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    server = null;
+  });
+
+  it('signs in a linked identity of a generic OpenID Connect provider and sets the session', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const user = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    await addIdentity(user.id, 'oidc:corp');
+
+    const startRes = await start('corp', 'purpose=sign-in');
+    expect(startRes.status).toBe(302);
+    const authorization = new URL(startRes.headers.get('location') ?? '');
+    expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(authorization.searchParams.get('scope')).toBe('openid email profile');
+    expect(authorization.searchParams.get('redirect_uri')).toBe(`${publicApiUrl}/api/v1/auth/callback/corp`);
+    const { code, state } = await providerRedirect(startRes);
+    const done = await callback('corp', { code, state }, [oauthCookie(startRes)]);
+    expect(done.status).toBe(302);
+    expect(done.headers.get('location')).toBe(`${dashboard}/`);
+    expect(signedIn(done)).toBe(true);
+    // The client secret never leaves the server.
+    expect(JSON.stringify([...done.headers.entries()])).not.toContain(clientSecret);
+  });
+
+  it('refuses a sign-in whose identity is not linked, with the generic code', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const done = await signInFlow('corp', 'purpose=sign-in');
+    expect(authError(done)).toBe('sign_in_failed');
+    expect(signedIn(done)).toBe(false);
+  });
+
+  it('creates the first admin with a verified provider email when setup is open (Google preset)', async () => {
+    await pool.query('DELETE FROM users');
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const done = await signInFlow('google', 'purpose=setup');
+    expect(signedIn(done)).toBe(true);
+    const { rows } = await pool.query<{ role: string; email: string }>('SELECT role, email FROM users');
+    expect(rows).toEqual([{ role: 'admin', email: 'person@example.com' }]);
+    const { rows: ids } = await pool.query<{ provider: string }>('SELECT provider FROM user_identities');
+    expect(ids).toEqual([{ provider: 'google' }]);
+  });
+
+  it('accepts an Apple email_verified given as the string "true" for setup', async () => {
+    await pool.query('DELETE FROM users');
+    fake.mode = { signer: 'ec', emailVerified: 'true' };
+    fake.secretCheck = 'apple';
+    await addProvider('apple', 'apple', { clientId, teamId: appleTeam, keyId: appleKeyId }, applePem);
+    const done = await signInFlow('apple', 'purpose=setup', { apple: true });
+    expect(signedIn(done)).toBe(true);
+    expect(authError(done)).toBeNull();
+  });
+
+  it('refuses setup once a user exists', async () => {
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const json = await start('google', 'purpose=setup&format=json');
+    expect(json.status).toBe(409);
+    expect((await json.json()).error.code).toBe('setup_closed');
+    const refused = await start('google', 'purpose=setup');
+    expect(authError(refused)).toBe('setup_closed');
+    expect(signedIn(refused)).toBe(false);
+  });
+
+  it('refuses setup with an unverified provider email', async () => {
+    await pool.query('DELETE FROM users');
+    fake.mode = { emailVerified: false };
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const done = await signInFlow('google', 'purpose=setup');
+    expect(authError(done)).toBe('email_not_verified');
+  });
+
+  it('joins through an invitation when the verified email is the invitation email (Google preset)', async () => {
+    const project = await createProject(pool, { name: 'Site' });
+    const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
+    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: admin.id });
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const query = `purpose=invitation&token=${invitation.token}&email=Person@Example.com`;
+    const done = await signInFlow('google', query);
+    expect(signedIn(done)).toBe(true);
+    const { rows } = await pool.query<{ role: string; email: string }>(
+      "SELECT role, email FROM users WHERE email = 'person@example.com'",
+    );
+    expect(rows).toEqual([{ role: 'content_manager', email: 'person@example.com' }]);
+    const { rows: members } = await pool.query('SELECT 1 FROM project_members pm JOIN users u ON u.id = pm.user_id WHERE u.email = $1', ['person@example.com']);
+    expect(members).toHaveLength(1);
+    const { rows: used } = await pool.query('SELECT used_at FROM invitations WHERE id = $1', [invitation.id]);
+    expect(used[0].used_at).not.toBeNull();
+  });
+
+  it('refuses an invitation when the verified email is not the invitation email', async () => {
+    const project = await createProject(pool, { name: 'Site' });
+    const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
+    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: admin.id });
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const done = await signInFlow('google', `purpose=invitation&token=${invitation.token}&email=someone.else@example.com`);
+    expect(authError(done)).toBe('email_mismatch');
+    expect(signedIn(done)).toBe(false);
+  });
+
+  it('refuses an invitation with an unverified provider email', async () => {
+    const project = await createProject(pool, { name: 'Site' });
+    const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
+    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: admin.id });
+    fake.mode = { emailVerified: 'false' };
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const done = await signInFlow('google', `purpose=invitation&token=${invitation.token}&email=person@example.com`);
+    expect(authError(done)).toBe('email_not_verified');
+  });
+
+  it('refuses an invitation link that is no longer valid', async () => {
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const json = await start('google', 'purpose=invitation&token=not-a-real-token&email=person@example.com&format=json');
+    expect(json.status).toBe(410);
+    expect((await json.json()).error.code).toBe('invitation_invalid');
+  });
+
+  it('attaches the provider to the signed-in user when linking, and refuses a link already attached to someone', async () => {
+    const member = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    const session = `taleart_session=${(await createSession(pool, member.id)).token}`;
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const linked = await signInFlow('google', 'purpose=link', { session });
+    expect(authError(linked)).toBeNull();
+    expect(signedIn(linked)).toBe(false);
+    const { rows } = await pool.query<{ user_id: string }>("SELECT user_id FROM user_identities WHERE provider = 'google'");
+    expect(rows).toEqual([{ user_id: member.id }]);
+
+    const other = await createUser(pool, { name: 'Other', email: 'other@example.com', role: 'content_manager' });
+    const otherSession = `taleart_session=${(await createSession(pool, other.id)).token}`;
+    const refused = await signInFlow('google', 'purpose=link', { session: otherSession });
+    expect(authError(refused)).toBe('identity_in_use');
+  });
+
+  it('refuses a link without a session at the start, and after its session is revoked before the callback', async () => {
+    const member = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    const session = `taleart_session=${(await createSession(pool, member.id)).token}`;
+    await addProvider('google', 'google', { clientId }, clientSecret);
+    const noSession = await start('google', 'purpose=link');
+    expect(noSession.status).toBe(302);
+    expect(authError(noSession)).toBe('session_required');
+
+    const startRes = await start('google', 'purpose=link', session);
+    const { code, state } = await providerRedirect(startRes);
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [member.id]);
+    const done = await callback('google', { code, state }, [oauthCookie(startRes)]);
+    expect(authError(done)).toBe('session_required');
+    const { rows } = await pool.query('SELECT 1 FROM user_identities WHERE user_id = $1', [member.id]);
+    expect(rows).toEqual([]);
+  });
+
+  it('signs in with Apple: client secret JWT, a cookieless form POST, then the resumed GET with the oauth cookie', async () => {
+    fake.mode = { signer: 'ec' };
+    fake.secretCheck = 'apple';
+    await addProvider('apple', 'apple', { clientId, teamId: appleTeam, keyId: appleKeyId }, applePem);
+    const user = await createUser(pool, { name: 'Apple User', email: 'relay@privaterelay.example', role: 'content_manager' });
+    await addIdentity(user.id, 'apple');
+    const startRes = await start('apple', 'purpose=sign-in');
+    expect(new URL(startRes.headers.get('location') ?? '').searchParams.get('response_mode')).toBe('form_post');
+    expect(new URL(startRes.headers.get('location') ?? '').searchParams.get('scope')).toBe('name email');
+    const { code, state } = await providerRedirect(startRes);
+    const posted = await callbackPost('apple', new URLSearchParams({ code, state }).toString(), []);
+    expect(posted.status).toBe(303);
+    expect(posted.headers.getSetCookie()).toEqual([]);
+    const resume = new URL(posted.headers.get('location') ?? '', origin);
+    expect(resume.pathname).toBe('/api/v1/auth/callback/apple');
+    expect(resume.searchParams.get('resume')).toBe('1');
+    expect(resume.searchParams.get('code')).toBeNull();
+    const done = await callback('apple', { state, resume: '1' }, [oauthCookie(startRes)]);
+    expect(done.status).toBe(302);
+    expect(signedIn(done)).toBe(true);
+    expect(done.headers.get('location')).toBe(`${dashboard}/`);
+  });
+
+  it('resumes a form POST only with the oauth cookie, ignores a code in the resume query, and uses the stored code once', async () => {
+    fake.mode = { signer: 'ec' };
+    fake.secretCheck = 'apple';
+    await addProvider('apple', 'apple', { clientId, teamId: appleTeam, keyId: appleKeyId }, applePem);
+    const user = await createUser(pool, { name: 'Apple User', email: 'relay@privaterelay.example', role: 'content_manager' });
+    await addIdentity(user.id, 'apple');
+    const startRes = await start('apple', 'purpose=sign-in');
+    const cookie = oauthCookie(startRes);
+    const { code, state } = await providerRedirect(startRes);
+    const posted = await callbackPost('apple', new URLSearchParams({ code, state }).toString(), []);
+    expect(posted.status).toBe(303);
+    // The resume without the oauth cookie is refused, and the challenge is left for the browser that has it.
+    const noCookie = await callback('apple', { state, resume: '1' }, []);
+    expect(authError(noCookie)).toBe('sign_in_failed');
+    expect(signedIn(noCookie)).toBe(false);
+    // A code in the resume query is never read: the stored code completes the login.
+    const resumed = await callback('apple', { state, resume: '1', code: 'forged-code' }, [cookie]);
+    expect(signedIn(resumed)).toBe(true);
+    // The challenge and its stored code are gone: a second resume is refused.
+    const { rows } = await pool.query('SELECT 1 FROM auth_challenges WHERE challenge = $1', [state]);
+    expect(rows).toEqual([]);
+    expect(authError(await callback('apple', { state, resume: '1' }, [cookie]))).toBe('sign_in_failed');
+  });
+
+  it('stores a form POST code once per open state, and refuses an unknown state', async () => {
+    await addProvider('apple', 'apple', { clientId, teamId: appleTeam, keyId: appleKeyId }, applePem);
+    const startRes = await start('apple', 'purpose=sign-in');
+    const { code, state } = await providerRedirect(startRes);
+    const form = new URLSearchParams({ code, state }).toString();
+    const first = await callbackPost('apple', form, []);
+    expect(first.status).toBe(303);
+    expect(first.headers.get('location')).toContain('resume=1');
+    const again = await callbackPost('apple', form, []);
+    expect(authError(again)).toBe('sign_in_failed');
+    const unknown = await callbackPost('apple', new URLSearchParams({ code, state: 'no-such-state' }).toString(), []);
+    expect(authError(unknown)).toBe('sign_in_failed');
+  });
+
+  it('refuses a form callback of another content type or an oversized body', async () => {
+    await addProvider('apple', 'apple', { clientId, teamId: appleTeam, keyId: appleKeyId }, applePem);
+    const startRes = await start('apple', 'purpose=sign-in');
+    const { code, state } = await providerRedirect(startRes);
+    const wrongType = await callbackPost('apple', JSON.stringify({ code, state }), [], 'application/json');
+    expect(authError(wrongType)).toBe('sign_in_failed');
+    const big = await callbackPost('apple', `code=${'a'.repeat(20 * 1024)}&state=${state}`, []);
+    expect(authError(big)).toBe('sign_in_failed');
+  });
+
+  it('refuses a wrong state, a reused state, a missing or mismatched cookie, and an expired challenge', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const user = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    await addIdentity(user.id, 'oidc:corp');
+
+    const wrongState = await start('corp', 'purpose=sign-in');
+    const a = await providerRedirect(wrongState);
+    expect(authError(await callback('corp', { code: a.code, state: 'tampered' }, [oauthCookie(wrongState)]))).toBe('sign_in_failed');
+
+    const reused = await start('corp', 'purpose=sign-in');
+    const b = await providerRedirect(reused);
+    expect(signedIn(await callback('corp', { code: b.code, state: b.state }, [oauthCookie(reused)]))).toBe(true);
+    expect(authError(await callback('corp', { code: b.code, state: b.state }, [oauthCookie(reused)]))).toBe('sign_in_failed');
+
+    const noCookie = await start('corp', 'purpose=sign-in');
+    const c = await providerRedirect(noCookie);
+    expect(authError(await callback('corp', { code: c.code, state: c.state }, []))).toBe('sign_in_failed');
+
+    const other = await start('corp', 'purpose=sign-in');
+    const otherCookie = oauthCookie(other);
+    const mismatched = await start('corp', 'purpose=sign-in');
+    const d = await providerRedirect(mismatched);
+    expect(authError(await callback('corp', { code: d.code, state: d.state }, [otherCookie]))).toBe('sign_in_failed');
+
+    const expired = await start('corp', 'purpose=sign-in');
+    const e = await providerRedirect(expired);
+    await pool.query("UPDATE auth_challenges SET expires_at = now() - interval '1 second' WHERE kind = 'oauth'");
+    expect(authError(await callback('corp', { code: e.code, state: e.state }, [oauthCookie(expired)]))).toBe('sign_in_failed');
+  });
+
+  it('refuses a token whose nonce, audience, issuer, expiry, signature or algorithm is wrong', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const user = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    await addIdentity(user.id, 'oidc:corp');
+    const cases: Mode[] = [
+      { nonce: 'not-the-nonce' },
+      { omitNonce: true },
+      { aud: 'another-client' },
+      { iss: 'https://evil.example' },
+      { expiresIn: -600 },
+      { alg: 'bad-signature' },
+      { alg: 'none' },
+      { alg: 'HS256' },
+    ];
+    for (const mode of cases) {
+      fake.mode = mode;
+      const done = await signInFlow('corp', 'purpose=sign-in');
+      expect(authError(done), JSON.stringify(mode)).toBe('sign_in_failed');
+      expect(signedIn(done), JSON.stringify(mode)).toBe(false);
+    }
+  });
+
+  it('refuses a discovery whose issuer differs from the configured one', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    fake.mode = { issuerInDiscovery: `${fake.base}/elsewhere` };
+    const json = await start('corp', 'purpose=sign-in&format=json');
+    expect(json.status).toBe(503);
+    expect((await json.json()).error.code).toBe('discovery_failed');
+    const test = await adminPost('/api/v1/auth/providers/corp/test');
+    expect(await test.json()).toEqual({ ok: false, code: 'discovery_failed' });
+  });
+
+  it('refuses a discovery that redirects to another host, or is larger than 256 KB', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    fake.mode = { redirectDiscovery: 'https://example.com/.well-known/openid-configuration' };
+    expect(await (await adminPost('/api/v1/auth/providers/corp/test')).json()).toEqual({ ok: false, code: 'discovery_failed' });
+    fake.mode = { paddedDiscovery: true };
+    expect(await (await adminPost('/api/v1/auth/providers/corp/test')).json()).toEqual({ ok: false, code: 'discovery_failed' });
+  });
+
+  it('refuses an http issuer when http issuers are not allowed, and accepts the localhost one when they are', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    server = await boot({ allowHttpIssuer: false });
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    expect(await (await adminPost('/api/v1/auth/providers/corp/test')).json()).toEqual({ ok: false, code: 'discovery_failed' });
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    server = await boot({ allowHttpIssuer: true });
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const ok = await (await adminPost('/api/v1/auth/providers/corp/test')).json();
+    expect(ok.ok).toBe(true);
+    expect(ok.issuer).toBe(fake.base);
+    expect(ok.endpoints.token).toBe(`${fake.base}/token`);
+  });
+
+  it('refuses sign-in with a disabled provider, or one with no stored secret, with the same generic code', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, null, true);
+    const noSecret = await start('corp', 'purpose=sign-in&format=json');
+    expect(noSecret.status).toBe(401);
+    expect((await noSecret.json()).error.code).toBe('sign_in_failed');
+    await pool.query("UPDATE auth_providers SET secret_enc = $1 WHERE slug = 'corp'", [encryptSecret(clientSecret, sessionKey)]);
+    await pool.query("UPDATE auth_providers SET enabled = false WHERE slug = 'corp'");
+    const off = await start('corp', 'purpose=sign-in&format=json');
+    expect(off.status).toBe(401);
+    expect((await off.json()).error.code).toBe('sign_in_failed');
+  });
+
+  it('never lets an API token reach the provider routes', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const headers = { authorization: 'Bearer taleart_pat_not_a_session' };
+    const start1 = await globalThis.fetch(`${origin}/api/v1/auth/providers/corp/start?purpose=sign-in`, { redirect: 'manual', headers });
+    expect(start1.status).toBe(403);
+    const cb = await globalThis.fetch(`${origin}/api/v1/auth/callback/corp?code=x&state=y`, { redirect: 'manual', headers });
+    expect(cb.status).toBe(403);
+    const test = await globalThis.fetch(`${origin}/api/v1/auth/providers/corp/test`, { method: 'POST', headers });
+    expect(test.status).toBe(403);
+  });
+
+  it('answers the admin Test button for admins only', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const member = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    const memberSession = `taleart_session=${(await createSession(pool, member.id)).token}`;
+    const denied = await globalThis.fetch(`${origin}/api/v1/auth/providers/corp/test`, { method: 'POST', headers: { cookie: memberSession } });
+    expect(denied.status).toBe(403);
+    const ok = await adminPost('/api/v1/auth/providers/corp/test');
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).ok).toBe(true);
+  });
+
+  it('applies the per-address limit to starts and callbacks', async () => {
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    server = await boot({ flowLimit: { burst: 2, perSecond: 0.001 } });
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    expect((await start('corp', 'purpose=sign-in')).status).toBe(302);
+    expect((await start('corp', 'purpose=sign-in')).status).toBe(302);
+    const limited = await start('corp', 'purpose=sign-in&format=json');
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).not.toBeNull();
+  });
+
+  it('keeps the state, nonce, PKCE verifier and every secret out of the responses', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const user = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    await addIdentity(user.id, 'oidc:corp');
+    const json = await start('corp', 'purpose=sign-in&format=json');
+    const body = await json.json();
+    expect(typeof body.authorizationUrl).toBe('string');
+    const nav = await start('corp', 'purpose=sign-in');
+    const { code, state } = await providerRedirect(nav);
+    const done = await callback('corp', { code, state }, [oauthCookie(nav)]);
+    expect(signedIn(done)).toBe(true);
+    const everything = JSON.stringify(body) + JSON.stringify([...done.headers.entries()]) + (await done.text());
+    expect(everything).not.toContain(clientSecret);
+    expect(everything).not.toContain('id_token');
+    const list = await globalThis.fetch(`${origin}/api/v1/auth/providers`, { headers: { cookie: adminSession } });
+    const providers = await list.json();
+    expect(JSON.stringify(providers)).not.toContain(clientSecret);
+    expect(providers[0].hasSecret).toBe(true);
+  });
+
+  // An admin's request with the admin session cookie.
+  function adminPost(path: string): Promise<Response> {
+    return globalThis.fetch(`${origin}${path}`, { method: 'POST', headers: { cookie: adminSession } });
+  }
 });

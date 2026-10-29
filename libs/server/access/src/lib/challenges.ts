@@ -5,7 +5,7 @@ export const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type ChallengePurpose = 'setup' | 'sign-in' | 'invitation';
+export type ChallengePurpose = 'setup' | 'sign-in' | 'invitation' | 'oauth';
 
 /** A pending challenge, with what the flow stored next to it. */
 export interface PendingChallenge {

@@ -29,6 +29,11 @@ export interface ProviderContext {
   publicApiUrl: string;
   /** True outside production: an issuer may then be http on localhost (spec). */
   allowHttpIssuer: boolean;
+  /**
+   * Issuers of the presets, for tests only: a fake provider on localhost stands in for Google or Apple.
+   * Never set from the environment; the defaults are the real issuers.
+   */
+  presetIssuers?: Partial<Record<'google' | 'apple', string>>;
 }
 
 interface ProviderRow {

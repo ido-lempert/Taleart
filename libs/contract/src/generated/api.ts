@@ -523,6 +523,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/providers/{slug}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Start a sign-in with a provider (OpenID Connect, Google or Apple).
+         * @description Works without a session, except `purpose=link`, which needs one. Sets the `taleart_oauth` cookie (http-only, SameSite=Lax, path `/api/v1/auth`, 10 minutes), then redirects the browser to the provider (302). With `format=json` it answers `{ authorizationUrl }` instead. The provider must be enabled, have its secret stored and the server must have its key; otherwise, and for an unknown slug, the same refusal: 401 `sign_in_failed`. `purpose`: `sign-in` (the identity must already be linked), `setup` (only while no user exists), `invitation` (with `token` and the invitee's `email`; the verified email must equal it), `link` (attaches the provider to the signed-in user). A failed start redirects to the dashboard with `?auth_error=<code>` unless `format=json`. The redirect URI is `<PUBLIC_API_URL>/api/v1/auth/callback/<slug>`.
+         */
+        get: operations["startProviderSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/callback/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The redirect back from a provider.
+         * @description Works without a session (the `taleart_oauth` cookie must be sent, and the state must match it). The challenge is single use. Success sets the session cookie (for sign-in, setup and invitation) and redirects to the dashboard. A refusal redirects to the dashboard with `?auth_error=<code>`, one of the provider codes; the provider's own error text is never passed on. Responses are not cached.
+         */
+        get: operations["finishProviderSignIn"];
+        put?: never;
+        /**
+         * The form-posted redirect back from a provider (Apple, `response_mode=form_post`).
+         * @description Content type `application/x-www-form-urlencoded`, at most 16 KB; any other content type, or a larger body, redirects to the dashboard with `?auth_error=sign_in_failed`. Otherwise as the GET callback. Browsers send the `SameSite=Lax` cookie on a cross-site POST only where they allow it.
+         */
+        post: operations["postProviderSignInCallback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/providers/{slug}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the provider's discovery and report what it found.
+         * @description Admins only. Runs the discovery of the provider's issuer (with the same checks as a sign-in: exact issuer, https except localhost, 5 s, 256 KB, no redirects). Answers 200 either way: `ok: true` with the issuer and endpoints, or `ok: false` with a short `code`. The secret is not used.
+         */
+        post: operations["testAuthProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api-tokens": {
         parameters: {
             query?: never;
@@ -2898,6 +2971,20 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        ProviderTestResult: {
+            ok: boolean;
+            /** @description The issuer the discovery document names, when ok is true. */
+            issuer?: string;
+            endpoints?: {
+                /** Format: uri */
+                authorization: string;
+                /** Format: uri */
+                token: string;
+                /** Format: uri */
+                jwks: string;
+            };
+            code?: components["schemas"]["ErrorCode"];
+        };
         SaveAuthProviderRequest: {
             displayName: string;
             enabled: boolean;
@@ -3197,7 +3284,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -4308,6 +4395,136 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PasswordResetLink"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    startProviderSignIn: {
+        parameters: {
+            query: {
+                purpose: "sign-in" | "setup" | "invitation" | "link";
+                /** @description The invitation token (purpose `invitation`). */
+                token?: string;
+                /** @description The invitee's email (purpose `invitation`); the verified provider email must equal it. */
+                email?: string;
+                format?: "json";
+            };
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description With `format=json`, the URL to send the browser to. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        authorizationUrl: string;
+                    };
+                };
+            };
+            /** @description The provider's authorization page, or the dashboard with `?auth_error=<code>`. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            410: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    finishProviderSignIn: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The dashboard, with `?auth_error=<code>` on a refusal. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    postProviderSignInCallback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    code?: string;
+                    state?: string;
+                    id_token?: string;
+                    user?: string;
+                    error?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The dashboard, with `?auth_error=<code>` on a refusal. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    testAuthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The discovery result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderTestResult"];
                 };
             };
             403: components["responses"]["Error"];
@@ -6646,6 +6863,8 @@ type ReadonlyArray<T> = [
 ] extends [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
+export const pathsAuthProvidersSlugStartGetParametersQueryPurposeValues: ReadonlyArray<FlattenedDeepRequired<paths>["/auth/providers/{slug}/start"]["get"]["parameters"]["query"]["purpose"]> = ["sign-in", "setup", "invitation", "link"];
+export const pathsAuthProvidersSlugStartGetParametersQueryFormatValues: ReadonlyArray<FlattenedDeepRequired<paths>["/auth/providers/{slug}/start"]["get"]["parameters"]["query"]["format"]> = ["json"];
 export const pathsProjectsProjectIdFontsPostParametersQueryWeightValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["weight"]> = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["style"]> = ["normal", "italic"];
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
@@ -6679,7 +6898,7 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];

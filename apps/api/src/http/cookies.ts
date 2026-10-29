@@ -27,16 +27,18 @@ export interface CookieOptions {
   maxAge: number;
   path: string;
   secure: boolean;
+  /** SameSite=Strict unless told otherwise (the provider flow's cookie is Lax, so the provider's redirect carries it). */
+  sameSite?: 'Strict' | 'Lax';
 }
 
-/** Appends an http-only, SameSite=Strict cookie to the response. */
+/** Appends an http-only cookie (SameSite=Strict by default) to the response. */
 export function setCookie(res: express.Response, name: string, value: string, options: CookieOptions): void {
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
     `Path=${options.path}`,
     `Max-Age=${Math.max(0, Math.floor(options.maxAge))}`,
     'HttpOnly',
-    'SameSite=Strict',
+    `SameSite=${options.sameSite ?? 'Strict'}`,
   ];
   if (options.maxAge <= 0) parts.push('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
   if (options.secure) parts.push('Secure');

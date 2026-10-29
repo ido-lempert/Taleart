@@ -118,6 +118,27 @@ export {
 } from './lib/passkey-verifier';
 export { CHALLENGE_TTL_MS } from './lib/challenges';
 export {
+  OAUTH_TTL_MS,
+  startProviderLogin,
+  completeProviderLogin,
+  recordProviderCallback,
+  testProvider,
+  redirectUriFor,
+  type ProviderFlow,
+  type ProviderLoginResult,
+  type ProviderTestResult,
+} from './lib/providerLogin';
+export {
+  OIDC_TIMEOUT_MS,
+  OIDC_MAX_BYTES,
+  ID_TOKEN_ALGORITHMS,
+  JWKS_CACHE_MS,
+  discover,
+  providerUrl,
+} from './lib/oidc';
+export { ProviderAuthError } from './lib/errors';
+export { checkProviderSlug } from './lib/providers';
+export {
   SESSION_TTL_MS,
   createSession,
   findSessionUser,

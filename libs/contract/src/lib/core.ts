@@ -197,6 +197,29 @@ export const SESSION_COOKIE = 'taleart_session';
 /** The http-only cookie that finds a pending passkey challenge on the server. */
 export const CHALLENGE_COOKIE = 'taleart_challenge';
 
+/** The http-only cookie that binds an external provider sign-in to this browser (spec: taleart_oauth). */
+export const OAUTH_COOKIE = 'taleart_oauth';
+
+/**
+ * The short codes an external provider sign-in ends with, in the redirect to the dashboard
+ * (`?auth_error=<code>`) and as the code of a refused start. Never provider text.
+ */
+export const PROVIDER_AUTH_ERROR_CODES = [
+  'sign_in_failed',
+  'email_not_verified',
+  'email_mismatch',
+  'email_taken',
+  'setup_closed',
+  'invitation_invalid',
+  'identity_in_use',
+  'session_required',
+  'discovery_failed',
+  'provider_unavailable',
+] as const;
+
+/** One of {@link PROVIDER_AUTH_ERROR_CODES}. */
+export type ProviderAuthErrorCode = (typeof PROVIDER_AUTH_ERROR_CODES)[number];
+
 /** How long an invitation link can be used. */
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -809,6 +832,12 @@ export const ErrorCodes = {
   signInLockout: 'sign_in_lockout',
   secretKeyMissing: 'secret_key_missing',
   providerNotFound: 'provider_not_found',
+  identityInUse: 'identity_in_use',
+  emailNotVerified: 'email_not_verified',
+  emailMismatch: 'email_mismatch',
+  sessionRequired: 'session_required',
+  discoveryFailed: 'discovery_failed',
+  providerUnavailable: 'provider_unavailable',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

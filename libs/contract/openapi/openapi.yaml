@@ -819,6 +819,176 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /auth/providers/{slug}/start:
+    parameters:
+      - $ref: '#/components/parameters/ProviderSlug'
+    get:
+      tags:
+        - Sign-in methods
+      operationId: startProviderSignIn
+      summary: Start a sign-in with a provider (OpenID Connect, Google or Apple).
+      description: >-
+        Works without a session, except `purpose=link`, which needs one. Sets the
+        `taleart_oauth` cookie (http-only, SameSite=Lax, path `/api/v1/auth`, 10
+        minutes), then redirects the browser to the provider (302). With
+        `format=json` it answers `{ authorizationUrl }` instead. The provider must be
+        enabled, have its secret stored and the server must have its key; otherwise,
+        and for an unknown slug, the same refusal: 401 `sign_in_failed`. `purpose`:
+        `sign-in` (the identity must already be linked), `setup` (only while no user
+        exists), `invitation` (with `token` and the invitee's `email`; the verified
+        email must equal it), `link` (attaches the provider to the signed-in user). A
+        failed start redirects to the dashboard with `?auth_error=<code>` unless
+        `format=json`. The redirect URI is `<PUBLIC_API_URL>/api/v1/auth/callback/<slug>`.
+      security: []
+      parameters:
+        - name: purpose
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [sign-in, setup, invitation, link]
+        - name: token
+          in: query
+          required: false
+          description: The invitation token (purpose `invitation`).
+          schema:
+            type: string
+            maxLength: 200
+        - name: email
+          in: query
+          required: false
+          description: The invitee's email (purpose `invitation`); the verified provider email must equal it.
+          schema:
+            type: string
+            format: email
+            maxLength: 320
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [json]
+      responses:
+        '200':
+          description: With `format=json`, the URL to send the browser to.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl]
+                properties:
+                  authorizationUrl:
+                    type: string
+                    format: uri
+        '302':
+          description: The provider's authorization page, or the dashboard with `?auth_error=<code>`.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/callback/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/ProviderSlug'
+    get:
+      tags:
+        - Sign-in methods
+      operationId: finishProviderSignIn
+      summary: The redirect back from a provider.
+      description: >-
+        Works without a session (the `taleart_oauth` cookie must be sent, and the
+        state must match it). The challenge is single use. Success sets the session
+        cookie (for sign-in, setup and invitation) and redirects to the dashboard. A
+        refusal redirects to the dashboard with `?auth_error=<code>`, one of the
+        provider codes; the provider's own error text is never passed on. Responses
+        are not cached.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: The dashboard, with `?auth_error=<code>` on a refusal.
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+        - Sign-in methods
+      operationId: postProviderSignInCallback
+      summary: The form-posted redirect back from a provider (Apple, `response_mode=form_post`).
+      description: >-
+        Content type `application/x-www-form-urlencoded`, at most 16 KB; any other
+        content type, or a larger body, redirects to the dashboard with
+        `?auth_error=sign_in_failed`. Otherwise as the GET callback. Browsers send the
+        `SameSite=Lax` cookie on a cross-site POST only where they allow it.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+                id_token:
+                  type: string
+                user:
+                  type: string
+                error:
+                  type: string
+      responses:
+        '302':
+          description: The dashboard, with `?auth_error=<code>` on a refusal.
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/providers/{slug}/test:
+    parameters:
+      - $ref: '#/components/parameters/ProviderSlug'
+    post:
+      tags:
+        - Sign-in methods
+      operationId: testAuthProvider
+      summary: Run the provider's discovery and report what it found.
+      description: >-
+        Admins only. Runs the discovery of the provider's issuer (with the same
+        checks as a sign-in: exact issuer, https except localhost, 5 s, 256 KB, no
+        redirects). Answers 200 either way: `ok: true` with the issuer and endpoints,
+        or `ok: false` with a short `code`. The secret is not used.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The discovery result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderTestResult'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api-tokens:
     get:
       tags:
@@ -6121,6 +6291,30 @@ components:
         updatedAt:
           type: string
           format: date-time
+    ProviderTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        issuer:
+          type: string
+          description: The issuer the discovery document names, when ok is true.
+        endpoints:
+          type: object
+          required: [authorization, token, jwks]
+          properties:
+            authorization:
+              type: string
+              format: uri
+            token:
+              type: string
+              format: uri
+            jwks:
+              type: string
+              format: uri
+        code:
+          $ref: '#/components/schemas/ErrorCode'
     SaveAuthProviderRequest:
       type: object
       required: [displayName, enabled, config]
@@ -6752,6 +6946,12 @@ components:
         - sign_in_lockout
         - secret_key_missing
         - provider_not_found
+        - identity_in_use
+        - email_not_verified
+        - email_mismatch
+        - session_required
+        - discovery_failed
+        - provider_unavailable
         - internal_error
     ErrorBody:
       type: object

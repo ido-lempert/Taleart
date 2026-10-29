@@ -1,4 +1,4 @@
-import { ErrorCodes, MAX_API_TOKENS_PER_USER, type ErrorCode } from '@taleart/contract';
+import { ErrorCodes, MAX_API_TOKENS_PER_USER, type ErrorCode, type ProviderAuthErrorCode } from '@taleart/contract';
 
 /** Thrown when setup is attempted after a user exists. */
 export class SetupClosedError extends Error {
@@ -204,5 +204,29 @@ export class ProviderNotFoundError extends SignInRefusal {
 export class SignInItemNotFoundError extends SignInRefusal {
   constructor(message: string) {
     super(404, ErrorCodes.notFound, message);
+  }
+}
+
+/** The status and message of each short code an external provider sign-in ends with (never provider text). */
+const PROVIDER_AUTH_ERRORS: Record<ProviderAuthErrorCode, { status: number; message: string }> = {
+  sign_in_failed: { status: 401, message: 'The sign-in with this provider did not succeed. Try again.' },
+  email_not_verified: { status: 403, message: 'The provider has not verified this email address' },
+  email_mismatch: { status: 403, message: 'The provider email does not match the invitation' },
+  email_taken: { status: 409, message: 'A user with this email already exists. Sign in instead.' },
+  setup_closed: { status: 409, message: 'TaleArt is already set up. Sign in instead.' },
+  invitation_invalid: { status: 410, message: 'This invitation is no longer valid. Ask an admin for a new link.' },
+  identity_in_use: { status: 409, message: 'This provider account is already linked to a TaleArt user' },
+  session_required: { status: 403, message: 'Sign in to link a provider to your account' },
+  discovery_failed: { status: 503, message: 'The provider could not be reached or its settings are not valid' },
+  provider_unavailable: { status: 503, message: 'The provider could not be reached. Try again later.' },
+};
+
+/**
+ * A refusal of an external provider sign-in (OpenID Connect, Google, Apple). The code is one of
+ * {@link PROVIDER_AUTH_ERROR_CODES}; the message is fixed text, never what the provider said.
+ */
+export class ProviderAuthError extends SignInRefusal {
+  constructor(readonly authCode: ProviderAuthErrorCode) {
+    super(PROVIDER_AUTH_ERRORS[authCode].status, authCode as ErrorCode, PROVIDER_AUTH_ERRORS[authCode].message);
   }
 }

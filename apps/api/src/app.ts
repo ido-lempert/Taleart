@@ -7,6 +7,7 @@ import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { authRouter } from './http/auth.router';
+import { providerLoginRouter } from './http/provider-login.router';
 import { signInMethodsRouter } from './http/sign-in-methods.router';
 import { apiTokensRouter, userApiTokensRouter } from './http/api-tokens.router';
 import { refuseAuthorizationHeader, requireCaller } from './http/credentials';
@@ -64,8 +65,15 @@ export interface AppAuth {
   allowHttpIssuer?: boolean;
   /** Password sign-in attempts allowed per address; the default when left out, off when null. */
   passwordAddressLimit?: RateLimitOptions | null;
+  /** Provider sign-in starts and callbacks allowed per address; the default when left out, off when null. */
+  providerFlowLimit?: RateLimitOptions | null;
   /** TALEART_SETUP_PASSWORD=true: the first admin may set up with a username and password. Off by default. */
   setupPassword?: boolean;
+  /**
+   * Tests only: the issuers the Google and Apple presets are discovered from, so a fake provider on
+   * localhost stands in for them. Never set from the environment; left out, the real issuers are used.
+   */
+  presetIssuers?: Partial<Record<'google' | 'apple', string>>;
 }
 
 /** How the Delivery API is limited. */
@@ -180,6 +188,20 @@ export function createApp(
       allowHttpIssuer: auth.allowHttpIssuer ?? process.env['NODE_ENV'] !== 'production',
       passwordAddressLimit: auth.passwordAddressLimit,
       setupPasswordAllowed: auth.setupPassword === true,
+    }),
+  );
+  // Provider sign-in (OpenID Connect, Google, Apple): the start, the callbacks and the admin's test.
+  v1.use(
+    '/auth',
+    refuseAuthorizationHeader,
+    providerLoginRouter(pool, {
+      secureCookies: auth.secureCookies ?? false,
+      dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200',
+      secretKey: auth.secretKey ?? null,
+      publicApiUrl,
+      allowHttpIssuer: auth.allowHttpIssuer ?? process.env['NODE_ENV'] !== 'production',
+      presetIssuers: auth.presetIssuers,
+      flowAddressLimit: auth.providerFlowLimit,
     }),
   );
   // Every other route, media included, needs a signed-in session or an API token acting as its user

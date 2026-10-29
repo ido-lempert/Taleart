@@ -68,7 +68,16 @@ export async function migrateAccess(db: Db): Promise<void> {
   await db.query(`
     ALTER TABLE auth_challenges
       DROP CONSTRAINT IF EXISTS auth_challenges_purpose_check,
-      ADD CONSTRAINT auth_challenges_purpose_check CHECK (purpose IN ('setup', 'sign-in', 'invitation'))
+      ADD CONSTRAINT auth_challenges_purpose_check CHECK (purpose IN ('setup', 'sign-in', 'invitation', 'oauth'))
+  `);
+
+  // External provider sign-ins (sign-in methods, spec) keep their state in this table too, as kind
+  // 'oauth'; passkey challenges are 'webauthn'. Both steps are idempotent.
+  await db.query(`ALTER TABLE auth_challenges ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'webauthn'`);
+  await db.query(`
+    ALTER TABLE auth_challenges
+      DROP CONSTRAINT IF EXISTS auth_challenges_kind_check,
+      ADD CONSTRAINT auth_challenges_kind_check CHECK (kind IN ('webauthn', 'oauth'))
   `);
 
   // Content managers reach only the projects they are members of; admins reach all (AD-4).
