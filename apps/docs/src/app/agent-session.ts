@@ -1,7 +1,7 @@
 // The "AI agents" page's example session (epic developer experience 10.4): the story's verify task
 // done by following the TaleArt skill through the CLI against a test API. Taken from the verify run,
 // shortened (JSON trimmed to the fields the agent reads, the API URL replaced by api.example.com),
-// with the site key redacted; the token never appears, only its prefix.
+// with the zone key redacted; the token never appears, only its prefix.
 // apps/cli/src/skill.spec.ts parses every `$ taleart` line here with the CLI's own parser.
 
 export interface SessionTurn {
@@ -52,34 +52,34 @@ $ taleart groups on Summer --project "Shop" --json
 { "name": "Summer", "status": "live",
   "visibility": { "visible": false, "reasons": [{ "code": "zone-not-installed", "subject": "zone" }] } }
 
-$ taleart site-keys get --project "Shop" --json
+$ taleart zone-keys info home-top --project "Shop" --json
 null`,
   },
   {
     who: 'agent',
     text:
-      'Summer is On in home-top, but it is not visible yet: the project has no site key (zone-not-installed). ' +
-      'A site key is issued once per project and shown only once. Shall I issue it?',
+      'Summer is On in home-top, but it is not visible yet: the zone has no zone key (zone-not-installed). ' +
+      'A zone key is issued once per zone and shown only once. Shall I issue it?',
   },
   { who: 'user', text: 'Yes, issue it.' },
   {
     who: 'agent',
     text: 'Issuing it, then checking again and getting the snippet.',
-    shell: String.raw`$ taleart site-keys issue --project "Shop" --json
-{ "key": "tas_oRYmcH…[REDACTED]", "prefix": "tas_oRYmcH", "createdAt": "2026-10-24T05:46:41.164Z" }
+    shell: String.raw`$ taleart zone-keys issue home-top --project "Shop" --json
+{ "key": "tak_oRYmcH…[REDACTED]", "prefix": "tak_oRYmcH", "createdAt": "2026-10-24T05:46:41.164Z" }
 
 $ taleart groups get Summer --project "Shop" --json
 { "name": "Summer", "status": "live", "tales": [ …2 tales… ], "visibility": { "visible": true, "reasons": [] } }
 
-$ taleart zones snippet home-top --site-key "tas_oRYmcH…[REDACTED]" --project "Shop" --json
-{ "snippet": "<script type=\"module\" src=\"https://api.example.com/sdk/v1/taleart.js\"></script>\n<taleart-view api-url=\"https://api.example.com\" site-key=\"tas_oRYmcH…[REDACTED]\" zone=\"home-top\"></taleart-view>",
-  "testPageUrl": "https://api.example.com/sdk/v1/test-page?zone=home-top#siteKey=tas_oRYmcH…[REDACTED]" }`,
+$ taleart zones snippet home-top --zone-key "tak_oRYmcH…[REDACTED]" --project "Shop" --json
+{ "snippet": "<script type=\"module\" src=\"https://api.example.com/sdk/v1/taleart.js\"></script>\n<!-- Optional, once per page: <script>Taleart.init({ locale: \"en\" })</script> -->\n<taleart-view zone-key=\"tak_oRYmcH…[REDACTED]\"></taleart-view>",
+  "testPageUrl": "https://api.example.com/sdk/v1/test-page#zoneKey=tak_oRYmcH…[REDACTED]" }`,
   },
   {
     who: 'agent',
     text:
       'Done. Created the zone Home top (home-top) with a bar display, and the tale group Summer in it with two Shown tales, ' +
-      'sunrise and ocean; Summer is On and visible on site. I issued the project\'s site key (prefix tas_oRYmcH): it is shown ' +
+      'sunrise and ocean; Summer is On and visible on site. I issued the zone\'s key (prefix tak_oRYmcH): it is shown ' +
       'above once, keep it; I did not save it anywhere. Put the snippet on your page, or open the test page link to see the zone now.',
   },
 ];

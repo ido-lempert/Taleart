@@ -228,6 +228,9 @@ data class DocumentLayer(
     /** The swipe-up link's destination, which a flick up opens (R7), or null. */
     val swipeUpHref: String? get() = elements.firstNotNullOfOrNull { (it as? DocumentElement.SwipeUp)?.href }
 
+    /** The id of the swipe-up link, if the layer has one. */
+    val swipeUpId: String? get() = elements.firstNotNullOfOrNull { (it as? DocumentElement.SwipeUp)?.id }
+
     companion object {
         val EMPTY = DocumentLayer(emptyList(), ReadingDirection.Ltr)
 

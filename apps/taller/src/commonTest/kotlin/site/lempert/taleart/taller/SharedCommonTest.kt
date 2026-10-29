@@ -26,8 +26,8 @@ class SharedCommonTest {
         assertEquals(defaultApiUrl(), fresh.apiUrl)
         assertTrue(fresh.apiUrl.endsWith(":$DEFAULT_API_PORT"))
         assertFalse(fresh.complete)
-        DebugSettings(" http://localhost:3592 ", "tas_key", "home-top").save(store)
-        assertEquals(DebugSettings("http://localhost:3592", "tas_key", "home-top"), DebugSettings.load(store))
+        DebugSettings(" http://localhost:3592 ", "tak_key").save(store)
+        assertEquals(DebugSettings("http://localhost:3592", "tak_key"), DebugSettings.load(store))
         assertTrue(DebugSettings.load(store).complete)
     }
 

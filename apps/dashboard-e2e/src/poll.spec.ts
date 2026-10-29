@@ -69,9 +69,9 @@ test.describe.serial('a poll (epic interactive components story 4.1)', () => {
     const group = await api<{ id: string }>('post', `/zones/${zone.id}/tale-groups`, { name: 'Breakfast' });
     taleId = (await api<{ id: string }>('post', `/tale-groups/${group.id}/tales`, { title: 'Morning' })).id;
     await api('put', `/tale-groups/${group.id}/status`, { status: 'live' });
-    const { key } = await api<{ key: string }>('post', `/projects/${project.id}/site-key`, {});
+    const { key } = await api<{ key: string }>('post', `/zones/${zone.id}/key`, {});
     const install = await api<{ testPageUrl: string }>('get', '/install');
-    testPageUrl = `${install.testPageUrl}?zone=${encodeURIComponent(zone.slug)}#siteKey=${encodeURIComponent(key)}`;
+    testPageUrl = `${install.testPageUrl}#zoneKey=${encodeURIComponent(key)}`;
   });
 
   test.afterAll(async () => {

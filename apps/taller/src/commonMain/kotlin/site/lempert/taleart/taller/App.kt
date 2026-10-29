@@ -101,7 +101,7 @@ fun App(
         }
         state = ZoneState.Loading
         loading = scope.launch {
-            state = ZoneState.Done(deliveryClient.fetchZone(with.apiUrl, ZoneRequest(with.siteKey, with.zone)))
+            state = ZoneState.Done(deliveryClient.fetchZone(with.apiUrl, ZoneRequest(with.zoneKey)))
         }
     }
 
@@ -149,9 +149,8 @@ fun App(
 @Composable
 private fun SettingsScreen(initial: DebugSettings, onLoad: (DebugSettings) -> Unit, onCancel: (() -> Unit)?) {
     var apiUrl by remember { mutableStateOf(initial.apiUrl) }
-    var siteKey by remember { mutableStateOf(initial.siteKey) }
-    var zone by remember { mutableStateOf(initial.zone) }
-    val edited = DebugSettings(apiUrl, siteKey, zone)
+    var zoneKey by remember { mutableStateOf(initial.zoneKey) }
+    val edited = DebugSettings(apiUrl, zoneKey)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Debug settings", style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(
@@ -163,20 +162,12 @@ private fun SettingsScreen(initial: DebugSettings, onLoad: (DebugSettings) -> Un
             modifier = Modifier.fillMaxWidth().testTag("api-url"),
         )
         OutlinedTextField(
-            value = siteKey,
-            onValueChange = { siteKey = it },
-            label = { Text("Site key") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth().testTag("site-key"),
-        )
-        OutlinedTextField(
-            value = zone,
-            onValueChange = { zone = it },
-            label = { Text("Zone slug") },
+            value = zoneKey,
+            onValueChange = { zoneKey = it },
+            label = { Text("Zone key") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
-            modifier = Modifier.fillMaxWidth().testTag("zone"),
+            modifier = Modifier.fillMaxWidth().testTag("zone-key"),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { onLoad(edited) }, enabled = edited.complete, modifier = Modifier.testTag("load")) {
@@ -196,6 +187,7 @@ private fun HomeScreen(settings: DebugSettings, state: ZoneState, seen: SeenGrou
         if (zone != null) {
             TaleartZone(
                 zone,
+                zoneKey = settings.zoneKey,
                 modifier = Modifier.testTag("zone-display"),
                 onGroupClick = { tapped = it.name },
                 seenGroups = seen,
@@ -207,7 +199,7 @@ private fun HomeScreen(settings: DebugSettings, state: ZoneState, seen: SeenGrou
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Zone ${settings.zone} at ${settings.apiUrl}",
+                "Zone ${zone?.slug ?: settings.zoneKey.take(8)} at ${settings.apiUrl}",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )

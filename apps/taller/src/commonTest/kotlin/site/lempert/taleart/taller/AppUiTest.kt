@@ -31,8 +31,7 @@ class AppUiTest : ComposeUiTestBase() {
         {"id":"g2","name":"Winter tales","cover":null,"tales":[{"id":"t3","title":"First snow"}]}]}"""
     private val saved = mapOf(
         DebugSettings.API_URL to "http://api.test",
-        DebugSettings.SITE_KEY to "tas_key",
-        DebugSettings.ZONE to "home-top",
+        DebugSettings.ZONE_KEY to "tak_key",
     )
     private val requests = mutableListOf<HttpRequestData>()
     // Seen groups in memory, so no test reads or leaves seen state on the device.
@@ -60,14 +59,12 @@ class AppUiTest : ComposeUiTestBase() {
         setContent { App(store = store, client = client(HttpStatusCode.OK, zone), seenGroups = isolatedSeen()) }
 
         onNodeWithTag("load").assertIsNotEnabled()
-        onNodeWithTag("site-key").performTextInput("tas_key")
-        onNodeWithTag("zone").performTextInput("home-top")
+        onNodeWithTag("zone-key").performTextInput("tak_key")
         onNodeWithTag("load").performClick()
 
         waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag("group").fetchSemanticsNodes().size == 2 }
-        assertEquals("tas_key", store.get(DebugSettings.SITE_KEY))
-        assertEquals("home-top", store.get(DebugSettings.ZONE))
-        assertEquals("${defaultApiUrl()}/delivery/v1/zone?zone=home-top", requests.single().url.toString())
+        assertEquals("tak_key", store.get(DebugSettings.ZONE_KEY))
+        assertEquals("${defaultApiUrl()}/delivery/v1/zone", requests.single().url.toString())
     }
 
     @Test
@@ -82,7 +79,7 @@ class AppUiTest : ComposeUiTestBase() {
         }
         assertEquals(listOf("Summer trips", "Winter tales"), texts("group"))
         assertEquals(listOf("Beach day", "City night", "First snow"), texts("tale"))
-        assertEquals("Bearer tas_key", requests.single().headers[HttpHeaders.Authorization])
+        assertEquals("Bearer tak_key", requests.single().headers[HttpHeaders.Authorization])
     }
 
     @Test

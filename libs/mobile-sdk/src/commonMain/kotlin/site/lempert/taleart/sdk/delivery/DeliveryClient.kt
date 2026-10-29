@@ -38,7 +38,7 @@ expect fun platformHttpClient(): HttpClient
 
 /**
  * Reads zones from the Delivery API, as `fetchZone` in libs/web-sdk/src/lib/delivery-client.ts does:
- * `GET <apiUrl>/delivery/v1/zone?zone=<slug>` with the site key as a bearer token and never a cookie,
+ * `GET <apiUrl>/delivery/v1/zone` with the zone key as a bearer token and never a cookie,
  * and the device's visitor id in `X-TaleArt-Visitor` (epic UX rework 8.23). The id is a random UUID
  * v4 kept in [visitorStore] (by default the SDK's own device store, where the seen tale groups are),
  * so it lasts across app restarts; see `VisitorId` for what it is and how it is reset. On Android the
@@ -71,7 +71,7 @@ class DeliveryClient(
      */
     suspend fun fetchZone(apiUrl: String, request: ZoneRequest): ZoneResult {
         if (!scope.isActive) return closedResult()
-        val url = zoneUrl(apiUrl, request.zone)
+        val url = zoneUrl(apiUrl)
         val id = "$url\n${request.key}"
         val (shared, started) = lock.withLock {
             inFlight[id]?.let { it to false }
@@ -192,9 +192,8 @@ class DeliveryClient(
         /** The message of every read in progress when the client closed, and of every read after. */
         const val CLOSED_MESSAGE = "The TaleArt client is closed"
 
-        /** `<apiUrl>/delivery/v1/zone?zone=<slug>`, without trailing slashes on the API URL. */
-        fun zoneUrl(apiUrl: String, zone: String): String =
-            "${apiUrl.trimEnd('/')}$DELIVERY_PATH/zone?zone=${encodeUriComponent(zone)}"
+        /** `<apiUrl>/delivery/v1/zone`, without trailing slashes on the API URL: the zone is named by its key. */
+        fun zoneUrl(apiUrl: String): String = "${apiUrl.trimEnd('/')}$DELIVERY_PATH/zone"
     }
 }
 
@@ -215,20 +214,4 @@ internal fun isZone(body: JsonElement): Boolean {
     if (frame !is JsonObject && frame !is JsonNull) return false
     val groups = body["taleGroups"] as? JsonArray ?: return false
     return groups.all { group -> group is JsonObject && group["tales"] is JsonArray }
-}
-
-private const val UNRESERVED = "-_.!~*'()"
-private const val HEX = "0123456789ABCDEF"
-
-// JavaScript's encodeURIComponent: UTF-8, percent-encoding all but letters, digits and -_.!~*'().
-internal fun encodeUriComponent(value: String): String = buildString {
-    for (byte in value.encodeToByteArray()) {
-        val c = (byte.toInt() and 0xff)
-        val ch = c.toChar()
-        if (c < 0x80 && (ch.isLetterOrDigit() || ch in UNRESERVED)) {
-            append(ch)
-        } else {
-            append('%').append(HEX[c shr 4]).append(HEX[c and 0x0f])
-        }
-    }
 }

@@ -249,16 +249,16 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     await expect(page.getByRole('button', { name: 'Move Summer sale later' })).toBeFocused();
   });
 
-  test('zone page: Display and Install tabs, the site-key drawer and the test page', async () => {
+  test('zone page: Display and Install tabs, the zone-key drawer and the test page', async () => {
     await page.getByRole('tab', { name: 'Display' }).click();
     await check('zone-display-tab', { layout: true });
     await page.getByRole('tab', { name: 'Install' }).click();
     await check('zone-install-tab', { layout: true });
 
-    await page.locator('#site-key-issue').click();
-    const keyDrawer = page.getByRole('dialog', { name: 'Issue site key' });
-    await expect(keyDrawer.getByLabel('Site key')).toBeVisible();
-    await check('site-key-issue-drawer', { layout: true });
+    await page.locator('#zone-key-issue').click();
+    const keyDrawer = page.getByRole('dialog', { name: 'Issue zone key' });
+    await expect(keyDrawer.getByLabel('Zone key')).toBeVisible();
+    await check('zone-key-issue-drawer', { layout: true });
 
     const opened = context.waitForEvent('page');
     await keyDrawer.getByRole('link', { name: /Open test page/ }).click();

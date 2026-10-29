@@ -63,7 +63,7 @@ class TaleartViewViewerTest {
             val activity = compose.activity
             view = TaleartView(activity).apply {
                 client = client()
-                configure("http://api.test", "tas_key", "home-top")
+                configure("http://api.test", "tak_key")
             }
             // A bar embedded in a host layout, 140 px high.
             val host = FrameLayout(activity)
@@ -104,7 +104,7 @@ class TaleartViewViewerTest {
         compose.runOnUiThread {
             view = TaleartView(compose.activity).apply {
                 client = client()
-                configure("http://api.test", "tas_key", "home-top")
+                configure("http://api.test", "tak_key")
             }
             host = FrameLayout(compose.activity)
             host.addView(view)
@@ -129,7 +129,7 @@ class TaleartViewViewerTest {
             val view = TaleartView(compose.activity).apply {
                 client = client()
                 onGroupClickListener = { tapped += it.id }
-                configure("http://api.test", "tas_key", "home-top")
+                configure("http://api.test", "tak_key")
             }
             compose.activity.setContentView(view)
         }
@@ -149,7 +149,7 @@ class TaleartViewViewerTest {
                 client = client()
                 opensViewer = false
                 onGroupClickListener = { tapped += it.id }
-                configure("http://api.test", "tas_key", "home-top")
+                configure("http://api.test", "tak_key")
             }
             compose.activity.setContentView(view)
         }
@@ -166,7 +166,7 @@ class TaleartViewViewerTest {
             val activity = compose.activity
             val view = TaleartView(activity).apply {
                 client = client(autumnZone.replace("%s", name))
-                configure("http://api.test", "tas_key", "home-top")
+                configure("http://api.test", "tak_key")
             }
             val host = FrameLayout(activity)
             host.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140))

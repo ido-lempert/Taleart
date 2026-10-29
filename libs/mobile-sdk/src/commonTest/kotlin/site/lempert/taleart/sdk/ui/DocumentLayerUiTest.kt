@@ -321,7 +321,7 @@ class DocumentLayerUiTest : ComposeUiTestBase() {
         val button = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)
         for (label in listOf("Shop the sale", "More deals")) {
             val config = onNode(button.and(hasText(label))).fetchSemanticsNode().config
-            assertEquals(LINK_ACTION_LABEL, config[SemanticsActions.OnClick].label)
+            assertEquals("Open in browser", config[SemanticsActions.OnClick].label)
         }
         onNode(button.and(hasContentDescription("Open the lookbook"))).assertExists()
     }

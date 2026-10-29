@@ -50,6 +50,8 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
+import site.lempert.taleart.sdk.i18n.Translate
+import site.lempert.taleart.sdk.i18n.defaultTranslate
 import site.lempert.taleart.sdk.delivery.platformHttpClient
 
 /** Test tag of each bar item. */
@@ -69,7 +71,8 @@ val BarTitle = SemanticsPropertyKey<String>("TaleartBarTitle")
 private var SemanticsPropertyReceiver.barTitle by BarTitle
 
 /** The accessible name of a bar item, as `setItemSeen` in the Web SDK: the group's title, and `, seen` once viewed. */
-fun barItemLabel(name: String, seen: Boolean): String = if (seen) "$name, seen" else name
+fun barItemLabel(name: String, seen: Boolean, translate: Translate = defaultTranslate): String =
+    if (seen) translate("bar.seen", mapOf("name" to name)) else name
 
 /**
  * A zone's bar display (web zones R2): one item per tale group in the delivered order, each the
@@ -92,6 +95,7 @@ fun TaleartBar(
     modifier: Modifier = Modifier,
     titleStyle: TextStyle = TextStyle.Default,
 ) {
+    val translate = LocalTaleartContext.current.translate
     val edge = settings.size.edgeDp
     val none = theme.ringStyle == RingStyle.None
     val ringWidth = if (none) 0 else theme.ringWidth
@@ -144,7 +148,7 @@ fun TaleartBar(
                         .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                         // One focusable button named by its group (the cover and title below say nothing more).
                         .clickable(role = Role.Button) { onGroupClick(group) }
-                        .semantics { contentDescription = barItemLabel(group.name, isSeen) },
+                        .semantics { contentDescription = barItemLabel(group.name, isSeen, translate) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {

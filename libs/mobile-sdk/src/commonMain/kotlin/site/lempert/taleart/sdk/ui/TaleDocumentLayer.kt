@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
+import site.lempert.taleart.sdk.ComponentRef
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
@@ -454,20 +455,17 @@ private fun overlaps(a: ElementBox, b: ElementBox): Boolean =
 
 // ---- Links (R7) -------------------------------------------------------------------------------
 
-/**
- * What screen readers say a link does: it leaves the app for the browser (the web's
- * "(opens in a new tab)", `NEW_TAB_NOTE`).
- */
-const val LINK_ACTION_LABEL = "Open in browser"
-
-// Opens the link in the system browser; a link that cannot open changes nothing. A button for
-// assistive technology, whose action says it leaves the app. An inert link (a preview of a draft)
-// is focusable and goes nowhere.
+// Opens the link: through the viewer's opener (which reports the call to action and opens it unless a
+// listener handled it), else in the system browser; a link that cannot open changes nothing. A button
+// for assistive technology, whose action says it leaves the app ("links.open"). An inert link (a
+// preview of a draft) is focusable and goes nowhere.
 @Composable
-private fun Modifier.link(href: String, label: String, inert: Boolean): Modifier {
+private fun Modifier.link(href: String, label: String, inert: Boolean, component: ComponentRef): Modifier {
     val uri = LocalUriHandler.current
+    val opener = LocalLinkOpener.current
+    val onClickLabel = LocalTaleartContext.current.translate("links.open")
     return if (inert) this.semantics { contentDescription = label; role = Role.Button }.focusable()
-    else this.clickable(role = Role.Button, onClickLabel = LINK_ACTION_LABEL) { runCatching { uri.openUri(href) } }
+    else this.clickable(role = Role.Button, onClickLabel = onClickLabel) { openLink(opener, uri, component, href) }
 }
 
 /**
@@ -489,7 +487,7 @@ private fun ButtonElement(element: DocumentElement.Button, canvas: CanvasMetrics
                 if (look.filled) Modifier.background(fill, shape)
                 else Modifier.border(canvas.dp(edge), fill, shape).padding(canvas.dp(edge)),
             )
-            .link(element.href, element.label, inert)
+            .link(element.href, element.label, inert, ComponentRef(element.id, "button"))
             .padding(horizontal = canvas.dp(fontPx * 0.8f)),
         contentAlignment = Alignment.Center,
     ) {
@@ -524,7 +522,7 @@ private fun ImageButtonElement(element: DocumentElement.ImageButton, canvas: Can
     Box(
         modifier
             .then(if (element.radius > 0.0) Modifier.clip(RoundedCornerShape(canvas.dp(canvas.h(element.radius)))) else Modifier)
-            .link(element.href, element.name, inert)
+            .link(element.href, element.name, inert, ComponentRef(element.id, "image-button"))
             .semantics(mergeDescendants = true) { contentDescription = element.name },
     ) {
         AsyncImage(
@@ -546,7 +544,7 @@ private fun SwipeUpElement(element: DocumentElement.SwipeUp, canvas: CanvasMetri
     val fontPx = canvas.h(SWIPE_UP_FONT_SIZE)
     val em = { n: Double -> canvas.dp((fontPx * n).toFloat()) }
     val color = parseHexColor(element.color) ?: Color.White
-    BoxWithConstraints(modifier.link(element.href, element.label, inert), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier.link(element.href, element.label, inert, ComponentRef(element.id, "swipe-up")), contentAlignment = Alignment.Center) {
         val maxWidth = maxWidth
         Column(
             Modifier.wrapContentSize(unbounded = true),

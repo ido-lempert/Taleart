@@ -36,7 +36,7 @@ class AndroidVisitorIdTest {
             respond(HOME_TOP_ZONE_JSON, headers = headersOf(HttpHeaders.ContentType, "application/json"))
         }
         val client = DeliveryClient(context(), HttpClient(engine), StandardTestDispatcher(testScheduler))
-        client.fetchZone("http://localhost:3592", ZoneRequest("tas_a", "home-top"))
+        client.fetchZone("http://localhost:3592", ZoneRequest("tak_a"))
         assertEquals(stored, requests.single().headers[VISITOR_HEADER])
     }
 
@@ -52,7 +52,7 @@ class AndroidVisitorIdTest {
         }
         // The default store, as TaleartSdk.sharedClient uses.
         DeliveryClient(HttpClient(engine), StandardTestDispatcher(testScheduler))
-            .fetchZone("http://localhost:3592", ZoneRequest("tas_a", "home-top"))
+            .fetchZone("http://localhost:3592", ZoneRequest("tak_a"))
         assertEquals(stored, requests.single().headers[VISITOR_HEADER])
     }
 }

@@ -1,14 +1,12 @@
 package site.lempert.taleart.sdk.delivery
 
 /**
- * How an app names its zone: the project's site key with the zone's slug (epic UX rework R3),
- * as `ZoneRequest` in the Web SDK.
+ * How an app names its zone: the zone key (`tak_...`), which names one zone and is the bearer token
+ * of the request, as `ZoneRequest` in the Web SDK. No slug is sent.
  */
 data class ZoneRequest(
-    /** The project's site key (`tas_...`). */
+    /** The zone key, sent as the bearer token. */
     val key: String,
-    /** The zone's slug. */
-    val zone: String,
 )
 
 /**
@@ -25,9 +23,8 @@ sealed interface ZoneResult {
     }
 
     /**
-     * 401 `invalid_site_key`: a missing, unknown or revoked site key. The Delivery API answers an
-     * unknown or missing slug the same way on purpose, so a caller cannot tell a slug from a key:
-     * against the current API an unknown zone arrives here.
+     * 401 `invalid_site_key`: a missing, unknown or revoked zone key (the code the Delivery API keeps
+     * for every refusal, so the key is never confirmed to exist).
      */
     data class InvalidSiteKey(override val message: String) : Failure
 

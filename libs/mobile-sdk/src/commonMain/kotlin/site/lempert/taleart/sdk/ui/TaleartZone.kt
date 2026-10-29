@@ -2,31 +2,38 @@ package site.lempert.taleart.sdk.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
+import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.TaleartSdk
+import site.lempert.taleart.sdk.deliver
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.delivery.ZoneResult
+import site.lempert.taleart.sdk.i18n.StringOverrides
 
 /**
- * A zone, read from the Delivery API at [apiUrl] with the project's [siteKey] and the zone's slug
- * [zone], as `<taleart-view api-url site-key zone>` reads it (see [TaleartZoneController]). Like the
- * web element it shows nothing while any of the three is blank, while the zone first loads, and
- * when the read fails: the failure is logged once and passed to [onError]. Changing [reloadKey]
- * reads the zone again; the display stays as it is until the new zone arrives.
+ * A zone, read from the Delivery API at [apiUrl] with the zone's [zoneKey] (`tak_…`), as
+ * `<taleart-view zone-key>` reads it (see [TaleartZoneController]). An empty [apiUrl] uses the
+ * SDK's (`TaleartSdk.init`). Like the web element it shows nothing while the API origin or the key is
+ * blank, while the zone first loads, and when the read fails: the failure is logged once and passed
+ * to [onError]. Changing [reloadKey] reads the zone again; the display stays as it is until the new
+ * zone arrives.
+ *
+ * [locale] and [strings] are this zone's texts, over the SDK's (see `TaleartSdk.init`); [listener]
+ * gets this zone's events before the SDK's listener does.
  *
  * [client] defaults to the process's [TaleartSdk.sharedClient]. A client passed in belongs to the
  * caller, who closes it, and must be remembered (or held outside composition): a new client on a
@@ -35,8 +42,7 @@ import site.lempert.taleart.sdk.delivery.ZoneResult
 @Composable
 fun TaleartZone(
     apiUrl: String,
-    siteKey: String,
-    zone: String,
+    zoneKey: String,
     modifier: Modifier = Modifier,
     onGroupClick: (DeliveryTaleGroup) -> Unit = {},
     onError: (ZoneResult.Failure) -> Unit = {},
@@ -45,6 +51,9 @@ fun TaleartZone(
     titleStyle: TextStyle = TextStyle.Default,
     reloadKey: Any? = null,
     opensViewer: Boolean = true,
+    locale: String? = null,
+    strings: Map<String, StringOverrides>? = null,
+    listener: TaleartListener? = null,
 ) {
     val scope = rememberCoroutineScope()
     val controller = remember { TaleartZoneController(client ?: TaleartSdk.sharedClient, scope) }
@@ -52,9 +61,15 @@ fun TaleartZone(
     SideEffect {
         controller.client = client ?: TaleartSdk.sharedClient
         controller.onError = { reportError(it) }
+        controller.locale = locale
+        controller.strings = strings
+        controller.listener = listener
     }
     DisposableEffect(controller) { onDispose { controller.close() } }
-    LaunchedEffect(apiUrl, siteKey, zone) { controller.configure(apiUrl, siteKey, zone) }
+    LaunchedEffect(apiUrl, zoneKey) { controller.configure(apiUrl, zoneKey) }
+    // The SDK's API origin, followed live: a change made by `TaleartSdk.init` reads the zone again.
+    val sdkApiUrl = TaleartSdk.config.apiUrl
+    LaunchedEffect(sdkApiUrl) { controller.refreshApi() }
     // The first key is the one the zone loaded with; each later one reloads it.
     val firstReloadKey = remember { arrayOf(reloadKey) }
     LaunchedEffect(reloadKey) {
@@ -63,7 +78,10 @@ fun TaleartZone(
             controller.reload()
         }
     }
-    TaleartZone(controller, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, locale ?: controller.locale, strings ?: controller.strings, listener ?: controller.listener)
+    CompositionLocalProvider(LocalTaleartContext provides context) {
+        controller.zone?.let { ZoneDisplay(it, modifier, onGroupClick, seenGroups, titleStyle, opensViewer) }
+    }
 }
 
 /** The zone a [TaleartZoneController] holds: nothing until it has one, then as [TaleartZone] with a [DeliveryZone]. */
@@ -76,7 +94,13 @@ fun TaleartZone(
     titleStyle: TextStyle = TextStyle.Default,
     opensViewer: Boolean = true,
 ) {
-    controller.zone?.let { TaleartZone(it, modifier, onGroupClick, seenGroups, titleStyle, opensViewer) }
+    val sdkApiUrl = TaleartSdk.config.apiUrl
+    LaunchedEffect(sdkApiUrl) { controller.refreshApi() }
+    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, controller.locale, controller.strings, controller.listener)
+    val zone = controller.zone ?: return
+    CompositionLocalProvider(LocalTaleartContext provides context) {
+        ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+    }
 }
 
 /**
@@ -91,8 +115,10 @@ fun TaleartZone(
  * view controller on iOS. As in the Web SDK a group becomes seen when the viewer shows it, never on
  * the tap; its ring turns to the seen colour behind the viewer, and a banner shows the slide of the
  * group the viewer showed last once it closes. With [opensViewer] false the host handles taps
- * itself, and can show
- * [TaleartViewer] when and where it likes.
+ * itself, and can show [TaleartViewer] when and where it likes.
+ *
+ * [zoneKey] names the zone in events (its first 8 characters only); [locale], [strings] and
+ * [listener] are as on the keyed overload.
  */
 @Composable
 fun TaleartZone(
@@ -102,6 +128,26 @@ fun TaleartZone(
     seenGroups: SeenGroups = rememberSeenGroups(),
     titleStyle: TextStyle = TextStyle.Default,
     opensViewer: Boolean = true,
+    zoneKey: String = "",
+    locale: String? = null,
+    strings: Map<String, StringOverrides>? = null,
+    listener: TaleartListener? = null,
+) {
+    val context = rememberTaleartContext(zoneKey, zone.slug, locale, strings, listener)
+    CompositionLocalProvider(LocalTaleartContext provides context) {
+        ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+    }
+}
+
+// The display of a zone, under the zone's context (LocalTaleartContext).
+@Composable
+private fun ZoneDisplay(
+    zone: DeliveryZone,
+    modifier: Modifier,
+    onGroupClick: (DeliveryTaleGroup) -> Unit,
+    seenGroups: SeenGroups,
+    titleStyle: TextStyle,
+    opensViewer: Boolean,
 ) {
     // The viewer open now, if any. It holds the groups and theme it opened with for its whole life,
     // so a zone read again (a reload, a refresh) never closes or reshuffles it under the person.
@@ -113,9 +159,14 @@ fun TaleartZone(
     var returnTo by remember { mutableStateOf<BannerShowRequest?>(null) }
     val frame = zone.frame
     val theme = remember(zone.theme) { TaleartTheme.read(zone.theme) }
+    val context = LocalTaleartContext.current
     val tap = { group: DeliveryTaleGroup ->
         onGroupClick(group)
-        if (opensViewer && group.tales.isNotEmpty()) open = ViewerRequest(++requests, group.id, zone.taleGroups, theme)
+        if (opensViewer && group.tales.isNotEmpty()) {
+            open = ViewerRequest(++requests, group.id, zone.taleGroups, theme)
+            val event = context.event("presented", group = groupRef(zone.taleGroups, group))
+            deliver(context.listener, event) { it.onPresented(event) }
+        }
     }
     when (frame?.type) {
         BAR_FRAME_TYPE -> {
@@ -169,13 +220,19 @@ private fun ViewerOverlay(request: ViewerRequest, seenGroups: SeenGroups, onClos
     val loader = LocalCoverImageLoader.current
     val player = LocalTaleVideoPlayer.current
     val reduced = rememberPrefersReducedMotion()
+    val context = LocalTaleartContext.current
     val last = remember(request) { arrayOfNulls<String>(1) }
-    val state = remember(request) { TaleViewerState(request.groups, request.groupId, reduced, onClosed = { last[0] = it }) }
+    val state = remember(request) { TaleViewerState(request.groups, request.groupId, reduced, onClosed = { last[0] = it }, translate = context.translate) }
     // The zone is told once, with the group shown last, whichever way the viewer goes.
     val reported = remember(request) { BooleanArray(1) }
     val report = { group: String? ->
         if (!reported[0]) {
             reported[0] = true
+            val shown = request.groups.firstOrNull { it.id == group }
+            if (shown != null) {
+                val event = context.event("dismissed", group = groupRef(request.groups, shown))
+                deliver(context.listener, event) { it.onDismissed(event) }
+            }
             onClose(group)
         }
     }

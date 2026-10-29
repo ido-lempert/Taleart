@@ -42,23 +42,23 @@ class VisitorIdTest {
     fun sendsTheSameStoredIdOnEveryRequestAndAfterARestart() = runTest {
         val store = InMemoryKeyValueStore()
         val first = client { store }
-        first.fetchZone(api, ZoneRequest("tas_a", "home-top"))
-        first.fetchZone(api, ZoneRequest("tas_b", "home-promo"))
+        first.fetchZone(api, ZoneRequest("tak_a"))
+        first.fetchZone(api, ZoneRequest("tak_b"))
         val id = visitorOf(requests.first())
         assertTrue(isVisitorId(id), id)
         assertEquals(id, store.get(VISITOR_STORAGE_KEY))
         // An app restart: a new client on the same device store sends the same id.
-        client { store }.fetchZone(api, ZoneRequest("tas_a", "home-top"))
+        client { store }.fetchZone(api, ZoneRequest("tak_a"))
         assertEquals(listOf(id, id, id), requests.map(::visitorOf))
     }
 
     @Test
     fun readsAnIdAlreadyOnTheDeviceAndReplacesOneThatIsNotAUuidV4() = runTest {
         val kept = "3f2b8c1e-5d4a-4e6b-9c7d-0a1b2c3d4e5f"
-        client { InMemoryKeyValueStore(mapOf(VISITOR_STORAGE_KEY to kept)) }.fetchZone(api, ZoneRequest("tas_a", "home-top"))
+        client { InMemoryKeyValueStore(mapOf(VISITOR_STORAGE_KEY to kept)) }.fetchZone(api, ZoneRequest("tak_a"))
         assertEquals(kept, visitorOf(requests.last()))
         val tampered = InMemoryKeyValueStore(mapOf(VISITOR_STORAGE_KEY to "tampered"))
-        client { tampered }.fetchZone(api, ZoneRequest("tas_a", "home-top"))
+        client { tampered }.fetchZone(api, ZoneRequest("tak_a"))
         val made = visitorOf(requests.last())
         assertTrue(isVisitorId(made), made)
         assertEquals(made, tampered.get(VISITOR_STORAGE_KEY))
@@ -68,13 +68,13 @@ class VisitorIdTest {
     fun keepsOneIdPerProcessWithoutAStoreAndKeepsItOnceOneIsThere() = runTest {
         var store: KeyValueStore? = null
         val client = client { store }
-        client.fetchZone(api, ZoneRequest("tas_a", "home-top"))
-        client.fetchZone(api, ZoneRequest("tas_a", "home-promo"))
+        client.fetchZone(api, ZoneRequest("tak_a"))
+        client.fetchZone(api, ZoneRequest("tak_a"))
         val id = visitorOf(requests.first())
         assertEquals(id, visitorOf(requests.last()))
         val device = InMemoryKeyValueStore()
         store = device
-        client.fetchZone(api, ZoneRequest("tas_a", "home-top"))
+        client.fetchZone(api, ZoneRequest("tak_a"))
         assertEquals(id, visitorOf(requests.last()))
         assertEquals(id, device.get(VISITOR_STORAGE_KEY))
     }
@@ -86,13 +86,13 @@ class VisitorIdTest {
             override fun set(key: String, value: String) = throw IllegalStateException("locked")
         }
         val client = client { broken }
-        client.fetchZone(api, ZoneRequest("tas_a", "home-top"))
-        client.fetchZone(api, ZoneRequest("tas_a", "home-promo"))
+        client.fetchZone(api, ZoneRequest("tak_a"))
+        client.fetchZone(api, ZoneRequest("tak_a"))
         val ids = requests.map(::visitorOf)
         assertTrue(isVisitorId(ids[0]), ids[0])
         assertEquals(ids[0], ids[1])
         // Another process (a new client) gets another id: nothing was kept.
-        client { broken }.fetchZone(api, ZoneRequest("tas_a", "home-top"))
+        client { broken }.fetchZone(api, ZoneRequest("tak_a"))
         assertNotEquals(ids[0], visitorOf(requests.last()))
     }
 }

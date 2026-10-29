@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
+import site.lempert.taleart.sdk.i18n.Translate
+import site.lempert.taleart.sdk.i18n.defaultTranslate
 
 /**
  * Where the tale viewer is and what it does, as the `TaleViewer` class of
@@ -22,6 +24,7 @@ class TaleViewerState(
     startGroupId: String,
     reducedMotion: Boolean = false,
     private val onClosed: (groupId: String) -> Unit = {},
+    private val translate: Translate = defaultTranslate,
 ) {
     private var reduced by mutableStateOf(reducedMotion)
 
@@ -167,7 +170,8 @@ class TaleViewerState(
         }
 
     /** What a screen reader says as a tale shows, as the Web SDK's live region: `Summer trips, tale 2 of 3`. */
-    val announcement: String get() = "${group.name}, tale ${taleIndex + 1} of ${group.tales.size}"
+    val announcement: String
+        get() = translate("viewer.progress", mapOf("group" to group.name, "tale" to taleIndex + 1, "count" to group.tales.size))
 
     init {
         if (isOpen) show(groupIndex, 0)
@@ -310,7 +314,8 @@ class TaleViewerState(
         if (changesGroup) onGroupChange?.invoke(fromGroup, fromView, group)
     }
 
-    private fun currentView(): TaleView = TaleView.read(groups.getOrNull(groupIndex)?.tales?.getOrNull(taleIndex) ?: EMPTY_TALE, taleIndex)
+    private fun currentView(): TaleView =
+        TaleView.read(groups.getOrNull(groupIndex)?.tales?.getOrNull(taleIndex) ?: EMPTY_TALE, taleIndex, translate)
 
     private companion object {
         val EMPTY_TALE = site.lempert.taleart.sdk.delivery.DeliveryTale()

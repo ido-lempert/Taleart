@@ -116,9 +116,9 @@ test.describe.serial('a quiz (epic interactive components story 4.3)', () => {
     });
     await api('post', `/tales/${surveyTale}/document/publish`, { revision: 1, publishedRevision: 0 });
     await api('put', `/tale-groups/${survey.id}/status`, { status: 'live' });
-    const { key } = await api<{ key: string }>('post', `/projects/${project.id}/site-key`, {});
+    const { key } = await api<{ key: string }>('post', `/zones/${zone.id}/key`, {});
     const install = await api<{ testPageUrl: string }>('get', '/install');
-    testPageUrl = `${install.testPageUrl}?zone=${encodeURIComponent(zone.slug)}#siteKey=${encodeURIComponent(key)}`;
+    testPageUrl = `${install.testPageUrl}#zoneKey=${encodeURIComponent(key)}`;
   });
 
   test.afterAll(async () => {

@@ -32,9 +32,8 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
   let context: BrowserContext;
   let page: Page;
   let testPage: Page;
-  // Set by the first run: the zone's slug, the issued site key and the snippet with it.
-  let slug = '';
-  let siteKey = '';
+  // Set by the first run: the issued zone key and the snippet with it.
+  let zoneKey = '';
   let snippet = '';
 
   test.beforeAll(async ({ browser }) => {
@@ -96,14 +95,14 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
     await expect(page.getByRole('switch', { name: 'Summer sale on site' })).toHaveAttribute('aria-checked', 'true');
     await shot(page, '01-zone-page-group-on');
 
-    // Install: issue the site key; the drawer shows it once, with the snippet and the test page.
+    // Install: issue the zone key; the drawer shows it once, with the snippet and the test page.
     await act('Open the Install tab', () => page.getByRole('tab', { name: 'Install' }).click());
     await shot(page, '02-install-tab-before-key');
     expect(await axeViolations(page)).toEqual([]);
-    await act('Issue site key', () => page.locator('#site-key-issue').click());
-    const keyDrawer = page.getByRole('dialog', { name: 'Issue site key' });
-    siteKey = await keyDrawer.getByLabel('Site key').inputValue();
-    expect(siteKey).toMatch(/^tas_/);
+    await act('Issue zone key', () => page.locator('#zone-key-issue').click());
+    const keyDrawer = page.getByRole('dialog', { name: 'Issue zone key' });
+    zoneKey = await keyDrawer.getByLabel('Zone key').inputValue();
+    expect(zoneKey).toMatch(/^tak_/);
     await shot(page, '03-site-key-issued');
     expect(await axeViolations(page)).toEqual([]);
     const opened = context.waitForEvent('page');
@@ -125,19 +124,17 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
     console.log(`First run in ${actions.length} actions:\n${actions.map((a, i) => `${i + 1}. ${a}`).join('\n')}`);
     expect(actions.length).toBeLessThanOrEqual(MAX_ACTIONS);
 
-    slug = new URL(testPage.url()).searchParams.get('zone') ?? '';
-    expect(slug).toBe('home-top');
     // The key came in the fragment and left the address bar at once.
     expect(testPage.url()).not.toContain('#');
-    expect(testPage.url()).not.toContain(siteKey);
+    expect(testPage.url()).not.toContain(zoneKey);
 
     // The snippet with the key, as Copy snippet puts it on the clipboard.
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin });
     await keyDrawer.getByRole('button', { name: 'Copy snippet' }).click();
     await expect(keyDrawer.getByText('Snippet with the key copied')).toBeVisible();
     snippet = await page.evaluate(() => navigator.clipboard.readText());
-    expect(snippet).toContain(`site-key="${siteKey}"`);
-    expect(snippet).toContain(`zone="${slug}"`);
+    expect(snippet).toContain(`zone-key="${zoneKey}"`);
+    expect(snippet).not.toContain('zone="');
     await keyDrawer.getByRole('button', { name: 'Done' }).click();
     await shot(page, '05-install-tab-after-key');
     expect(await axeViolations(page)).toEqual([]);
@@ -175,31 +172,31 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
     const sent: { url: string; authorization: string | undefined }[] = [];
     pasted.on('request', (r) => sent.push({ url: r.url(), authorization: r.headers()['authorization'] }));
     const testPageUrl = new URL(testPage.url());
-    await pasted.goto(`${testPageUrl.origin}${testPageUrl.pathname}?zone=${slug}`);
-    await expect(pasted.getByRole('status')).toHaveText('Paste a site key to show the zone.');
+    await pasted.goto(testPageUrl.origin + testPageUrl.pathname);
+    await expect(pasted.getByRole('status')).toHaveText('Paste a zone key to show the zone.');
     await expect(barItems(pasted)).toHaveCount(0);
-    await pasted.getByLabel('Site key').fill(siteKey);
+    await pasted.getByLabel('Zone key').fill(zoneKey);
     await pasted.getByRole('button', { name: 'Show zone' }).click();
     await expect(barItems(pasted)).toHaveCount(1, { timeout: 20_000 });
-    await expect(pasted.getByLabel('Site key')).toHaveValue('');
+    await expect(pasted.getByLabel('Zone key')).toHaveValue('');
     await shot(pasted, '07-test-page-pasted-key');
 
     // The key went only to the Delivery API, as a bearer token; never in a URL.
-    const withKey = sent.filter((r) => r.authorization?.includes(siteKey));
+    const withKey = sent.filter((r) => r.authorization?.includes(zoneKey));
     expect(withKey.length).toBeGreaterThan(0);
     for (const r of withKey) expect(new URL(r.url).pathname).toBe('/delivery/v1/zone');
-    for (const r of sent) expect(r.url).not.toContain(siteKey);
+    for (const r of sent) expect(r.url).not.toContain(zoneKey);
     // Nothing stored.
     const stored = await pasted.evaluate(() => ({
       local: Object.keys(localStorage).map((k) => localStorage.getItem(k)),
       session: Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k)),
       cookie: document.cookie,
     }));
-    expect(JSON.stringify(stored)).not.toContain(siteKey);
+    expect(JSON.stringify(stored)).not.toContain(zoneKey);
     await pasted.close();
   });
 
-  test('an unknown slug, a page without a zone and a revoked key show nothing', async () => {
+  test('an unknown key, a page without a key and a revoked key show nothing', async () => {
     const testPageUrl = new URL(testPage.url());
     const base = `${testPageUrl.origin}${testPageUrl.pathname}`;
     // The SDK's console errors, and any other console error but the browser's own line for the
@@ -218,25 +215,27 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
       return { p, errors, others };
     };
 
-    const unknown = await open(`${base}?zone=nope#siteKey=${siteKey}`);
+    const unknown = await open(`${base}#zoneKey=tak_unknownunknownunknownunknown`);
     await expect(unknown.p.locator('taleart-view')).toHaveCount(1);
     await expect.poll(() => unknown.errors.length).toBe(1);
     await expect(barItems(unknown.p)).toHaveCount(0);
     expect(unknown.others).toEqual([]);
     await unknown.p.close();
 
-    // Not a slug: no element and a sentence, nothing reflected.
-    const bad = await open(`${base}?zone=%3Cimg%20src%3Dx%3E#siteKey=${siteKey}`);
-    await expect(bad.p.getByText('This page needs a zone.')).toBeVisible();
-    await expect(bad.p.locator('taleart-view, img')).toHaveCount(0);
-    expect([...bad.errors, ...bad.others]).toEqual([]);
+    // Not a key: the element refuses it, one error, and nothing reflected into the page.
+    const bad = await open(`${base}#zoneKey=%3Cimg%20src%3Dx%3E`);
+    await expect(bad.p.locator('taleart-view')).toHaveCount(1);
+    await expect.poll(() => bad.errors.length).toBe(1);
+    await expect(barItems(bad.p)).toHaveCount(0);
+    await expect(bad.p.locator('img')).toHaveCount(0);
+    expect(bad.others).toEqual([]);
     await bad.p.close();
 
     // Revoke the key (as the Install tab does): the test page shows nothing and says why in one error.
     await page.getByRole('button', { name: 'Revoke' }).click();
-    await page.getByRole('dialog', { name: 'Revoke site key' }).getByRole('button', { name: 'Revoke key' }).click();
-    await expect(page.locator('#site-key-issue')).toBeVisible();
-    const revoked = await open(`${base}?zone=${slug}#siteKey=${siteKey}`);
+    await page.getByRole('dialog', { name: 'Revoke zone key' }).getByRole('button', { name: 'Revoke key' }).click();
+    await expect(page.locator('#zone-key-issue')).toBeVisible();
+    const revoked = await open(`${base}#zoneKey=${zoneKey}`);
     await expect.poll(() => revoked.errors.length).toBe(1);
     await expect(barItems(revoked.p)).toHaveCount(0);
     expect(revoked.others).toEqual([]);

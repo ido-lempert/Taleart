@@ -54,7 +54,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class TaleartZoneUiTest : ComposeUiTestBase() {
     private val api = "http://api.test"
-    private val key = "tas_key"
+    private val key = "tak_key"
     private val summer = "905ea258-ccfd-4527-9b84-380c5fbe011a"
     private val winter = "48962270-14fe-4563-aa65-470ea8997fa1"
     private val requests = mutableListOf<HttpRequestData>()
@@ -125,11 +125,11 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
     @Test
     fun showsEachGroupOfTheZoneInTheDeliveredOrderWithItsTitle() = runComposeUiTest {
         val seenGroups = seen()
-        show { TaleartZone(api, key, "home-top", client = client(), seenGroups = seenGroups) }
+        show { TaleartZone(api, key, client = client(), seenGroups = seenGroups) }
 
         waitForLabels(listOf("Summer trips", "Winter tales"))
         assertEquals(listOf("Summer trips", "Winter tales"), titles())
-        assertEquals("$api/delivery/v1/zone?zone=home-top", requests.single().url.toString())
+        assertEquals("$api/delivery/v1/zone", requests.single().url.toString())
         assertEquals("Bearer $key", requests.single().headers[HttpHeaders.Authorization])
     }
 
@@ -147,7 +147,7 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
         val clicked = mutableListOf<DeliveryTaleGroup>()
         // The host handles taps itself: no viewer opens (TaleartViewerUiTest covers the one that does).
         show {
-            TaleartZone(api, key, "home-top", onGroupClick = { clicked += it }, client = client(), seenGroups = seenGroups, opensViewer = false)
+            TaleartZone(api, key, onGroupClick = { clicked += it }, client = client(), seenGroups = seenGroups, opensViewer = false)
         }
 
         waitForLabels(listOf("Summer trips", "Winter tales"))
@@ -221,7 +221,7 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
         val errors = mutableListOf<ZoneResult.Failure>()
         val seenGroups = seen()
         val refusing = client { json(refused, HttpStatusCode.Unauthorized) }
-        show { TaleartZone(api, key, "home-top", onError = { errors += it }, client = refusing, seenGroups = seenGroups) }
+        show { TaleartZone(api, key, onError = { errors += it }, client = refusing, seenGroups = seenGroups) }
 
         waitUntil("an error", 5_000) { labels(); errors.isNotEmpty() }
         assertIs<ZoneResult.InvalidSiteKey>(errors.single())
@@ -233,37 +233,37 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
     fun waitsForEveryFieldBeforeItAsks() = runComposeUiTest {
         val seenGroups = seen()
         val fake = client { request ->
-            json(zoneJson(bar, groupsJson(request.url.parameters["zone"] ?: "?")))
+            json(zoneJson(bar, groupsJson(request.headers[HttpHeaders.Authorization]!!.removePrefix("Bearer "))))
         }
-        // Three zones each missing one field, and one complete: only the complete one is read.
+        // Zones missing the API origin, or the key (blank), and one complete: only the complete one is read.
         show {
-            TaleartZone("", key, "no-url", client = fake, seenGroups = seenGroups)
-            TaleartZone(api, "", "no-key", client = fake, seenGroups = seenGroups)
-            TaleartZone(api, key, " ", client = fake, seenGroups = seenGroups)
-            TaleartZone(api, key, "complete", client = fake, seenGroups = seenGroups)
+            TaleartZone("", key, client = fake, seenGroups = seenGroups)
+            TaleartZone(api, "", client = fake, seenGroups = seenGroups)
+            TaleartZone(api, " ", client = fake, seenGroups = seenGroups)
+            TaleartZone(api, "tak_complete", client = fake, seenGroups = seenGroups)
         }
 
-        waitForLabels(listOf("complete"))
+        waitForLabels(listOf("tak_complete"))
         mainClock.advanceTimeBy(5_000)
         waitForIdle()
-        assertEquals(listOf("complete"), requests.map { it.url.parameters["zone"] })
-        assertEquals(listOf("complete"), labels())
+        assertEquals(listOf("Bearer tak_complete"), requests.map { it.headers[HttpHeaders.Authorization] })
+        assertEquals(listOf("tak_complete"), labels())
     }
 
     @Test
-    fun aNewSlugShowsTheNewZone() = runComposeUiTest {
-        var slug by mutableStateOf("home-top")
+    fun aNewZoneKeyShowsTheNewZone() = runComposeUiTest {
+        var zoneKey by mutableStateOf(key)
         val seenGroups = seen()
         val fake = client { request ->
-            if (request.url.parameters["zone"] == "home-top") json(HOME_TOP_ZONE_JSON)
+            if (request.headers[HttpHeaders.Authorization] == "Bearer $key") json(HOME_TOP_ZONE_JSON)
             else json(zoneJson(bar, groupsJson("Other")))
         }
-        show { TaleartZone(api, key, slug, client = fake, seenGroups = seenGroups) }
+        show { TaleartZone(api, zoneKey, client = fake, seenGroups = seenGroups) }
 
         waitForLabels(listOf("Summer trips", "Winter tales"))
-        slug = "other"
+        zoneKey = "tak_other"
         waitForLabels(listOf("Other"))
-        assertEquals(listOf("home-top", "other"), requests.map { it.url.parameters["zone"] })
+        assertEquals(listOf("Bearer $key", "Bearer tak_other"), requests.map { it.headers[HttpHeaders.Authorization] })
     }
 
     @Test
@@ -278,7 +278,7 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
                 json(zoneJson(bar, groupsJson("Fresh")))
             }
         }
-        show { TaleartZone(api, key, "home-top", client = fake, seenGroups = seenGroups, reloadKey = reloads) }
+        show { TaleartZone(api, key, client = fake, seenGroups = seenGroups, reloadKey = reloads) }
 
         waitForLabels(listOf("Summer trips", "Winter tales"))
         reloads++
@@ -299,7 +299,7 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
         }
         show {
             // A new client on every composition: a caller's mistake that must not loop.
-            tick.let { TaleartZone(api, key, "home-top", client = DeliveryClient(HttpClient(engine)), seenGroups = seenGroups) }
+            tick.let { TaleartZone(api, key, client = DeliveryClient(HttpClient(engine)), seenGroups = seenGroups) }
         }
 
         waitForLabels(listOf("Summer trips", "Winter tales"))

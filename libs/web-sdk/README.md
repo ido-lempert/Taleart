@@ -25,10 +25,12 @@ The zone page's Install tab in the dashboard gives this snippet for its zone, wi
 
 ```html
 <script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>
-<taleart-view api-url="https://api.example.com" zone-key="tak_YOUR_ZONE_KEY"></taleart-view>
+<!-- Optional, once per page: <script>Taleart.init({ locale: "en" })</script> -->
+<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 ```
 
-`zone-key` is the only attribute an element needs. A zone has one active key: rotating it issues a new one and revokes
+The script loads from the API, so its origin is the default API URL; with the npm package (no script origin) pass
+`apiUrl` to `init`. `zone-key` is the only attribute an element needs. A zone has one active key: rotating it issues a new one and revokes
 the old, and revoking it takes the zone off every page that places it. A refused, rotated or revoked key renders nothing
 and logs one console error per element.
 
@@ -219,7 +221,7 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 
 ## Hooks
 
-Hooks let the host page follow what the SDK does (inspired by another tool's delegate). Set them for every element with
+Hooks let the host page follow what the SDK does. Set them for every element with
 `init({ hooks })`, or for one element with its `hooks` property; both run, the element's first, then the global one,
 and each hook may also be an `onEvent` that gets every event. A hook's exception is logged with `console.error` and
 never breaks the viewer.

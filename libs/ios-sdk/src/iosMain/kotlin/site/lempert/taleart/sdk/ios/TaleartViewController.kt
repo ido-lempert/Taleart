@@ -12,6 +12,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.window.ComposeUIViewController
 import platform.UIKit.UIViewController
+import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 import site.lempert.taleart.sdk.delivery.ZoneResult
@@ -19,12 +20,12 @@ import site.lempert.taleart.sdk.ui.TaleartZone
 import site.lempert.taleart.sdk.ui.TaleartZoneController
 
 /**
- * iOS counterpart of the `<taleart-view>` web component: the zone with slug [zone], read from the
- * TaleArt API at [apiUrl] with the project's [siteKey], shown by [viewController] through the
- * shared [TaleartZone] composable. Embed [viewController] as a child view controller (or in SwiftUI
- * through `UIViewControllerRepresentable`). Keep this object for as long as the view controller:
- * its inputs can change at any time, and [reload] reads the zone again, keeping the display on
- * screen until the new zone arrives.
+ * iOS counterpart of the `<taleart-view>` web component: the zone with the zone key [zoneKey]
+ * (`tak_…`), read from the TaleArt API at [apiUrl] (empty uses the one of `TaleartSdk.init`), shown
+ * by [viewController] through the shared [TaleartZone] composable. Embed [viewController] as a child
+ * view controller (or in SwiftUI through `UIViewControllerRepresentable`). Keep this object for as
+ * long as the view controller: its inputs can change at any time, and [reload] reads the zone again,
+ * keeping the display on screen until the new zone arrives.
  *
  * The zone shows its display, a bar or a banner, as its frame type says; the display can change
  * from one to the other when the zone is read again. Either fills the width it is given:
@@ -44,10 +45,12 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  * modally over the app's top view controller wherever the display is embedded; its Close or a swipe down dismisses it. Set
  * [opensViewer] to false to handle taps yourself.
  *
- * From Swift: `let zone = TaleartZoneView(apiUrl: url, siteKey: key, zone: "home-top")`, then
- * `zone.viewController`.
+ * [listener] hears this view's events (see [TaleartListener]); subclass [TaleartListenerBase] in
+ * Swift. [locale] and [strings] are this view's texts, over the SDK's.
+ *
+ * From Swift: `let zone = TaleartZoneView(apiUrl: url, zoneKey: key)`, then `zone.viewController`.
  */
-class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
+class TaleartZoneView(apiUrl: String?, zoneKey: String) {
     /** The zone shown, read with the process's shared Delivery client unless [client] is set. */
     val controller = TaleartZoneController()
 
@@ -60,10 +63,25 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
      */
     var opensViewer: Boolean by mutableStateOf(true)
 
-    /** Called with each failed read (a refused key, an unknown slug, a network failure); nothing shows then. */
+    /** Called with each failed read (a refused key, a network failure); nothing shows then. */
     var onError: ((ZoneResult.Failure) -> Unit)?
         get() = controller.onError
         set(value) { controller.onError = value }
+
+    /** This view's hooks (see [TaleartListener]); null for none. The SDK's global listener hears every view. */
+    var listener: TaleartListener?
+        get() = controller.listener
+        set(value) { controller.listener = value }
+
+    /** This view's texts per locale, over the SDK's (`TaleartSdk.init`); null for none. */
+    var strings: Map<String, Map<String, String>>?
+        get() = controller.strings
+        set(value) { controller.strings = value }
+
+    /** This view's locale (BCP 47, such as `he-IL`); null to use the SDK's. */
+    var locale: String?
+        get() = controller.locale
+        set(value) { controller.locale = value }
 
     /** Called with the display's new height in points (bar or banner). */
     var onHeightChange: ((Double) -> Unit)? = null
@@ -77,33 +95,28 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
         get() = controller.client
         set(value) { controller.client = value }
 
-    var apiUrl: String = apiUrl
+    /** The TaleArt API origin; null or empty uses the one of `TaleartSdk.init`. */
+    var apiUrl: String? = apiUrl
         set(value) {
             field = value
-            controller.configure(this.apiUrl, siteKey, this.zone)
+            controller.configure(this.apiUrl.orEmpty(), this.zoneKey)
         }
 
-    var siteKey: String = siteKey
+    /** The zone's key (`tak_…`). */
+    var zoneKey: String = zoneKey
         set(value) {
             field = value
-            controller.configure(this.apiUrl, siteKey, this.zone)
-        }
-
-    var zone: String = zone
-        set(value) {
-            field = value
-            controller.configure(this.apiUrl, siteKey, this.zone)
+            controller.configure(this.apiUrl.orEmpty(), this.zoneKey)
         }
 
     init {
-        controller.configure(apiUrl, siteKey, zone)
+        controller.configure(apiUrl.orEmpty(), zoneKey)
     }
 
     /** Sets the zone to show in one call. */
-    fun configure(apiUrl: String, siteKey: String, zone: String) {
+    fun configure(apiUrl: String?, zoneKey: String) {
         this.apiUrl = apiUrl
-        this.siteKey = siteKey
-        this.zone = zone
+        this.zoneKey = zoneKey
     }
 
     /** Reads the zone again, as reopening the screen would. */
@@ -138,14 +151,13 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
     }
 }
 
-/** A view controller showing the zone with slug [zone] (see [TaleartZoneView], which can also change it later). */
-fun TaleartViewController(apiUrl: String, siteKey: String, zone: String): UIViewController =
-    TaleartZoneView(apiUrl, siteKey, zone).viewController
+/** A view controller showing the zone with key [zoneKey] (see [TaleartZoneView], which can also change it later). */
+fun TaleartViewController(apiUrl: String?, zoneKey: String): UIViewController =
+    TaleartZoneView(apiUrl, zoneKey).viewController
 
-/** A view controller showing the zone with slug [zone], calling [onGroupClick] with each tapped group before the viewer opens. */
+/** A view controller showing the zone with key [zoneKey], calling [onGroupClick] with each tapped group before the viewer opens. */
 fun TaleartViewController(
-    apiUrl: String,
-    siteKey: String,
-    zone: String,
+    apiUrl: String?,
+    zoneKey: String,
     onGroupClick: (DeliveryTaleGroup) -> Unit,
-): UIViewController = TaleartZoneView(apiUrl, siteKey, zone).also { it.onGroupClick = onGroupClick }.viewController
+): UIViewController = TaleartZoneView(apiUrl, zoneKey).also { it.onGroupClick = onGroupClick }.viewController

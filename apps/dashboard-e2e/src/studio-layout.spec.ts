@@ -47,9 +47,9 @@ test.describe.serial('Tale Studio 2: the studio in five regions (story 11.1)', (
       data: png.buffer,
     });
     expect(res.ok(), `media upload: ${res.status()}`).toBe(true);
-    const { key } = await api<{ key: string }>('post', `/projects/${project.id}/site-key`, {});
+    const { key } = await api<{ key: string }>('post', `/zones/${zone.id}/key`, {});
     const install = await api<{ testPageUrl: string }>('get', '/install');
-    testPageUrl = `${install.testPageUrl}?zone=${encodeURIComponent(zone.slug)}#siteKey=${encodeURIComponent(key)}`;
+    testPageUrl = `${install.testPageUrl}#zoneKey=${encodeURIComponent(key)}`;
   });
 
   test.afterAll(async () => {

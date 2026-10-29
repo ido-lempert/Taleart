@@ -17,26 +17,23 @@ expect fun defaultApiUrl(): String
 /** The API's default port (apps/api, PORT). */
 const val DEFAULT_API_PORT = 3333
 
-/** The zone Taller reads: the API URL, the project's site key and the zone's slug. */
-data class DebugSettings(val apiUrl: String, val siteKey: String, val zone: String) {
-    /** True when every field is set, as the Web SDK waits until all are. */
-    val complete: Boolean get() = apiUrl.isNotBlank() && siteKey.isNotBlank() && zone.isNotBlank()
+/** The zone Taller reads: the API URL and the zone's key (`tak_…`, issued in the dashboard). */
+data class DebugSettings(val apiUrl: String, val zoneKey: String) {
+    /** True when both fields are set, as the Web SDK waits until both are. */
+    val complete: Boolean get() = apiUrl.isNotBlank() && zoneKey.isNotBlank()
 
     fun save(store: KeyValueStore) {
         store.set(API_URL, apiUrl.trim())
-        store.set(SITE_KEY, siteKey.trim())
-        store.set(ZONE, zone.trim())
+        store.set(ZONE_KEY, zoneKey.trim())
     }
 
     companion object {
         const val API_URL = "taller.apiUrl"
-        const val SITE_KEY = "taller.siteKey"
-        const val ZONE = "taller.zone"
+        const val ZONE_KEY = "taller.zoneKey"
 
         fun load(store: KeyValueStore): DebugSettings = DebugSettings(
             apiUrl = store.get(API_URL)?.takeIf { it.isNotBlank() } ?: defaultApiUrl(),
-            siteKey = store.get(SITE_KEY).orEmpty(),
-            zone = store.get(ZONE).orEmpty(),
+            zoneKey = store.get(ZONE_KEY).orEmpty(),
         )
     }
 }

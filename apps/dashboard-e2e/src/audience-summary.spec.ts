@@ -10,7 +10,7 @@ import { emptyInstall, signIn } from './session';
  * an untagged one only "Visible on site"; the Tale groups page's Targeted filter lists exactly the
  * tagged groups, says when a group leaves it, and says when none is targeted. The
  * summary is checked in the accessibility tree: it is the indicator's accessible name. The groups
- * are made visible through the API (a display, a site key, a live group with a published tale).
+ * are made visible through the API (a display, a zone key, a live group with a published tale).
  */
 
 const API = '/api/v1';
@@ -66,7 +66,7 @@ test.describe.serial('a targeted group says who it is for (epic targeting story 
     const project = await api<{ id: string }>('post', '/projects', { name: 'Audience' });
     zoneId = (await api<{ id: string }>('post', '/zones', { name: 'Home top', projectId: project.id })).id;
     await api('post', `/zones/${zoneId}/frame`, { type: 'bar', settings: {} });
-    await api('post', `/projects/${project.id}/site-key`, {});
+    await api('post', `/zones/${zoneId}/key`, {});
     const summer = await api<{ id: string }>('post', `/projects/${project.id}/tags`, { name: 'summer' });
     const vip = await api<{ id: string }>('post', `/projects/${project.id}/tags`, { name: 'vip' });
     const sale = await api<{ id: string }>('post', `/projects/${project.id}/tags`, { name: 'sale' });

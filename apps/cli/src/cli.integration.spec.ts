@@ -256,8 +256,8 @@ describe('taleart against a test API', () => {
     expect(snippet.snippet).toContain(`zone-key="${zoneKey.key}"`);
     expect(snippet.snippet).not.toContain('site-key');
     expect(snippet.testPageUrl).toBe(`${apiUrl}/sdk/v1/test-page#zoneKey=${encodeURIComponent(zoneKey.key)}`);
-    const again = cli(['zone-keys', 'issue', 'home-top', '--json'], inProject());
-    expect(again.error().code).toBe('zone_key_exists');
+    const twice = cli(['zone-keys', 'issue', 'home-top', '--json'], inProject());
+    expect(twice.error().code).toBe('zone_key_exists');
     ok(cli(['zone-keys', 'revoke', 'home-top', '--yes', '--json'], inProject()));
     expect(ok(cli(['zone-keys', 'info', 'home-top', '--json'], inProject())).json()).toBeNull();
     const page = await fetch(snippet.testPageUrl.split('#')[0]);

@@ -99,7 +99,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import kotlin.math.abs
+import site.lempert.taleart.sdk.ComponentRef
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
+import site.lempert.taleart.sdk.deliver
+import site.lempert.taleart.sdk.deliverAction
 
 /** Test tag of the viewer. */
 const val VIEWER_TAG = "taleart-viewer"
@@ -210,8 +213,9 @@ fun TaleartViewer(
     val closed by rememberUpdatedState(onClose)
     // The group shown last, kept from the moment the viewer closes until it has faded out.
     val last = remember(groups, startGroupId) { arrayOfNulls<String>(1) }
+    val translate = LocalTaleartContext.current.translate
     val state = remember(groups, startGroupId) {
-        TaleViewerState(groups, startGroupId, reducedMotion, onClosed = { last[0] = it })
+        TaleViewerState(groups, startGroupId, reducedMotion, onClosed = { last[0] = it }, translate = translate)
     }
     ViewerContent(state, modifier, seenGroups, theme, onGroupShown, reducedMotion, onExited = { last[0]?.let { closed(it) } })
 }
@@ -260,6 +264,22 @@ internal fun ViewerContent(
 ) {
     val shown by rememberUpdatedState(onGroupShown)
     val exitedNow by rememberUpdatedState(onExited)
+    val context = LocalTaleartContext.current
+    val uri = LocalUriHandler.current
+    // A call to action of the tale: the listeners hear it first; the URL opens unless one of them handled it.
+    val opener = remember(state, context, uri) {
+        LinkOpener { component, url ->
+            val tale = state.group.tales.getOrNull(state.taleIndex)
+            val event = context.event(
+                "actionClicked",
+                group = groupRef(state.groups, state.group),
+                tale = tale?.let { taleRef(it, state.taleIndex) },
+                component = component,
+                url = url,
+            )
+            if (!deliverAction(context.listener, event)) runCatching { uri.openUri(url) }
+        }
+    }
     // An unknown group, or one without tales: nothing opens (`open` returns false).
     val opened = remember(state) { state.isOpen }
     if (!opened) return
@@ -321,6 +341,10 @@ internal fun ViewerContent(
         if (state.isOpen) {
             seenGroups.markSeen(state.group.id)
             shown(state.group.id)
+            state.group.tales.getOrNull(state.taleIndex)?.let { tale ->
+                val event = context.event("taleShown", group = groupRef(state.groups, state.group), tale = taleRef(tale, state.taleIndex))
+                deliver(context.listener, event) { it.onTaleShown(event) }
+            }
             announceForAccessibility(state.announcement)
         }
         onDispose { }
@@ -418,7 +442,9 @@ internal fun ViewerContent(
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val width = if (maxWidth < maxHeight * 9f / 16f) maxWidth else maxHeight * 9f / 16f
             Box(Modifier.width(width).fillMaxHeight()) {
-                Stage(state, rtl, theme.fontFamily, motion, dragDown)
+                CompositionLocalProvider(LocalLinkOpener provides opener) {
+                    Stage(state, rtl, theme.fontFamily, motion, dragDown)
+                }
                 TopBar(state, accent, font)
                 // The live region (`.sr-only` in the Web SDK): says which tale shows.
                 Box(
@@ -440,6 +466,8 @@ internal fun ViewerContent(
 @Composable
 private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: String?, motion: ViewerMotion, dragDown: MutableFloatState) {
     val uri = LocalUriHandler.current
+    val opener = LocalLinkOpener.current
+    val t = LocalTaleartContext.current.translate
     val scope = rememberCoroutineScope()
     val dir = if (rtl) -1 else 1
     // The released drag settling now, if any: a new touch lands it at once.
@@ -448,7 +476,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
         Modifier
             .matchParentSize()
             .testTag(VIEWER_STAGE_TAG)
-            .pointerInput(state, rtl, uri, motion) {
+            .pointerInput(state, rtl, uri, opener, motion) {
                 val swipe = SWIPE_MIN_DP.dp.toPx()
                 val swipeUp = maxOf(SWIPE_UP_MIN_DP.dp.toPx(), SWIPE_UP_MIN_SHARE * size.height)
                 val slop = viewConfiguration.touchSlop
@@ -525,7 +553,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                     when {
                         // A flick up opens the tale's swipe-up link, when it has one (R7).
                         swipeUpHref != null && releasedAt - down.uptimeMillis < SWIPE_UP_MAX_MS && -dy >= swipeUp && -dy > abs(dx) ->
-                            runCatching { uri.openUri(swipeUpHref) }
+                            openLink(opener, uri, ComponentRef(state.view.swipeUpId.orEmpty(), "swipe-up"), swipeUpHref)
                         // A swipe toward the start of the line (left, or right in right to left) shows the next group.
                         abs(dx) >= swipe && abs(dx) > abs(dy) -> if (if (rtl) dx > 0 else dx < 0) state.nextGroup() else state.previousGroup()
                         closing -> state.close()
@@ -544,8 +572,8 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
         // drawn over them, are what touch exploration finds where they are.
         Row(Modifier.matchParentSize().semantics { isTraversalGroup = true; traversalIndex = -1f }) {
             // The Row mirrors right to left by itself: Previous is then the right third.
-            Zone("Previous tale", 1f) { state.previous() }
-            Zone("Next tale", 2f) { state.next() }
+            Zone(t("viewer.previousTale"), 1f) { state.previous() }
+            Zone(t("viewer.nextTale"), 2f) { state.next() }
         }
         // The group turning in or out beside the live one: a still picture of its tale, hidden from
         // screen readers and touch.
@@ -753,6 +781,7 @@ private fun Modifier.mediaSemantics(label: String?): Modifier =
 // The top: one segment per tale of the group, then the group's name, Pause and Close.
 @Composable
 private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: androidx.compose.ui.text.font.FontFamily?) {
+    val t = LocalTaleartContext.current.translate
     Column(
         Modifier
             .align(Alignment.TopCenter)
@@ -788,10 +817,10 @@ private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: android
             }
             // Under reduced motion the Pause button shows only for a video, which plays from it.
             if (!state.reducedMotion || state.view.runsOnVideo) {
-                Control(if (state.paused) "Play" else "Pause", if (state.paused) Icons.PLAY else Icons.PAUSE, accent) { state.togglePause() }
+                Control(if (state.paused) t("viewer.play") else t("viewer.pause"), if (state.paused) Icons.PLAY else Icons.PAUSE, accent) { state.togglePause() }
                 Spacer(Modifier.width(8.dp))
             }
-            Control("Close", Icons.CLOSE, accent) { state.close() }
+            Control(t("viewer.close"), Icons.CLOSE, accent) { state.close() }
         }
     }
 }

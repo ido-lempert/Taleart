@@ -33,8 +33,8 @@ import kotlin.test.assertTrue
 // (libs/web-sdk/src/lib/taleart-element.spec.ts), plus the typed failures and the ETag copy.
 class DeliveryClientTest {
     private val api = "http://localhost:3592"
-    private val key = "tas_testkey"
-    private val homeTop = ZoneRequest(key = key, zone = "home-top")
+    private val key = "tak_testkey"
+    private val homeTop = ZoneRequest(key = key)
     private val requests = mutableListOf<HttpRequestData>()
 
     private fun TestScope.client(
@@ -63,12 +63,12 @@ class DeliveryClientTest {
     private val refused = """{"error":{"code":"invalid_site_key","message":"A valid site key and zone are required"}}"""
 
     @Test
-    fun readsTheZoneBySlugWithTheSiteKeyAsABearerTokenOnce() = runTest {
+    fun readsTheZoneByItsKeyAsABearerTokenOnce() = runTest {
         val client = client { json(HOME_TOP_ZONE_JSON) }
         assertIs<ZoneResult.Success>(client.fetchZone(api, homeTop))
         assertEquals(1, requests.size)
         val request = requests.single()
-        assertEquals("$api/delivery/v1/zone?zone=home-top", request.url.toString())
+        assertEquals("$api/delivery/v1/zone", request.url.toString())
         assertEquals("GET", request.method.value)
         assertEquals("Bearer $key", request.headers[HttpHeaders.Authorization])
         assertEquals(setOf(HttpHeaders.Authorization, VISITOR_HEADER), request.headers.names().filter { it != HttpHeaders.Accept && it != HttpHeaders.AcceptCharset }.toSet())
@@ -172,13 +172,13 @@ class DeliveryClientTest {
     }
 
     @Test
-    fun answersAnUnknownSlugOrARevokedKeyAsARefusedKeyAsTheApiDoes() = runTest {
+    fun answersAnUnknownOrRevokedZoneKeyAsARefusedKeyAsTheApiDoes() = runTest {
         val client = client { request ->
-            val known = request.url.parameters["zone"] == "home-top" && request.headers[HttpHeaders.Authorization] == "Bearer $key"
+            val known = request.headers[HttpHeaders.Authorization] == "Bearer $key"
             if (known) json(HOME_TOP_ZONE_JSON) else json(refused, HttpStatusCode.Unauthorized)
         }
-        assertIs<ZoneResult.InvalidSiteKey>(client.fetchZone(api, ZoneRequest(key, "nope")))
-        assertIs<ZoneResult.InvalidSiteKey>(client.fetchZone(api, ZoneRequest("tas_revoked", "home-top")))
+        assertIs<ZoneResult.InvalidSiteKey>(client.fetchZone(api, ZoneRequest("tak_nope")))
+        assertIs<ZoneResult.InvalidSiteKey>(client.fetchZone(api, ZoneRequest("tak_revoked")))
         assertIs<ZoneResult.Success>(client.fetchZone(api, homeTop))
     }
 
@@ -230,33 +230,30 @@ class DeliveryClientTest {
         val gate = CompletableDeferred<Unit>()
         val client = client { request ->
             gate.await()
-            json(zoneWith(groups = """[{"id":"g","name":"Group of ${request.url.parameters["zone"]}","tales":[]}]"""))
+            json(zoneWith(groups = """[{"id":"g","name":"Group of ${request.headers[HttpHeaders.Authorization]}","tales":[]}]"""))
         }
-        val calls = listOf("home-top", "home-promo", "home-top").map { slug ->
-            async { client.fetchZone(api, ZoneRequest(key, slug)) }
+        val calls = listOf("tak_top", "tak_promo", "tak_top").map { k ->
+            async { client.fetchZone(api, ZoneRequest(k)) }
         }
         testScheduler.runCurrent()
         gate.complete(Unit)
         val names = calls.awaitAll().map { assertIs<ZoneResult.Success>(it).zone.taleGroups.single().name }
-        assertEquals(listOf("Group of home-top", "Group of home-promo", "Group of home-top"), names)
-        assertEquals(
-            listOf("$api/delivery/v1/zone?zone=home-promo", "$api/delivery/v1/zone?zone=home-top"),
-            requests.map { it.url.toString() }.sorted(),
-        )
+        assertEquals(listOf("Group of Bearer tak_top", "Group of Bearer tak_promo", "Group of Bearer tak_top"), names)
+        assertEquals(listOf("Bearer tak_promo", "Bearer tak_top"), requests.map { it.headers[HttpHeaders.Authorization]!! }.sorted())
     }
 
     @Test
-    fun sendsOneRequestPerKeyForTheSameSlug() = runTest {
+    fun sendsOneRequestPerZoneKeyAtOnce() = runTest {
         val gate = CompletableDeferred<Unit>()
         val client = client {
             gate.await()
             json(HOME_TOP_ZONE_JSON)
         }
-        val calls = listOf(key, "tas_otherproject").map { k -> async { client.fetchZone(api, ZoneRequest(k, "home-top")) } }
+        val calls = listOf(key, "tak_otherzone").map { k -> async { client.fetchZone(api, ZoneRequest(k)) } }
         testScheduler.runCurrent()
         gate.complete(Unit)
         calls.awaitAll()
-        assertEquals(listOf("Bearer $key", "Bearer tas_otherproject"), requests.map { it.headers[HttpHeaders.Authorization] })
+        assertEquals(listOf("Bearer $key", "Bearer tak_otherzone"), requests.map { it.headers[HttpHeaders.Authorization] })
     }
 
     @Test
@@ -276,7 +273,7 @@ class DeliveryClientTest {
         assertEquals(etag, requests[1].headers[HttpHeaders.IfNoneMatch])
         assertEquals(first.zone, second.zone)
         // Another key has its own copy: no If-None-Match.
-        client.fetchZone(api, ZoneRequest("tas_otherproject", "home-top"))
+        client.fetchZone(api, ZoneRequest("tak_otherzone"))
         assertNull(requests[2].headers[HttpHeaders.IfNoneMatch])
     }
 
@@ -295,9 +292,9 @@ class DeliveryClientTest {
     }
 
     @Test
-    fun encodesTheSlugAsEncodeUriComponentAndTrimsTrailingSlashes() {
-        assertEquals("$api/delivery/v1/zone?zone=home-top", DeliveryClient.zoneUrl("$api//", "home-top"))
-        assertEquals("$api/delivery/v1/zone?zone=a%20b%26c%3D%2F%C3%A9-_.!~*'()", DeliveryClient.zoneUrl(api, "a b&c=/é-_.!~*'()"))
+    fun namesTheZoneByItsKeyInTheBearerTokenOnlyAndTrimsTrailingSlashes() {
+        assertEquals("$api/delivery/v1/zone", DeliveryClient.zoneUrl("$api//"))
+        assertEquals("$api/delivery/v1/zone", DeliveryClient.zoneUrl(api))
     }
 
     @Test
@@ -398,22 +395,22 @@ class DeliveryClientTest {
     @Test
     fun keepsTheMostRecentlyUsedThirtyTwoZonesARevalidationCountingAsAUse() = runTest {
         val client = client { request ->
-            val zone = request.url.parameters["zone"]!!
+            val zone = request.headers[HttpHeaders.Authorization]!!.removePrefix("Bearer ")
             if (request.headers[HttpHeaders.IfNoneMatch] == "\"$zone\"") {
                 respond("", HttpStatusCode.NotModified)
             } else {
                 json(HOME_TOP_ZONE_JSON, HttpStatusCode.OK, HttpHeaders.ETag to "\"$zone\"")
             }
         }
-        suspend fun read(slug: String): String? {
-            client.fetchZone(api, ZoneRequest(key, slug))
+        suspend fun read(zone: String): String? {
+            client.fetchZone(api, ZoneRequest("tak_$zone"))
             return requests.last().headers[HttpHeaders.IfNoneMatch]
         }
         for (i in 0 until 32) read("zone-$i")
-        assertEquals("\"zone-0\"", read("zone-0"))
+        assertEquals("\"tak_zone-0\"", read("zone-0"))
         read("zone-32")
         // zone-1 was the least recently used and left; zone-0, revalidated, stayed.
         assertNull(read("zone-1"))
-        assertEquals("\"zone-0\"", read("zone-0"))
+        assertEquals("\"tak_zone-0\"", read("zone-0"))
     }
 }

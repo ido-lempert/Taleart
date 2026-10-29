@@ -34,7 +34,7 @@ test.describe.serial('user-list targeting (epic targeting story 5.4)', () => {
   let page: Page;
   let projectId = '';
   let zoneId = '';
-  let siteKey = '';
+  let zoneKey = '';
   const groupIds: Record<string, string> = {};
   const listIds: Record<string, string> = {};
 
@@ -58,8 +58,8 @@ test.describe.serial('user-list targeting (epic targeting story 5.4)', () => {
 
   // The Delivery API's groups for a viewer, as the Web SDK asks: the ID in its header only.
   async function delivered(id: string | null): Promise<{ names: string[]; cacheControl: string | null; url: string }> {
-    const url = `${apiOrigin}/delivery/v1/zone?zone=home-top`;
-    const headers: Record<string, string> = { Authorization: `Bearer ${siteKey}` };
+    const url = `${apiOrigin}/delivery/v1/zone`;
+    const headers: Record<string, string> = { Authorization: `Bearer ${zoneKey}` };
     if (id !== null) headers[HEADER] = b64(id);
     const res = await page.request.get(url, { headers });
     expect(res.status()).toBe(200);
@@ -78,7 +78,7 @@ test.describe.serial('user-list targeting (epic targeting story 5.4)', () => {
     projectId = (await api<{ id: string }>('post', '/projects', { name: 'Lists' })).id;
     zoneId = (await api<{ id: string }>('post', '/zones', { name: 'Home top', projectId })).id;
     await api('post', `/zones/${zoneId}/frame`, { type: 'bar', settings: {} });
-    siteKey = (await api<{ key: string }>('post', `/projects/${projectId}/site-key`, {})).key;
+    zoneKey = (await api<{ key: string }>('post', `/zones/${zoneId}/key`, {})).key;
     for (const name of ['Loyal only', 'Nobody yet', 'Everyone']) await visibleGroup(name);
     for (const [name, csv] of [
       ['Loyal', `${MEMBERS.join('\n')}\n`],
@@ -174,8 +174,8 @@ test.describe.serial('user-list targeting (epic targeting story 5.4)', () => {
     const names = () => bar.evaluateAll((items) => items.map((b) => b.getAttribute('aria-label')));
     try {
       // The first viewer from the fragment, as the page reads it.
-      const hash = new URLSearchParams({ siteKey, externalUserId: MEMBERS[0] }).toString();
-      await sample.goto(`${origin}/?zones=home-top&api=${encodeURIComponent(apiOrigin)}#${hash}`);
+      const hash = new URLSearchParams({ zoneKeys: zoneKey, externalUserId: MEMBERS[0] }).toString();
+      await sample.goto(`${origin}/?api=${encodeURIComponent(apiOrigin)}#${hash}`);
       await expect.poll(names, { timeout: 20_000 }).toEqual(['Loyal only', 'Everyone']);
       // The second viewer typed in the form; then a viewer not in the list; then no ID.
       await sample.getByLabel('External user ID').fill(MEMBERS[1]);

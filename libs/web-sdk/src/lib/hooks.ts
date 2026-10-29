@@ -1,4 +1,4 @@
-// The SDK's hooks (another tool-style): callbacks the host page sets with `Taleart.init({ hooks })` for every
+// The SDK's hooks (listener-style): callbacks the host page sets with `Taleart.init({ hooks })` for every
 // element, or with `element.hooks` for one. Each event is also a bubbling DOM CustomEvent on the element.
 import { getConfig } from './config';
 

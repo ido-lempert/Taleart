@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
+import site.lempert.taleart.sdk.i18n.Translate
+import site.lempert.taleart.sdk.i18n.defaultTranslate
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -93,14 +95,15 @@ val BannerRotating = SemanticsPropertyKey<Boolean>("TaleartBannerRotating")
 private var SemanticsPropertyReceiver.bannerRotating by BannerRotating
 
 /** A slide's position for screen readers, as the Web SDK's slide label: `1 of 3`. */
-fun bannerSlideLabel(index: Int, count: Int): String = "${index + 1} of $count"
+fun bannerSlideLabel(index: Int, count: Int, translate: Translate = defaultTranslate): String =
+    translate("banner.slideOf", mapOf("index" to index + 1, "count" to count))
 
 /** A dot's name, as in the Web SDK: `Show <group title>`. */
-fun bannerDotLabel(name: String): String = "Show $name"
+fun bannerDotLabel(name: String, translate: Translate = defaultTranslate): String = translate("banner.showGroup", mapOf("name" to name))
 
 /** The rotation button's name, as in the Web SDK. */
-fun bannerRotationLabel(rotating: Boolean): String =
-    if (rotating) "Stop automatic slide show" else "Start automatic slide show"
+fun bannerRotationLabel(rotating: Boolean, translate: Translate = defaultTranslate): String =
+    if (rotating) translate("banner.stopRotation") else translate("banner.startRotation")
 
 // The banner's fixed look (BANNER_STYLES in the Web SDK).
 private val SLIDE_PLACEHOLDER = Color(0xFFE5E7EB)
@@ -278,6 +281,7 @@ private fun Banner(
     val background = parseHexColor(theme.backgroundColor)
     val dotColor = parseHexColor(theme.titleColor)
     val hostColor = titleStyle.color.takeUnless { it == Color.Unspecified } ?: Color.Black
+    val translate = LocalTaleartContext.current.translate
     val loader = rememberCoverImageLoader()
 
     Column(
@@ -287,7 +291,7 @@ private fun Banner(
             .semantics {
                 isTraversalGroup = true
                 // aria-label "Banner" on the carousel.
-                contentDescription = "Banner"
+                contentDescription = translate("banner.label")
                 bannerShown = slides[index].id
                 bannerRotating = rotating
             }
@@ -359,7 +363,7 @@ private fun Banner(
                                         }
                                         .semantics {
                                             contentDescription = group.name
-                                            stateDescription = bannerSlideLabel(n, count)
+                                            stateDescription = bannerSlideLabel(n, count, translate)
                                             // Screen readers hear the slide shown only when the person changes it.
                                             if (!rotating) liveRegion = LiveRegionMode.Polite
                                         }
@@ -376,7 +380,7 @@ private fun Banner(
             if (count > 1) {
                 val prevDisabled = !loop && index == 0
                 RoundButton(
-                    label = "Previous slide",
+                    label = translate("banner.previousSlide"),
                     icon = BannerIcons.PREV,
                     mirrored = rtl,
                     disabled = prevDisabled,
@@ -386,7 +390,7 @@ private fun Banner(
                     step(-1)
                 }
                 RoundButton(
-                    label = "Next slide",
+                    label = translate("banner.nextSlide"),
                     icon = BannerIcons.NEXT,
                     mirrored = rtl,
                     disabled = atEnd,
@@ -407,7 +411,7 @@ private fun Banner(
             ) {
                 if (showRotate) {
                     RoundButton(
-                        label = bannerRotationLabel(rotating),
+                        label = bannerRotationLabel(rotating, translate),
                         icon = if (rotating) BannerIcons.PAUSE else BannerIcons.PLAY,
                         mirrored = false,
                         // Nothing to start on the last slide without loop.
@@ -420,7 +424,7 @@ private fun Banner(
                     Row {
                         slides.forEachIndexed { n, group ->
                             Dot(
-                                label = bannerDotLabel(group.name),
+                                label = bannerDotLabel(group.name, translate),
                                 current = n == index,
                                 themed = dotColor,
                                 host = hostColor,

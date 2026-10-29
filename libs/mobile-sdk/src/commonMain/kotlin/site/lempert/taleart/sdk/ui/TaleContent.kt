@@ -6,6 +6,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import site.lempert.taleart.sdk.delivery.DeliveryTale
+import site.lempert.taleart.sdk.i18n.Translate
+import site.lempert.taleart.sdk.i18n.defaultTranslate
 
 /** How long a document tale without a video plays when its document sets no `durationMs` (`DEFAULT_TALE_DURATION_MS`). */
 const val DEFAULT_TALE_DURATION_MS = 7000L
@@ -81,6 +83,9 @@ data class TaleView(
     /** The swipe-up link's destination, which a flick up opens (R7), or null. */
     val swipeUpHref: String? get() = canvas?.layer?.swipeUpHref
 
+    /** The id of the swipe-up link, if the tale has one. */
+    val swipeUpId: String? get() = canvas?.layer?.swipeUpId
+
     companion object {
         /**
          * Reads tale [tale] (number [index] of its group, from 0). A tale with a document plays its
@@ -88,8 +93,8 @@ data class TaleView(
          * the canvas, is drawn full-bleed in the stage (`stageTaleMedia`). A tale without one (a
          * server from before R16) shows its media for 5 s, named by its title.
          */
-        fun read(tale: DeliveryTale, index: Int): TaleView {
-            val label = tale.title.ifEmpty { "Tale ${index + 1}" }
+        fun read(tale: DeliveryTale, index: Int, translate: Translate = defaultTranslate): TaleView {
+            val label = tale.title.ifEmpty { translate("viewer.taleFallback", mapOf("number" to index + 1)) }
             val doc = tale.document as? JsonObject
             if (doc == null) {
                 val media = tale.media

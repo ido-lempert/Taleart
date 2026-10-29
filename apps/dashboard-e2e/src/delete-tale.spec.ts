@@ -65,7 +65,7 @@ test.describe.serial('delete a tale (story 8.20)', () => {
     await context.addCookies([{ name: 'taleart_session', value: await signIn('Delete a tale'), url: baseURL ?? '' }]);
     page = await context.newPage();
     await page.goto('/sign-in');
-    // A zone with its display, its project's site key, and a group that is On with two shown tales
+    // A zone with its display, its zone key, and a group that is On with two shown tales
     // with media, and a Hidden copy of the first, sharing its media (AD-14).
     const project = await api<{ id: string }>('post', '/projects', { name: 'Delete a tale' });
     const zone = await api<{ id: string; slug: string }>('post', '/zones', { name: 'Home top', projectId: project.id });
@@ -81,10 +81,10 @@ test.describe.serial('delete a tale (story 8.20)', () => {
     }
     copyId = (await api<{ id: string }>('post', `/tales/${ids[0]}/duplicate`, {})).id;
     await api('put', `/tale-groups/${groupId}/status`, { status: 'live' });
-    const { key } = await api<{ key: string }>('post', `/projects/${project.id}/site-key`, {});
+    const { key } = await api<{ key: string }>('post', `/zones/${zone.id}/key`, {});
     const install = await api<{ testPageUrl: string }>('get', '/install');
-    // As the Install tab links it: the slug in the query, the key in the fragment.
-    testPageUrl = `${install.testPageUrl}?zone=${encodeURIComponent(zone.slug)}#siteKey=${encodeURIComponent(key)}`;
+    // As the Install tab links it: the zone key in the fragment.
+    testPageUrl = `${install.testPageUrl}#zoneKey=${encodeURIComponent(key)}`;
   });
 
   test.afterAll(async () => {

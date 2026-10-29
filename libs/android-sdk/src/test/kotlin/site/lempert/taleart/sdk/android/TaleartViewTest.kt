@@ -63,13 +63,11 @@ class TaleartViewTest {
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val attrs = Robolectric.buildAttributeSet()
             .addAttribute(R.attr.taleartApiUrl, "http://api.test")
-            .addAttribute(R.attr.taleartSiteKey, " tas_key ")
-            .addAttribute(R.attr.taleartZone, "home-top")
+            .addAttribute(R.attr.taleartZoneKey, " tak_key ")
             .build()
         val view = TaleartView(activity, attrs)
         assertEquals("http://api.test", view.apiUrl)
-        assertEquals("tas_key", view.siteKey)
-        assertEquals("home-top", view.zone)
+        assertEquals("tak_key", view.zoneKey)
         assertTrue(view.controller.isComplete)
     }
 
@@ -78,15 +76,15 @@ class TaleartViewTest {
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val view = TaleartView(activity).apply {
             client = client { json(zoneJson("Summer", "Winter")) }
-            configure("http://api.test", "tas_key", "home-top")
+            configure("http://api.test", "tak_key")
         }
         val parent = FrameLayout(activity)
         activity.setContentView(parent)
         parent.addView(view)
 
         waitFor("the zone") { names(view) == listOf("Summer", "Winter") && view.hostsComposition }
-        assertEquals("http://api.test/delivery/v1/zone?zone=home-top", requests.single().url.toString())
-        assertEquals("Bearer tas_key", requests.single().headers[HttpHeaders.Authorization])
+        assertEquals("http://api.test/delivery/v1/zone", requests.single().url.toString())
+        assertEquals("Bearer tak_key", requests.single().headers[HttpHeaders.Authorization])
 
         val zone = view.controller.zone
         parent.removeView(view)
@@ -111,7 +109,7 @@ class TaleartViewTest {
                     json(zoneJson("New"))
                 }
             }
-            configure("http://api.test", "tas_key", "home-top")
+            configure("http://api.test", "tak_key")
         }
         activity.setContentView(view)
 
@@ -130,7 +128,7 @@ class TaleartViewTest {
         val view = TaleartView(activity).apply {
             onErrorListener = { errors += it }
             client = client { json("""{"error":{"code":"invalid_site_key","message":"Refused"}}""", HttpStatusCode.Unauthorized) }
-            configure("http://api.test", "tas_bad", "home-top")
+            configure("http://api.test", "tak_key")
         }
         activity.setContentView(view)
 
@@ -144,7 +142,7 @@ class TaleartViewTest {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val view = TaleartView(activity).apply {
             client = client { json(zoneJson("A")) }
-            configure("http://api.test", "tas_key", "home-top")
+            configure("http://api.test", "tak_key")
         }
         activity.setContentView(view)
         shadowOf(Looper.getMainLooper()).idle()
