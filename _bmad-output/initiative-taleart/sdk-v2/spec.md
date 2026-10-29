@@ -44,3 +44,25 @@ Hook exceptions are caught and logged, never break the viewer.
 - A "view" is a viewer open of that tale group (same moment the group is marked seen). Stored in local storage key `taleart.views` as `{ [groupId]: number[] }` (timestamps, newest last, max 50 per group, max 500 groups). Never sent to the server.
 - Groups over the cap are removed from the rendered display; if none remain the display renders nothing. Invalid value: ignored with one console warning.
 - Hook payload unchanged; `onEvent` gets a `groupCapped` event (`{groupId, rule}`) once per group per render.
+
+## Components (2026-10-29)
+
+New element types, registered like `rating` (schema in `libs/contract/tale-document/element-types`, `registry.json`, contract and server validators, web SDK renderer, dashboard studio palette/inspector/preview, docs). All text is plain, one line, no control characters, as in `rating.schema.json`. Props common to all three: optional `title` (1-80), `theme` (`light` | `dark`).
+
+### countdown
+- Props: `endsAt` (ISO 8601 UTC, `...Z`, required), optional `endedText` (1-80; default is the string `countdown.ended`).
+- Renders days, hours, minutes, seconds, ticking each second (`role="timer"`; announced politely once a minute, not every second). At and after `endsAt` it shows `endedText` and fires one `componentEvent` `{component:'countdown', action:'ended'}` per render. Uses the visitor's clock; the docs say so. Respects `prefers-reduced-motion` (no flip animation). Several allowed per tale.
+- Strings: `countdown.ended`, `countdown.days`, `countdown.hours`, `countdown.minutes`, `countdown.seconds`.
+
+### promo-code
+- Props: `code` (1-32 chars of `A-Z a-z 0-9 _ -`, required), optional `note` (1-120).
+- Renders the code in a chip and a Copy button. Copy uses `navigator.clipboard.writeText` with a selection fallback; shows `promo.copied` for 2 s, or `promo.copyFailed`. Fires `componentEvent` `{component:'promo-code', action:'copied', value: <code>}`. The code is visible to every visitor: the docs say it is not a secret.
+- Strings: `promo.copy`, `promo.copied`, `promo.copyFailed`.
+
+### reaction (second batch)
+- Props: `question` (1-200), `emojis` (2-6 distinct RGI emoji). One per tale. A visitor taps one emoji; it is posted to the Delivery responses endpoint like a poll vote (value = the emoji, server rejects any value not in `emojis`), then each emoji shows its count. Follow the `poll` precedent end to end, including the responses store, dashboard Responses page and `userInteracted`.
+- Strings: `reaction.failed`, `reaction.count` ("{count} reactions").
+
+### Host component events (hook)
+- New hook `onComponentEvent` (`taleart:component-event` DOM event): payload `{zoneKeyPrefix, zoneSlug, taleId, groupId, component, action, value?}`. `component` is the element type key; `action` is `ended` (countdown), `copied` (promo-code), `selected` (reaction, poll, quiz, rating: the answer, `value` = option id or emoji or number). Fires in addition to `userInteracted`, which stays as it is. Reaches `onEvent` too.
+- Native Android/iOS do not render tale documents' interactive components yet; the native docs say so.
