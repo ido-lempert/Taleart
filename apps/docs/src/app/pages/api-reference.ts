@@ -214,7 +214,7 @@ type State = 'loading' | 'ready' | 'failed';
       </p>
       <p>
         The token stays in this page only: it is not stored, and is gone when you leave, reload or change the API URL. The dashboard's
-        signed-in dashboard session (a cookie) cannot be used from the docs, so operations that need it, such as managing API
+        signed-in session (a cookie) cannot be used from the docs, so operations that need it, such as managing API
         tokens, say <em>Dashboard only</em>.
       </p>
     </div>
