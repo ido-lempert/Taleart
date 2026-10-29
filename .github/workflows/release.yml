@@ -1,0 +1,179 @@
+# Releases the SDKs when a tag v<version> is pushed (the version is libs/web-sdk/package.json, gradle.properties
+# taleartVersion, TaleartSdk.VERSION and Package.swift, which must all match the tag; the verify job checks it):
+#   - @lempert/taleart on npm (the Web SDK, from dist/libs/web-sdk, with provenance)
+#   - site.lempert.taleart:mobile-sdk and :android-sdk on Maven Central (uploaded to the Central Portal; a person
+#     releases the deployment there, see RELEASING.md)
+#   - TaleartSDK.xcframework.zip on a GitHub release, and the checksum and url in Package.swift.
+#
+# Secrets (repository settings > Secrets and variables > Actions):
+#   NPM_TOKEN                 npm automation token with publish rights to the @lempert scope.
+#   MAVEN_CENTRAL_USERNAME    Central Portal user token name (Account > Generate user token).
+#   MAVEN_CENTRAL_PASSWORD    Central Portal user token password.
+#   SIGNING_KEY               The GPG private key, ASCII-armored (gpg --armor --export-secret-keys <KEYID>).
+#   SIGNING_KEY_PASSWORD      The passphrase of that key.
+# GITHUB_TOKEN is provided by Actions. Pushes made with it do not start other workflows, so the tag moved at the end
+# does not start this one again.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the tag matches the versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Tag equals the SDKs' version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(grep '^taleartVersion=' gradle.properties | cut -d= -f2)"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match taleartVersion ${VERSION} in gradle.properties." >&2
+            exit 1
+          fi
+      - name: Versions agree across the SDKs
+        run: ./gradlew :verifyTaleartVersions --console=plain
+
+  test:
+    name: Test
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      NX_DAEMON: 'false'
+      NX_NO_CLOUD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - name: Web SDK tests, types and size
+        run: npx nx run-many -t test types-check size --projects=web-sdk
+      - name: Mobile and Android SDK tests (host)
+        run: ./gradlew :mobile-sdk:testAndroidHostTest :android-sdk:testDebugUnitTest --console=plain
+
+  npm:
+    name: Publish @lempert/taleart to npm
+    needs: [verify, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    env:
+      NX_DAEMON: 'false'
+      NX_NO_CLOUD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npx nx run web-sdk:build
+      - name: Publish with provenance (access public from publishConfig)
+        working-directory: dist/libs/web-sdk
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  maven:
+    name: Upload to Maven Central
+    needs: [verify, test]
+    # The Apple targets of mobile-sdk compile only on macOS.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Upload to the Central Portal (a person releases it there)
+        run: ./gradlew :mobile-sdk:publishToMavenCentral :android-sdk:publishToMavenCentral --console=plain
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+
+  xcframework:
+    name: Build the iOS XCFramework
+    needs: [verify, test]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Zip the release XCFramework and compute its checksum
+        run: ./gradlew :ios-sdk:releaseXcframeworkChecksum --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TaleartSDK-xcframework
+          path: |
+            build/release/TaleartSDK.xcframework.zip
+            build/release/TaleartSDK.xcframework.zip.checksum
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub release and Package.swift
+    needs: [npm, maven, xcframework]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: TaleartSDK-xcframework
+          path: build/release
+      - name: Point Package.swift at this release (url and checksum)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          CHECKSUM="$(cat build/release/TaleartSDK.xcframework.zip.checksum)"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/TaleartSDK.xcframework.zip"
+          python3 - "$URL" "$CHECKSUM" "$VERSION" <<'PY'
+          import re, sys
+          url, checksum, version = sys.argv[1:4]
+          path = "Package.swift"
+          text = open(path).read()
+          text, n1 = re.subn(r'url: "[^"]*"', f'url: "{url}"', text)
+          text, n2 = re.subn(r'checksum: "[^"]*"', f'checksum: "{checksum}"', text)
+          if n1 != 1 or n2 != 1:
+              sys.exit("Package.swift: expected one binaryTarget url and checksum")
+          open(path, "w").write(text)
+          PY
+          grep -n "url:\|checksum:" Package.swift
+      - name: Commit Package.swift and move the tag to it
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "Release ${GITHUB_REF_NAME}: Package.swift checksum"
+          git tag -f "${GITHUB_REF_NAME}" HEAD
+          git push origin "${GITHUB_REF_NAME}" --force
+      - name: Create the GitHub release with the XCFramework zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            build/release/TaleartSDK.xcframework.zip \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "TaleArt ${GITHUB_REF_NAME#v}" \
+            --generate-notes

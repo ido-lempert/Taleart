@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="330" viewBox="0 0 640 330" role="img" font-family="system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <title>How an SDK event reaches the host page</title>
+  <desc>An event such as actionClicked is emitted by the taleart-view element. It calls the element's hooks, then the global init hooks, and dispatches a bubbling DOM event. The host can call preventDefault to stop a link and route it itself.</desc>
+  <style>
+    .ink { fill: #1d1d1f; }
+    .muted { fill: #6e6e73; }
+    .box { fill: #ffffff; stroke: #c7c7cc; }
+    .host { fill: #eef6f2; stroke: #0a7d4f; }
+    .flow { stroke: #1d1d1f; stroke-width: 2; fill: none; marker-end: url(#arr); }
+    .back { stroke: #0a7d4f; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#arr2); }
+    .code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1d1d1f"/></marker>
+    <marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#0a7d4f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="640" height="330" fill="#f5f5f7"/>
+
+  <!-- The SDK -->
+  <rect x="24" y="24" width="200" height="72" rx="10" class="box"/>
+  <text x="40" y="50" font-size="14" font-weight="700" class="ink">&lt;taleart-view&gt;</text>
+  <text x="40" y="72" font-size="12.5" class="muted">the SDK emits, e.g.</text>
+  <text x="40" y="88" class="code ink">actionClicked</text>
+
+  <!-- Step 1: element hook -->
+  <rect x="264" y="24" width="160" height="72" rx="10" class="box"/>
+  <text x="280" y="50" font-size="14" font-weight="700" class="ink">1. Element hook</text>
+  <text x="280" y="72" class="code ink">el.hooks.onActionClicked</text>
+
+  <!-- Step 2: global hook -->
+  <rect x="264" y="124" width="160" height="72" rx="10" class="box"/>
+  <text x="280" y="150" font-size="14" font-weight="700" class="ink">2. Global hook</text>
+  <text x="280" y="172" class="code ink">init({ hooks })</text>
+
+  <!-- Step 3: DOM event -->
+  <rect x="264" y="224" width="160" height="72" rx="10" class="box"/>
+  <text x="280" y="250" font-size="14" font-weight="700" class="ink">3. DOM event</text>
+  <text x="280" y="272" class="code ink">taleart:action-clicked</text>
+
+  <!-- Host -->
+  <rect x="464" y="24" width="152" height="272" rx="10" class="host"/>
+  <text x="480" y="50" font-size="14" font-weight="700" class="ink">Your page</text>
+  <text x="480" y="78" font-size="12.5" class="muted">Analytics: track the</text>
+  <text x="480" y="94" font-size="12.5" class="muted">event and its url.</text>
+  <text x="480" y="128" font-size="12.5" class="muted">Routing: call</text>
+  <text x="480" y="144" class="code ink">preventDefault()</text>
+  <text x="480" y="160" font-size="12.5" class="muted">to stop the link and</text>
+  <text x="480" y="176" font-size="12.5" class="muted">route it in your app.</text>
+
+  <!-- Arrows -->
+  <path d="M224,60 L264,60" class="flow"/>
+  <path d="M344,96 L344,124" class="flow"/>
+  <path d="M344,196 L344,224" class="flow"/>
+  <path d="M424,60 L464,60" class="flow"/>
+  <path d="M424,262 L464,262" class="flow"/>
+
+  <text x="24" y="318" font-size="12" class="muted">Only actionClicked is cancelable. A hook that throws is logged with console.error; the viewer keeps going.</text>
+</svg>

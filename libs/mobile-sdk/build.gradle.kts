@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.mavenPublish)
 }
 
 kotlin {
@@ -74,4 +75,39 @@ tasks.withType<Test>().configureEach {
     inputs.file(layout.projectDirectory.file("../contract/openapi/openapi.yaml"))
         .withPropertyName("deliveryContract")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+// Maven Central (group site.lempert.taleart). Local builds and tests need neither credentials nor a key:
+// the Central Portal upload reads mavenCentralUsername and mavenCentralPassword (in CI, the
+// ORG_GRADLE_PROJECT_ variables), and signing runs only when signingInMemoryKey is set.
+group = "site.lempert.taleart"
+version = providers.gradleProperty("taleartVersion").get()
+
+mavenPublishing {
+    publishToMavenCentral()
+    if (providers.gradleProperty("signingInMemoryKey").isPresent) signAllPublications()
+    pom {
+        name.set("TaleArt Mobile SDK")
+        description.set("The shared TaleArt SDK for Kotlin Multiplatform: the Delivery client and the Compose UI that shows a zone's tales, for Android and iOS.")
+        url.set("https://github.com/ido-lempert/Taleart")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("repo")
+            }
+        }
+        developers {
+            developer {
+                id.set("ido-lempert")
+                name.set("Ido Lempert")
+                url.set("https://github.com/ido-lempert")
+            }
+        }
+        scm {
+            url.set("https://github.com/ido-lempert/Taleart")
+            connection.set("scm:git:git://github.com/ido-lempert/Taleart.git")
+            developerConnection.set("scm:git:ssh://git@github.com/ido-lempert/Taleart.git")
+        }
+    }
 }

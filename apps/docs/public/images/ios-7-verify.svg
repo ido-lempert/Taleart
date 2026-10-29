@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" role="img">
+<style>
+  .bg{fill:#f5f7fb}
+  .card{fill:#ffffff;stroke:#c3cbd9;stroke-width:1.5}
+  .soft{fill:#e6ecfb}
+  .ink{fill:#1c2433;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .b{font-weight:700}
+  .muted{fill:#5a6478;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .accent{fill:#2f5bd3}
+  .ring{fill:none;stroke:#2f5bd3;stroke-width:3}
+  .ring-seen{fill:none;stroke:#9aa3b5;stroke-width:3}
+  .arrow{stroke:#5a6478;stroke-width:1.6;fill:none}
+  .num{fill:#2f5bd3}
+  .numtxt{fill:#ffffff;font-weight:700;font-size:13px;font-family:system-ui,sans-serif;text-anchor:middle}
+  .phone{fill:#2b2f3a}
+  .screen{fill:#eef1f7}
+  .viewer{fill:#14171f}
+  .ok{fill:#2f9d5b}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#161b26} .card{fill:#1e2533;stroke:#3b4558} .soft{fill:#243457}
+    .ink{fill:#e9edf5} .muted{fill:#a9b2c3} .arrow{stroke:#a9b2c3} .ring-seen{stroke:#6b7488}
+    .screen{fill:#262c3a}
+  }
+</style>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5a6478"/></marker></defs>
+<rect class="bg" x="0" y="0" width="800" height="450"/>
+<text class="ink b" x="28" y="40" font-size="20">Verify: the bar, the viewer, the console</text>
+<rect class="phone" x="60" y="60" width="240" height="340" rx="30"/><rect class="screen" x="70" y="82" width="220" height="296" rx="18"/><rect class="phone" x="158" y="68" width="44" height="7" rx="3.5"/><rect class="viewer" x="70" y="82" width="220" height="296" rx="18"/><rect x="82" y="100" width="60" height="4" rx="2" fill="#ffffff"/><rect x="148" y="100" width="60" height="4" rx="2" fill="#ffffff"/><rect x="214" y="100" width="60" height="4" rx="2" fill="#4a5164"/><text x="84" y="130" font-size="13" font-weight="700" fill="#ffffff" font-family="system-ui,sans-serif">Summer</text><text x="84" y="148" font-size="11" fill="#c9d0de" font-family="system-ui,sans-serif">Tale 2 of 3</text><text x="276" y="130" font-size="13" font-weight="700" fill="#ffffff" font-family="system-ui,sans-serif" text-anchor="end">Close</text><circle class="ok" cx="352" cy="160" r="11"/><path d="M347 160 l4 4 l7 -8" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text class="ink" x="374" y="165" font-size="14" text-anchor="start">The bar shows the zone</text><circle class="ok" cx="352" cy="206" r="11"/><path d="M347 206 l4 4 l7 -8" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text class="ink" x="374" y="211" font-size="14" text-anchor="start">A tap opens the viewer</text><circle class="ok" cx="352" cy="252" r="11"/><path d="M347 252 l4 4 l7 -8" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text class="ink" x="374" y="257" font-size="14" text-anchor="start">Close returns to the bar</text><circle class="ok" cx="352" cy="298" r="11"/><path d="M347 298 l4 4 l7 -8" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text class="ink" x="374" y="303" font-size="14" text-anchor="start">onLoaded prints it (Xcode console: TaleArt)</text><text class="muted" x="340" y="330" font-size="13" text-anchor="start">If nothing shows: check the key and apiUrl, then the logs.</text><text class="ink b" x="340" y="124" font-size="14" text-anchor="start">Checks</text>
+<text class="muted" x="758" y="434" font-size="11" text-anchor="end">Diagram, not a screenshot</text>
+</svg>

@@ -47,6 +47,17 @@
       "options": {
         "command": "node libs/web-sdk/scripts/check-types.mjs dist/libs/web-sdk"
       }
+    },
+    "pack": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "cwd": "dist/libs/web-sdk",
+        "command": "mkdir -p ../web-sdk-tarball && npm pack --pack-destination ../web-sdk-tarball"
+      }
     }
   }
 }

@@ -126,7 +126,7 @@ describe('docs app', () => {
 
   it('labels every code block and table scroll region and keeps it focusable', async () => {
     const harness = await RouterTestingHarness.create();
-    for (const page of ['/', '/concepts', '/install', '/moving-from-stages', '/ai-agents']) {
+    for (const page of ['/', '/concepts', '/install', '/moving-from-stages', '/ai-agents', '/guides/web', '/reference/web-sdk']) {
       await harness.navigateByUrl(page);
       const regions = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('pre, .table-wrap')];
       expect(regions.length).toBeGreaterThan(0);

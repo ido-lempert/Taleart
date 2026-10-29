@@ -25,6 +25,8 @@ kotlinx-serialization = "1.12.0"
 coil = "3.6.3"
 # The tale viewer's video on Android (story 9.4): Media3, the latest stable release on 2026-10-23.
 media3 = "1.11.1"
+# Publishing the SDKs to Maven Central (mobile-sdk, android-sdk): the latest stable release on 2026-10-29.
+vanniktechMavenPublish = "0.37.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -68,3 +70,4 @@ composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMul
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktechMavenPublish" }

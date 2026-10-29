@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" role="img">
+<style>
+  .bg{fill:#f5f7fb}
+  .card{fill:#ffffff;stroke:#c3cbd9;stroke-width:1.5}
+  .soft{fill:#e6ecfb}
+  .ink{fill:#1c2433;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .b{font-weight:700}
+  .muted{fill:#5a6478;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .accent{fill:#2f5bd3}
+  .ring{fill:none;stroke:#2f5bd3;stroke-width:3}
+  .ring-seen{fill:none;stroke:#9aa3b5;stroke-width:3}
+  .arrow{stroke:#5a6478;stroke-width:1.6;fill:none}
+  .num{fill:#2f5bd3}
+  .numtxt{fill:#ffffff;font-weight:700;font-size:13px;font-family:system-ui,sans-serif;text-anchor:middle}
+  .phone{fill:#2b2f3a}
+  .screen{fill:#eef1f7}
+  .viewer{fill:#14171f}
+  .ok{fill:#2f9d5b}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#161b26} .card{fill:#1e2533;stroke:#3b4558} .soft{fill:#243457}
+    .ink{fill:#e9edf5} .muted{fill:#a9b2c3} .arrow{stroke:#a9b2c3} .ring-seen{stroke:#6b7488}
+    .screen{fill:#262c3a}
+  }
+</style>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5a6478"/></marker></defs>
+<rect class="bg" x="0" y="0" width="800" height="450"/>
+<text class="ink b" x="28" y="40" font-size="20">Initialise once at launch</text>
+<rect class="card" x="40" y="150" width="210" height="96" rx="10"/><text class="ink b" x="145" y="194" font-size="14" text-anchor="middle">App launch</text><text class="muted" x="145" y="213" font-size="12" text-anchor="middle">the app init or the delegate</text><line class="arrow" x1="252" y1="198" x2="288" y2="198" marker-end="url(#arr)"/><text class="muted" x="270" y="190" font-size="12" text-anchor="middle">once</text><rect class="card" x="290" y="150" width="220" height="96" rx="10"/><text class="ink b" x="400" y="194" font-size="14" text-anchor="middle">TaleartSdk.shared.doInit</text><text class="muted" x="400" y="213" font-size="12" text-anchor="middle">replaces the config before</text><line class="arrow" x1="512" y1="198" x2="548" y2="198" marker-end="url(#arr)"/><text class="muted" x="530" y="190" font-size="12" text-anchor="middle">read by</text><rect class="card" x="550" y="150" width="210" height="96" rx="10"/><text class="ink b" x="655" y="194" font-size="14" text-anchor="middle">Every zone view</text><text class="muted" x="655" y="213" font-size="12" text-anchor="middle">reads it again on change</text><rect class="card" x="40" y="300" width="720" height="92" rx="10"/><text class="ink b" x="400" y="342" font-size="14" text-anchor="middle">The config: apiUrl, locale, strings, listener, externalUserId, tags</text><text class="muted" x="400" y="361" font-size="12" text-anchor="middle">The native SDK keeps externalUserId and tags, but does not send them yet.</text><text class="muted" x="40" y="282" font-size="13" text-anchor="start">Set the API URL: a native app has no page origin to fall back on.</text><circle class="num" cx="40" cy="140" r="12"/><text class="numtxt" x="40" y="144.5">1</text><circle class="num" cx="290" cy="140" r="12"/><text class="numtxt" x="290" y="144.5">2</text><circle class="num" cx="550" cy="140" r="12"/><text class="numtxt" x="550" y="144.5">3</text>
+<text class="muted" x="758" y="434" font-size="11" text-anchor="end">Diagram, not a screenshot</text>
+</svg>

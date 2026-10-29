@@ -158,6 +158,9 @@ interface DisplayView {
   destroy?(): void;
 }
 
+// A server (Node, no DOM) can import the package: the class then extends an empty base and nothing is defined.
+const ElementBase: typeof HTMLElement = typeof HTMLElement === 'undefined' ? (class {} as typeof HTMLElement) : HTMLElement;
+
 /**
  * `<taleart-view zone-key="tak_…">`: reads the zone that the zone key names
  * from the Delivery API (`GET <api>/delivery/v1/zone`, the key as a bearer
@@ -177,7 +180,8 @@ interface DisplayView {
  * from `locale` or else `init({ locale })`; the texts from `strings` or else
  * `init({ strings })`, and {@link t} looks them up.
  */
-export class TaleartElement extends HTMLElement {
+
+export class TaleartElement extends ElementBase {
   static get observedAttributes(): string[] {
     return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR];
   }

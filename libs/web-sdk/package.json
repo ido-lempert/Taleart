@@ -1,8 +1,53 @@
 {
-  "name": "@taleart/web-sdk",
-  "version": "0.0.1",
+  "name": "@lempert/taleart",
+  "version": "0.1.0",
+  "description": "The TaleArt Web SDK: a <taleart-view> custom element that shows a zone's bar or banner and opens its tales full-screen.",
   "type": "module",
-  "main": "./index.js",
+  "main": "./index.umd.cjs",
+  "module": "./index.js",
   "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.umd.cjs",
+      "default": "./index.js"
+    },
+    "./umd": "./index.umd.cjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.umd.cjs",
+    "index.d.ts",
+    "lib/",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "./index.js",
+    "./index.umd.cjs"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ido-lempert/Taleart.git",
+    "directory": "libs/web-sdk"
+  },
+  "homepage": "https://ido-lempert.github.io/Taleart/",
+  "bugs": {
+    "url": "https://github.com/ido-lempert/Taleart/issues"
+  },
+  "keywords": [
+    "taleart",
+    "web-component",
+    "custom-element",
+    "stories",
+    "tales"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "dependencies": {}
 }

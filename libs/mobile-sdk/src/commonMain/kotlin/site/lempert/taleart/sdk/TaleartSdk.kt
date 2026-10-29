@@ -9,7 +9,7 @@ import site.lempert.taleart.sdk.i18n.createTranslate
 
 /** Shared TaleArt SDK core used by android-sdk and ios-sdk. */
 object TaleartSdk {
-    const val VERSION = "0.0.1"
+    const val VERSION = "0.1.0"
 
     /**
      * The process's Delivery client, used by every zone not given its own. One client for the whole

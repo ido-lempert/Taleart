@@ -1,20 +1,54 @@
 /// <reference types='vitest' />
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import dts from 'vite-plugin-dts';
 
 const outDir = path.join(import.meta.dirname, '../../dist/libs/web-sdk');
 
-/** Copies the package manifest and README next to the bundle, for `nx release` to publish. */
+/** Copies the package manifest, README and the repository's LICENSE next to the bundle, for npm to publish. */
 function copyPackageFiles(): Plugin {
   return {
     name: 'taleart-copy-package-files',
     apply: 'build',
     writeBundle() {
-      for (const file of ['package.json', 'README.md']) {
-        copyFileSync(path.join(import.meta.dirname, file), path.join(outDir, file));
+      const sources = [
+        path.join(import.meta.dirname, 'package.json'),
+        path.join(import.meta.dirname, 'README.md'),
+        path.join(import.meta.dirname, '../../LICENSE'),
+      ];
+      for (const source of sources) {
+        copyFileSync(source, path.join(outDir, path.basename(source)));
       }
+    },
+  };
+}
+
+/**
+ * Gives the relative imports of the emitted declarations their `.js` extension, so they resolve under
+ * `moduleResolution: nodenext` and `node16` (the `.d.ts` files are the ones TypeScript reads; `./lib/x.js`
+ * finds `./lib/x.d.ts`). Runs after the declarations are written.
+ */
+function declarationExtensions(): Plugin {
+  const specifier = /(from\s+|import\()(['"])(\.\.?\/[^'"]+)\2/g;
+  const addExtension = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) addExtension(file);
+      else if (entry.name.endsWith('.d.ts')) {
+        const text = readFileSync(file, 'utf8');
+        const fixed = text.replace(specifier, (match, head: string, quote: string, target: string) =>
+          /\.[cm]?js$/.test(target) ? match : `${head}${quote}${target}.js${quote}`,
+        );
+        if (fixed !== text) writeFileSync(file, fixed);
+      }
+    }
+  };
+  return {
+    name: 'taleart-declaration-extensions',
+    apply: 'build',
+    closeBundle() {
+      addExtension(outDir);
     },
   };
 }
@@ -57,6 +91,7 @@ export default defineConfig(() => ({
   resolve: { tsconfigPaths: true },
   plugins: [
     copyPackageFiles(),
+    declarationExtensions(),
     moduleReport(),
     dts({
       entryRoot: 'src',
