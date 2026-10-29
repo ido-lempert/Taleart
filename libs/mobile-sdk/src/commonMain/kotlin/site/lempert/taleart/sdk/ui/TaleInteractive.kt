@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -235,6 +235,20 @@ private fun LiveLine(text: String, ink: androidx.compose.ui.graphics.Color, canv
     )
 }
 
+// The line screen readers say and nothing draws (the web SDK's visually hidden live region): a reaction's counts
+// read out in one sentence would be a long clipped line on screen. A 1 dp node carries it as its description.
+@Composable
+private fun SpokenLine(text: String) {
+    Box(
+        Modifier
+            .size(1.dp)
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                if (text.isNotEmpty()) contentDescription = text
+            },
+    )
+}
+
 // ---- Poll and quiz ----------------------------------------------------------------------------
 
 // A quiz's mark on a choice: right (the correct answer) or wrong (the visitor's wrong answer).
@@ -305,6 +319,8 @@ private fun ChoiceCardElement(
     var preview by remember(id) { mutableStateOf<String?>(null) }
     var busy by remember(id) { mutableStateOf(false) }
     var live by remember(id) { mutableStateOf("") }
+    // The announcement with the shares, said to screen readers only: the shares are on the buttons already.
+    var spoken by remember(id) { mutableStateOf("") }
     val shown = answer?.value ?: preview
     val locked = shown != null
     val result = answer?.result
@@ -329,7 +345,8 @@ private fun ChoiceCardElement(
                 is ResponseOutcome.Answered -> {
                     val response = outcome.response
                     answer = StoredResponse(response.value, response.result)
-                    live = choiceSaying(start(response.value), choices, response.result)
+                    live = start(response.value)
+                    spoken = choiceSaying(start(response.value), choices, response.result)
                 }
                 is ResponseOutcome.Failed -> live = failed
             }
@@ -357,6 +374,7 @@ private fun ChoiceCardElement(
             )
         }
         LiveLine(live, ink, canvas)
+        SpokenLine(spoken)
     })
 }
 
@@ -414,7 +432,8 @@ private fun ChoiceButton(
             Box(
                 Modifier
                     .fillMaxWidth(percent.coerceIn(0, 100) / 100f)
-                    .fillMaxHeight()
+                    // The button's own height, not the column's: a fill that takes the free height pushed the other options out.
+                    .matchParentSize()
                     .background(ink.copy(alpha = 0.22f)),
             )
         }
@@ -667,6 +686,6 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
                 }
             }
         }
-        LiveLine(live, ink, canvas)
+        SpokenLine(live)
     })
 }

@@ -83,6 +83,14 @@ class TaleartZoneController(
     var zone: DeliveryZone? by mutableStateOf(null)
         private set
 
+    /**
+     * True once a read of the current inputs has succeeded, whatever it left to show. With [zone] null, a
+     * loaded view has nothing to show (every group capped or left out by targeting, so nothing is drawn),
+     * while a view that is not loaded yet is still reading; a host tells the two apart by this.
+     */
+    var loaded: Boolean by mutableStateOf(false)
+        private set
+
     /** The last read's failure, or null after a success or while inputs are missing. */
     var failure: ZoneResult.Failure? by mutableStateOf(null)
         private set
@@ -125,7 +133,10 @@ class TaleartZoneController(
         configured = true
         this.apiUrl = u
         this.zoneKey = k
-        if (changed) this.zone = null
+        if (changed) {
+            this.zone = null
+            loaded = false
+        }
         start()
     }
 
@@ -149,6 +160,7 @@ class TaleartZoneController(
         if (!isComplete) {
             zone = null
             failure = null
+            loaded = false
             analyticsTarget = null
             readApiUrl = null
             return
@@ -167,9 +179,11 @@ class TaleartZoneController(
                     val event = TaleartEvent(name = "loaded", zoneKeyPrefix = keyPrefix(key), zoneSlug = result.zone.slug)
                     deliver(listener, event) { it.onLoaded(event) }
                     zone = withinFrequency(targeted(result.zone), key)
+                    loaded = true
                 }
                 is ZoneResult.Failure -> {
                     zone = null
+                    loaded = false
                     failure = result
                     analyticsTarget = null
                     println("TaleArt: ${result.message}")

@@ -233,6 +233,8 @@ private fun HomeScreen(
             failure != null -> if (options.fallback != FallbackMode.Message) {
                 Text(failureLabel(failure), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("error"))
             }
+            // Read and nothing left to show (every group capped or left out for this viewer): an empty state, not a spinner.
+            controller.loaded -> Text("Nothing to show: every group here is capped or left out for this viewer.", modifier = Modifier.testTag("empty"))
             else -> CircularProgressIndicator(Modifier.testTag("loading"))
         }
     }

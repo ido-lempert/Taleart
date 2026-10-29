@@ -388,6 +388,19 @@ import {
         A poll before the visitor votes, in the sample app's viewer (taller) on Android, a real screenshot.
       </figcaption>
     </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-answered.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The same poll on Android after a vote for Beach: both options keep their place, Beach shows 100 percent and is selected, Mountains shows 0 percent, and the card reads 'You voted Beach.'"
+      />
+      <figcaption class="muted">
+        After a vote each option shows its share and the vote is selected; the line under the options is the result in words
+        (a real screenshot).
+      </figcaption>
+    </figure>
     <h3 id="answer-quiz">Quiz</h3>
     <p>
       Two to four answers. Once answered, the quiz says whether the answer was right: the correct answer is marked with a
@@ -404,6 +417,19 @@ import {
       />
       <figcaption class="muted">
         A quiz before the visitor answers, in the sample app's viewer (taller) on Android, a real screenshot.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-quiz-answered.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The same quiz on Android after the visitor picked Saturn: all three answers stay in place, Saturn is outlined in green with a tick and 100 percent, Mars and Earth show 0 percent, and the card reads 'Right! You answered Saturn.'"
+      />
+      <figcaption class="muted">
+        A right answer is marked with a tick and its share, and the line under the answers says so in words (a real
+        screenshot).
       </figcaption>
     </figure>
     <h3 id="answer-rating">Rating</h3>

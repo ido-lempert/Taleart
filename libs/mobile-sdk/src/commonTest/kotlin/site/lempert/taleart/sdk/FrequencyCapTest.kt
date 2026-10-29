@@ -26,6 +26,7 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -106,10 +107,13 @@ class FrequencyCapTest {
         val recording = Recording()
         val controller = controller(store, recording)
         controller.configure(api, key)
+        assertFalse(controller.loaded, "not loaded before the read answers")
         settle { recording.events.count { it.name == "groupCapped" } == 2 }
 
         assertNull(controller.zone)
         assertNull(controller.failure)
+        // Loaded with nothing to show: a host draws an empty state, not a spinner, and nothing is an error.
+        assertTrue(controller.loaded)
     }
 
     @Test

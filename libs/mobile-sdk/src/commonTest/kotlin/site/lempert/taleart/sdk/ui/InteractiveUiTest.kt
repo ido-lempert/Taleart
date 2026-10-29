@@ -5,12 +5,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -71,10 +77,14 @@ class InteractiveUiTest : ComposeUiTestBase() {
         }
         waitForIdle()
         onNodeWithContentDescription("Tea").performClick()
-        waitUntil("the result", 5_000) { onAllNodesWithText("You voted Tea. Tea 67%, Coffee 33%").fetchSemanticsNodes().isNotEmpty() }
+        waitUntil("the result", 5_000) { onAllNodesWithText("You voted Tea.").fetchSemanticsNodes().isNotEmpty() }
+        // The shares are on the buttons; the full announcement is said by a polite live region, never drawn as a line.
+        assertTrue(onAllNodesWithText("You voted Tea. Tea 67%, Coffee 33%").fetchSemanticsNodes().isEmpty())
+        onAllNodesWithContentDescription("You voted Tea. Tea 67%, Coffee 33%").onFirst()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         assertEquals(listOf("poll:tea"), responder.sent)
-        onNodeWithContentDescription("Tea, 67%").assertIsSelected().assertIsNotEnabled()
-        onNodeWithContentDescription("Coffee, 33%").assertIsNotEnabled()
+        onNodeWithContentDescription("Tea, 67%").assertIsSelected().assertIsNotEnabled().assertIsDisplayed()
+        onNodeWithContentDescription("Coffee, 33%").assertIsNotEnabled().assertIsDisplayed()
         // A second press takes no second answer.
         onNodeWithContentDescription("Coffee, 33%").performClick()
         waitForIdle()
@@ -135,11 +145,32 @@ class InteractiveUiTest : ComposeUiTestBase() {
         waitForIdle()
         onNodeWithContentDescription("3").performClick()
         waitUntil("the wrong answer", 5_000) {
-            onAllNodesWithText("Wrong: you answered 3. The correct answer is 4. 3 100%, 4 0%").fetchSemanticsNodes().isNotEmpty()
+            onAllNodesWithText("Wrong: you answered 3. The correct answer is 4.").fetchSemanticsNodes().isNotEmpty()
         }
+        assertTrue(onAllNodesWithText("Wrong: you answered 3. The correct answer is 4. 3 100%, 4 0%").fetchSemanticsNodes().isEmpty())
+        onAllNodesWithContentDescription("Wrong: you answered 3. The correct answer is 4. 3 100%, 4 0%").onFirst()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         onNodeWithContentDescription("3 wrong, 100%").assertIsSelected()
         onNodeWithContentDescription("4 correct answer, 0%").assertIsNotEnabled()
         assertEquals(listOf("quiz:a"), responder.sent)
+    }
+
+    @Test
+    fun aThreeOptionQuizStaysFullyDisplayedAfterAnAnswer() = runComposeUiTest {
+        val props = """{"question":"Capital?","answers":[{"id":"a","label":"Rome"},{"id":"b","label":"Paris"},{"id":"c","label":"Oslo"}],"correctAnswerId":"b","theme":"light"}"""
+        val responder = FakeResponder(answered("a", ChoiceResult(2, listOf(ChoiceCount("a", 1, 50), ChoiceCount("b", 1, 50), ChoiceCount("c", 0, 0)))))
+        setContent {
+            CompositionLocalProvider(LocalElementResponder provides responder) {
+                Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layerOf(element("quiz", props))) }
+            }
+        }
+        waitForIdle()
+        onNodeWithContentDescription("Rome").performClick()
+        waitUntil("the result", 5_000) { onAllNodesWithContentDescription("Rome wrong, 50%").fetchSemanticsNodes().isNotEmpty() }
+        // Every option keeps its place and its share after the answer: none is pushed out by another option's bar.
+        onNodeWithContentDescription("Rome wrong, 50%").assertIsDisplayed().assertIsSelected()
+        onNodeWithContentDescription("Paris correct answer, 50%").assertIsDisplayed()
+        onNodeWithContentDescription("Oslo, 0%").assertIsDisplayed()
     }
 
     @Test
@@ -170,7 +201,11 @@ class InteractiveUiTest : ComposeUiTestBase() {
         }
         waitForIdle()
         onNodeWithContentDescription("😂").performClick()
-        waitUntil("the counts", 5_000) { onAllNodesWithText("😂 Reactions: 2, ❤️ Reactions: 0").fetchSemanticsNodes().isNotEmpty() }
+        // The counts are said to screen readers from a polite live region, and drawn on the buttons, never as a line of text.
+        waitUntil("the counts", 5_000) { onAllNodesWithContentDescription("😂 Reactions: 2, ❤️ Reactions: 0").fetchSemanticsNodes().isNotEmpty() }
+        onAllNodesWithContentDescription("😂 Reactions: 2, ❤️ Reactions: 0").onFirst()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        assertTrue(onAllNodesWithText("😂 Reactions: 2, ❤️ Reactions: 0").fetchSemanticsNodes().isEmpty(), "the announcement is not drawn")
         onNodeWithContentDescription("😂, Reactions: 2").assertIsSelected().assertIsNotEnabled()
         onNodeWithContentDescription("❤️, Reactions: 0").assertIsNotEnabled()
         assertEquals(listOf("reaction:😂"), responder.sent)
