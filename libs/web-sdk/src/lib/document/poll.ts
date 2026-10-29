@@ -1,5 +1,6 @@
 import type { ChoiceResult, DeliveryTaleElement, ResponseResult } from '@taleart/contract';
 import type { StoredResponse } from '../responses';
+import { defaultTranslate, type Translate } from '../i18n';
 import type { RenderContext } from './media';
 
 /**
@@ -83,12 +84,15 @@ export interface ChoiceWords {
   failed: string;
 }
 
-const POLL_WORDS: ChoiceWords = {
-  chose: (label) => `You voted ${label}.`,
-  preview: 'Votes are not recorded in the preview.',
-  previewChose: (label) => `You chose ${label}.`,
-  failed: 'Your vote could not be sent. Try again.',
-};
+/** A poll's words, in `t`'s locale. */
+export function pollWords(t: Translate): ChoiceWords {
+  return {
+    chose: (label) => t('poll.voted', { label }),
+    preview: t('poll.previewNotRecorded'),
+    previewChose: (label) => t('poll.chose', { label }),
+    failed: t('poll.failed'),
+  };
+}
 
 /**
  * The choices in `prop` as the server checked them: `min` to `max` of them, each with its own id and
@@ -115,7 +119,11 @@ export function text(tag: string, className: string, value: string): HTMLElement
  * What the live region says once the result shows: the visitor's choice in the card's words (a
  * poll's by default), then each share.
  */
-export function resultMessage(choices: readonly Choice[], response: StoredResponse, words: Pick<ChoiceWords, 'chose'> = POLL_WORDS): string {
+export function resultMessage(
+  choices: readonly Choice[],
+  response: StoredResponse,
+  words: Pick<ChoiceWords, 'chose'> = pollWords(defaultTranslate),
+): string {
   const mine = choices.find((o) => o.id === response.value);
   return saying(mine ? words.chose(mine.label) : '', choices, response.result);
 }
@@ -241,9 +249,10 @@ export function renderChoiceCard(element: DeliveryTaleElement, context: RenderCo
  * shows their percentages once voted, with the vote marked. Null for props it cannot draw.
  */
 export function renderPoll(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
+  const t = context.t ?? defaultTranslate;
   const props = element.props as { question?: unknown };
   const options = choicesOf(element.props, 'options', 2, 2);
   const question = typeof props.question === 'string' ? props.question.trim() : '';
   if (!options || !question) return null;
-  return renderChoiceCard(element, context, { choices: options, words: POLL_WORDS }, question);
+  return renderChoiceCard(element, context, { choices: options, words: pollWords(t) }, question);
 }

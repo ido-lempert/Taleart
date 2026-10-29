@@ -11,6 +11,7 @@ import {
   type DeliveryTaleGroup,
 } from '@taleart/contract';
 import { DOCUMENT_STYLES } from './document/renderer';
+import { DEFAULT_STRINGS, type Translate } from './i18n';
 import { applyTheme } from './theme';
 import { TaleViewer, VIEWER_BASE_STYLES } from './viewer';
 
@@ -19,9 +20,9 @@ import { TaleViewer, VIEWER_BASE_STYLES } from './viewer';
  * is the size the preview is compared with the sample page at.
  */
 export const PREVIEW_SIZES = [
-  { id: 'small', label: 'Small', width: 375, height: 667 },
-  { id: 'default', label: 'Default', width: 390, height: 844 },
-  { id: 'large', label: 'Large', width: 430, height: 932 },
+  { id: 'small', label: DEFAULT_STRINGS['preview.size.small'], labelKey: 'preview.size.small', width: 375, height: 667 },
+  { id: 'default', label: DEFAULT_STRINGS['preview.size.default'], labelKey: 'preview.size.default', width: 390, height: 844 },
+  { id: 'large', label: DEFAULT_STRINGS['preview.size.large'], labelKey: 'preview.size.large', width: 430, height: 932 },
 ] as const;
 
 export type PreviewSizeId = (typeof PREVIEW_SIZES)[number]['id'];
@@ -83,6 +84,8 @@ export interface TalePreviewOptions {
   onEnded?: () => void;
   /** Called whenever a tale starts playing from its start (a first show, another tale, or `replay`). */
   onStarted?: () => void;
+  /** The preview's and viewer's strings, in the studio's locale (see `i18n.ts`); English when left out. */
+  t?: Translate;
 }
 
 /** The look only the preview adds: the viewer fills the host, and the safe-area overlay. */
@@ -135,7 +138,7 @@ class PreviewViewer extends TaleViewer {
     dialog.setAttribute('data-embedded', '');
     dialog.setAttribute('role', 'region');
     dialog.setAttribute('aria-roledescription', 'preview');
-    dialog.querySelector('.close')?.setAttribute('aria-label', 'Stop preview');
+    dialog.querySelector('.close')?.setAttribute('aria-label', this.t('preview.stop'));
     dialog.setAttribute('open', '');
   }
 
@@ -372,6 +375,7 @@ export class TalePreview {
     const group = this.group(tale);
     this.applied = JSON.stringify(group);
     const viewer = new PreviewViewer(this.themed, [group], {
+      t: this.options.t,
       onClose: () => {
         if (this.viewer !== viewer) return;
         this.ended = true;

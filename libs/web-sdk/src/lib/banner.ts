@@ -1,6 +1,7 @@
 import type { BannerSettings, DeliveryTaleGroup } from '@taleart/contract';
 import { coverMedia, REDUCED_MOTION_QUERY } from './bar';
 import { coverSettled } from './first-content';
+import { defaultTranslate, type Translate } from './i18n';
 import { isRtl, setIcon, SWIPE_MIN_PX } from './viewer';
 
 /** The frame type this renderer draws (AD-5). */
@@ -190,12 +191,13 @@ export interface BannerView {
  * its group. Autoplay runs only with the `autoplay` setting, two or more
  * slides and no preference for reduced motion; any interaction stops it
  * (the rotation button can restart it), and a hovering mouse pauses it.
- * Returns null when no group has a tale.
+ * Returns null when no group has a tale. `t` gives the strings (English by default).
  */
 export function renderBanner(
   groups: readonly DeliveryTaleGroup[],
   settings: unknown,
   onOpen: (groupId: string) => void,
+  t: Translate = defaultTranslate,
 ): BannerView | null {
   const slides = groups.filter((group) => group.tales.length > 0);
   if (slides.length === 0) return null;
@@ -206,16 +208,16 @@ export function renderBanner(
   const root = document.createElement('section');
   root.className = 'banner';
   root.dataset['ratio'] = aspectRatio;
-  root.setAttribute('aria-roledescription', 'carousel');
-  root.setAttribute('aria-label', 'Banner');
+  root.setAttribute('aria-roledescription', t('banner.carousel'));
+  root.setAttribute('aria-label', t('banner.label'));
 
   const viewport = document.createElement('div');
   viewport.className = 'b-viewport';
   // Below the slide area, in a row with the dots, so no control can overlap another at any width.
   const rotate = button('b-btn b-rotate', '');
-  const prev = button('b-btn b-prev', 'Previous slide');
+  const prev = button('b-btn b-prev', t('banner.previousSlide'));
   setIcon(prev, ICONS.prev);
-  const next = button('b-btn b-next', 'Next slide');
+  const next = button('b-btn b-next', t('banner.nextSlide'));
   setIcon(next, ICONS.next);
   const track = document.createElement('div');
   track.className = 'b-track';
@@ -230,8 +232,8 @@ export function renderBanner(
     const slide = document.createElement('div');
     slide.className = 'b-slide';
     slide.setAttribute('role', 'group');
-    slide.setAttribute('aria-roledescription', 'slide');
-    slide.setAttribute('aria-label', `${i + 1} of ${count}`);
+    slide.setAttribute('aria-roledescription', t('banner.slide'));
+    slide.setAttribute('aria-label', t('banner.slideOf', { index: i + 1, count }));
     const open = button('b-open', group.name);
     open.dataset['taleGroupId'] = group.id;
     const media = coverMedia(group);
@@ -250,7 +252,7 @@ export function renderBanner(
     track.appendChild(slide);
     slideEls.push(slide);
     openButtons.push(open);
-    const dot = button('b-dot', `Show ${group.name}`);
+    const dot = button('b-dot', t('banner.showGroup', { name: group.name }));
     dot.addEventListener('click', () => {
       interact();
       goTo(i);
@@ -318,7 +320,7 @@ export function renderBanner(
     const reduced = !!motion?.matches;
     rotating = canRotate && !stopped && !reduced && !atEnd();
     rotate.hidden = !canRotate || reduced;
-    rotate.setAttribute('aria-label', rotating ? 'Stop automatic slide show' : 'Start automatic slide show');
+    rotate.setAttribute('aria-label', t(rotating ? 'banner.stopRotation' : 'banner.startRotation'));
     // Nothing to start on the last slide without loop.
     rotate.setAttribute('aria-disabled', String(!rotating && atEnd()));
     setIcon(rotate, rotating ? ICONS.pause : ICONS.play);

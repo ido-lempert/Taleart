@@ -1,4 +1,5 @@
 import type { DeliveryTaleElement } from '@taleart/contract';
+import type { Translate } from '../i18n';
 import type { ResponseClient } from '../responses';
 
 /** What a renderer knows about where it renders. */
@@ -13,6 +14,8 @@ export interface RenderContext {
    * which record nothing.
    */
   responses?: { client: ResponseClient; taleId: string };
+  /** The strings the element shows or announces, in the page's locale (see `i18n.ts`); English when left out. */
+  t?: Translate;
 }
 
 /** Images that may move: a GIF, an animated WebP, an APNG or an animated AVIF. Under reduced motion they are drawn once. */

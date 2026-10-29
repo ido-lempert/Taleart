@@ -4,6 +4,7 @@ import {
   type DeliveryTaleDocument,
   type DeliveryTaleElement,
 } from '@taleart/contract';
+import { createTranslate } from '../i18n';
 import { DOCUMENT_STYLES, renderTaleDocument } from './renderer';
 
 const box = (x: number, y: number, extra: Partial<DeliveryTaleElement['box']> = {}) => ({
@@ -268,5 +269,35 @@ describe('text style (story 7.4)', () => {
     expect(p.getAttribute('dir')).toBe('auto');
     expect(setAttribute.mock.calls.some(([name]) => name === 'style')).toBe(false);
     setAttribute.mockRestore();
+  });
+});
+
+describe('renderTaleDocument strings', () => {
+  it('shows a poll and a button in the locale of the t it is given, through the full renderer path', () => {
+    const hebrew = createTranslate('he-IL', {
+      he: { 'poll.previewNotRecorded': 'ההצבעות לא נשמרות בתצוגה המקדימה.', 'links.newTab': ' (נפתח בלשונית חדשה)' },
+    });
+    const poll: DeliveryTaleElement = {
+      id: '00000000-0000-4000-8000-0000000000a1',
+      type: 'poll',
+      box: box(0.1, 0.4, { w: 0.8, h: 0.3 }),
+      a11y: {},
+      props: { question: 'Tea?', theme: 'light', options: [{ id: 'tea', label: 'Tea' }, { id: 'coffee', label: 'Coffee' }] } as never,
+    };
+    const button: DeliveryTaleElement = {
+      id: '00000000-0000-4000-8000-0000000000a2',
+      type: 'button',
+      box: box(0.1, 0.8),
+      a11y: {},
+      props: { label: 'Go', href: 'https://example.com/', newTab: true } as never,
+    };
+    const node = renderTaleDocument(
+      { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [poll, button] },
+      { t: hebrew },
+    );
+    // No response client, so a press records nothing and shows the preview's message in the poll's live region.
+    (node.querySelector('.ta-poll-opt') as HTMLButtonElement).click();
+    expect(node.querySelector('.ta-poll [aria-live]')?.textContent).toBe('You chose Tea. ההצבעות לא נשמרות בתצוגה המקדימה.');
+    expect(node.querySelector('a.ta-button .ta-sr')?.textContent).toBe(' (נפתח בלשונית חדשה)');
   });
 });

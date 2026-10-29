@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DeliveryTaleGroup } from '@taleart/contract';
+import { createTranslate } from './i18n';
 import {
   BANNER_DEFAULTS,
   BANNER_INTERVAL_RANGE,
@@ -571,5 +572,23 @@ describe('renderBanner', () => {
     b.view.destroy();
     vi.advanceTimersByTime(60000);
     expect(b.view.index).toBe(0);
+  });
+});
+
+describe('renderBanner strings', () => {
+  it('takes its labels from the translate function it is given (the slide label, the banner, the dots)', () => {
+    const hebrew = createTranslate('he-IL', {
+      he: { 'banner.label': 'באנר', 'banner.slideOf': '{index} מתוך {count}', 'banner.showGroup': 'הצג את {name}' },
+    });
+    const view = renderBanner(groups, {}, vi.fn(), hebrew);
+    if (!view) throw new Error('no banner');
+    views.push(view);
+    document.body.appendChild(view.element);
+    expect(view.element.getAttribute('aria-label')).toBe('באנר');
+    const slides = [...view.element.querySelectorAll('.b-slide')];
+    expect(slides[0].getAttribute('aria-label')).toBe('1 מתוך 3');
+    expect(view.element.querySelector('.b-dot')?.getAttribute('aria-label')).toBe('הצג את Summer');
+    // The English default still reads as before.
+    expect(renderBanner(groups, {}, vi.fn())?.element.querySelector('.b-slide')?.getAttribute('aria-label')).toBe('1 of 3');
   });
 });

@@ -43,7 +43,7 @@ async function settle(): Promise<void> {
 async function mount(): Promise<TaleartElement> {
   const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
   el.setAttribute('api-url', API);
-  el.setAttribute('site-key', 'tas_testkey');
+  el.setAttribute('zone-key', 'tak_testkey');
   el.setAttribute('zone', 'home');
   document.body.appendChild(el);
   await settle();
@@ -99,7 +99,7 @@ describe('setExternalUserId (epic targeting R4, R5)', () => {
     expect(init.credentials).toBe('omit');
     expect(url).not.toContain('cust');
     expect(url).not.toContain(b64('cust-1'));
-    expect(url).toBe(`${API}/delivery/v1/zone?zone=home`);
+    expect(url).toBe(`${API}/delivery/v1/zone`);
   });
 
   it('carries an ID outside ASCII as its UTF-8 bytes', async () => {

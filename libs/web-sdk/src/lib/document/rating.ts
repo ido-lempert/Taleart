@@ -10,6 +10,7 @@ import {
   type RatingResult,
   type ResponseResult,
 } from '@taleart/contract';
+import { defaultTranslate, type Translate } from '../i18n';
 import type { RenderContext } from './media';
 
 /**
@@ -75,8 +76,12 @@ export function ratingKey(value: number, key: string, rtl = false): number | nul
 }
 
 /** What the result says: the average and how many rated. */
-export function ratingSummary(result: RatingResult): string {
-  return `Average ${result.average} from ${result.total} ${result.total === 1 ? 'rating' : 'ratings'}`;
+export function ratingSummary(result: RatingResult, t: Translate = defaultTranslate): string {
+  return t('rating.summary', {
+    average: result.average,
+    total: result.total,
+    count: t(result.total === 1 ? 'rating.singular' : 'rating.plural'),
+  });
 }
 
 function text(tag: string, className: string, value: string): HTMLElement {
@@ -112,6 +117,7 @@ export function ratingOf(result: ResponseResult | null): RatingResult | null {
  * the value and records nothing. Null for props it cannot draw.
  */
 export function renderRating(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
+  const t = context.t ?? defaultTranslate;
   const props = element.props as { question?: unknown; title?: unknown; theme?: unknown; emoji?: unknown };
   const question = typeof props.question === 'string' ? props.question.trim() : '';
   const emoji =
@@ -128,7 +134,7 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
   track.className = 'ta-rate-track';
   track.tabIndex = 0;
   track.setAttribute('role', 'slider');
-  track.setAttribute('aria-label', 'Your rating');
+  track.setAttribute('aria-label', t('rating.sliderLabel'));
   track.setAttribute('aria-valuemin', String(RATING_MIN));
   track.setAttribute('aria-valuemax', String(RATING_MAX));
   track.setAttribute('aria-orientation', 'horizontal');
@@ -154,7 +160,8 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
   const set = (next: number) => {
     value = onScale(next);
     track.setAttribute('aria-valuenow', String(value));
-    track.setAttribute('aria-valuetext', `${answered ? 'You rated ' : ''}${value} out of ${RATING_MAX}`);
+    const valueText = answered ? 'rating.ratedValueText' : 'rating.valueText';
+    track.setAttribute('aria-valuetext', t(valueText, { value, max: RATING_MAX }));
     thumb.style.insetInlineStart = `${value}%`;
     fill.style.width = `${value}%`;
   };
@@ -168,7 +175,7 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
     set(rated);
     if (result) {
       average.style.insetInlineStart = `${result.average}%`;
-      out.textContent = ratingSummary(result);
+      out.textContent = ratingSummary(result, t);
     }
   };
 
@@ -180,7 +187,7 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
     const rated = value;
     if (!responses) {
       show(rated, null);
-      live.textContent = `You rated ${rated}. Ratings are not recorded in the preview.`;
+      live.textContent = t('rating.previewRated', { value: rated });
       return;
     }
     busy = true;
@@ -190,10 +197,10 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
       .then((response) => {
         const result = ratingOf(response.result);
         show(Number(response.value), result);
-        live.textContent = `You rated ${value}. ${result ? `${ratingSummary(result)}.` : ''}`;
+        live.textContent = `${t('rating.sent', { value })} ${result ? `${ratingSummary(result, t)}.` : ''}`;
       })
       .catch(() => {
-        live.textContent = 'Your rating could not be sent. Try again.';
+        live.textContent = t('rating.failed');
       })
       .finally(() => {
         busy = false;

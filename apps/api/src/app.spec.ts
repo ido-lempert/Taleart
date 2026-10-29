@@ -386,7 +386,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -4508,42 +4508,87 @@ describe('Management API v1: projects and zones', () => {
       return body.error.message;
     }
 
-    it('has no zone key routes left (UX rework story 8.7): each answers 404 not_found', async () => {
+    // Issues the zone's key as an admin does (FR-003): shown once, in this response.
+    async function issueZoneKey(zoneId: string): Promise<{ key: string; prefix: string; createdAt: string }> {
+      const res = await send('POST', `/zones/${zoneId}/key`);
+      expect(res.status).toBe(201);
+      return res.json();
+    }
+
+    // A zone's key on the Delivery API: the key alone names the zone, with no slug.
+    function deliverWithZoneKey(key: string, query = ''): Promise<Response> {
+      return globalThis.fetch(`${origin}/delivery/v1/zone${query}`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+    }
+
+    it('serves the zone to its zone key alone, and ignores a slug that names another zone', async () => {
       const zone = await createZone();
-      for (const method of ['GET', 'POST', 'DELETE']) {
-        const res = await send(method, `/zones/${zone.id}/key`);
-        expect(res.status).toBe(404);
-        expect((await res.json()).error.code).toBe('not_found');
+      const other = await createZone();
+      const { key } = await issueZoneKey(zone.id);
+      expect(key).toMatch(/^tak_[A-Za-z0-9_-]{43}$/);
+
+      const res = await deliverWithZoneKey(key);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect((await res.json()).id).toBe(zone.id);
+
+      // A slug is not read with a zone key: the key's zone answers, whichever slug is named.
+      for (const query of [`?zone=${other.slug}`, '?zone=nope', '?zone=']) {
+        const withSlug = await deliverWithZoneKey(key, query);
+        expect(withSlug.status).toBe(200);
+        expect((await withSlug.json()).id).toBe(zone.id);
       }
-      // Nor is the old table left behind.
-      expect((await pool.query("SELECT to_regclass('zone_keys') AS t")).rows[0].t).toBeNull();
+      expect((await deliverWithZoneKey(key)).status).toBe(200);
     });
 
-    it('drops a zone_keys table left by an earlier release, with its rows, and a second run changes nothing', async () => {
+    it('refuses a zone key once it is rotated out or revoked, with the site key body', async () => {
       const zone = await createZone();
-      // The table as the release before story 8.7 created it, with one active key.
-      await pool.query(`
-        CREATE TABLE zone_keys (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-          zone_id uuid NOT NULL,
-          project_id uuid NOT NULL REFERENCES projects (id),
-          key_hash text NOT NULL,
-          prefix text NOT NULL,
-          created_by uuid REFERENCES users (id) ON DELETE SET NULL,
-          created_at timestamptz NOT NULL DEFAULT now(),
-          revoked_at timestamptz,
-          FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id)
-        )`);
-      await pool.query(
-        "INSERT INTO zone_keys (zone_id, project_id, key_hash, prefix) VALUES ($1, $2, 'hash', 'tak_abcdef')",
-        [zone.id, zone.projectId],
-      );
-      await migrate(pool);
-      expect((await pool.query("SELECT to_regclass('zone_keys') AS t")).rows[0].t).toBeNull();
-      // The zone is untouched, and only a site key installs it.
-      expect((await pool.query('SELECT 1 FROM zones WHERE id = $1', [zone.id])).rowCount).toBe(1);
-      await migrate(pool);
-      expect((await pool.query("SELECT to_regclass('zone_keys') AS t")).rows[0].t).toBeNull();
+      const first = await issueZoneKey(zone.id);
+      const second = await issueZoneKey(zone.id);
+      expect(second.key).not.toBe(first.key);
+      await expectInvalidKey(await deliverWithZoneKey(first.key));
+      expect((await deliverWithZoneKey(second.key)).status).toBe(200);
+
+      expect((await send('DELETE', `/zones/${zone.id}/key`)).status).toBe(204);
+      await expectInvalidKey(await deliverWithZoneKey(second.key));
+      await expectInvalidKey(await deliverWithZoneKey(second.key, `?zone=${zone.slug}`));
+      // Revoking again: the zone has no active key any more.
+      const again = await send('DELETE', `/zones/${zone.id}/key`);
+      expect(again.status).toBe(404);
+      expect((await again.json()).error.code).toBe('zone_key_not_found');
+    });
+
+    it('shows the key info as prefix and date only, and lets a content manager read it but not issue or revoke', async () => {
+      const zone = await createZone();
+      const issued = await issueZoneKey(zone.id);
+      const info = await send('GET', `/zones/${zone.id}/key`);
+      expect(info.status).toBe(200);
+      expect(await info.json()).toEqual({ prefix: issued.prefix, createdAt: issued.createdAt });
+
+      await signInAsContentManager(zone.projectId);
+      expect((await send('GET', `/zones/${zone.id}/key`)).status).toBe(200);
+      for (const method of ['POST', 'DELETE']) {
+        const res = await send(method, `/zones/${zone.id}/key`);
+        expect(res.status).toBe(403);
+        expect((await res.json()).error.code).toBe('forbidden');
+      }
+      expect((await deliverWithZoneKey(issued.key)).status).toBe(200);
+    });
+
+    it('keeps an issued zone key through a restart, and the site key path still works beside it', async () => {
+      const zone = await createZone();
+      const { key } = await issueZoneKey(zone.id);
+      await restart();
+      expect((await pool.query("SELECT to_regclass('zone_keys') AS t")).rows[0].t).not.toBeNull();
+      expect((await deliverWithZoneKey(key)).status).toBe(200);
+
+      // The site key and the slug read the same zone, the zone key does not change that.
+      const siteHandle = await issue(zone.id);
+      const bySlug = await deliver(siteHandle.key);
+      expect(bySlug.status).toBe(200);
+      expect((await bySlug.json()).id).toBe(zone.id);
+      expect((await deliverWithZoneKey(key)).status).toBe(200);
     });
 
     it('lets a browser revalidate the zone: private, no-cache, by key, 304 while unchanged', async () => {
@@ -5104,13 +5149,13 @@ describe('Management API v1: projects and zones', () => {
           await expectRefused(await deliverSlug(undefined, zone.slug));
           await expectRefused(await deliverSlug(`tas_${randomBytes(32).toString('base64url')}`, zone.slug));
           await expectRefused(await deliverSlug(key.toUpperCase(), zone.slug));
-          // A key of the old zone key form is refused like any other.
+          // A zone key nobody issued is refused like any other unknown key.
           await expectRefused(await deliverSlug(`tak_${randomBytes(32).toString('base64url')}`, zone.slug));
           // Each key reads its own project only.
           expect((await deliverSlug(otherKey, otherZone.slug)).status).toBe(200);
           await expectRefused(await deliverSlug(otherKey, zone.slug));
 
-          // Without a slug, the site key is refused with the same body (zone keys are gone, story 8.7).
+          // Without a slug, the site key is refused with the same body (a zone key needs no slug).
           await expectRefused(await deliverSlug(key, undefined));
           await expectRefused(await deliverSlug(undefined, undefined));
         });
@@ -6064,7 +6109,7 @@ describe('Management API v1: projects and zones', () => {
       const key = (await issue(zone.id)).key.split('|')[0];
       const messages = new Set([
         await expectInvalidKey(await deliver()),
-        // A site key without a slug: the zone key path is gone (UX rework story 8.7).
+        // A site key without a slug is refused: only a zone key names its zone alone.
         await expectInvalidKey(await deliver(undefined, { Authorization: `Bearer ${key}` })),
         await expectInvalidKey(await deliver('tak_unknownkeyunknownkeyunknownkeyunknownkey0')),
         await expectInvalidKey(await deliver(`tak_unknownkeyunknownkeyunknownkeyunknownkey0|${zone.slug}`)),
@@ -15660,7 +15705,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, users',
+        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, zone_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, users',
       );
     });
 

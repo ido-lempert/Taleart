@@ -6,6 +6,7 @@ import {
   type DeliveryTaleElement,
   type TaleElementType,
 } from '@taleart/contract';
+import { defaultTranslate, type Translate } from '../i18n';
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
 import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
 import { POLL_STYLES, renderPoll } from './poll';
@@ -183,6 +184,8 @@ export interface DocumentRenderOptions {
   inertLinks?: boolean;
   /** Where interactive components send responses (R9); left out, they record nothing (the preview). */
   responses?: RenderContext['responses'];
+  /** The strings the document's elements show or announce, in the page's locale (see `i18n.ts`); English when left out. */
+  t?: Translate;
 }
 
 // The canvas's media background (R2): the image filling the canvas with its fit, over its band
@@ -222,7 +225,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   const canvas = document.createElement('div');
   canvas.className = 'ta-canvas';
   const color = canvasColor(doc);
-  const context: RenderContext = { reducedMotion: options.reducedMotion === true };
+  const context: RenderContext = { reducedMotion: options.reducedMotion === true, t: options.t ?? defaultTranslate };
   if (options.inertLinks) context.inertLinks = true;
   if (options.responses) context.responses = options.responses;
   const media = backgroundMedia(doc, context.reducedMotion);

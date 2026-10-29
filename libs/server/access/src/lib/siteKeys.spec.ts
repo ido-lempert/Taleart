@@ -1,14 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { TransactionalDb } from './db';
 import { SiteKeyExistsError, SiteKeyNotFoundError } from './errors';
-import {
-  issueSiteKey,
-  migrateSiteKeys,
-  projectForSiteKey,
-  revokeSiteKey,
-  siteKeyInfo,
-  zoneInstalledSql,
-} from './siteKeys';
+import { issueSiteKey, projectForSiteKey, revokeSiteKey, siteKeyInfo } from './siteKeys';
 
 type FakeDb = TransactionalDb & { query: ReturnType<typeof vi.fn> };
 
@@ -107,43 +100,5 @@ describe('site keys', () => {
     expect(await projectForSiteKey(db, '')).toBeNull();
     expect(await projectForSiteKey(db, 'tak_zonekey')).toBeNull();
     expect(db.query).toHaveBeenCalledTimes(3);
-  });
-
-  it('counts a zone installed only by its project site key', () => {
-    const text = zoneInstalledSql('z.project_id');
-    expect(text).toBe(
-      'EXISTS (SELECT 1 FROM site_keys isk WHERE isk.project_id = z.project_id AND isk.revoked_at IS NULL)',
-    );
-    expect(text).not.toContain('zone_keys');
-  });
-
-  it('drops a left-over zone_keys table in its own transaction with a lock timeout', async () => {
-    const db = fakeDb({ "to_regclass('zone_keys')": { rows: [{ t: 'zone_keys' }] } });
-    await migrateSiteKeys(db);
-    const tail = sql(db).slice(-5);
-    expect(tail).toEqual([
-      "SELECT to_regclass('zone_keys') AS t",
-      'BEGIN',
-      "SET LOCAL lock_timeout = '10s'",
-      'DROP TABLE IF EXISTS zone_keys',
-      'COMMIT',
-    ]);
-  });
-
-  it('opens no transaction when zone_keys is already gone', async () => {
-    const db = fakeDb({ "to_regclass('zone_keys')": { rows: [{ t: null }] } });
-    await migrateSiteKeys(db);
-    expect(sql(db).some((text) => text === 'BEGIN' || text.startsWith('DROP TABLE'))).toBe(false);
-  });
-
-  it('rolls back and fails when the drop cannot get its lock in time', async () => {
-    const db = fakeDb({ "to_regclass('zone_keys')": { rows: [{ t: 'zone_keys' }] } });
-    const query = db.query.getMockImplementation() as (text: string) => Promise<unknown>;
-    db.query.mockImplementation(async (text: string) => {
-      if (text.startsWith('DROP TABLE')) throw new Error('canceling statement due to lock timeout');
-      return query(text);
-    });
-    await expect(migrateSiteKeys(db)).rejects.toThrow('lock timeout');
-    expect(sql(db).at(-1)).toBe('ROLLBACK');
   });
 });

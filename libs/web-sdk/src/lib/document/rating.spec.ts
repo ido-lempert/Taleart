@@ -1,6 +1,7 @@
 import type { DeliveryTaleDocument, DeliveryTaleElement, DeliveryTaleGroup } from '@taleart/contract';
 import { TaleViewer } from '../viewer';
 import type { ResponseClient, StoredResponse } from '../responses';
+import { createTranslate } from '../i18n';
 import { ratingKey, ratingOf, ratingSummary, renderRating } from './rating';
 import { ELEMENT_RENDERERS, renderTaleDocument } from './renderer';
 
@@ -290,6 +291,12 @@ describe('renderRating', () => {
     expect(ratingKey(50, 'ArrowRight', true)).toBe(40);
     expect(ratingKey(50, 'a')).toBeNull();
     expect(ratingSummary({ total: 1, average: 7 })).toBe('Average 7 from 1 rating');
+  });
+
+  it('picks the singular or the plural noun of a locale by the count', () => {
+    const t = createTranslate('he', { he: { 'rating.summary': 'ממוצע {average} מ-{total} {count}', 'rating.singular': 'דירוג', 'rating.plural': 'דירוגים' } });
+    expect(ratingSummary({ total: 1, average: 7 }, t)).toBe('ממוצע 7 מ-1 דירוג');
+    expect(ratingSummary({ total: 2, average: 7 }, t)).toBe('ממוצע 7 מ-2 דירוגים');
   });
 });
 

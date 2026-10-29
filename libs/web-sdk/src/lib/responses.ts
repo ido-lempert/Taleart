@@ -86,12 +86,12 @@ export function keepResponse(taleId: string, elementId: string, response: Stored
 }
 
 /**
- * The response client of the zone `request` at `apiUrl`: posts to `POST /delivery/v1/responses`
- * with the site key, the slug and this device's visitor id (epic UX rework 8.23), never a cookie.
- * Throws {@link DeliveryError} for a refusal or a network failure.
+ * The response client of the zone `request` (its zone key) at `apiUrl`: posts to
+ * `POST /delivery/v1/responses` with the zone key and this device's visitor id (epic UX rework
+ * 8.23), never a cookie. Throws {@link DeliveryError} for a refusal or a network failure.
  */
 export function responseClient(apiUrl: string, request: ZoneRequest, fetchImpl: typeof fetch = fetch): ResponseClient {
-  const url = `${apiUrl.replace(/\/+$/, '')}/delivery/v1/responses?zone=${encodeURIComponent(request.zone)}`;
+  const url = `${apiUrl.replace(/\/+$/, '')}/delivery/v1/responses`;
   return {
     stored: storedResponse,
     async send(taleId, elementId, value) {

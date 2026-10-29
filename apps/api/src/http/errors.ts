@@ -44,6 +44,7 @@ import {
   PasskeyFailedError,
   SetupClosedError,
   SiteKeyExistsError,
+  ZoneKeyNotFoundError,
   SiteKeyNotFoundError,
 } from '@taleart/server-access';
 import {
@@ -94,6 +95,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof DisplayNotFoundError ||
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
+    err instanceof ZoneKeyNotFoundError ||
     err instanceof SiteKeyNotFoundError ||
     err instanceof ApiTokenNotFoundError ||
     err instanceof FontNotFoundError ||

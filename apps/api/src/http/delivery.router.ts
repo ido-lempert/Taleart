@@ -4,13 +4,14 @@ import {
   ErrorCodes,
   EXTERNAL_USER_ID_HEADER,
   isZoneSlug,
+  ZONE_KEY_PREFIX,
   mediaKind,
   publicMediaUrl,
   resolveDocumentMedia,
   type DeliveryTaleDocument,
   type DeliveryZone,
 } from '@taleart/contract';
-import { projectForSiteKey } from '@taleart/server-access';
+import { projectForSiteKey, zoneForKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
 import { passesUserLists, tagRulesForTaleGroups, userListAudiences } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
@@ -56,15 +57,25 @@ function refuse(res: Response): void {
 }
 
 /**
- * Accepts only the project's site key with `?zone=<slug>`, never a session cookie (AD-2, epic UX
- * rework R3). The key and the slug are looked up every time, whichever fails, so a refusal (a
- * missing, unknown or revoked key, a missing or unknown slug) costs the same two queries and answers
- * the same 401 `invalid_site_key`: no slug can be told from a refused key.
+ * Accepts a zone key (`tak_...`), which names its zone alone (the `zone` parameter is ignored), or
+ * the project's site key with `?zone=<slug>` (AD-2, epic UX rework R3), never a session cookie. A
+ * refusal (a missing, unknown or revoked key, a missing or unknown slug) answers the same 401
+ * `invalid_site_key`: no slug can be told from a refused key.
  */
 function requireDeliveryKey(pool: Pool): RequestHandler {
   return async (req, res, next) => {
     try {
       const key = bearerKey(req.headers.authorization);
+      if (key?.startsWith(ZONE_KEY_PREFIX)) {
+        const zone = await zoneForKey(pool, key);
+        if (zone === null) {
+          refuse(res);
+          return;
+        }
+        res.locals['requestZoneId'] = zone.zoneId;
+        next();
+        return;
+      }
       const slug = slugParam(req.query['zone']);
       const projectId = await projectForSiteKey(pool, key);
       const zoneId = await zoneIdBySlug(pool, projectId, slug);
@@ -102,8 +113,8 @@ export interface DeliveryOptions {
 
 /**
  * The Delivery API (AD-2), mounted at `/delivery/v1`: serves SDKs on any
- * origin, without credentials, and reads only the zone the caller names: a zone of the site key's
- * project by its slug.
+ * origin, without credentials, and reads only the zone the caller names: the zone of a zone key, or
+ * a zone of the site key's project by its slug.
  */
 export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
   const router = Router();

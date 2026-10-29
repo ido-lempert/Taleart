@@ -8,6 +8,7 @@ import {
   SWIPE_UP_FONT_SIZE,
   type DeliveryTaleElement,
 } from '@taleart/contract';
+import { DEFAULT_STRINGS, defaultTranslate, type Translate } from '../i18n';
 import { renderImage, type RenderContext } from './media';
 
 /**
@@ -55,15 +56,15 @@ function opensNewTab(element: DeliveryTaleElement): boolean {
   return (element.props as { newTab?: unknown }).newTab === true;
 }
 
-/** What a link that opens a new tab adds to its accessible name (WCAG 3.2.5 advisory, G201). */
-export const NEW_TAB_NOTE = ' (opens in a new tab)';
+/** What a link that opens a new tab adds to its accessible name (WCAG 3.2.5 advisory, G201), in English. */
+export const NEW_TAB_NOTE = DEFAULT_STRINGS['links.newTab'];
 
 // The note, visually hidden, at the end of a link that opens a new tab, so screen readers say so.
-function newTabNote(a: HTMLAnchorElement, element: DeliveryTaleElement): void {
+function newTabNote(a: HTMLAnchorElement, element: DeliveryTaleElement, t: Translate): void {
   if (!opensNewTab(element)) return;
   const note = document.createElement('span');
   note.className = 'ta-sr';
-  note.textContent = NEW_TAB_NOTE;
+  note.textContent = t('links.newTab');
   a.appendChild(note);
 }
 
@@ -73,11 +74,12 @@ function newTabNote(a: HTMLAnchorElement, element: DeliveryTaleElement): void {
  * accessible name. Null without a usable destination or label.
  */
 export function renderButton(element: DeliveryTaleElement, context?: RenderContext): HTMLElement | null {
+  const t = context?.t ?? defaultTranslate;
   const label = linkLabel((element.props as { label?: unknown }).label);
   const a = label ? anchor(element, 'ta-button', context) : null;
   if (!a) return null;
   a.textContent = label;
-  newTabNote(a, element);
+  newTabNote(a, element, t);
   const look = resolveButtonStyle(element.props);
   const style = a.style;
   style.color = look.color;
@@ -95,6 +97,7 @@ export function renderButton(element: DeliveryTaleElement, context?: RenderConte
  * destination or image URL.
  */
 export function renderImageButton(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
+  const t = context.t ?? defaultTranslate;
   const a = anchor(element, 'ta-image-button', context);
   if (!a) return null;
   const { url, radius } = element.props as { url?: unknown; radius?: unknown };
@@ -111,7 +114,7 @@ export function renderImageButton(element: DeliveryTaleElement, context: RenderC
   image.setAttribute('aria-hidden', 'true');
   const label = element.a11y?.label;
   const name = linkLabel(label) || new URL(linkHref((element.props as { href?: unknown }).href) ?? '').hostname;
-  a.setAttribute('aria-label', opensNewTab(element) ? `${name}${NEW_TAB_NOTE}` : name);
+  a.setAttribute('aria-label', opensNewTab(element) ? `${name}${t('links.newTab')}` : name);
   a.appendChild(image);
   return a;
 }
@@ -122,6 +125,7 @@ export function renderImageButton(element: DeliveryTaleElement, context: RenderC
  * viewer also opens it on a swipe up (see `TaleViewer`). Its label is its accessible name.
  */
 export function renderSwipeUp(element: DeliveryTaleElement, context?: RenderContext): HTMLElement | null {
+  const t = context?.t ?? defaultTranslate;
   const label = linkLabel((element.props as { label?: unknown }).label);
   const a = label ? anchor(element, 'ta-swipe', context) : null;
   if (!a) return null;
@@ -134,7 +138,7 @@ export function renderSwipeUp(element: DeliveryTaleElement, context?: RenderCont
   pill.textContent = label;
   pill.style.backgroundColor = look.background;
   a.append(arrow, pill);
-  newTabNote(a, element);
+  newTabNote(a, element, t);
   a.style.color = look.color;
   a.style.fontSize = `${SWIPE_UP_FONT_SIZE * 100}cqh`;
   return a;

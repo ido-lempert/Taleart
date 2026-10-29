@@ -10,9 +10,11 @@ import {
   renderBar,
   setItemSeen,
 } from './bar';
-import { fetchZone, type ZoneRequest } from './delivery-client';
+import { getConfig, init, mergeStrings, onConfigChange, readStrings, type ConfigKey } from './config';
+import { fetchZone } from './delivery-client';
 import { responseClient } from './responses';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
+import { createTranslate, type StringsConfig, type Translate } from './i18n';
 import type { Theme } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride } from './theme';
@@ -21,14 +23,15 @@ import { TaleViewer, VIEWER_STYLES } from './viewer';
 export const TALEART_ELEMENT_TAG = 'taleart-view';
 
 const API_URL_ATTR = 'api-url';
-const SITE_KEY_ATTR = 'site-key';
+const ZONE_KEY_ATTR = 'zone-key';
+const LOCALE_ATTR = 'locale';
+// The zone's slug: read only for a configureZone theme when the response does not name it.
 const ZONE_ATTR = 'zone';
-// A site key a page may pass by mistake: a warning names it by its start only. A zone slug never
-// holds `_`, so the two never meet.
-const SITE_KEY_PREFIX = 'tas_';
-// The attribute of the zone keys removed in UX rework story 8.7, named only to warn a page that still uses it.
-const REMOVED_KEY_ATTR = 'zone' + '-key';
+// The attribute of the removed site key: it is no longer read, and one warning says so.
+const SITE_KEY_ATTR = 'site-key';
 const THEME_ATTR = 'theme';
+// A zone key or a site key passed where a slug goes: a warning names it by its start only.
+const KEY_PREFIX = /^ta[ks]_/;
 
 /** The SDK configuration of a zone, passed to {@link configureZone}. */
 export interface ZoneOptions {
@@ -49,22 +52,19 @@ const connected = new Set<TaleartElement>();
  * zone's configuration; `configureZone(zone)` or `configureZone(zone, {})`
  * removes it. Rendered elements restyle at once, without a new request.
  * Invalid fields are ignored with one console warning each, naming the zone by
- * its slug, or a site key passed by mistake by its start (`tas_…`) only.
+ * its slug, or a key passed by mistake by its start (`tak_…`, `tas_…`) only.
  */
 export function configureZone(zone: string, options?: ZoneOptions | null): void {
   if (typeof zone !== 'string' || !zone) {
     console.warn('TaleArt: configureZone needs a zone slug; the configuration is ignored');
     return;
   }
-  const name = zone.startsWith(SITE_KEY_PREFIX) ? `${zone.slice(0, 8)}…` : zone;
+  const name = KEY_PREFIX.test(zone) ? `${zone.slice(0, 8)}…` : zone;
   const theme = readThemeOverride(options?.theme, `the theme of zone "${name}"`);
   if (Object.keys(theme).length) zoneThemes.set(zone, theme);
   else zoneThemes.delete(zone);
   for (const element of connected) element.retheme();
 }
-
-// The viewer's tags set with setTags, as the tag rule compares them; null until a page sets some.
-let viewerTags: ReadonlySet<string> | null = null;
 
 /**
  * Tells the SDK the viewer's tags, for every `<taleart-view>` on the page, now
@@ -76,19 +76,11 @@ let viewerTags: ReadonlySet<string> | null = null;
  * tags; rendered elements show the matching groups at once, without a new
  * request. The tags stay in the browser: they are never sent to TaleArt
  * (AD-13). A value that is not an array is ignored with one console warning.
+ * Same as `init({ tags })`.
  */
 export function setTags(tags: readonly string[] | null): void {
-  if (tags != null && !Array.isArray(tags)) {
-    console.warn('TaleArt: setTags needs an array of tag names, or null; the tags are ignored');
-    return;
-  }
-  viewerTags = viewerTagSet(tags);
-  for (const element of connected) element.retarget();
+  init({ tags });
 }
-
-// The viewer's external user ID set with setExternalUserId, as its header value (base64url of its
-// UTF-8 bytes); null until a page sets one. Kept in memory only, never stored on the device.
-let externalUserIdHeader: string | null = null;
 
 /**
  * Tells the SDK who the viewer is, for user-list targeting, for every `<taleart-view>` on the page,
@@ -100,26 +92,22 @@ let externalUserIdHeader: string | null = null;
  * storage or a cookie, and never with the visitor id. `setExternalUserId(null)` sends none again.
  * The ID is trimmed and matched exactly (case counts). An ID no user list can hold (not text,
  * blank, over 256 characters, a control character) logs one console warning and sends no ID, so a
- * page never keeps showing the previous viewer's groups.
+ * page never keeps showing the previous viewer's groups. Same as `init({ externalUserId })`.
  */
 export function setExternalUserId(id: string | null): void {
-  let header: string | null = null;
-  if (id != null) {
-    header = encodeExternalUserIdHeader(id);
-    if (header === null) {
-      console.warn(
-        'TaleArt: setExternalUserId needs an ID of 1 to 256 characters without control characters, or null; no ID is sent',
-      );
-    }
-  }
-  if (header === externalUserIdHeader) return;
-  externalUserIdHeader = header;
-  for (const element of connected) element.reload();
+  init({ externalUserId: id });
+}
+
+// The external user ID's header value (base64url of its UTF-8 bytes), or null for none.
+function externalUserIdHeader(): string | null {
+  const { externalUserId } = getConfig();
+  return externalUserId === null ? null : encodeExternalUserIdHeader(externalUserId);
 }
 
 // The zone with only the tale groups whose tag rule passes for the viewer's tags.
 function targeted(zone: DeliveryZone): DeliveryZone {
-  return { ...zone, taleGroups: zone.taleGroups.filter((group) => tagRulePasses(group, viewerTags)) };
+  const tags = viewerTagSet(getConfig().tags);
+  return { ...zone, taleGroups: zone.taleGroups.filter((group) => tagRulePasses(group, tags)) };
 }
 
 // The ids of a zone's groups, as one string, to tell whether a render would change.
@@ -127,12 +115,17 @@ function groupKey(zone: DeliveryZone): string {
   return zone.taleGroups.map((group) => group.id).join('\n');
 }
 
-// What an element asks the Delivery API for, and the name its zone configuration is set under
-// (the slug); null while the site key or the slug is missing.
-function zoneRequest(element: TaleartElement): { request: ZoneRequest; configName: string } | null {
-  const { siteKey, zone } = element;
-  return siteKey && zone ? { request: { key: siteKey, zone }, configName: zone } : null;
-}
+// Applies a configuration change to the connected elements: a theme only restyles, new tags only
+// retarget, anything else reads the zone again.
+onConfigChange((changed: ReadonlySet<ConfigKey>) => {
+  const only = (key: ConfigKey) => changed.size === 1 && changed.has(key);
+  for (const element of connected) {
+    if (only('theme')) element.retheme();
+    else if (only('tags')) element.retarget();
+    else if (only('hooks')) continue;
+    else element.reload();
+  }
+});
 
 // The rendered display: its element, and how it takes focus back for a group (its first item for null).
 interface DisplayView {
@@ -142,24 +135,27 @@ interface DisplayView {
 }
 
 /**
- * `<taleart-view api-url="…" site-key="…" zone="home-top">`: reads the
- * zone with that slug from the Delivery API with the project's site key
- * (epic UX rework R3; several elements share one site key, and elements that
- * ask for the same zone at once share one request). It renders the
- * zone in its Shadow DOM: its
- * display, a bar or a banner (AD-17); a zone without a display renders
- * nothing. Frame types it does not know are skipped (AD-5). A refused key, an unknown slug or a
- * network failure renders nothing and logs one console error. Activating a bar item or a
- * banner slide opens its tale group in the full-screen viewer; groups this
- * browser has viewed show the seen ring in the bar. The zone's project theme
- * (R9) styles the display and the viewer through CSS custom properties on a
- * wrapper inside the Shadow DOM; each theme field set in the SDK
- * configuration wins over it: the element's `theme` property (or `theme`
- * attribute, JSON), then the zone's {@link configureZone} option.
+ * `<taleart-view zone-key="tak_…">`: reads the zone that the zone key names
+ * from the Delivery API (`GET <api>/delivery/v1/zone`, the key as a bearer
+ * token). Elements that read the same zone at once share one request. It
+ * renders the zone in its Shadow DOM: its display, a bar or a banner (AD-17); a
+ * zone without a display renders nothing. Frame types it does not know are
+ * skipped (AD-5). A refused key or a network failure renders nothing and logs
+ * one console error. Activating a bar item or a banner slide opens its tale
+ * group in the full-screen viewer; groups this browser has viewed show the
+ * seen ring in the bar. The zone's project theme (R9) styles the display and
+ * the viewer through CSS custom properties on a wrapper inside the Shadow DOM;
+ * each theme field set in the SDK configuration wins over it, in this order:
+ * the `init` theme, the zone's {@link configureZone} option, then the element's
+ * `theme` property (or `theme` attribute, JSON).
+ *
+ * The API origin comes from `api-url` or else `init({ apiUrl })`; the locale
+ * from `locale` or else `init({ locale })`; the texts from `strings` or else
+ * `init({ strings })`, and {@link t} looks them up.
  */
 export class TaleartElement extends HTMLElement {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, SITE_KEY_ATTR, ZONE_ATTR, THEME_ATTR];
+    return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -188,8 +184,10 @@ export class TaleartElement extends HTMLElement {
   private skipThemeAttribute = false;
   // True once this element has set its zone mark, and its first-content mark (for a render still on the page).
   private zoneMarked = false;
-  // True once this element has warned about the removed zone key attribute (once per element).
-  private warnedRemovedKey = false;
+  // True once this element has warned about the site-key attribute, which is no longer read (once per element).
+  private warnedSiteKey = false;
+  // This element's `strings` property, checked and copied; null for none.
+  private ownStrings: StringsConfig | null = null;
   private marked = false;
   // Aborts the current render's first-content work (loadFirstContent).
   private renderAbort: AbortController | null = null;
@@ -259,10 +257,21 @@ export class TaleartElement extends HTMLElement {
   /** Applies the theme again with the current SDK configuration, without a new request. */
   retheme(): void {
     const themed = this.themed;
-    if (themed) applyTheme(themed.element, themed.theme, zoneThemes.get(themed.configName) ?? {}, this.themeOverride);
+    if (themed) {
+      applyTheme(
+        themed.element,
+        themed.theme,
+        getConfig().theme,
+        zoneThemes.get(themed.configName) ?? {},
+        this.themeOverride,
+      );
+    }
   }
 
-  /** The TaleArt API origin, such as `https://api.example.com`. */
+  /**
+   * The API origin of this element, such as `https://api.example.com`, from the `api-url` attribute;
+   * empty when none is set (then `init({ apiUrl })` applies, see {@link ResolvedTaleartConfig}).
+   */
   get apiUrl(): string {
     return this.getAttribute(API_URL_ATTR) ?? '';
   }
@@ -270,15 +279,47 @@ export class TaleartElement extends HTMLElement {
     this.setAttribute(API_URL_ATTR, value);
   }
 
-  /** The project's site key (`tas_…`) issued in the dashboard; one for every zone of the project. */
-  get siteKey(): string {
-    return this.getAttribute(SITE_KEY_ATTR) ?? '';
+  /** The zone key (`tak_…`) of the zone to show, issued in the dashboard; it names one zone. */
+  get zoneKey(): string {
+    return this.getAttribute(ZONE_KEY_ATTR) ?? '';
   }
-  set siteKey(value: string) {
-    this.setAttribute(SITE_KEY_ATTR, value);
+  set zoneKey(value: string) {
+    this.setAttribute(ZONE_KEY_ATTR, value);
   }
 
-  /** The zone's slug, such as `home-top`, read with {@link siteKey}. */
+  /** This element's locale (BCP 47), from the `locale` attribute; empty for the SDK's locale. */
+  get locale(): string {
+    return this.getAttribute(LOCALE_ATTR) ?? '';
+  }
+  set locale(value: string) {
+    this.setAttribute(LOCALE_ATTR, value);
+  }
+
+  /**
+   * This element's texts, per locale or flat (see `i18n.ts`), added to the SDK configuration's
+   * `strings` (this element's win). Set an object, or `null` to remove them. Reading returns a copy.
+   */
+  get strings(): StringsConfig | null {
+    return this.ownStrings === null ? null : readStrings(this.ownStrings, "the element's strings") ?? null;
+  }
+  set strings(value: StringsConfig | null) {
+    const strings = readStrings(value, "the element's strings");
+    if (strings === undefined) return;
+    this.ownStrings = strings;
+    if (this.isConnected) this.scheduleLoad();
+  }
+
+  /**
+   * The translate function of this element: `t('viewer.close')` in its locale (the `locale` attribute,
+   * else the SDK's) with its strings (the `strings` property over the SDK's `strings`). Named `t`
+   * because `translate` is the HTML attribute every element has.
+   */
+  get t(): Translate {
+    const config = getConfig();
+    return createTranslate(this.locale || config.locale, mergeStrings(config.strings, this.ownStrings) ?? undefined);
+  }
+
+  /** The zone's slug, such as `home-top`, from the `zone` attribute. Not needed to show the zone. */
   get zone(): string {
     return this.getAttribute(ZONE_ATTR) ?? '';
   }
@@ -288,11 +329,16 @@ export class TaleartElement extends HTMLElement {
 
   connectedCallback(): void {
     connected.add(this);
-    if (!this.warnedRemovedKey && this.hasAttribute(REMOVED_KEY_ATTR)) {
-      this.warnedRemovedKey = true;
-      console.warn(
-        `TaleArt: the ${REMOVED_KEY_ATTR} attribute is no longer supported; place the zone with site-key and zone`,
-      );
+    if (!this.warnedSiteKey && this.hasAttribute(SITE_KEY_ATTR)) {
+      this.warnedSiteKey = true;
+      console.warn(`TaleArt: the ${SITE_KEY_ATTR} attribute is no longer read; place the zone with ${ZONE_KEY_ATTR}`);
+    }
+    // Properties set before the SDK defined the element shadow the accessors: pass them through.
+    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings'] as const) {
+      if (!Object.prototype.hasOwnProperty.call(this, name)) continue;
+      const value: unknown = (this as unknown as Record<string, unknown>)[name];
+      delete (this as unknown as Record<string, unknown>)[name];
+      (this as unknown as Record<string, unknown>)[name] = value;
     }
     if (typeof matchMedia === 'function') {
       const query = matchMedia(REDUCED_MOTION_QUERY);
@@ -380,22 +426,25 @@ export class TaleartElement extends HTMLElement {
 
   private async load(): Promise<void> {
     const id = ++this.loadId;
-    const { apiUrl } = this;
-    const named = zoneRequest(this);
+    const apiUrl = this.apiUrl || getConfig().apiUrl;
+    const key = this.zoneKey;
     this.loaded = null;
     const focusGroup = this.clear();
-    if (!apiUrl || !named || !this.isConnected) return;
+    if (!apiUrl || !key || !this.isConnected) return;
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
-      const zone = await fetchZone(apiUrl, named.request, undefined, externalUserIdHeader);
+      const request = { key };
+      const zone = await fetchZone(apiUrl, request, undefined, externalUserIdHeader());
       if (id !== this.loadId) return;
-      this.responses = responseClient(apiUrl, named.request);
+      this.responses = responseClient(apiUrl, request);
       if (!this.zoneMarked) {
         this.zoneMarked = true;
         mark(ZONE_MARK);
       }
-      this.loaded = { zone, configName: named.configName };
-      this.render(targeted(zone), focusGroup, named.configName);
+      // The zone's slug names its configureZone theme; the response carries it.
+      const configName = typeof zone.slug === 'string' && zone.slug ? zone.slug : this.zone;
+      this.loaded = { zone, configName };
+      this.render(targeted(zone), focusGroup, configName);
     } catch (err) {
       if (id !== this.loadId) return;
       this.root.replaceChildren();

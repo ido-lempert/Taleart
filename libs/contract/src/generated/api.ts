@@ -873,6 +873,36 @@ export interface paths {
         patch: operations["updateZoneFrame"];
         trace?: never;
     };
+    "/zones/{zoneId}/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Whether the zone has an active key, with its prefix and issue date.
+         * @description Answers `null` when the zone has no active key. Never returns the key or its hash. Anyone who can access the zone's project may read it.
+         */
+        get: operations["getZoneKey"];
+        put?: never;
+        /**
+         * Issue a zone key, or rotate it (admins only).
+         * @description Creates a new key for the zone. When the zone already has an active key, that key is revoked in the same transaction (rotation). `key` appears only in this response; only its SHA-256 hash is stored. A content manager gets 403 `forbidden`; an unknown zone 404 `zone_not_found`.
+         */
+        post: operations["issueZoneKey"];
+        /**
+         * Revoke the zone's active key (admins only).
+         * @description The key stops working on the Delivery API at once. A zone without an active key answers 404 `zone_key_not_found`.
+         */
+        delete: operations["revokeZoneKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zone": {
         parameters: {
             query?: never;
@@ -882,7 +912,7 @@ export interface paths {
         };
         /**
          * A zone, named by site key and slug, with its display and tale groups (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts only the project's site key (`tas_...`) in `Authorization: Bearer <key>`, never a session, and answers the project's zone whose slug the `zone` query parameter names. Every refusal (a missing, unknown or revoked site key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against its visitor's token bucket (by default 600 at once, 20 per second), the visitor named by the `X-TaleArt-Visitor` header; a request without a valid visitor id counts against a bucket of the same size for its address (an IPv4 address or an IPv6 /48). Every request also counts against its address's backstop, ten times that size, so a client inventing ids gains no more than ten visitors' allowance. Over either the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials, and allows the `X-TaleArt-Visitor` and `X-TaleArt-External-User-Id` headers. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed; each tale's media URL is absolute and public. A group targeted to user lists is listed only when the external user ID header names an ID in one of them. Without that header the zone is cached as `private, no-cache`, varies by `Authorization` and `X-TaleArt-External-User-Id` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once. With the header (even one that reads as no ID) the answer is `private, no-store`, with no ETag and never a 304, so no cache keeps a per-viewer answer.
+         * @description Served under `/delivery/v1`. Accepts only a delivery key in `Authorization: Bearer <key>`, never a session. A zone key (`tak_...`) names its zone alone: the `zone` query parameter is then ignored. With any other bearer key, the key is the project's site key (`tas_...`) and the response is the project's zone whose slug the `zone` query parameter names. Every refusal (a missing, unknown or revoked key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against its visitor's token bucket (by default 600 at once, 20 per second), the visitor named by the `X-TaleArt-Visitor` header; a request without a valid visitor id counts against a bucket of the same size for its address (an IPv4 address or an IPv6 /48). Every request also counts against its address's backstop, ten times that size, so a client inventing ids gains no more than ten visitors' allowance. Over either the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials, and allows the `X-TaleArt-Visitor` and `X-TaleArt-External-User-Id` headers. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed; each tale's media URL is absolute and public. A group targeted to user lists is listed only when the external user ID header names an ID in one of them. Without that header the zone is cached as `private, no-cache`, varies by `Authorization` and `X-TaleArt-External-User-Id` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once. With the header (even one that reads as no ID) the answer is `private, no-store`, with no ETag and never a 304, so no cache keeps a per-viewer answer.
          */
         get: operations["getDeliveryZone"];
         put?: never;
@@ -1848,6 +1878,12 @@ export interface components {
             /** @description The test page. It takes the zone's slug as `?zone=<slug>` and a site key in the URL fragment, `#siteKey=<key>`, or pasted on the page. */
             testPageUrl: string;
         };
+        ZoneKeyInfo: {
+            /** @description The start of the key, `tak_` and the next 6 characters, to recognise it. */
+            prefix: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
         SiteKeyInfo: {
             /** @description The start of the site key, `tas_` and the next 6 characters, to recognise it. */
             prefix: string;
@@ -1857,6 +1893,13 @@ export interface components {
         IssueSiteKeyRequest: {
             /** @description Issue only when the project has no active site key; otherwise 409 `site_key_exists` and nothing changes. Leave it out (or false) to rotate. */
             ifNone?: boolean;
+        };
+        IssuedZoneKey: {
+            /** @description The secret zone key, `tak_` and 32 random bytes in base64url. Shown only once. */
+            key: string;
+            prefix: string;
+            /** Format: date-time */
+            createdAt: string;
         };
         IssuedSiteKey: {
             /** @description The secret site key, `tas_` and 32 random bytes in base64url. Shown only once. */
@@ -2573,7 +2616,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -4376,14 +4419,87 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getZoneKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active key's info, or null. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ZoneKeyInfo"] | null;
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    issueZoneKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new key, shown only once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedZoneKey"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    revokeZoneKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The key is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getDeliveryZone: {
         parameters: {
-            query: {
+            query?: {
                 /**
-                 * @description The zone's slug (lowercase letters, digits and hyphens), sent with the project's site key, as a host page names it in `zone="..."`.
+                 * @description The zone's slug (lowercase letters, digits and hyphens), sent with the project's site key, as a host page names it in `zone="..."`. Not read with a zone key.
                  * @example home-top
                  */
-                zone: string;
+                zone?: string;
             };
             header?: {
                 /** @description The visitor id: a random UUID v4 the SDK generates once per device and keeps there (the Web SDK in localStorage, the native SDK in its device store), with no personal data. Written all in lowercase or all in uppercase; anything else counts as no id. It is used only to rate limit per visitor. */
@@ -5444,7 +5560,7 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];

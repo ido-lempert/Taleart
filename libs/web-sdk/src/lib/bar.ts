@@ -1,6 +1,7 @@
 import type { BarSettings, DeliveryTaleGroup } from '@taleart/contract';
 import { mediaUrl } from './document/media';
 import { canvasColor } from './document/renderer';
+import { defaultTranslate, type Translate } from './i18n';
 import { replaceCover, setCanvasSource, setSource } from './first-content';
 
 /** The frame type this renderer draws (AD-5). */
@@ -294,9 +295,9 @@ export function applyCoverMotion(root: ParentNode, reduced: boolean): void {
  * Marks a bar item seen or unseen: the seen ring, and the name says so for
  * screen readers, since the ring's colour alone does not.
  */
-export function setItemSeen(button: HTMLElement, name: string, seen: boolean): void {
+export function setItemSeen(button: HTMLElement, name: string, seen: boolean, t: Translate = defaultTranslate): void {
   button.toggleAttribute('data-seen', seen);
-  button.setAttribute('aria-label', seen ? `${name}, seen` : name);
+  button.setAttribute('aria-label', seen ? t('bar.seen', { name }) : name);
 }
 
 /**
@@ -311,6 +312,7 @@ export function renderBar(
   seen: ReadonlySet<string> = new Set(),
   settings: unknown = {},
   reducedMotion = prefersReducedMotion(),
+  t: Translate = defaultTranslate,
 ): HTMLElement {
   const { shape, size, showTitles, alignment, gap } = readBarSettings(settings);
   const list = document.createElement('ul');
@@ -326,7 +328,7 @@ export function renderBar(
     button.type = 'button';
     button.className = 'item';
     button.dataset['taleGroupId'] = group.id;
-    setItemSeen(button, group.name, seen.has(group.id));
+    setItemSeen(button, group.name, seen.has(group.id), t);
     const ring = document.createElement('span');
     ring.className = 'ring';
     ring.appendChild(cover(group, reducedMotion));

@@ -20,18 +20,18 @@ beforeEach(() => {
 });
 
 describe('responseClient', () => {
-  it('posts the vote with the site key, the slug and the visitor id, never a cookie, and keeps the answer', async () => {
+  it('posts the vote with the zone key and the visitor id, never a cookie, and keeps the answer', async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ elementId: 'e', value: 'tea', recorded: true, result }), { status: 201 }),
     );
-    const client = responseClient('https://api.example/', { key: 'tas_key', zone: 'home top' }, fetchImpl);
+    const client = responseClient('https://api.example/', { key: 'tak_key' }, fetchImpl);
     expect(await client.send('t', 'e', 'tea')).toEqual({ value: 'tea', result });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://api.example/delivery/v1/responses?zone=home%20top');
+    expect(url).toBe('https://api.example/delivery/v1/responses');
     expect(init.method).toBe('POST');
     expect(init.credentials).toBe('omit');
     expect(init.headers).toEqual({
-      Authorization: 'Bearer tas_key',
+      Authorization: 'Bearer tak_key',
       'Content-Type': 'application/json',
       'X-TaleArt-Visitor': visitor,
     });
@@ -43,19 +43,19 @@ describe('responseClient', () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ elementId: 'e', value: 'coffee', recorded: false, result }), { status: 200 }),
     );
-    const client = responseClient('https://api.example', { key: 'k', zone: 'z' }, fetchImpl);
+    const client = responseClient('https://api.example', { key: 'k' }, fetchImpl);
     expect((await client.send('t', 'e', 'tea')).value).toBe('coffee');
     expect(storedResponse('t', 'e')?.value).toBe('coffee');
   });
 
   it('throws a DeliveryError for a refusal, a bad body or a network failure, keeping nothing', async () => {
-    const refused = responseClient('https://api.example', { key: 'k', zone: 'z' }, async () =>
+    const refused = responseClient('https://api.example', { key: 'k' }, async () =>
       new Response('{"error":{"code":"response_target_not_found","message":"x"}}', { status: 404 }),
     );
     await expect(refused.send('t', 'e', 'tea')).rejects.toBeInstanceOf(DeliveryError);
-    const garbled = responseClient('https://api.example', { key: 'k', zone: 'z' }, async () => new Response('<html>', { status: 200 }));
+    const garbled = responseClient('https://api.example', { key: 'k' }, async () => new Response('<html>', { status: 200 }));
     await expect(garbled.send('t', 'e', 'tea')).rejects.toBeInstanceOf(DeliveryError);
-    const offline = responseClient('https://api.example', { key: 'k', zone: 'z' }, async () => {
+    const offline = responseClient('https://api.example', { key: 'k' }, async () => {
       throw new TypeError('Failed to fetch');
     });
     await expect(offline.send('t', 'e', 'tea')).rejects.toThrow('Could not reach the TaleArt API');
@@ -64,12 +64,12 @@ describe('responseClient', () => {
 
   it("keeps a Rating's count and average (story 4.2), and refuses a result of neither kind", async () => {
     const rating = { total: 2, average: 60 };
-    const client = responseClient('https://api.example', { key: 'k', zone: 'z' }, async () =>
+    const client = responseClient('https://api.example', { key: 'k' }, async () =>
       new Response(JSON.stringify({ elementId: 'r', value: '80', recorded: true, result: rating }), { status: 201 }),
     );
     expect(await client.send('t', 'r', '80')).toEqual({ value: '80', result: rating });
     expect(storedResponse('t', 'r')).toEqual({ value: '80', result: rating });
-    const odd = responseClient('https://api.example', { key: 'k', zone: 'z' }, async () =>
+    const odd = responseClient('https://api.example', { key: 'k' }, async () =>
       new Response(JSON.stringify({ elementId: 'r', value: '80', recorded: true, result: { total: 2 } }), { status: 201 }),
     );
     await expect(odd.send('t', 's', '80')).rejects.toBeInstanceOf(DeliveryError);

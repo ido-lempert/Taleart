@@ -73,7 +73,7 @@ describe('visitor id (story 8.23)', () => {
       async () => new Response(JSON.stringify(zone), { status: 200 }),
     );
     for (const slug of ['a', 'b']) {
-      await fetchZone('https://api.example.com', { key: 'tas_k', zone: slug }, fetchMock as unknown as typeof fetch);
+      await fetchZone('https://api.example.com', { key: 'tak_k', zone: slug }, fetchMock as unknown as typeof fetch);
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const [, init] of fetchMock.mock.calls) {

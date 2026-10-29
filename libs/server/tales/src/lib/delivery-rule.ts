@@ -74,7 +74,7 @@ export const TALE_REASON_CLAUSES: readonly ReasonClause[] = [
  */
 export const ZONE_SETUP_CLAUSES: readonly ReasonClause[] = [
   { code: 'zone-no-display', subject: 'zone', when: (z) => `NOT ${zoneHasDisplaySql(z)}` },
-  { code: 'zone-not-installed', subject: 'zone', when: (z) => `NOT ${zoneInstalledSql(zoneProjectIdSql(z))}` },
+  { code: 'zone-not-installed', subject: 'zone', when: (z) => `NOT ${zoneInstalledSql(z, zoneProjectIdSql(z))}` },
 ];
 
 /**

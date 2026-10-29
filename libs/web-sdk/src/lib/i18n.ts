@@ -5,8 +5,59 @@
  * the SDK fills in.
  */
 export const DEFAULT_STRINGS = {
-  // Keys are added by the code that uses them, grouped by area (viewer.*, banner.*, bar.*, ...).
   'viewer.close': 'Close',
+  'viewer.play': 'Play',
+  'viewer.pause': 'Pause',
+  'viewer.previousTale': 'Previous tale',
+  'viewer.nextTale': 'Next tale',
+  'viewer.previousGroup': 'Previous',
+  'viewer.nextGroup': 'Next',
+  'viewer.previousGroupName': 'Previous group: {name}',
+  'viewer.nextGroupName': 'Next group: {name}',
+  'viewer.progress': '{group}, tale {tale} of {count}',
+  'viewer.taleFallback': 'Tale {number}',
+
+  'banner.label': 'Banner',
+  'banner.carousel': 'carousel',
+  'banner.slide': 'slide',
+  'banner.slideOf': '{index} of {count}',
+  'banner.previousSlide': 'Previous slide',
+  'banner.nextSlide': 'Next slide',
+  'banner.showGroup': 'Show {name}',
+  'banner.stopRotation': 'Stop automatic slide show',
+  'banner.startRotation': 'Start automatic slide show',
+
+  'bar.seen': '{name}, seen',
+
+  'links.newTab': ' (opens in a new tab)',
+
+  'poll.voted': 'You voted {label}.',
+  'poll.chose': 'You chose {label}.',
+  'poll.previewNotRecorded': 'Votes are not recorded in the preview.',
+  'poll.failed': 'Your vote could not be sent. Try again.',
+
+  'quiz.answered': 'You answered {label}.',
+  'quiz.right': 'Right! You answered {label}.',
+  'quiz.wrongAnswer': 'Wrong: you answered {label}. The correct answer is {correct}.',
+  'quiz.correct': ' correct answer',
+  'quiz.wrong': ' wrong',
+  'quiz.previewNotRecorded': 'Answers are not recorded in the preview.',
+  'quiz.failed': 'Your answer could not be sent. Try again.',
+
+  'rating.sliderLabel': 'Your rating',
+  'rating.valueText': '{value} out of {max}',
+  'rating.ratedValueText': 'You rated {value} out of {max}',
+  'rating.sent': 'You rated {value}.',
+  'rating.previewRated': 'You rated {value}. Ratings are not recorded in the preview.',
+  'rating.failed': 'Your rating could not be sent. Try again.',
+  'rating.summary': 'Average {average} from {total} {count}',
+  'rating.singular': 'rating',
+  'rating.plural': 'ratings',
+
+  'preview.stop': 'Stop preview',
+  'preview.size.small': 'Small',
+  'preview.size.default': 'Default',
+  'preview.size.large': 'Large',
 } as const satisfies Record<string, string>;
 
 export type StringKey = keyof typeof DEFAULT_STRINGS;
@@ -37,3 +88,6 @@ export function createTranslate(locale: string, strings: StringsConfig | undefin
       values && name in values ? String(values[name]) : m,
     );
 }
+
+/** The English translate function: what the SDK uses when a render gets no `t`. */
+export const defaultTranslate: Translate = createTranslate('en', undefined);

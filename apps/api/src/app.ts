@@ -23,6 +23,7 @@ import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from 
 import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
+import { zoneKeysRouter } from './http/zone-keys.router';
 import { taleResponsesRouter } from './http/responses.router';
 import type { RateLimitOptions } from './http/rate-limit';
 import {
@@ -169,13 +170,14 @@ export function createApp(
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));
+  v1.use('/zones', zoneKeysRouter(pool));
   v1.use('/tale-groups', taleGroupsRouter(pool));
   v1.use('/tale-groups', coversRouter(pool, storage));
   v1.use('/tales', talesRouter(pool, storage));
   v1.use('/tales', taleResponsesRouter(pool));
   app.use(MANAGEMENT_API_BASE, v1);
 
-  // The Delivery API serves SDKs with site keys only (AD-2): its own open CORS
+  // The Delivery API serves SDKs with zone keys and site keys only (AD-2): its own open CORS
   // and key middleware, never the session middleware.
   app.use(DELIVERY_API_BASE, deliveryRouter(pool, {
       publicApiUrl,
@@ -184,7 +186,7 @@ export function createApp(
       responseRateLimit: delivery.responseRateLimit,
     }));
 
-  // Published media is public at unguessable URLs (AD-11): no session, no site key.
+  // Published media is public at unguessable URLs (AD-11): no session, no zone or site key.
   app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));
 
   // The Web SDK bundle for host pages and the test page that renders one zone with it (epic UX

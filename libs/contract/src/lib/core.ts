@@ -67,6 +67,11 @@ export type PasskeyCreationOptions = Schemas['PasskeyCreationOptions'];
 export type PasskeyRequestOptions = Schemas['PasskeyRequestOptions'];
 export type PasskeyResponse = Schemas['PasskeyResponse'];
 /** A project's active site key as the dashboard shows it (AD-9 amended): prefix and date, never the key. */
+/** A zone's active key as the dashboard shows it (AD-9): prefix and date, never the key. */
+export type ZoneKeyInfo = Schemas['ZoneKeyInfo'];
+/** A newly issued zone key, the only time the key itself is shown. */
+export type IssuedZoneKey = Schemas['IssuedZoneKey'];
+/** A project's active site key as the dashboard shows it (AD-9 amended): prefix and date, never the key. */
 export type SiteKeyInfo = Schemas['SiteKeyInfo'];
 export type InstallInfo = Schemas['InstallInfo'];
 export type IssueSiteKeyRequest = Schemas['IssueSiteKeyRequest'];
@@ -176,10 +181,10 @@ export function invitationPath(token: string): string {
   return `/invite/${encodeURIComponent(token)}`;
 }
 
-/** Delivery API base path (AD-2): SDKs only, site keys only. */
+/** Delivery API base path (AD-2): SDKs only, zone keys and site keys only. */
 export const DELIVERY_API_BASE = '/delivery/v1';
 
-/** Base path of public media (AD-11): no session and no site key. */
+/** Base path of public media (AD-11): no session and no zone or site key. */
 export const PUBLIC_MEDIA_BASE = '/media';
 
 /**
@@ -189,6 +194,17 @@ export const PUBLIC_MEDIA_BASE = '/media';
 export function publicMediaUrl(apiUrl: string, key: string): string {
   const path = key.split('/').map(encodeURIComponent).join('/');
   return `${apiUrl.replace(/\/+$/, '')}${PUBLIC_MEDIA_BASE}/${path}`;
+}
+
+/** Every zone key starts with this (AD-9). */
+export const ZONE_KEY_PREFIX = 'tak_';
+
+/** How many characters of a key, after {@link ZONE_KEY_PREFIX}, its display prefix shows. */
+export const ZONE_KEY_PREFIX_CHARS = 6;
+
+/** The display prefix of a zone key: `tak_` and the next 6 characters. */
+export function zoneKeyPrefix(key: string): string {
+  return key.slice(0, ZONE_KEY_PREFIX.length + ZONE_KEY_PREFIX_CHARS);
 }
 
 /** Every site key starts with this (AD-9 amended, epic UX rework R3). */
@@ -691,6 +707,7 @@ export const ErrorCodes = {
   emailTaken: 'email_taken',
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',
+  zoneKeyNotFound: 'zone_key_not_found',
   siteKeyNotFound: 'site_key_not_found',
   siteKeyExists: 'site_key_exists',
   invalidSiteKey: 'invalid_site_key',

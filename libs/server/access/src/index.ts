@@ -1,6 +1,6 @@
 // Public interface of the access module (AD-1). It owns the `projects`,
 // `users`, `passkeys`, `sessions`, `auth_challenges`, `project_members`,
-// `invitations`, `site_keys`, `api_tokens` and `api_token_projects` tables; other modules reach them only through these exports.
+// `invitations`, `zone_keys`, `site_keys`, `api_tokens` and `api_token_projects` tables; other modules reach them only through these exports.
 export type {
   CheckedOutClient,
   CheckoutClient,
@@ -32,6 +32,7 @@ export {
   PasskeyFailedError,
   InvitationInvalidError,
   EmailTakenError,
+  ZoneKeyNotFoundError,
   SiteKeyExistsError,
   SiteKeyNotFoundError,
   ApiTokenNotFoundError,
@@ -48,7 +49,17 @@ export {
   type NewApiToken,
   type AuthenticatedApiToken,
 } from './lib/apiTokens';
-export { issueSiteKey, revokeSiteKey, siteKeyInfo, projectForSiteKey, zoneInstalledSql } from './lib/siteKeys';
+export { issueSiteKey, revokeSiteKey, siteKeyInfo, projectForSiteKey } from './lib/siteKeys';
+export {
+  migrateZoneKeys,
+  issueZoneKey,
+  revokeZoneKey,
+  zoneKeyInfo,
+  zoneForKey,
+  zoneIdsWithActiveKey,
+  zoneInstalledSql,
+  type KeyZone,
+} from './lib/zoneKeys';
 export {
   SimpleWebAuthnVerifier,
   type PasskeyVerifier,

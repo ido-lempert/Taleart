@@ -1,6 +1,7 @@
 import type { DeliveryTaleDocument, DeliveryTaleElement, DeliveryTaleGroup } from '@taleart/contract';
 import { TaleViewer } from '../viewer';
 import type { ResponseClient, StoredResponse } from '../responses';
+import { createTranslate } from '../i18n';
 import { renderPoll, resultMessage } from './poll';
 import { ELEMENT_RENDERERS, renderTaleDocument } from './renderer';
 
@@ -140,6 +141,15 @@ describe('renderPoll', () => {
     expect(node.querySelector('.ta-poll [aria-live]')?.textContent).toBe(
       'You chose Tea. Votes are not recorded in the preview.',
     );
+  });
+
+  it('takes its messages from the translate function it is given', () => {
+    const hebrew = createTranslate('he-IL', {
+      he: { 'poll.chose': 'בחרת {label}.', 'poll.previewNotRecorded': 'ההצבעות לא נשמרות בתצוגה המקדימה.' },
+    });
+    const node = renderPoll(poll(), { reducedMotion: false, t: hebrew }) as HTMLElement;
+    buttons(node)[0].click();
+    expect(node.querySelector('[aria-live]')?.textContent).toBe('בחרת Tea. ההצבעות לא נשמרות בתצוגה המקדימה.');
   });
 
   it('words the result for the live region', () => {

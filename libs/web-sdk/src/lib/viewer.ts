@@ -8,6 +8,7 @@ import {
   type DeliveryTaleGroup,
 } from '@taleart/contract';
 import { prefersReducedMotion, stillCover } from './bar';
+import { defaultTranslate, type Translate } from './i18n';
 import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOptions } from './document/renderer';
@@ -327,6 +328,8 @@ export interface TaleViewerOptions {
   onClose?: (groupId: string) => void;
   /** Sends the visitor's responses to interactive components (epic interactive components R9); none records nothing. */
   responses?: ResponseClient;
+  /** The viewer's strings, in the page's locale (see `i18n.ts`); English when left out. */
+  t?: Translate;
 }
 
 /**
@@ -396,6 +399,7 @@ export class TaleViewer {
   };
   /** How every tale's document renders, beyond what the viewer sets itself. */
   protected renderOptions: Pick<DocumentRenderOptions, 'inertLinks'> = {};
+  protected readonly t: Translate;
 
   constructor(
     private readonly root: ShadowRoot | HTMLElement,
@@ -403,6 +407,7 @@ export class TaleViewer {
     private readonly options: TaleViewerOptions = {},
   ) {
     this.groups = groups.filter((group) => group.tales.length > 0);
+    this.t = options.t ?? defaultTranslate;
   }
 
   get isOpen(): boolean {
@@ -510,7 +515,7 @@ export class TaleViewer {
 
   private syncPauseButton(): void {
     const { pause } = this.parts;
-    pause.setAttribute('aria-label', this.paused ? 'Play' : 'Pause');
+    pause.setAttribute('aria-label', this.t(this.paused ? 'viewer.play' : 'viewer.pause'));
     setIcon(pause, this.paused ? ICONS.play : ICONS.pause);
   }
 
@@ -521,10 +526,10 @@ export class TaleViewer {
     const stage = el('div', 'stage');
     const prev = el('button', 'zone prev');
     prev.type = 'button';
-    prev.setAttribute('aria-label', 'Previous tale');
+    prev.setAttribute('aria-label', this.t('viewer.previousTale'));
     const next = el('button', 'zone next');
     next.type = 'button';
-    next.setAttribute('aria-label', 'Next tale');
+    next.setAttribute('aria-label', this.t('viewer.nextTale'));
     stage.append(prev, next);
 
     const top = el('div', 'top');
@@ -535,11 +540,11 @@ export class TaleViewer {
     name.dir = 'auto';
     const pause = el('button', 'control pause');
     pause.type = 'button';
-    pause.setAttribute('aria-label', 'Pause');
+    pause.setAttribute('aria-label', this.t('viewer.pause'));
     setIcon(pause, ICONS.pause);
     const close = el('button', 'control close');
     close.type = 'button';
-    close.setAttribute('aria-label', 'Close');
+    close.setAttribute('aria-label', this.t('viewer.close'));
     setIcon(close, ICONS.close);
     head.append(name, pause, close);
     top.append(segments, head);
@@ -550,11 +555,11 @@ export class TaleViewer {
     // Wide screens only (CSS): arrows by the card, and the neighbouring groups in the corners.
     const navPrev = el('button', 'control nav prev');
     navPrev.type = 'button';
-    navPrev.setAttribute('aria-label', 'Previous tale');
+    navPrev.setAttribute('aria-label', this.t('viewer.previousTale'));
     setIcon(navPrev, ICONS.chevronBack);
     const navNext = el('button', 'control nav next');
     navNext.type = 'button';
-    navNext.setAttribute('aria-label', 'Next tale');
+    navNext.setAttribute('aria-label', this.t('viewer.nextTale'));
     setIcon(navNext, ICONS.chevronForward);
     const chipPrev = el('button', 'chip prev');
     chipPrev.type = 'button';
@@ -790,7 +795,7 @@ export class TaleViewer {
       // A fresh fill restarts its animation.
       segment.replaceChildren(el('span', 'fill'));
     });
-    const text = `${g.name}, tale ${tale + 1} of ${g.tales.length}`;
+    const text = this.t('viewer.progress', { group: g.name, tale: tale + 1, count: g.tales.length });
     this.announce(text);
 
     this.renderContent(g.tales[tale], tale);
@@ -846,9 +851,10 @@ export class TaleViewer {
       // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
       this.layer = renderTaleDocument(this.media ? { ...doc, elements: elements.slice(1) } : doc, {
         background: !this.media,
-        label: current.title || `Tale ${tale + 1}`,
+        label: current.title || this.t('viewer.taleFallback', { number: tale + 1 }),
         reducedMotion: this.reduced,
         ...(this.options.responses && { responses: { client: this.options.responses, taleId: current.id } }),
+        t: this.t,
         ...this.renderOptions,
       });
       this.parts.top.before(this.layer);
@@ -979,17 +985,17 @@ export class TaleViewer {
 
   // The neighbouring groups' chips in the corners (wide screens), hidden where there is none.
   private syncChips(): void {
-    this.fillChip(this.parts.chipPrev, this.groups[this.group - 1], 'Previous', true);
-    this.fillChip(this.parts.chipNext, this.groups[this.group + 1], 'Next', false);
+    this.fillChip(this.parts.chipPrev, this.groups[this.group - 1], true);
+    this.fillChip(this.parts.chipNext, this.groups[this.group + 1], false);
   }
 
-  private fillChip(chip: HTMLButtonElement, group: DeliveryTaleGroup | undefined, label: string, back: boolean): void {
+  private fillChip(chip: HTMLButtonElement, group: DeliveryTaleGroup | undefined, back: boolean): void {
     chip.hidden = !group;
     if (!group || chip.dataset['group'] === group.id) return;
     chip.dataset['group'] = group.id;
-    chip.setAttribute('aria-label', `${label} group: ${group.name}`);
+    chip.setAttribute('aria-label', this.t(back ? 'viewer.previousGroupName' : 'viewer.nextGroupName', { name: group.name }));
     const heading = el('span', 'chip-label');
-    heading.textContent = label;
+    heading.textContent = this.t(back ? 'viewer.previousGroup' : 'viewer.nextGroup');
     const cover = stillCover(group);
     cover.className = 'chip-cover';
     const name = el('span', 'chip-name');
@@ -1005,7 +1011,7 @@ export class TaleViewer {
   // A tale's media sent outside a document (servers before R16), exactly as the viewer drew it: an
   // image or video named by the tale's title, or a placeholder of that name.
   private renderLegacyMedia(tale: DeliveryTale): HTMLElement {
-    const label = tale.title || `Tale ${this.tale + 1}`;
+    const label = tale.title || this.t('viewer.taleFallback', { number: this.tale + 1 });
     const media = tale.media;
     const url = mediaUrl(media?.url);
     if (media?.kind === 'image' && url) {

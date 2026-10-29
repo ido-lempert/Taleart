@@ -1,4 +1,5 @@
 import type { DeliveryTale, DeliveryTaleGroup } from '@taleart/contract';
+import { createTranslate } from './i18n';
 import { HOLD_MIN_MS, IMAGE_DURATION_MS, TaleViewer, VIEWER_STYLES } from './viewer';
 
 const API = 'https://api.example.com';
@@ -607,5 +608,15 @@ describe('TaleViewer', () => {
       expect(q('.control.pause').getAttribute('aria-label')).toBe('Pause');
       expect(q<HTMLButtonElement>('.control.pause').hidden).toBe(false);
     });
+  });
+
+  it('takes its labels from the translate function it is given (the Close button, the play and pause)', () => {
+    const hebrew = createTranslate('he-IL', { he: { 'viewer.close': 'סגור', 'viewer.pause': 'השהה', 'viewer.play': 'נגן' } });
+    viewer = new TaleViewer(host, groups, { t: hebrew });
+    viewer.open('ga');
+    expect(q<HTMLButtonElement>('.control.close').getAttribute('aria-label')).toBe('סגור');
+    expect(q<HTMLButtonElement>('.control.pause').getAttribute('aria-label')).toBe('השהה');
+    key(' ');
+    expect(q<HTMLButtonElement>('.control.pause').getAttribute('aria-label')).toBe('נגן');
   });
 });

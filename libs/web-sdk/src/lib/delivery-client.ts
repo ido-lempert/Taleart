@@ -22,12 +22,10 @@ function errorMessage(body: unknown): string | null {
   return typeof error?.message === 'string' ? error.message : null;
 }
 
-/** How an element names its zone: the project's site key with the zone's slug (epic UX rework R3). */
+/** How an element names its zone: the zone key (`tak_…`), which names one zone. */
 export interface ZoneRequest {
-  /** The project's site key. */
+  /** The zone key, sent as the bearer token. */
   key: string;
-  /** The zone's slug. */
-  zone: string;
 }
 
 // A response read once and shared by every element that asked for the same zone at the same time.
@@ -38,13 +36,13 @@ interface SharedResponse {
 }
 
 // The requests in flight, by URL, key and external user ID header: elements on one page that share
-// a site key, a slug and a viewer send one request. An entry leaves when its request settles, so a later load
+// a zone key and a viewer send one request. An entry leaves when its request settles, so a later load
 // (after a change on the page) asks the API again.
 const inFlight = new Map<string, Promise<SharedResponse>>();
 
 /**
- * Reads a zone from the Delivery API at `apiUrl`, with the key as a bearer token and never a
- * cookie, the slug as the `zone` query parameter, and this browser's visitor id. With
+ * Reads the zone of `request` from the Delivery API at `apiUrl` (`GET /delivery/v1/zone`), with the
+ * zone key as a bearer token and never a cookie, and this browser's visitor id. With
  * `externalUserIdHeader` (the viewer's external user ID, already encoded), it is sent in its own
  * header, never in the URL, and the browser is told to keep no copy (epic targeting R4, R5). Throws
  * {@link DeliveryError} for a refused key or slug, any other error status or a network failure.
@@ -55,7 +53,7 @@ export async function fetchZone(
   fetchImpl: typeof fetch = fetch,
   externalUserIdHeader: string | null = null,
 ): Promise<DeliveryZone> {
-  const url = `${apiUrl.replace(/\/+$/, '')}${DELIVERY_PATH}/zone?zone=${encodeURIComponent(request.zone)}`;
+  const url = `${apiUrl.replace(/\/+$/, '')}${DELIVERY_PATH}/zone`;
   const id = `${url}\n${request.key}\n${externalUserIdHeader ?? ''}`;
   let shared = inFlight.get(id);
   if (!shared) {

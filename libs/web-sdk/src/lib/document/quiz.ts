@@ -1,21 +1,25 @@
 import type { DeliveryTaleElement } from '@taleart/contract';
+import { defaultTranslate, type Translate } from '../i18n';
 import type { RenderContext } from './media';
 import { choicesOf, renderChoiceCard, text, type Choice, type ChoiceWords } from './poll';
 
-const QUIZ_WORDS: ChoiceWords = {
-  chose: (label) => `You answered ${label}.`,
-  preview: 'Answers are not recorded in the preview.',
-  failed: 'Your answer could not be sent. Try again.',
-};
+/** A quiz's words, in `t`'s locale. */
+function quizWords(t: Translate): ChoiceWords {
+  return {
+    chose: (label) => t('quiz.answered', { label }),
+    preview: t('quiz.previewNotRecorded'),
+    failed: t('quiz.failed'),
+  };
+}
 
 // Marks a button as the correct answer or as a wrong one: a glyph people see, words a screen reader
 // reads in the button's name, and the colour (never alone).
-function markButton(button: HTMLButtonElement | undefined, right: boolean): void {
+function markButton(button: HTMLButtonElement | undefined, right: boolean, t: Translate): void {
   if (!button) return;
   button.classList.add(right ? 'ta-quiz-right' : 'ta-quiz-wrong');
   const glyph = text('span', 'ta-quiz-mark', right ? '✓' : '✗');
   glyph.setAttribute('aria-hidden', 'true');
-  button.querySelector('.ta-poll-label')?.after(glyph, text('span', 'ta-sr', right ? ' correct answer' : ' wrong'));
+  button.querySelector('.ta-poll-label')?.after(glyph, text('span', 'ta-sr', t(right ? 'quiz.correct' : 'quiz.wrong')));
 }
 
 /**
@@ -23,17 +27,17 @@ function markButton(button: HTMLButtonElement | undefined, right: boolean): void
  * answer, whether the visitor was right, with the correct answer marked and a wrong one marked
  * wrong; without one (a survey), nothing beyond the card's own words.
  */
-export function quizMark(answers: readonly Choice[], correctId: string | null) {
+export function quizMark(answers: readonly Choice[], correctId: string | null, t: Translate = defaultTranslate) {
   return (value: string, button: (id: string) => HTMLButtonElement | undefined): string | undefined => {
     const correct = answers.find((a) => a.id === correctId);
     if (!correct) return undefined;
     // The correct answer is marked even when the visitor's kept answer has since been removed.
-    markButton(button(correct.id), true);
+    markButton(button(correct.id), true, t);
     const mine = answers.find((a) => a.id === value);
     if (!mine) return undefined;
-    if (mine.id === correct.id) return `Right! You answered ${mine.label}.`;
-    markButton(button(mine.id), false);
-    return `Wrong: you answered ${mine.label}. The correct answer is ${correct.label}.`;
+    if (mine.id === correct.id) return t('quiz.right', { label: mine.label });
+    markButton(button(mine.id), false, t);
+    return t('quiz.wrongAnswer', { label: mine.label, correct: correct.label });
   };
 }
 
@@ -46,12 +50,18 @@ export function quizMark(answers: readonly Choice[], correctId: string | null) {
  * none of its answers is read as none.
  */
 export function renderQuiz(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
+  const t = context.t ?? defaultTranslate;
   const props = element.props as { question?: unknown; correctAnswerId?: unknown };
   const answers = choicesOf(element.props, 'answers', 2, 4);
   const question = typeof props.question === 'string' ? props.question.trim() : '';
   if (!answers || !question) return null;
   const correctId = typeof props.correctAnswerId === 'string' ? props.correctAnswerId : null;
-  const card = renderChoiceCard(element, context, { choices: answers, words: QUIZ_WORDS, mark: quizMark(answers, correctId) }, question);
+  const card = renderChoiceCard(
+    element,
+    context,
+    { choices: answers, words: quizWords(t), mark: quizMark(answers, correctId, t) },
+    question,
+  );
   card.classList.add('ta-quiz');
   return card;
 }

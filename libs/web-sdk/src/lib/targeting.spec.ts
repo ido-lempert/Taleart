@@ -46,7 +46,7 @@ async function settle(): Promise<void> {
 async function mount(): Promise<TaleartElement> {
   const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
   el.setAttribute('api-url', API);
-  el.setAttribute('site-key', 'tas_testkey');
+  el.setAttribute('zone-key', 'tak_testkey');
   el.setAttribute('zone', 'home');
   document.body.appendChild(el);
   await settle();
