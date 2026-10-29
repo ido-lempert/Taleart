@@ -11,6 +11,7 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
+import { SettingsTabs } from './settings-tabs';
 
 const TOKENS_URL = `${API_BASE}/api-tokens`;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -61,7 +62,7 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
  */
 @Component({
   selector: 'app-api-tokens-page',
-  imports: [Drawer],
+  imports: [Drawer, SettingsTabs],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .tokens-section {
@@ -162,6 +163,7 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
   `,
   template: `
     <div class="page">
+      <app-settings-tabs />
       <header class="page-header">
         <h2 class="page-header__title">API tokens</h2>
         <p class="page-header__meta">

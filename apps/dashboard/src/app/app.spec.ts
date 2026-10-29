@@ -60,7 +60,9 @@ const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/
 const mp4Media = { kind: 'video', contentType: 'video/mp4', url: '/api/v1/tales/t2/media' };
 const MEDIA_ORIGIN = API_ORIGIN;
 const admin = { id: 'u1', name: 'Ada Admin', email: 'ada@example.com', role: 'admin' };
-const signedIn = { setupRequired: false, user: admin };
+// What /auth/state lists: passkey on, the default of an install (the contract's `methods`).
+const PASSKEY_ONLY = [{ id: 'passkey', label: 'Passkey', kind: 'passkey' }];
+const signedIn = { setupRequired: false, user: admin, methods: PASSKEY_ONLY };
 const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', settings: {} };
 
 /**
@@ -492,7 +494,7 @@ describe('App', () => {
       http.expectOne(`${API_BASE}/auth/state`).error(new ProgressEvent('error'));
       await navigation;
       await retryTick();
-      http.expectOne(`${API_BASE}/auth/state`).flush({ setupRequired: false, user: null });
+      http.expectOne(`${API_BASE}/auth/state`).flush({ setupRequired: false, user: null, methods: PASSKEY_ONLY });
       await settle(fixture);
       await settle(fixture);
       expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fzones');
@@ -1464,7 +1466,7 @@ describe('App', () => {
       const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
-      await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager });
+      await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
       await flushRefresh(fixture, { projects: [acme], zones: [newZone] });
       const root = fixture.nativeElement as HTMLElement;
       expect(steps(root)[1]).toEqual(['Ask an admin to issue a zone key', 'To do']);
@@ -6473,7 +6475,7 @@ describe('App', () => {
     it('links each project card to its theme, for content managers too', async () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
-      await navigate(fixture, '/projects', { setupRequired: false, user: { ...admin, role: 'content_manager' } });
+      await navigate(fixture, '/projects', { setupRequired: false, user: { ...admin, role: 'content_manager' }, methods: PASSKEY_ONLY });
       await flushRefresh(fixture, oneZone);
       const root = fixture.nativeElement as HTMLElement;
       const link = root.querySelector<HTMLAnchorElement>('a[aria-label="Theme of Acme"]');
@@ -6673,8 +6675,8 @@ describe('App', () => {
   });
   describe('auth', () => {
     const tick = () => new Promise((resolve) => setTimeout(resolve));
-    const setupState = { setupRequired: true, user: null };
-    const signedOut = { setupRequired: false, user: null };
+    const setupState = { setupRequired: true, user: null, methods: PASSKEY_ONLY };
+    const signedOut = { setupRequired: false, user: null, methods: PASSKEY_ONLY };
     const creationOptions = { challenge: 'c1', rp: { name: 'TaleArt', id: 'localhost' } };
     const requestOptions = { challenge: 'c2', rpId: 'localhost' };
 
@@ -6997,7 +6999,7 @@ describe('App', () => {
     it('hides "New project" and "Invite" from a content manager and lists only their projects', async () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
-      await navigate(fixture, '/projects', { setupRequired: false, user: manager });
+      await navigate(fixture, '/projects', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
       const root = fixture.nativeElement as HTMLElement;
 
@@ -7010,7 +7012,7 @@ describe('App', () => {
     it('tells a content manager without projects to ask for an invitation', async () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
-      await navigate(fixture, '/zones', { setupRequired: false, user: manager });
+      await navigate(fixture, '/zones', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
       await flushRefresh(fixture, {});
       const root = fixture.nativeElement as HTMLElement;
       expect(root.textContent).toContain('Ask an admin to invite you');
@@ -7260,7 +7262,7 @@ describe('App', () => {
       const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
-      await navigate(fixture, '/projects', { setupRequired: false, user: manager });
+      await navigate(fixture, '/projects', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
       const root = fixture.nativeElement as HTMLElement;
       expect(root.querySelector('[aria-label^="Import from another tool"]')).toBeNull();

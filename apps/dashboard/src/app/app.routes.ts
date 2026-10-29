@@ -31,6 +31,20 @@ export const appRoutes: Route[] = [
     data: { bare: true } satisfies BareData,
   },
   {
+    // A password reset link an admin issued (the server's link is /password-reset/<token>); no session needed.
+    path: 'password-reset/:token',
+    loadComponent: () => import('./pages/password-reset').then((m) => m.PasswordResetPage),
+    title: 'Set a new password · TaleArt',
+    data: { bare: true } satisfies BareData,
+  },
+  {
+    // The same page under the short path the task brief names.
+    path: 'reset/:token',
+    loadComponent: () => import('./pages/password-reset').then((m) => m.PasswordResetPage),
+    title: 'Set a new password · TaleArt',
+    data: { bare: true } satisfies BareData,
+  },
+  {
     // An invitation link; works without a session (AD-9).
     path: 'invite/:token',
     loadComponent: () => import('./pages/invite').then((m) => m.InvitePage),
@@ -114,6 +128,20 @@ export const appRoutes: Route[] = [
         data: { heading: 'Projects' } satisfies ShellData,
       },
       { path: 'settings', pathMatch: 'full', redirectTo: 'settings/api-tokens' },
+      {
+        // Settings > Sign-in methods (admins only): the passkey and password methods, and the providers.
+        path: 'settings/sign-in-methods',
+        loadComponent: () => import('./pages/sign-in-methods').then((m) => m.SignInMethodsPage),
+        title: 'Sign-in methods · Settings · TaleArt',
+        data: { heading: 'Settings' } satisfies ShellData,
+      },
+      {
+        // Settings > My sign-in methods: the signed-in user's passkeys, password and linked providers.
+        path: 'settings/my-sign-in-methods',
+        loadComponent: () => import('./pages/my-sign-in-methods').then((m) => m.MySignInMethodsPage),
+        title: 'My sign-in methods · Settings · TaleArt',
+        data: { heading: 'Settings' } satisfies ShellData,
+      },
       {
         // Personal API tokens for scripts and the CLI (epic developer experience 10.1).
         path: 'settings/api-tokens',

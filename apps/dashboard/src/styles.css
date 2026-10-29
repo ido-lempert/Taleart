@@ -1592,3 +1592,16 @@ app-tale-text-style {
   font-weight: 600;
   color: var(--danger-text);
 }
+
+/* Sign-in and registration: a second heading inside the card, above a password form. */
+.auth-card__subtitle {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+/* The name and email of a registration form, above its method sections. */
+.auth-card__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
