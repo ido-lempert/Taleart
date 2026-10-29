@@ -378,6 +378,18 @@
         </details>
       </div>
 
+      <div
+        class="zone-panel"
+        role="tabpanel"
+        id="zone-panel-analytics"
+        aria-labelledby="zone-tab-analytics"
+        tabindex="-1"
+        [hidden]="selectedTab() !== 'analytics'"
+      >
+        <!-- Read only while the tab shows; the period is in the URL (?period=). -->
+        <app-zone-analytics [zoneId]="zone.id" [period]="period()" [active]="selectedTab() === 'analytics'" />
+      </div>
+
     } @else if (!store.apiDown()) {
       <section class="card empty" aria-labelledby="zone-missing">
         <span class="empty__icon"><app-icon name="alert" /></span>

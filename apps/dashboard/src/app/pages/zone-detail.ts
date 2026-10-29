@@ -47,6 +47,7 @@ import {
 import { AddExistingGroup, addableGroups } from './add-existing-group';
 import { GroupView, shownLabel } from './group-view';
 import { SiteKeyCard } from './site-key-card';
+import { ZoneAnalyticsPanel } from './zone-analytics';
 import { ZoneKeyCard } from './zone-key-card';
 
 /** The query parameter naming the group whose view is open (epic UX rework R11). */
@@ -60,7 +61,7 @@ type Direction = 'earlier' | 'later';
 /**
  * One zone (epic UX rework R9): a header with its name, slug, indicator (R7) and a summary (display
  * type, group count, installed or not, the template it came from); a setup checklist until the zone
- * is first visible; and three tabs, Tale groups (the default), Display and Install, following the
+ * is first visible; and four tabs, Tale groups (the default), Display, Install and Analytics, following the
  * WAI-ARIA tabs pattern with automatic activation: arrow keys, Home and End move focus and select
  * the tab at once, since every panel is already rendered. The selected tab is in the URL
  * (`?tab=display`), so a reload keeps it and back and forward step through tabs.
@@ -92,6 +93,7 @@ type Direction = 'earlier' | 'later';
     AddExistingGroup,
     SiteKeyCard,
     ZoneKeyCard,
+    ZoneAnalyticsPanel,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './zone-detail.html',
@@ -302,6 +304,8 @@ export class ZoneDetailPage {
   readonly tab = input<string | undefined>();
   /** Bound from the `?group=` query parameter: the group whose view is open (epic UX rework R11). */
   readonly group = input<string | undefined>();
+  /** Bound from the `?period=` query parameter: the Analytics tab's period (7d, 30d or 90d). */
+  readonly period = input<string | undefined>();
 
   protected readonly tabs = ZONE_TABS;
   /**

@@ -1,10 +1,11 @@
 import type { VisibilityReasonCode, Zone } from '@taleart/contract/core';
 
-/** The zone page's tabs (epic UX rework R9), in their order; `groups` is the default. */
+/** The zone page's tabs (epic UX rework R9, analytics epic), in their order; `groups` is the default. */
 export const ZONE_TABS = [
   { id: 'groups', label: 'Tale groups' },
   { id: 'display', label: 'Display' },
   { id: 'install', label: 'Install' },
+  { id: 'analytics', label: 'Analytics' },
 ] as const;
 
 export type ZoneTab = (typeof ZONE_TABS)[number]['id'];

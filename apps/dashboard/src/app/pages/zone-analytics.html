@@ -1,0 +1,243 @@
+<section class="card section zone-section analytics" aria-labelledby="analytics-title">
+  <!-- Says what the panel loads, once, for screen readers; the states below show it too. -->
+  <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</p>
+
+  <div class="section__header">
+    <h3 class="section__title" id="analytics-title" tabindex="-1">Analytics</h3>
+    <div class="analytics-period">
+      <label class="analytics-period__label" for="analytics-period">Period</label>
+      <select id="analytics-period" class="select" name="period" (change)="changePeriod($event)">
+        @for (value of periods; track value) {
+        <option [value]="value" [selected]="value === picked()">{{ periodLabels[value] }}</option>
+        }
+      </select>
+    </div>
+  </div>
+  <p class="muted analytics-note">
+    {{ periodLabels[picked()] }}, {{ periodNote }} Reach counts distinct anonymous visitors.
+  </p>
+
+  @if (state().status === 'loading') {
+  <p class="muted analytics-status" data-state="loading">Loading analytics…</p>
+  } @else if (state().status === 'error') {
+  <div class="banner banner--inline analytics-status" role="alert" data-state="error">
+    <app-icon name="alert" />
+    <span>{{ errorMessage() }}</span>
+    <button type="button" class="btn btn--secondary btn--sm" id="analytics-retry" (click)="retry()">Try again</button>
+  </div>
+  } @else if (empty()) {
+  <div class="analytics-empty" data-state="empty">
+    <h4 class="analytics-empty__title">No events yet</h4>
+    <p>
+      Analytics arrive from the Web SDK once this zone is placed on a page and visitors see it. Until a visitor sees a
+      tale group, every count here stays at zero.
+    </p>
+    <p>
+      To turn sending off, set <code>analytics="off"</code> on the element, or
+      <code>Taleart.init(&#123; analytics: false &#125;)</code>
+      for the page. The element's setting wins.
+    </p>
+    <p><a class="analytics-link" [attr.href]="definitionsPath">Read the metric definitions in the docs</a></p>
+  </div>
+  } @else if (data(); as data) {
+  <dl class="analytics-tiles" data-state="ready">
+    @for (tile of tiles(); track tile.key) {
+    <div class="analytics-tile" [attr.data-metric]="tile.key">
+      <dt class="analytics-tile__label">{{ tile.label }}</dt>
+      <dd class="analytics-tile__value">{{ tile.value }}</dd>
+      <details class="analytics-tile__info">
+        <summary>Definition<span class="visually-hidden"> of {{ tile.label }}</span></summary>
+        <p>{{ tile.definition }}</p>
+      </details>
+    </div>
+    }
+  </dl>
+
+  <figure class="analytics-chart">
+    <figcaption class="analytics-chart__title">Daily impressions and clicks</figcaption>
+    <div class="analytics-chart__box">
+      <svg
+        class="analytics-chart__svg"
+        [attr.viewBox]="'0 0 ' + chart.width + ' ' + chart.height"
+        role="img"
+        [attr.aria-label]="chartLabel()"
+        (pointerleave)="hovered.set(null)"
+      >
+        @for (tick of yTicks(); track $index) {
+        <line
+          class="analytics-chart__grid"
+          [attr.x1]="chart.left"
+          [attr.x2]="chart.width - chart.right"
+          [attr.y1]="tick.y"
+          [attr.y2]="tick.y"
+        />
+        <text class="analytics-chart__tick" [attr.x]="chart.left - 6" [attr.y]="tick.y + 4" text-anchor="end">
+          {{ tick.value }}
+        </text>
+        } @for (point of points().list; track point.date; let i = $index) { @if (xLabelIndexes().has(i)) {
+        <text class="analytics-chart__tick" [attr.x]="point.x" [attr.y]="chart.height - 8" text-anchor="middle">
+          {{ point.label }}
+        </text>
+        } }
+        <polyline
+          class="analytics-chart__line analytics-chart__line--impressions"
+          fill="none"
+          [attr.points]="impressionsLine()"
+        />
+        <polyline
+          class="analytics-chart__line analytics-chart__line--clicks"
+          fill="none"
+          [attr.points]="clicksLine()"
+        />
+        @if (tooltip(); as t) {
+        <line
+          class="analytics-chart__guide"
+          [attr.x1]="t.x"
+          [attr.x2]="t.x"
+          [attr.y1]="chart.top"
+          [attr.y2]="chart.height - chart.bottom"
+        />
+        } @for (point of points().list; track point.date; let i = $index) {
+        <rect
+          class="analytics-chart__band"
+          [attr.x]="point.bandX"
+          [attr.y]="chart.top"
+          [attr.width]="point.bandWidth"
+          [attr.height]="chart.height - chart.top - chart.bottom"
+          (pointerenter)="hovered.set(i)"
+        />
+        }
+      </svg>
+      @if (tooltip(); as t) {
+      <div
+        class="analytics-tooltip"
+        [class.analytics-tooltip--end]="t.alignEnd"
+        [style.left.%]="t.left"
+        aria-hidden="true"
+      >
+        <strong>{{ t.label }}</strong>
+        <span>Impressions: {{ t.impressions }}</span>
+        <span>Clicks: {{ t.clicks }}</span>
+      </div>
+      }
+    </div>
+    <ul class="analytics-legend" aria-label="Chart key">
+      <li>
+        <span class="analytics-legend__swatch analytics-legend__swatch--impressions" aria-hidden="true"></span
+        >Impressions
+      </li>
+      <li><span class="analytics-legend__swatch analytics-legend__swatch--clicks" aria-hidden="true"></span>Clicks</li>
+    </ul>
+    <table class="visually-hidden">
+      <caption>
+        Daily impressions and clicks
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">Day (UTC)</th>
+          <th scope="col">Impressions</th>
+          <th scope="col">Clicks</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (day of data.daily; track day.date) {
+        <tr>
+          <th scope="row">{{ dayLong(day.date) }}</th>
+          <td>{{ formatCount(day.impressions) }}</td>
+          <td>{{ formatCount(day.clicks) }}</td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </figure>
+
+  <div class="analytics-tables">
+    <section class="analytics-table-section" aria-labelledby="analytics-groups-title">
+      <h4 class="analytics-table-title" id="analytics-groups-title">By tale group</h4>
+      @if (groupRows().length === 0) {
+      <p class="muted">No tale group has events in this period.</p>
+      } @else {
+      <div class="analytics-table-scroll">
+        <table class="analytics-table" aria-labelledby="analytics-groups-title">
+          <thead>
+            <tr>
+              <th scope="col">Tale group</th>
+              <th scope="col">Impressions</th>
+              <th scope="col">Reach</th>
+              <th scope="col">Opens</th>
+              <th scope="col">Tale views</th>
+              <th scope="col">Clicks</th>
+              <th scope="col">Engagement rate</th>
+              <th scope="col">CTR</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of groupRows(); track row.groupId) {
+            <tr>
+              <th scope="row">{{ row.name }}</th>
+              <td>{{ formatCount(row.impressions) }}</td>
+              <td>{{ formatCount(row.reach) }}</td>
+              <td>{{ formatCount(row.opens) }}</td>
+              <td>{{ formatCount(row.taleViews) }}</td>
+              <td>{{ formatCount(row.clicks) }}</td>
+              <td>{{ formatPercent(row.engagementRate) }}</td>
+              <td>{{ formatPercent(row.ctr) }}</td>
+            </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="muted analytics-table-note">{{ reachNote }}</p>
+      }
+    </section>
+
+    <section class="analytics-table-section" aria-labelledby="analytics-tales-title">
+      <h4 class="analytics-table-title" id="analytics-tales-title">By tale</h4>
+      @if (taleRows().length === 0) {
+      <p class="muted">No tale has views or clicks in this period.</p>
+      } @else {
+      <div class="analytics-table-scroll">
+        <table class="analytics-table" aria-labelledby="analytics-tales-title">
+          <thead>
+            <tr>
+              <th scope="col">Tale</th>
+              <th scope="col">Tale group</th>
+              <th scope="col">Impressions</th>
+              <th scope="col">Reach</th>
+              <th scope="col">Opens</th>
+              <th scope="col">Tale views</th>
+              <th scope="col">Clicks</th>
+              <th scope="col">Engagement rate</th>
+              <th scope="col">CTR</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of taleRows(); track row.taleId) {
+            <tr>
+              <th scope="row">{{ row.name }}</th>
+              <td>{{ groupName(row.groupId) || '–' }}</td>
+              <td>{{ row.impressions === null ? '–' : formatCount(row.impressions) }}</td>
+              <td>{{ row.reach === null ? '–' : formatCount(row.reach) }}</td>
+              <td>{{ row.opens === null ? '–' : formatCount(row.opens) }}</td>
+              <td>{{ formatCount(row.taleViews) }}</td>
+              <td>{{ formatCount(row.clicks) }}</td>
+              <td>{{ row.engagementRate === null ? '–' : formatPercent(row.engagementRate) }}</td>
+              <td>{{ formatPercent(row.ctr) }}</td>
+            </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="muted analytics-table-note">
+        A dash means the count is not kept per tale: impressions, reach, opens and engagement name a tale group. {{
+        reachNote }}
+      </p>
+      }
+    </section>
+  </div>
+  }
+
+  <p class="analytics-footer muted">
+    <a class="analytics-link" [attr.href]="definitionsPath">Metric definitions in the docs</a>
+  </p>
+</section>

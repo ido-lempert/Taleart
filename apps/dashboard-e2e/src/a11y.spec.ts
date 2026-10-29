@@ -185,10 +185,11 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     for (const [key, name] of [
       ['ArrowRight', 'Display'],
       ['ArrowRight', 'Install'],
+      ['ArrowRight', 'Analytics'],
       ['ArrowRight', 'Tale groups'],
-      ['ArrowLeft', 'Install'],
+      ['ArrowLeft', 'Analytics'],
       ['Home', 'Tale groups'],
-      ['End', 'Install'],
+      ['End', 'Analytics'],
       ['Home', 'Tale groups'],
     ] as const) {
       await page.keyboard.press(key);

@@ -258,8 +258,15 @@ describe('App', () => {
     }
   }
 
+  // The Analytics tab reads its zone's analytics once shown (zone analytics panel); answers each read.
+  function flushAnalytics(): void {
+    const empty = { period: '30d', totals: { impressions: 0, reach: 0, opens: 0, taleViews: 0, clicks: 0, engagementRate: 0, ctr: 0 }, daily: [], groups: [], tales: [] };
+    for (const req of http.match((r) => r.method === 'GET' && /\/zones\/[^/]+\/analytics$/.test(r.url))) req.flush(empty);
+  }
+
   afterEach(() => {
     flushSiteKeys();
+    flushAnalytics();
     flushProjectGroups({});
     flushReadGroups({});
     lastData = {};
@@ -1380,9 +1387,9 @@ describe('App', () => {
       const { root } = await open('/zones/z1', { projects: [acme], zones: [newZone] });
       const list = root.querySelector('[role=tablist]');
       expect(list?.getAttribute('aria-label')).toBe('Zone sections');
-      expect(tabs(root).map((t) => t.textContent?.trim())).toEqual(['Tale groups', 'Display', 'Install']);
+      expect(tabs(root).map((t) => t.textContent?.trim())).toEqual(['Tale groups', 'Display', 'Install', 'Analytics']);
       expect(selected(root)).toEqual(['Tale groups']);
-      expect(tabs(root).map((t) => t.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+      expect(tabs(root).map((t) => t.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1']);
       for (const t of tabs(root)) {
         const p = panel(root, t);
         expect(p.getAttribute('role')).toBe('tabpanel');
@@ -1530,21 +1537,21 @@ describe('App', () => {
       expect(right.defaultPrevented).toBe(true);
       expect(selected(root)).toEqual(['Display']);
       expect(document.activeElement).toBe(tab(root, 'Display'));
-      expect(tabs(root).map((t) => t.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
+      expect(tabs(root).map((t) => t.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1']);
       expect(url()).toBe('/zones/z1?tab=display');
 
       await key(fixture, tab(root, 'Display'), 'End');
-      expect(selected(root)).toEqual(['Install']);
-      expect(document.activeElement).toBe(tab(root, 'Install'));
+      expect(selected(root)).toEqual(['Analytics']);
+      expect(document.activeElement).toBe(tab(root, 'Analytics'));
 
       // Wraps around at either end.
-      await key(fixture, tab(root, 'Install'), 'ArrowRight');
+      await key(fixture, tab(root, 'Analytics'), 'ArrowRight');
       expect(selected(root)).toEqual(['Tale groups']);
       await key(fixture, tab(root, 'Tale groups'), 'ArrowLeft');
-      expect(selected(root)).toEqual(['Install']);
-      expect(document.activeElement).toBe(tab(root, 'Install'));
+      expect(selected(root)).toEqual(['Analytics']);
+      expect(document.activeElement).toBe(tab(root, 'Analytics'));
 
-      await key(fixture, tab(root, 'Install'), 'Home');
+      await key(fixture, tab(root, 'Analytics'), 'Home');
       expect(selected(root)).toEqual(['Tale groups']);
       expect(document.activeElement).toBe(tab(root, 'Tale groups'));
 
