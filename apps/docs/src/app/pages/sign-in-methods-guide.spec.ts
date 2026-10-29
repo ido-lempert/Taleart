@@ -35,7 +35,7 @@ describe('the Sign-in methods guide', () => {
   it('has the ten steps, in order, as a numbered list', () => {
     const steps = [...page.querySelectorAll('ol.steps > li')];
     expect(steps.length).toBe(10);
-    const headings = steps.map((step) => step.querySelector('strong')?.textContent?.trim() ?? '');
+    const headings = steps.map((step) => step.querySelector('h3')?.textContent?.trim() ?? '');
     expect(headings[0]).toBe('Open Settings > Sign-in methods.');
     expect(headings[1]).toBe('Turn on username and password.');
     expect(headings[2]).toBe('Add Google.');

@@ -25,7 +25,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
 
     <ol class="steps">
       <li>
-        <strong>Open the zone's Analytics tab and choose the period.</strong> On the zone page, select the
+        <h3 class="step-title" id="step-open-the-zones-analytics-tab-and">Open the zone's Analytics tab and choose the period.</h3> On the zone page, select the
         <em>Analytics</em> tab. The period picker sets the window: the last 7, 30 or 90 days, in UTC days with today
         included. The default is 30 days, and the choice stays in the address (<code>?period=7d</code>), so a reload or
         a shared link shows the same window.
@@ -43,7 +43,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
       </li>
 
       <li>
-        <strong>Read a tile, and open its definition.</strong> Each tile shows one metric of the period. Under each tile,
+        <h3 class="step-title" id="step-read-a-tile-and-open-its">Read a tile, and open its definition.</h3> Each tile shows one metric of the period. Under each tile,
         <em>Definition</em> opens the published definition, the same text as the
         <a routerLink="/reference/analytics">Analytics reference</a>. Engagement rate, for one, is the engaged visitors
         divided by Reach, and the tile says so.
@@ -59,7 +59,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
       </li>
 
       <li>
-        <strong>Read the tables by tale group and by tale.</strong> The chart plots impressions and clicks by UTC day, and a
+        <h3 class="step-title" id="step-read-the-tables-by-tale-group">Read the tables by tale group and by tale.</h3> The chart plots impressions and clicks by UTC day, and a
         day's counts show when you point at it. Under it, <em>By tale group</em> gives each group's figures, and
         <em>By tale</em> gives each tale's views and clicks. A dash means the count is not kept per tale: impressions,
         reach, opens and engagement name a group. Reach is distinct per row, so a total is not the sum of its rows.
@@ -75,7 +75,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
       </li>
 
       <li>
-        <strong>When nothing is counted yet, or to turn sending off.</strong> Until a visitor sees a tale group, the tab
+        <h3 class="step-title" id="step-when-nothing-is-counted-yet-or">When nothing is counted yet, or to turn sending off.</h3> Until a visitor sees a tale group, the tab
         shows <em>No events yet</em> and every count stays at zero. Sending is on by default. Turn it off for the whole
         page with <code>analytics: false</code> in <code>init</code>, or for one element with <code>analytics="off"</code>;
         the element's attribute wins.

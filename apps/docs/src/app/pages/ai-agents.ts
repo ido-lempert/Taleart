@@ -94,7 +94,7 @@ import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from '../skill-files';
       </li>
       <li>Hand you a new site key once, and never write it to a file unless you ask.</li>
     </ul>
-    <div class="note">
+    <aside class="callout callout--warning">
       <p>
         <strong>These are instructions to the agent, not a lock.</strong> The agent runs with your environment and
         your files, so it can reach the token it uses: the skill tells it not to look, but nothing stops it. The real
@@ -104,7 +104,7 @@ import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from '../skill-files';
         Give an agent the narrowest <a routerLink="/api-tokens">API token</a> that does the job, with an expiry, and
         revoke it when you are done.
       </p>
-    </div>
+    </aside>
 
     <h2 id="install-it">Install it</h2>
     <p>With the <code>taleart</code> command-line tool, in one line:</p>

@@ -12,6 +12,7 @@
     "build": {
       "executor": "@angular/build:application",
       "dependsOn": [
+        "build-search-index",
         "^build",
         {
           "projects": [
@@ -49,6 +50,10 @@
             "glob": "**/*.md",
             "input": "skills/taleart",
             "output": "skill/taleart"
+          },
+          {
+            "glob": "search-index.json",
+            "input": "dist/apps/docs-search"
           }
         ],
         "styles": [
@@ -95,6 +100,14 @@
           "extractLicenses": false,
           "sourceMap": true
         }
+      }
+    },
+    "build-search-index": {
+      "// note": "Builds search-index.json (the docs' search) from the page templates, before the build copies it into the site (build.assets). Reads DOCS_PAGES in app.routes.ts and the pages' inline templates; see scripts/build-search-index.mjs.",
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "node apps/docs/scripts/build-search-index.mjs dist/apps/docs-search/search-index.json"
       }
     },
     "build-pages": {

@@ -14,7 +14,9 @@ import { Location } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
+import { ArticleEnhancements } from './article-enhancements';
 import { DOCS_GROUPS, DOCS_PAGES } from './app.routes';
+import { DocsSearch } from './search-dialog';
 import { OnThisPage } from './on-this-page';
 import { PageOutline } from './page-outline';
 import { ThemeService } from './theme';
@@ -23,7 +25,7 @@ import { ThemeService } from './theme';
 const REPO = 'https://github.com/ido-lempert/Taleart';
 
 @Component({
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, OnThisPage],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, OnThisPage, DocsSearch],
   selector: 'docs-root',
   templateUrl: './app.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -42,6 +44,8 @@ export class App {
   protected readonly theme = inject(ThemeService);
   /** Built after each navigation: the "On this page" list, the heading links and the scroll-spy. */
   private readonly outline = inject(PageOutline);
+  /** After each navigation: the code blocks' copy buttons and the figures' zoom (the browser only). */
+  private readonly enhancements = inject(ArticleEnhancements);
   protected readonly repo = REPO;
   private readonly router = inject(Router);
   private readonly location = inject(Location);
@@ -96,6 +100,7 @@ export class App {
       this.menuOpen.set(false);
       // The first load (id 1) opens only the page's section; later navigations keep what the reader opened.
       this.openGroups.update((open) => new Set([...(event.id > 1 ? open : []), this.activeGroup()]));
+      afterNextRender(() => this.enhancements.apply(), { injector: this.injector });
     });
     // After a navigation inside the docs (not the first load, id 1), focus the new page's heading, so
     // a screen reader announces it and the keyboard continues from it.

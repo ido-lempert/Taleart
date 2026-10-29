@@ -97,7 +97,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
     <ol class="steps">
       <li>
-        <strong>Issue the zone key.</strong> On the zone's <em>Install</em> tab in the dashboard, an admin issues the
+        <h3 class="step-title" id="step-issue-the-zone-key">Issue the zone key.</h3> On the zone's <em>Install</em> tab in the dashboard, an admin issues the
         zone key (<code>tak_…</code>). It is shown once: copy it then. Rotating the key issues a new one and revokes
         the old, for that zone only.
         <figure>
@@ -112,7 +112,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Add the script once per page.</strong> Load the Web SDK from the TaleArt API with one script tag, or
+        <h3 class="step-title" id="step-add-the-script-once-per-page">Add the script once per page.</h3> Load the Web SDK from the TaleArt API with one script tag, or
         install the npm package if your app bundles its own code. The Install tab gives the tag for your API with the
         zone key filled in. For a pinned, integrity-checked version, see <a routerLink="/install">Install a zone</a>.
         <pre tabindex="0" role="region" aria-label="Script tag"><code>{{ snippet }}</code></pre>
@@ -129,7 +129,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Place the zone.</strong> Put one <code>&lt;taleart-view&gt;</code> where the zone should appear, with
+        <h3 class="step-title" id="step-place-the-zone">Place the zone.</h3> Put one <code>&lt;taleart-view&gt;</code> where the zone should appear, with
         its zone key. The element renders the zone's display (a bar of circles or a banner) and opens a group full
         screen when a visitor taps it. Each zone on the page takes its own element and key.
         <pre tabindex="0" role="region" aria-label="The zone element"><code>{{ elementSample }}</code></pre>
@@ -156,7 +156,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Optional: set options once for the page.</strong> <code>Taleart.init</code> (or the named
+        <h3 class="step-title" id="step-optional-set-options-once-for-the">Optional: set options once for the page.</h3> <code>Taleart.init</code> (or the named
         <code>init</code> of the npm package) sets the options for every element: the API origin (<code>apiUrl</code>,
         needed with npm, where the script has no origin), the locale, the texts (<code>strings</code>), the theme, the
         viewer's targeting and the hooks. An attribute on one element overrides the page's option. Here the texts are
@@ -177,7 +177,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Listen to the hooks.</strong> The SDK reports what a visitor sees and does: a group coming on screen, a
+        <h3 class="step-title" id="step-listen-to-the-hooks">Listen to the hooks.</h3> The SDK reports what a visitor sees and does: a group coming on screen, a
         tap on a button, a poll answer, the viewer closing. Use them for analytics. A hook can also stop a link (its
         <code>preventDefault()</code>) and route it inside your app: only <em>action clicked</em> can be cancelled.
         Set hooks for every element with <code>init</code>, or for one element with its <code>hooks</code> property.
@@ -200,7 +200,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Verify with the test page.</strong> Before you touch your site, open the zone's test page from the
+        <h3 class="step-title" id="step-verify-with-the-test-page">Verify with the test page.</h3> Before you touch your site, open the zone's test page from the
         Install tab (<em>Open test page</em>). It shows the zone on a page TaleArt serves, with the key in the URL
         fragment: a browser does not send the fragment to a server, and the page removes it from the address bar. Then
         open a group, to see the viewer the way a visitor does. If a zone does not show, the zone page says why
@@ -227,7 +227,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Show a placeholder when stories can't load.</strong> When the zone cannot be read (a refused or revoked
+        <h3 class="step-title" id="step-show-a-placeholder-when-stories-cant">Show a placeholder when stories can't load.</h3> When the zone cannot be read (a refused or revoked
         key, a network failure), the element renders nothing by default. Choose what it shows instead:
         <ol class="substeps">
           <li>
@@ -271,7 +271,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Limit how often a group shows.</strong> <code>frequency</code> leaves a tale group out of the display for
+        <h3 class="step-title" id="step-limit-how-often-a-group-shows">Limit how often a group shows.</h3> <code>frequency</code> leaves a tale group out of the display for
         a viewer after some views, or for a time after a view. Set it on the element, or for every element with
         <code>init({{ '{' }} frequency {{ '}' }})</code>; the element's attribute wins.
         <ol class="substeps">
@@ -312,7 +312,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Add a countdown or a promo code.</strong> Both are elements of a tale, in the Interactive group of Tale
+        <h3 class="step-title" id="step-add-a-countdown-or-a-promo">Add a countdown or a promo code.</h3> Both are elements of a tale, in the Interactive group of Tale
         Studio's palette. A countdown shows the days, hours, minutes and seconds to an instant in UTC, counted by the
         visitor's own clock, and then its end text. A promo code shows a code with a Copy button. The code is visible to
         every visitor, so it is not a secret. A tale may hold several of each.
@@ -348,7 +348,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Listen for component events.</strong> A countdown that ends and a promo code that is copied report a
+        <h3 class="step-title" id="step-listen-for-component-events">Listen for component events.</h3> A countdown that ends and a promo code that is copied report a
         component event: the component's type, the action and, for a copy, the code. Set the hook for every element with
         <code>init</code>, or use the DOM event on one element. Poll, quiz, rating and reaction answers report one too, as
         <code>selected</code>, alongside <code>onUserInteracted</code>; for a reaction, the value is the emoji tapped.
@@ -368,7 +368,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
 
       <li>
-        <strong>Add a reaction.</strong> A reaction asks one question and offers two to six emoji. A visitor taps one, the
+        <h3 class="step-title" id="step-add-a-reaction">Add a reaction.</h3> A reaction asks one question and offers two to six emoji. A visitor taps one, the
         tap is counted, and then every emoji shows its count. A tale holds one reaction, and every visitor sees the counts.
         <ol class="substeps">
           <li>

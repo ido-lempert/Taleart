@@ -42,7 +42,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
     <h2 id="steps">Set up the methods</h2>
     <ol class="steps">
       <li>
-        <strong>Open Settings > Sign-in methods.</strong> An admin finds the page in <em>Settings</em>, in the
+        <h3 class="step-title" id="step-open-settings-sign-in-methods">Open Settings > Sign-in methods.</h3> An admin finds the page in <em>Settings</em>, in the
         <em>Sign-in methods</em> tab. The Methods section lists <em>Passkey</em>, on from a fresh install, and
         <em>Username and password</em>, off. The Providers section below it is empty until you add one. Only admins see the
         tab. API tokens are unchanged by any of this.
@@ -58,7 +58,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Turn on username and password.</strong> Switch <em>Username and password sign-in</em> on. Each person who
+        <h3 class="step-title" id="step-turn-on-username-and-password">Turn on username and password.</h3> Switch <em>Username and password sign-in</em> on. Each person who
         joins by invitation then chooses a username and a password. People who already have an account set a password under
         <em>My sign-in methods</em>. Keep the passkey on until another admin can sign in with the new method.
         <p>
@@ -78,7 +78,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Add Google.</strong> In the Google Cloud console, create an OAuth client of type <em>Web application</em>, and
+        <h3 class="step-title" id="step-add-google">Add Google.</h3> In the Google Cloud console, create an OAuth client of type <em>Web application</em>, and
         copy its client ID and client secret. In TaleArt choose <em>Add a provider</em>, then <em>Google</em>. Enter the
         <em>Button name</em>, the client ID and the client secret, then choose <em>Save provider</em>. The secret is stored
         encrypted and is never shown again. After saving, copy the <em>Redirect URI</em> from the drawer. It has the form
@@ -96,7 +96,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Add a generic OpenID Connect provider.</strong> Choose <em>Add a provider</em>, then <em>Generic OpenID
+        <h3 class="step-title" id="step-add-a-generic-openid-connect-provider">Add a generic OpenID Connect provider.</h3> Choose <em>Add a provider</em>, then <em>Generic OpenID
         Connect</em>. Enter a slug, such as <code>company-sso</code>. The method is then <code>oidc:company-sso</code>. Enter
         the issuer URL, such as <code>https://id.example.com</code>: its discovery document, at
         <code>/.well-known/openid-configuration</code>, must name exactly this issuer. Enter the client ID and the client
@@ -114,7 +114,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Add Apple.</strong> In your Apple developer account, create a Services ID for Sign in with Apple, and a key
+        <h3 class="step-title" id="step-add-apple">Add Apple.</h3> In your Apple developer account, create a Services ID for Sign in with Apple, and a key
         with Sign in with Apple enabled. Note your 10-character team ID and the key's 10-character key ID. In TaleArt choose
         <em>Add a provider</em>, then <em>Apple</em>. Enter the Services ID as the client ID, the team ID, the key ID, and paste
         the private key file (.p8) as PEM text into <em>Private key (.p8)</em>. Save, copy the redirect URI, and register it as
@@ -132,7 +132,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>See the methods on the sign-in page.</strong> Open the dashboard in a private window, where you are signed out.
+        <h3 class="step-title" id="step-see-the-methods-on-the-sign">See the methods on the sign-in page.</h3> Open the dashboard in a private window, where you are signed out.
         The sign-in page shows <em>Sign in with a passkey</em>, a form under <em>With a username and password</em>, and one
         <em>Continue with</em> button per provider that is on and usable. A provider is usable when it is on, its secret is
         stored, and the server has its key. A method that is off is not shown at all.
@@ -148,7 +148,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Invite someone to join with a provider or a password.</strong> In the project, choose <em>Invite</em>. The link,
+        <h3 class="step-title" id="step-invite-someone-to-join-with-a">Invite someone to join with a provider or a password.</h3> In the project, choose <em>Invite</em>. The link,
         <code>/invite/&lt;token&gt;</code>, is one-time and valid for 7 days, and it is shown only once. The admin does not enter an
         email: the person opens the link, enters their name and email, and then chooses a passkey, a username and password, or
         a provider. With a provider, the email the provider verified must equal the email typed on the invitation page.
@@ -167,7 +167,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Let each user manage their own methods.</strong> A signed-in user opens <em>Settings > My sign-in methods</em>.
+        <h3 class="step-title" id="step-let-each-user-manage-their-own">Let each user manage their own methods.</h3> A signed-in user opens <em>Settings > My sign-in methods</em>.
         There they see their passkeys, their password (its username, never the password itself), and their linked providers.
         They set or change the password (the current one is needed when one is set), remove a passkey, unlink a provider, or
         choose <em>Link a provider</em> to attach one to the account. A method can be removed only while another one remains.
@@ -183,7 +183,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Issue a one-time reset link for a user who forgot the password.</strong> An admin opens <em>Settings > Users</em>
+        <h3 class="step-title" id="step-issue-a-one-time-reset-link">Issue a one-time reset link for a user who forgot the password.</h3> An admin opens <em>Settings > Users</em>
         and chooses <em>Issue reset link</em> on the user's row. The button is available while username and password sign-in is
         on. Choose <em>Create link</em>, then <em>Copy link</em>. The link is shown only once, and it works once, for 24 hours.
         Share it with the user. The user opens it, sees <em>Set a new password for</em> their name, enters a password of 12 to
@@ -201,7 +201,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
 
       <li>
-        <strong>Turn a method off safely.</strong> On Settings > Sign-in methods, switch the method off. TaleArt refuses a change
+        <h3 class="step-title" id="step-turn-a-method-off-safely">Turn a method off safely.</h3> On Settings > Sign-in methods, switch the method off. TaleArt refuses a change
         that would leave an admin with no way to sign in, and says so: <em>That would leave an admin with no way to sign in.
         Every admin needs a passkey, a password, or a linked provider that is on. Give each admin one of those first, then try
         again.</em> It also refuses to turn off the last method on, with <em>Keep at least one sign-in method on. Turn another

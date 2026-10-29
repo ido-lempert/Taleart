@@ -222,10 +222,12 @@ import {
       </li>
     </ul>
 
-    <p class="note">
-      Coming from an earlier build with stages, or a page with a site key? See
-      <a routerLink="/moving-from-stages">Stages and zone keys</a>.
-    </p>
+    <aside class="callout callout--note">
+      <p>
+        Coming from an earlier build with stages, or a page with a site key? See
+        <a routerLink="/moving-from-stages">Stages and zone keys</a>.
+      </p>
+    </aside>
   `,
 })
 export class InstallPage {

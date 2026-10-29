@@ -556,10 +556,12 @@ import { RouterLink } from '@angular/router';
       </table>
     </div>
 
-    <p class="note">
-      Targeting and user lists are not access control: anyone with the zone key can read every visible group and its
-      tag names. Keep private content out of tags and out of the zone.
-    </p>
+    <aside class="callout callout--security">
+      <p>
+        Targeting and user lists are not access control: anyone with the zone key can read every visible group and its
+        tag names. Keep private content out of tags and out of the zone.
+      </p>
+    </aside>
   `,
 })
 export class WebSdkReferencePage {}

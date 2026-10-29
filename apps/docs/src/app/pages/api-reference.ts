@@ -213,7 +213,7 @@ type State = 'loading' | 'ready' | 'failed';
       </li>
       <li>Open an operation, choose <strong>Try it out</strong>, then <strong>Execute</strong>.</li>
     </ol>
-    <div class="note">
+    <aside class="callout callout--warning">
       <p>
         <strong>Requests are real.</strong> Try it out sends them from your browser to the API URL, as you: a write
         changes your data. Use a test project and a read-only token where you can.
@@ -223,7 +223,7 @@ type State = 'loading' | 'ready' | 'failed';
         The dashboard's signed-in session (a cookie) cannot be used from the docs, so operations that need it, such as
         managing API tokens, say <em>Dashboard only</em>.
       </p>
-    </div>
+    </aside>
     <p>
       From a terminal or a script, the <code>taleart</code> command-line tool calls these operations for you; an AI
       agent can drive it with the TaleArt skill: see <a routerLink="/ai-agents">AI agents</a>.
