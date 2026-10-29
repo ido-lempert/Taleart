@@ -218,6 +218,19 @@ import {
       <code>fallbackViewController</code>, at <code>fallbackHeight</code> points (120 by default); it wins over the message.
     </p>
     <pre tabindex="0" role="region" aria-label="Fallback placeholder for one zone"><code>{{ swiftFallback }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-fallback.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on iOS when its zone cannot be read: the title and Settings button, then the message 'Stories could not be loaded.' with a Try again button under it."
+      />
+      <figcaption class="muted">
+        The fallback message in the sample app (taller) on iOS, a real screenshot. The sample points at a closed port to
+        make the read fail.
+      </figcaption>
+    </figure>
 
     <h2 id="frequency">Cap how often a viewer sees a group</h2>
     <p>
@@ -226,6 +239,30 @@ import {
       display, and when none are left nothing shows. The default is no cap: pass <code>nil</code>.
     </p>
     <pre tabindex="0" role="region" aria-label="Frequency cap in the configuration"><code>{{ swiftFrequency }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-frequency-before.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on iOS with a frequency cap of once, before any view: the zone bar shows three round covers, Summer, Sale and Your voice."
+      />
+      <figcaption class="muted">
+        The zone bar before the viewer has opened a group, with the cap set to once (a real screenshot).
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-frequency-after.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the same TaleArt sample app on iOS after the Summer group was viewed once and the app opened again: the zone bar shows only Sale and Your voice."
+      />
+      <figcaption class="muted">
+        The same zone after the viewer had opened the Summer group once: the group has left the bar (a real screenshot).
+      </figcaption>
+    </figure>
 
     <h2 id="analytics">Analytics events</h2>
     <p>
@@ -257,6 +294,30 @@ import {
       <code>onComponentEvent</code> with <code>event.action</code> "copied" and the code as <code>event.component.value</code>.
     </p>
     <pre tabindex="0" role="region" aria-label="Countdown and promo code events"><code>{{ swiftComponents }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-countdown.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample tale on iOS over a sale picture: a white card reading 'Sale ends in' with a countdown of 02 days, 05 hours, 01 minute and 29 seconds."
+      />
+      <figcaption class="muted">
+        A countdown in the sample app's viewer (taller) on iOS, a real screenshot.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-promo.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample tale on iOS over a gift picture: a white card with the title 'Your welcome gift', the code SUMMER25 in a dashed chip, a note about 25 percent off, and a Copy button."
+      />
+      <figcaption class="muted">
+        A promo code in the sample app's viewer (taller) on iOS, a real screenshot.
+      </figcaption>
+    </figure>
 
     <h2 id="answers">Polls, quizzes, ratings and reactions</h2>
     <p>
@@ -268,21 +329,70 @@ import {
     <p>
       Two options as buttons. A vote shows each option's share, with the vote selected, and the result is read to VoiceOver.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-poll.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample poll on iOS over a teal picture: the question 'Where would you go this summer?' with two answer buttons, Beach and Mountains, before any vote."
+      />
+      <figcaption class="muted">
+        A poll before the visitor votes, in the sample app's viewer (taller) on iOS, a real screenshot.
+      </figcaption>
+    </figure>
     <h3 id="answer-quiz">Quiz</h3>
     <p>
       Two to four answers. Once answered, the quiz says whether the answer was right: the correct answer is marked with a
       tick and a wrong one with a cross, as words too. Without a correct answer the quiz works as a survey and shows only the
       shares. The correct answer comes with the tale, so a quiz is not a secure test.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-quiz.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample quiz on iOS over a violet picture: the question 'Which planet has the most moons?' with three answer buttons, Mars, Saturn and Earth, before an answer."
+      />
+      <figcaption class="muted">
+        A quiz before the visitor answers, in the sample app's viewer (taller) on iOS, a real screenshot.
+      </figcaption>
+    </figure>
     <h3 id="answer-rating">Rating</h3>
     <p>
       A slider from 0 to 100 whose thumb is an emoji you choose. The visitor drags it or taps the track, and the rating is
       sent when they let go. Once rated, the count and the average show.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-rating.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample rating on iOS over an orange picture: the question 'How hot is this summer?' with a slider whose thumb is a flame emoji, before a rating."
+      />
+      <figcaption class="muted">
+        A rating before the visitor sends one, in the sample app's viewer (taller) on iOS, a real screenshot.
+      </figcaption>
+    </figure>
     <h3 id="answer-reaction">Reaction</h3>
     <p>
       Two to six different emoji. A tap sends that emoji; every emoji then shows its count, and the tapped one is selected.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-reaction.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample reaction on iOS over a magenta picture: the question 'How does this make you feel?' with a row of four emoji buttons, heart, laughing face, surprised face and fire, before a tap."
+      />
+      <figcaption class="muted">
+        A reaction row before a tap, in the sample app's viewer (taller) on iOS, a real screenshot. The answered states
+        are not shown for iOS: the simulator in these screenshots could not tap.
+      </figcaption>
+    </figure>
     <p>
       Each accepted answer reaches your listener as <code>onUserInteracted</code>, with the element in
       <code>event.component</code> and the answer as its value, and as <code>onComponentEvent</code> with

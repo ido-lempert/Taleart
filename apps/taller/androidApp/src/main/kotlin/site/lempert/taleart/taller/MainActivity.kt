@@ -28,8 +28,13 @@ class MainActivity : ComponentActivity() {
 
     private fun showApp() {
         val store = SharedPreferencesStore(applicationContext)
+        // Debug options from launch extras (am start -e taller.autoOpenGroup 0) win over the stored ones.
+        val extras = intent.extras?.let { bundle ->
+            bundle.keySet().filter { it.startsWith("taller.") }.mapNotNull { key -> bundle.get(key)?.toString()?.let { key to it } }.toMap()
+        }.orEmpty()
+        val debug = TallerDebugOptions.load(store, extras)
         setContent {
-            App(store = store)
+            App(store = store, debug = debug)
         }
     }
 

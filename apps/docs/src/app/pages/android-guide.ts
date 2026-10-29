@@ -250,6 +250,19 @@ import {
       wins over the message.
     </p>
     <pre tabindex="0" role="region" aria-label="Fallback message and placeholder"><code>{{ androidFallback }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-fallback.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android when its zone cannot be read: the title and Settings button, then the message 'Stories could not be loaded.' with a Try again button under it."
+      />
+      <figcaption class="muted">
+        The fallback message in the sample app (taller) on Android, a real screenshot. The sample points at a closed port
+        to make the read fail; the zone's address is shown below the message.
+      </figcaption>
+    </figure>
 
     <h2 id="frequency">Cap how often a viewer sees a group</h2>
     <p>
@@ -258,6 +271,32 @@ import {
       display, and when none are left nothing shows. The default is no cap.
     </p>
     <pre tabindex="0" role="region" aria-label="Frequency cap"><code>{{ androidFrequency }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-frequency-before.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android with a frequency cap of once, before any view: the zone bar shows three round covers, Summer, Sale and Your voice."
+      />
+      <figcaption class="muted">
+        The zone bar before the viewer has opened a group, with the cap set to once (a real screenshot). The lines under
+        the bar are the sample app's own debug text.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-frequency-after.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the same TaleArt sample app on Android after the Summer group was viewed once and the app opened again: the zone bar shows only two covers, Sale and Your voice, and the Summer group is gone."
+      />
+      <figcaption class="muted">
+        The same zone after the viewer had opened the Summer group once: the group has left the bar, and the other two
+        stay (a real screenshot).
+      </figcaption>
+    </figure>
 
     <h2 id="analytics">Analytics events</h2>
     <p>
@@ -289,6 +328,42 @@ import {
       <code>onComponentEvent</code> with <code>event.action</code> "copied" and the code as <code>event.component.value</code>.
     </p>
     <pre tabindex="0" role="region" aria-label="Countdown and promo code events"><code>{{ androidComponents }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-countdown.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample tale on Android over a sale picture: a white card reading 'Sale ends in' with a countdown of 02 days, 04 hours, 49 minutes and 03 seconds, in large figures with their units below."
+      />
+      <figcaption class="muted">
+        A countdown in the sample app's viewer (taller) on Android, a real screenshot. The figures tick on the device's clock.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-promo.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample tale on Android over a gift picture: a white card with the title 'Your welcome gift', the code SUMMER25 in a dashed chip, a note about 25 percent off, and a Copy button."
+      />
+      <figcaption class="muted">
+        A promo code in the sample app's viewer (taller) on Android, before a copy, a real screenshot.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-promo-copied.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The same promo code card on Android after Copy was tapped: the Copy button stays and the word 'Copied' shows under it."
+      />
+      <figcaption class="muted">
+        The same promo code after Copy: the status line says Copied for two seconds (a real screenshot).
+      </figcaption>
+    </figure>
 
     <h2 id="answers">Polls, quizzes, ratings and reactions</h2>
     <p>
@@ -301,21 +376,93 @@ import {
       Two options as buttons. A vote shows each option's share, with the vote selected, and the result is read to screen
       readers.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample poll on Android over a teal picture: the question 'Where would you go this summer?' with two answer buttons, Beach and Mountains, both with emoji, before any vote."
+      />
+      <figcaption class="muted">
+        A poll before the visitor votes, in the sample app's viewer (taller) on Android, a real screenshot.
+      </figcaption>
+    </figure>
     <h3 id="answer-quiz">Quiz</h3>
     <p>
       Two to four answers. Once answered, the quiz says whether the answer was right: the correct answer is marked with a
       tick and a wrong one with a cross, as words too. Without a correct answer the quiz works as a survey and shows only the
       shares. The correct answer comes with the tale, so a quiz is not a secure test.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-quiz.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample quiz on Android over a violet picture: the question 'Which planet has the most moons?' with three answer buttons, Mars, Saturn and Earth, before an answer."
+      />
+      <figcaption class="muted">
+        A quiz before the visitor answers, in the sample app's viewer (taller) on Android, a real screenshot.
+      </figcaption>
+    </figure>
     <h3 id="answer-rating">Rating</h3>
     <p>
       A slider from 0 to 100 whose thumb is an emoji you choose. The visitor drags it or taps the track, and the rating is
       sent when they let go. Once rated, the count and the average show.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-rating.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample rating on Android over an orange picture: the question 'How hot is this summer?' with a slider whose thumb is a flame emoji, set to the middle, before a rating."
+      />
+      <figcaption class="muted">
+        A rating before the visitor sends one, in the sample app's viewer (taller) on Android, a real screenshot.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-rating-answered.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The same rating on Android after the visitor let go at 81: the thumb sits near the end of the track and the card reads 'You rated 81. Average 71 from 3 ratings.'"
+      />
+      <figcaption class="muted">
+        The rating once sent: the card shows the visitor's own rating and the average of all ratings (a real screenshot).
+      </figcaption>
+    </figure>
     <h3 id="answer-reaction">Reaction</h3>
     <p>
       Two to six different emoji. A tap sends that emoji; every emoji then shows its count, and the tapped one is selected.
     </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-reaction.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of a TaleArt sample reaction on Android over a magenta picture: the question 'How does this make you feel?' with a row of four emoji buttons, heart, laughing face, surprised face and fire, before a tap."
+      />
+      <figcaption class="muted">
+        A reaction row before a tap, in the sample app's viewer (taller) on Android, a real screenshot.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-reaction-answered.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The same reaction row on Android after a tap on the fire emoji: the fire button is outlined as selected and shows a count of 1, and the other emoji show 0."
+      />
+      <figcaption class="muted">
+        After a tap the tapped emoji is selected and every emoji shows its count (a real screenshot).
+      </figcaption>
+    </figure>
     <p>
       Each accepted answer reaches your listener as <code>onUserInteracted</code>, with the element in
       <code>event.component</code> and the answer as its value, and as <code>onComponentEvent</code> with

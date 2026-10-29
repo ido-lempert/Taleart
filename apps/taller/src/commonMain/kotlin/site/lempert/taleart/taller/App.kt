@@ -2,6 +2,7 @@ package site.lempert.taleart.taller
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,15 +40,17 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
+import site.lempert.taleart.sdk.FallbackMode
+import site.lempert.taleart.sdk.TaleartConfig
 import site.lempert.taleart.sdk.TaleartSdk
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryZone
-import site.lempert.taleart.sdk.delivery.ZoneRequest
 import site.lempert.taleart.sdk.delivery.ZoneResult
 import site.lempert.taleart.sdk.ui.SeenGroups
+import site.lempert.taleart.sdk.ui.TaleViewerState
+import site.lempert.taleart.sdk.ui.TaleartViewer
 import site.lempert.taleart.sdk.ui.TaleartZone
+import site.lempert.taleart.sdk.ui.TaleartZoneController
 import site.lempert.taleart.sdk.ui.rememberSeenGroups
 
 /** The SDK line shown on Taller's shared screen. */
@@ -64,15 +67,13 @@ fun failureLabel(failure: ZoneResult.Failure): String = when (failure) {
     is ZoneResult.InvalidResponse -> "Invalid response: ${failure.message}"
 }
 
-private sealed interface ZoneState {
-    data object NotSet : ZoneState
-    data object Loading : ZoneState
-    data class Done(val result: ZoneResult) : ZoneState
-}
-
 /**
  * Taller: the home screen lists the zone's tale group titles with their tale titles under each,
  * and the debug settings screen takes the API URL, the site key and the zone's slug.
+ *
+ * The zone is read by one [TaleartZoneController], which the SDK's own display (the zone bar, with
+ * the frequency cap and the fallback placeholder of [TaleartSdk.config]) and the debug list share.
+ * [debug] are the debug options (see [TallerDebugOptions]); by default they are read from [store].
  */
 @Composable
 @Preview
@@ -80,70 +81,81 @@ fun App(
     store: KeyValueStore = remember { InMemoryStore() },
     client: DeliveryClient? = null,
     seenGroups: SeenGroups? = null,
+    debug: TallerDebugOptions? = null,
 ) {
     // The device's seen groups unless given (tests give an isolated store).
     val seen = seenGroups ?: rememberSeenGroups()
     val deliveryClient = remember(client) { client ?: DeliveryClient() }
     // Closes only the client it made; a client passed in belongs to the caller.
     DisposableEffect(deliveryClient) { onDispose { if (client == null) deliveryClient.close() } }
+    val options = remember(debug, store) { debug ?: TallerDebugOptions.load(store) }
     var settings by remember { mutableStateOf(DebugSettings.load(store)) }
     var showSettings by remember { mutableStateOf(!settings.complete) }
-    var state by remember { mutableStateOf<ZoneState>(ZoneState.NotSet) }
     val scope = rememberCoroutineScope()
-    // The load in progress: a new load replaces it, so an older answer never shows over a newer one.
-    var loading by remember { mutableStateOf<Job?>(null) }
+    val controller = remember(deliveryClient) { TaleartZoneController(deliveryClient, scope) }
+    DisposableEffect(controller) { onDispose { controller.close() } }
 
+    // The SDK's configuration first (its fallback and frequency apply to the zone the controller reads).
     fun load(with: DebugSettings) {
-        loading?.cancel()
-        if (!with.complete) {
-            state = ZoneState.NotSet
-            return
-        }
-        state = ZoneState.Loading
-        loading = scope.launch {
-            state = ZoneState.Done(deliveryClient.fetchZone(with.apiUrl, ZoneRequest(with.zoneKey)))
-        }
+        TaleartSdk.init(TaleartConfig(apiUrl = with.apiUrl, fallback = options.fallback, frequency = options.frequency))
+        controller.configure(with.apiUrl, with.zoneKey)
     }
 
     // A saved zone loads as the app opens.
     LaunchedEffect(Unit) { load(settings) }
 
     MaterialTheme {
-        Column(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.surface)
-                .safeContentPadding()
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("TaleArt", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.testTag("title"))
-                    Text(sdkVersionLabel(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("sdk-version"))
-                }
-                if (!showSettings) {
-                    OutlinedButton(onClick = { showSettings = true }, modifier = Modifier.testTag("open-settings")) {
-                        Text("Settings")
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface)
+                    .safeContentPadding()
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("TaleArt", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.testTag("title"))
+                        Text(sdkVersionLabel(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("sdk-version"))
+                    }
+                    if (!showSettings) {
+                        OutlinedButton(onClick = { showSettings = true }, modifier = Modifier.testTag("open-settings")) {
+                            Text("Settings")
+                        }
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+                if (showSettings) {
+                    SettingsScreen(
+                        initial = settings,
+                        onLoad = { saved ->
+                            saved.save(store)
+                            settings = DebugSettings.load(store)
+                            showSettings = false
+                            load(settings)
+                        },
+                        onCancel = if (settings.complete) ({ showSettings = false }) else null,
+                    )
+                } else {
+                    HomeScreen(settings, controller, seen, options, onReload = { controller.reload() })
+                }
             }
-            Spacer(Modifier.height(16.dp))
-            if (showSettings) {
-                SettingsScreen(
-                    initial = settings,
-                    onLoad = { saved ->
-                        saved.save(store)
-                        settings = DebugSettings.load(store)
-                        showSettings = false
-                        load(settings)
-                    },
-                    onCancel = if (settings.complete) ({ showSettings = false }) else null,
-                )
-            } else {
-                HomeScreen(settings, state, seen, onReload = { load(settings) })
-            }
+            // The debug option that opens the viewer at start: the group's tale, stepped to from its first.
+            if (!showSettings) AutoOpenViewer(controller.zone, options)
         }
     }
+}
+
+// Opens the viewer on the debug option's group (and tale) once its zone is read; it closes by the viewer's own controls.
+@Composable
+private fun AutoOpenViewer(zone: DeliveryZone?, options: TallerDebugOptions) {
+    val index = options.autoOpenGroup ?: return
+    if (zone == null) return
+    val group = zone.taleGroups.getOrNull(index)?.takeIf { it.tales.isNotEmpty() } ?: return
+    val state = remember(zone, index, options.autoOpenTale) {
+        TaleViewerState(zone.taleGroups, group.id).also { viewer -> repeat(options.autoOpenTale) { viewer.next() } }
+    }
+    TaleartViewer(state, Modifier.fillMaxSize())
 }
 
 @Composable
@@ -179,21 +191,29 @@ private fun SettingsScreen(initial: DebugSettings, onLoad: (DebugSettings) -> Un
 }
 
 @Composable
-private fun HomeScreen(settings: DebugSettings, state: ZoneState, seen: SeenGroups, onReload: () -> Unit) {
+private fun HomeScreen(
+    settings: DebugSettings,
+    controller: TaleartZoneController,
+    seen: SeenGroups,
+    options: TallerDebugOptions,
+    onReload: () -> Unit,
+) {
     var tapped by remember { mutableStateOf<String?>(null) }
+    val zone = controller.zone
+    val failure = controller.failure
     Column {
-        // The zone's display, as a host app shows it; the debug list follows.
-        val zone = ((state as? ZoneState.Done)?.result as? ZoneResult.Success)?.zone
-        if (zone != null) {
+        // The zone's display as a host app shows it: the SDK's own, which also shows the fallback placeholder.
+        if (settings.complete) {
             TaleartZone(
-                zone,
-                zoneKey = settings.zoneKey,
+                controller,
                 modifier = Modifier.testTag("zone-display"),
                 onGroupClick = { tapped = it.name },
                 seenGroups = seen,
                 // The host's title colour and font, as the web bar inherits the page's.
                 titleStyle = TextStyle(color = LocalContentColor.current, fontFamily = LocalTextStyle.current.fontFamily),
             )
+        }
+        if (zone != null) {
             tapped?.let { Text("Tapped: $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("tapped")) }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
         }
@@ -206,17 +226,14 @@ private fun HomeScreen(settings: DebugSettings, state: ZoneState, seen: SeenGrou
             OutlinedButton(onClick = onReload, modifier = Modifier.testTag("reload")) { Text("Reload") }
         }
         Spacer(Modifier.height(8.dp))
-        when (state) {
-            ZoneState.NotSet -> Text("Set the API URL, site key and zone in Settings.")
-            ZoneState.Loading -> CircularProgressIndicator(Modifier.testTag("loading"))
-            is ZoneState.Done -> when (val result = state.result) {
-                is ZoneResult.Success -> ZoneList(result.zone)
-                is ZoneResult.Failure -> Text(
-                    failureLabel(result),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.testTag("error"),
-                )
+        when {
+            !settings.complete -> Text("Set the API URL, site key and zone in Settings.")
+            zone != null -> ZoneList(zone)
+            // With the fallback message shown by the display, the text of the failure is left out.
+            failure != null -> if (options.fallback != FallbackMode.Message) {
+                Text(failureLabel(failure), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("error"))
             }
+            else -> CircularProgressIndicator(Modifier.testTag("loading"))
         }
     }
 }
