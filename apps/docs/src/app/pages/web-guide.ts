@@ -30,6 +30,24 @@ const DOM_SAMPLE = `document.querySelector('taleart-view').addEventListener('tal
   console.log(e.detail.url, e.detail.newTab);
 });`;
 
+const FALLBACK_SAMPLE = `<!-- Your own placeholder, shown in place of the zone when it cannot be loaded: -->
+<taleart-view zone-key="YOUR_ZONE_KEY">
+  <p slot="fallback">Stories are unavailable right now.</p>
+</taleart-view>
+
+<!-- Or the SDK's text and a "Try again" button: -->
+<taleart-view zone-key="YOUR_ZONE_KEY" fallback="message"></taleart-view>`;
+
+const FREQUENCY_SAMPLE = `<!-- Once per group in each browser, for every element of the page: -->
+<taleart-view zone-key="YOUR_ZONE_KEY" frequency="daily"></taleart-view>
+
+<script>
+  Taleart.init({
+    frequency: 'once',
+    hooks: { onGroupCapped: (e) => console.log('left out', e.groupId, e.rule) },
+  });
+</script>`;
+
 const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
 <!-- Give the element its height before it renders, so the page does not shift: -->
@@ -45,7 +63,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
     <h1 tabindex="-1">Web guide</h1>
     <p class="lede">
       This guide puts a TaleArt zone on a web page, step by step: the zone key, the script, the element, the options, the
-      hooks, and a check on the test page. The full list of attributes, options, strings, hooks and events is in the
+      hooks, a check on the test page, and two optional steps: a placeholder for a zone that cannot load, and a limit on how often a group shows. The full list of attributes, options, strings, hooks and events is in the
       <a routerLink="/reference/web-sdk">Web SDK reference</a>.
     </p>
 
@@ -179,6 +197,65 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
           <figcaption>A group open in the viewer, at phone size (a real screenshot of the SDK).</figcaption>
         </figure>
       </li>
+
+      <li>
+        <strong>Show a placeholder when stories can't load.</strong> When the zone cannot be read (a refused or revoked
+        key, a network failure), the element renders nothing by default. Choose what it shows instead:
+        <ol class="substeps">
+          <li>
+            Your own markup: a child of the element with <code>slot="fallback"</code>. It is shown in place of the zone,
+            and wins over the next option.
+          </li>
+          <li>
+            The SDK's text: <code>fallback="message"</code> on the element, or <code>init({{ '{' }} fallback: 'message' {{ '}' }})</code>
+            for every element. It shows "Stories could not be loaded." and a "Try again" button.
+          </li>
+          <li>
+            Your code can read the zone again with <code>retry()</code> on the element. While the zone has failed, the
+            element has <code>data-state="failed"</code>; a reload or a successful load removes it.
+          </li>
+        </ol>
+        <pre tabindex="0" role="region" aria-label="Load-failure placeholder"><code>{{ fallbackSample }}</code></pre>
+        <figure>
+          <img
+            src="/images/web-step-7-fallback.svg"
+            alt="Diagram of what a zone shows when it cannot be loaded: a child with slot fallback is shown if there is one; otherwise, with fallback message, the SDK's text and a Try again button; with neither, nothing renders."
+            width="640"
+            height="310"
+          />
+          <figcaption>The placeholder rules, in order. A diagram, not a screenshot.</figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <strong>Limit how often a group shows.</strong> <code>frequency</code> leaves a tale group out of the display for
+        a viewer after some views, or for a time after a view. Set it on the element, or for every element with
+        <code>init({{ '{' }} frequency {{ '}' }})</code>; the element's attribute wins.
+        <ol class="substeps">
+          <li>
+            Choose the rule: <code>once</code> (after the first view), <code>daily</code> (for 24 hours after a view),
+            <code>weekly</code> (for 7 days after a view), or a whole number from 1 to 50 (after that many views, for good).
+          </li>
+          <li>
+            Watch the cap: <code>onGroupCapped</code> fires for each group it leaves out, once per render (the DOM event
+            is <code>taleart:group-capped</code>).
+          </li>
+          <li>
+            Know the limit: views are counted in this browser only, under the local storage key
+            <code>taleart.views</code>, and never sent to TaleArt. Another browser or device counts its own views.
+          </li>
+        </ol>
+        <pre tabindex="0" role="region" aria-label="Frequency cap"><code>{{ frequencySample }}</code></pre>
+        <figure>
+          <img
+            src="/images/web-step-8-frequency.svg"
+            alt="Diagram of the frequency cap: a viewer opens a group, the view is counted in local storage, and the cap is checked. Under the cap the group shows; over the cap it is left out and onGroupCapped fires."
+            width="640"
+            height="316"
+          />
+          <figcaption>How a group is counted and left out. A diagram, not a screenshot.</figcaption>
+        </figure>
+      </li>
     </ol>
 
     <h2>When it is live</h2>
@@ -198,4 +275,6 @@ export class WebGuidePage {
   protected readonly hooksSample = HOOKS_SAMPLE;
   protected readonly domSample = DOM_SAMPLE;
   protected readonly testPageSample = DOCS_TEST_PAGE_WITH_KEY;
+  protected readonly fallbackSample = FALLBACK_SAMPLE;
+  protected readonly frequencySample = FREQUENCY_SAMPLE;
 }

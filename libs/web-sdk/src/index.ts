@@ -11,11 +11,13 @@ export {
   TALEART_ELEMENT_TAG,
 } from './lib/taleart-element';
 export type { ZoneOptions } from './lib/taleart-element';
-export type { ConfigKey, ResolvedTaleartConfig, TaleartConfig } from './lib/config';
+export type { ConfigKey, FallbackMode, ResolvedTaleartConfig, TaleartConfig } from './lib/config';
+export type { FrequencyRule } from './lib/frequency';
 export type {
   ActionClickedEvent,
   ComponentRef,
   DismissedEvent,
+  GroupCappedEvent,
   GroupImpressionEvent,
   GroupRef,
   LoadedEvent,

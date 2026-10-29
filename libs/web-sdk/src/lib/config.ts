@@ -1,9 +1,13 @@
 // The SDK's global configuration: `Taleart.init(config)` sets it, every element reads it (epic SDK v2).
 import { encodeExternalUserIdHeader } from '@taleart/contract';
 import type { StringsConfig } from './i18n';
+import { parseFrequency, type FrequencyRule } from './frequency';
 import type { TaleartHooks } from './hooks';
 import type { Theme } from './public-types';
 import { readThemeOverride } from './theme';
+
+/** What a `<taleart-view>` shows when its zone cannot be loaded: nothing, or a message with a retry button. */
+export type FallbackMode = 'none' | 'message';
 
 /**
  * The options of `Taleart.init(config)`. All are optional: an option left out keeps its value, and
@@ -25,6 +29,10 @@ export interface TaleartConfig {
   tags?: readonly string[] | null;
   /** Hooks for every element (see `hooks.ts`); an element's own `hooks` property adds to them. */
   hooks?: TaleartHooks | null;
+  /** What elements show when their zone fails to load: `none` (default) or `message` (text and a retry button). */
+  fallback?: FallbackMode | null;
+  /** How often a viewer sees a tale group: `once`, `daily`, `weekly` or a positive integer N. Default: none. */
+  frequency?: FrequencyRule | null;
 }
 
 /** What {@link getConfig} returns: every option with the value the SDK uses. */
@@ -36,6 +44,8 @@ export interface ResolvedTaleartConfig {
   readonly externalUserId: string | null;
   readonly tags: readonly string[] | null;
   readonly hooks: TaleartHooks | null;
+  readonly fallback: FallbackMode;
+  readonly frequency: FrequencyRule | null;
 }
 
 /** The names of the options. */
@@ -44,7 +54,17 @@ export type ConfigKey = keyof TaleartConfig;
 /** Told after a change, with the names of the options that changed. */
 export type ConfigListener = (changed: ReadonlySet<ConfigKey>) => void;
 
-const KEYS: readonly ConfigKey[] = ['apiUrl', 'locale', 'strings', 'theme', 'externalUserId', 'tags', 'hooks'];
+const KEYS: readonly ConfigKey[] = [
+  'apiUrl',
+  'locale',
+  'strings',
+  'theme',
+  'externalUserId',
+  'tags',
+  'hooks',
+  'fallback',
+  'frequency',
+];
 
 /**
  * The API origin a script loaded from `scriptUrl` belongs to (`https://api.example.com` for
@@ -101,6 +121,8 @@ interface State {
   externalUserId: string | null;
   tags: readonly string[] | null;
   hooks: TaleartHooks | null;
+  fallback: FallbackMode;
+  frequency: FrequencyRule | null;
 }
 
 let state: State = {
@@ -112,6 +134,8 @@ let state: State = {
   externalUserId: null,
   tags: null,
   hooks: null,
+  fallback: 'none',
+  frequency: null,
 };
 
 const listeners = new Set<ConfigListener>();
@@ -195,12 +219,50 @@ export function init(config: TaleartConfig): void {
           continue;
         }
         break;
+      case 'fallback': {
+        const fallback = checkFallback(value, 'init({ fallback })');
+        if (fallback === undefined) continue;
+        next.fallback = fallback ?? 'none';
+        break;
+      }
+      case 'frequency': {
+        const frequency = checkFrequency(value, 'init({ frequency })');
+        if (frequency === undefined) continue;
+        next.frequency = frequency;
+        break;
+      }
     }
     if (!sameValue(key, state[key as keyof State], next[key as keyof State])) changed.add(key);
   }
   if (!changed.size) return;
   state = next;
   for (const listener of listeners) listener(changed);
+}
+
+/** Parses a fallback mode: `none`, `message`, or null for none. `undefined` for anything else. Pure: it never logs. */
+export function parseFallback(value: unknown): FallbackMode | null | undefined {
+  if (value === null || value === '') return null;
+  return value === 'none' || value === 'message' ? value : undefined;
+}
+
+/**
+ * Checks a fallback mode: `none`, `message` or null (none). Anything else is `undefined` (ignored by the
+ * caller), with one console warning naming `source`.
+ */
+export function checkFallback(value: unknown, source: string): FallbackMode | null | undefined {
+  const fallback = parseFallback(value);
+  if (fallback === undefined) console.warn(`TaleArt: ${source} must be "none" or "message"; it is ignored`);
+  return fallback;
+}
+
+/**
+ * Checks a frequency cap: `once`, `daily`, `weekly`, a positive integer, or null (none). Anything else
+ * is `undefined` (ignored by the caller), with one console warning naming `source`.
+ */
+export function checkFrequency(value: unknown, source: string): FrequencyRule | null | undefined {
+  const frequency = parseFrequency(value);
+  if (frequency === undefined) console.warn(`TaleArt: ${source} must be once, daily, weekly or a positive integer; it is ignored`);
+  return frequency;
 }
 
 // Only option names and value kinds in the warning: a value (a viewer's ID, a tag) is never logged.
@@ -224,6 +286,8 @@ export function getConfig(): ResolvedTaleartConfig {
     externalUserId: state.externalUserId,
     tags: state.tags,
     hooks: state.hooks,
+    fallback: state.fallback,
+    frequency: state.frequency,
   };
 }
 

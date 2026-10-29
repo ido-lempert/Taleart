@@ -1488,3 +1488,239 @@ describe('TaleartElement: strings, hooks and events', () => {
   });
 });
 
+
+describe('TaleartElement: fallback, retry and frequency cap (QW1, QW3)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeAll(() => defineTaleartElement());
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => respond(200, zone));
+    vi.stubGlobal('fetch', fetchMock);
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    init({ fallback: null, frequency: null, hooks: null });
+    document.body.replaceChildren();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const failing = () => fetchMock.mockImplementation(async () => respond(500, { error: 'boom' }));
+  const text = (el: TaleartElement) => el.shadowRoot?.textContent?.trim() ?? '';
+  const sample = (groups: string[]) => localStorage.setItem('taleart.views', JSON.stringify(Object.fromEntries(groups.map((id) => [id, [Date.now()]]))));
+
+  describe('the load-failure placeholder', () => {
+    it('shows the light-DOM fallback child only while the zone fails to load', async () => {
+      failing();
+      const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+      el.setAttribute('api-url', API);
+      el.setAttribute('zone-key', SITE);
+      el.innerHTML = '<div slot="fallback">Stories are down</div>';
+      document.body.appendChild(el);
+      await settle();
+      expect(el.getAttribute('data-state')).toBe('failed');
+      const slot = el.shadowRoot?.querySelector<HTMLSlotElement>('slot[name="fallback"]');
+      expect(slot).not.toBeNull();
+      expect(slot?.assignedElements().map((node) => node.textContent)).toEqual(['Stories are down']);
+      expect(text(el)).toBe('');
+      expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('shows no placeholder when the zone loads, and removes the failed state', async () => {
+      const el = await mount();
+      expect(el.hasAttribute('data-state')).toBe(false);
+      expect(el.shadowRoot?.querySelector('slot')).toBeNull();
+      expect(items(el)).toHaveLength(3);
+    });
+
+    it('shows the SDK text and a retry button for fallback="message", with no slotted child', async () => {
+      failing();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, fallback: 'message' });
+      expect(el.getAttribute('data-state')).toBe('failed');
+      expect(el.shadowRoot?.querySelector('p')?.textContent).toBe('Stories could not be loaded.');
+      const button = el.shadowRoot?.querySelector<HTMLButtonElement>('button');
+      expect(button?.textContent).toBe('Try again');
+      expect(button?.type).toBe('button');
+    });
+
+    it('shows the slotted child instead of the message when there is one', async () => {
+      failing();
+      const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+      el.setAttribute('api-url', API);
+      el.setAttribute('zone-key', SITE);
+      el.setAttribute('fallback', 'message');
+      el.innerHTML = '<p slot="fallback">Later</p>';
+      document.body.appendChild(el);
+      await settle();
+      expect(el.shadowRoot?.querySelector('button')).toBeNull();
+      expect(el.shadowRoot?.querySelector('slot[name="fallback"]')).not.toBeNull();
+    });
+
+    it('renders nothing for fallback="none", the default', async () => {
+      failing();
+      const el = await mount();
+      expect(el.getAttribute('data-state')).toBe('failed');
+      expect(text(el)).toBe('');
+      expect(el.shadowRoot?.querySelector('button')).toBeNull();
+    });
+
+    it('takes the SDK option when the element has none, and the element wins over it', async () => {
+      failing();
+      init({ fallback: 'message' });
+      const fromInit = await mount();
+      expect(text(fromInit)).toContain('Stories could not be loaded.');
+      fromInit.remove();
+      const own = await mount({ 'api-url': API, 'zone-key': SITE, fallback: 'none' });
+      expect(text(own)).toBe('');
+      expect(own.shadowRoot?.querySelector('button')).toBeNull();
+    });
+
+    it('retry button reloads the zone, and the zone renders once it loads', async () => {
+      failing();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, fallback: 'message' });
+      fetchMock.mockImplementation(async () => respond(200, zone));
+      el.shadowRoot?.querySelector<HTMLButtonElement>('button')?.click();
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(el.hasAttribute('data-state')).toBe(false);
+      expect(items(el)).toHaveLength(3);
+    });
+
+    it('retry() reloads the zone', async () => {
+      failing();
+      const el = await mount();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      el.retry();
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('takes fallback as a property too', async () => {
+      failing();
+      const el = await mount();
+      el.fallback = 'message';
+      await settle();
+      expect(el.getAttribute('fallback')).toBe('message');
+      expect(el.fallback).toBe('message');
+      expect(text(el)).toContain('Stories could not be loaded.');
+    });
+
+    it('ignores an invalid fallback with one warning, and the SDK option applies', async () => {
+      failing();
+      init({ fallback: 'message' });
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, fallback: 'banana' });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('"none" or "message"');
+      expect(text(el)).toContain('Stories could not be loaded.');
+    });
+  });
+
+  describe('the frequency cap', () => {
+    const hour = 60 * 60 * 1000;
+    const day = 24 * hour;
+
+    it.each([
+      ['once', [Date.now() - 3 * day], ['ga'] as const],
+      ['daily', [Date.now() - hour], ['ga'] as const],
+      ['daily', [Date.now() - 2 * day], [] as const],
+      ['weekly', [Date.now() - 6 * day], ['ga'] as const],
+      ['weekly', [Date.now() - 8 * day], [] as const],
+      [2, [Date.now() - 3 * day, Date.now() - day], ['ga'] as const],
+      [2, [Date.now() - day], [] as const],
+    ])('hides a group by the %s rule when it has reached it (views %j)', async (rule, views, hidden) => {
+      localStorage.setItem('taleart.views', JSON.stringify({ ga: views }));
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: String(rule) });
+      const shown = items(el).map((b) => b.getAttribute('aria-label'));
+      expect(shown).toEqual(hidden.length ? ['Winter', 'Empty'] : ['Summer', 'Winter', 'Empty']);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('counts a view when the viewer opens a group, and the group is then capped', async () => {
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'once' });
+      expect(items(el)).toHaveLength(3);
+      items(el)[0].click();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close')?.click();
+      expect(JSON.parse(localStorage.getItem('taleart.views') ?? '{}')).toMatchObject({ ga: [expect.any(Number)] });
+      el.remove();
+      const again = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'once' });
+      expect(items(again).map((b) => b.getAttribute('aria-label'))).toEqual(['Winter', 'Empty']);
+    });
+
+    it('removes the capped group from the display and emits groupCapped once per group', async () => {
+      sample(['ga', 'gb']);
+      const onGroupCapped = vi.fn();
+      init({ hooks: { onGroupCapped } });
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'once' });
+      expect(items(el).map((b) => b.getAttribute('aria-label'))).toEqual(['Empty']);
+      expect(onGroupCapped).toHaveBeenCalledTimes(2);
+      expect(onGroupCapped.mock.calls.map(([event]) => event)).toEqual([
+        expect.objectContaining({ name: 'groupCapped', groupId: 'ga', rule: 'once', zoneSlug: 'home' }),
+        expect.objectContaining({ name: 'groupCapped', groupId: 'gb', rule: 'once' }),
+      ]);
+      expect(JSON.stringify(onGroupCapped.mock.calls)).not.toContain('testkey');
+    });
+
+    it('renders nothing when every group is capped', async () => {
+      sample(['ga', 'gb', 'gc']);
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'once' });
+      expect(el.shadowRoot?.childElementCount).toBe(0);
+      expect(el.shadowRoot?.querySelector('.bar')).toBeNull();
+    });
+
+    it('renders as before with no cap: nothing is counted or hidden', async () => {
+      sample(['ga', 'gb', 'gc']);
+      const onGroupCapped = vi.fn();
+      init({ hooks: { onGroupCapped } });
+      const el = await mount();
+      expect(items(el)).toHaveLength(3);
+      expect(onGroupCapped).not.toHaveBeenCalled();
+    });
+
+    it('takes the element attribute over the SDK option, and the SDK option when the attribute is absent', async () => {
+      sample(['ga']);
+      init({ frequency: 'once' });
+      const fromInit = await mount({ 'api-url': API, 'zone-key': SITE });
+      expect(items(fromInit)).toHaveLength(2);
+      fromInit.remove();
+      const own = await mount({ 'api-url': API, 'zone-key': SITE, frequency: '3' });
+      expect(items(own)).toHaveLength(3);
+    });
+
+    it('takes frequency as a property too', async () => {
+      sample(['ga']);
+      const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+      el.setAttribute('api-url', API);
+      el.setAttribute('zone-key', SITE);
+      el.frequency = 'once';
+      document.body.appendChild(el);
+      await settle();
+      expect(el.getAttribute('frequency')).toBe('once');
+      expect(el.frequency).toBe('once');
+      expect(items(el)).toHaveLength(2);
+    });
+
+    it('ignores a count above 50 with one warning, and shows every group', async () => {
+      sample(['ga', 'gb', 'gc']);
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: '51' });
+      expect(items(el)).toHaveLength(3);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('once, daily, weekly or a positive integer');
+    });
+
+    it('ignores an invalid frequency with one warning, and shows every group', async () => {
+      sample(['ga', 'gb', 'gc']);
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'often' });
+      expect(items(el)).toHaveLength(3);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('once, daily, weekly or a positive integer');
+    });
+  });
+});

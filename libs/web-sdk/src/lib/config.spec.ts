@@ -2,7 +2,7 @@ import { defaultApiUrl, getConfig, init, mergeStrings, onConfigChange, readStrin
 
 // Every option back to its default, so each test starts from the SDK's own state.
 function reset(): void {
-  init({ apiUrl: '', locale: '', strings: null, theme: null, externalUserId: null, tags: null, hooks: null });
+  init({ apiUrl: '', locale: '', strings: null, theme: null, externalUserId: null, tags: null, hooks: null, fallback: null, frequency: null });
 }
 
 describe('the SDK configuration (SDK v2)', () => {
@@ -102,6 +102,22 @@ describe('the SDK configuration (SDK v2)', () => {
     const copy = readStrings(source, 'x');
     expect(copy).toEqual(source);
     expect(copy).not.toBe(source);
+  });
+
+  it('takes fallback and frequency: none, message, once, daily, weekly or a count 1 to 50; anything else is ignored with one warning', () => {
+    expect(getConfig()).toMatchObject({ fallback: 'none', frequency: null });
+    init({ fallback: 'message', frequency: 'weekly' });
+    expect(getConfig()).toMatchObject({ fallback: 'message', frequency: 'weekly' });
+    init({ frequency: 50 });
+    expect(getConfig().frequency).toBe(50);
+    init({ fallback: null, frequency: null });
+    expect(getConfig()).toMatchObject({ fallback: 'none', frequency: null });
+    expect(warnSpy).not.toHaveBeenCalled();
+    init({ frequency: 51 });
+    init({ fallback: 'banner' as never });
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(warnSpy.mock.calls[0][0]).toContain('init({ frequency })');
+    expect(getConfig()).toMatchObject({ fallback: 'none', frequency: null });
   });
 
   it('merges an element\'s strings over the SDK\'s, locale by locale', () => {

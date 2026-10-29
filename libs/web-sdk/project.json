@@ -58,6 +58,16 @@
         "cwd": "dist/libs/web-sdk",
         "command": "mkdir -p ../web-sdk-tarball && npm pack --pack-destination ../web-sdk-tarball"
       }
+    },
+    "measure-budget": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node libs/web-sdk/scripts/measure-budget.mjs dist/libs/web-sdk"
+      }
     }
   }
 }

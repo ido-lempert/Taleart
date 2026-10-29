@@ -66,6 +66,25 @@ import { RouterLink } from '@angular/router';
               field left out falls through to the next source (see the theme section of the SDK's README).
             </td>
           </tr>
+          <tr>
+            <td><code>fallback</code></td>
+            <td><code>fallback</code></td>
+            <td>No</td>
+            <td>
+              What the element shows when its zone fails to load: <code>none</code> (default, nothing) or
+              <code>message</code> (the SDK's text and a retry button). A child with <code>slot="fallback"</code> is shown
+              instead when there is one.
+            </td>
+          </tr>
+          <tr>
+            <td><code>frequency</code></td>
+            <td><code>frequency</code></td>
+            <td>No</td>
+            <td>
+              How often a viewer sees a tale group: <code>once</code>, <code>daily</code>, <code>weekly</code>, or a whole
+              number from 1 to 50 (hidden after that many views). Default: none. Counted in this browser only.
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -100,14 +119,18 @@ import { RouterLink } from '@angular/router';
         </tbody>
       </table>
     </div>
+    <p>
+      The element's method <code>retry()</code> reads the zone again after a failed load. The button of
+      <code>fallback="message"</code> calls it.
+    </p>
 
     <h2 id="init">Taleart.init options</h2>
     <p>
       <code>init(config)</code> sets the page's options, before or after the elements connect. Every option is
       optional: an option left out keeps its value, and an element attribute overrides the option. <code>null</code>
       clears <code>locale</code>, <code>strings</code>, <code>theme</code>, <code>externalUserId</code>,
-      <code>tags</code> and <code>hooks</code>. An invalid option logs one console warning that names it and keeps its
-      value.
+      <code>tags</code>, <code>hooks</code> and <code>frequency</code>; <code>fallback: null</code> means <code>none</code>.
+      An invalid option logs one console warning that names it and keeps its value.
     </p>
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="init-options-caption">
       <table id="init-options">
@@ -165,6 +188,18 @@ import { RouterLink } from '@angular/router';
             <td>object or null</td>
             <td>None</td>
             <td>Hook functions for every element. See the hooks table below.</td>
+          </tr>
+          <tr>
+            <td><code>fallback</code></td>
+            <td><code>'none'</code> or <code>'message'</code>, or null</td>
+            <td><code>none</code></td>
+            <td>What every element shows when its zone fails to load: nothing, or the SDK's text and a retry button. An element's <code>fallback</code> wins.</td>
+          </tr>
+          <tr>
+            <td><code>frequency</code></td>
+            <td>Number from 1 to 50, <code>once</code>, <code>daily</code>, <code>weekly</code>, or null</td>
+            <td>None: every group shows</td>
+            <td>How often a viewer sees a tale group, counted in this browser. An element's <code>frequency</code> wins.</td>
           </tr>
         </tbody>
       </table>
@@ -271,6 +306,8 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>banner.stopRotation</code></td><td>Stop automatic slide show</td></tr>
           <tr><td><code>banner.startRotation</code></td><td>Start automatic slide show</td></tr>
           <tr><td><code>bar.seen</code></td><td>&#123;name&#125;, seen</td></tr>
+          <tr><td><code>load.failed</code></td><td>Stories could not be loaded.</td></tr>
+          <tr><td><code>load.retry</code></td><td>Try again</td></tr>
           <tr><td><code>links.newTab</code></td><td>(opens in a new tab)</td></tr>
           <tr><td><code>poll.voted</code></td><td>You voted &#123;label&#125;.</td></tr>
           <tr><td><code>poll.chose</code></td><td>You chose &#123;label&#125;.</td></tr>
@@ -372,6 +409,12 @@ import { RouterLink } from '@angular/router';
             <td>No</td>
           </tr>
           <tr>
+            <td><code>onGroupCapped</code></td>
+            <td>The frequency cap left a tale group out of the display. Once per group per render.</td>
+            <td><code>groupId</code>, <code>rule</code> (the cap: <code>once</code>, <code>daily</code>, <code>weekly</code> or a number)</td>
+            <td>No</td>
+          </tr>
+          <tr>
             <td><code>onEvent</code></td>
             <td>Every event above, in one stream. Its argument is the event itself.</td>
             <td>The same as the event</td>
@@ -407,6 +450,7 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>taleart:action-clicked</code></td><td><code>onActionClicked</code></td><td>Yes</td></tr>
           <tr><td><code>taleart:user-interacted</code></td><td><code>onUserInteracted</code></td><td>No</td></tr>
           <tr><td><code>taleart:dismissed</code></td><td><code>onDismissed</code></td><td>No</td></tr>
+          <tr><td><code>taleart:group-capped</code></td><td><code>onGroupCapped</code></td><td>No</td></tr>
         </tbody>
       </table>
     </div>
@@ -433,6 +477,14 @@ import { RouterLink } from '@angular/router';
           <tr>
             <td>An invalid <code>init</code> option</td>
             <td>One console warning names it, and the option keeps its value.</td>
+          </tr>
+          <tr>
+            <td>An invalid <code>fallback</code> or <code>frequency</code> attribute</td>
+            <td>One console warning names it, and the page's option (or none) applies.</td>
+          </tr>
+          <tr>
+            <td>The zone cannot be loaded, and the element has a <code>slot="fallback"</code> child or <code>fallback="message"</code></td>
+            <td>The element shows the child, or the SDK's text and a retry button. <code>retry()</code> reads the zone again.</td>
           </tr>
           <tr>
             <td>An invalid external user ID</td>

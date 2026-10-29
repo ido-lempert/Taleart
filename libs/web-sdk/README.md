@@ -117,6 +117,8 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | `zone-key` / `zoneKey` | The zone's key (`tak_…`), issued in the dashboard. Required: the element renders nothing without it. |
 | `locale` / `locale` | This element's locale (BCP 47, such as `he-IL`). Default: the SDK's locale (see `init`). |
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
+| `fallback` / `fallback` | What this element shows when its zone fails to load: `none` (default) or `message` (the SDK's text and a retry button). See Load failures. |
+| `frequency` / `frequency` | How often a viewer sees a tale group of this element: `once`, `daily`, `weekly` or a whole number from 1 to 50. Default none. See Frequency cap. |
 
 Properties without an attribute:
 
@@ -126,12 +128,14 @@ Properties without an attribute:
 | `strings` | This element's texts, per locale or flat, added to the SDK's `strings` (this element's win). See Locale and strings. |
 | `hooks` | This element's hooks, called before the SDK's `hooks` (see Hooks). |
 
+Methods: `retry()` reads the zone again after a failed load (see Load failures).
+
 ## Configuration: `Taleart.init`
 
 The script sets `globalThis.Taleart`, with the functions below. `init(config)` (also a named export of the module) sets
 the SDK's options, before or after the elements connect; elements that show a zone read the options again. Every
 option is optional: an option left out keeps its value. `null` clears `locale`, `strings`, `theme`, `externalUserId`,
-`tags` and `hooks`. An invalid option logs one console warning naming it and keeps its value.
+`tags`, `hooks` and `frequency`, and `fallback: null` means `none`. An invalid option logs one console warning naming it and keeps its value.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -142,6 +146,8 @@ option is optional: an option left out keeps its value. `null` clears `locale`, 
 | `externalUserId` | none | The viewer's external user ID (see User lists). |
 | `tags` | none | The viewer's targeting tags (see Targeting tags). |
 | `hooks` | none | Hooks for every element (see Hooks). |
+| `fallback` | `none` | What every element shows when its zone fails to load: `none` or `message` (see Load failures). An element's `fallback` wins. |
+| `frequency` | none | How often a viewer sees a tale group: `once`, `daily`, `weekly` or a whole number from 1 to 50 (see Frequency cap). An element's `frequency` wins. |
 
 ```js
 import { init } from 'https://api.example.com/sdk/v1/taleart.js';
@@ -193,6 +199,8 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 | `banner.stopRotation` | Stop automatic slide show |
 | `banner.startRotation` | Start automatic slide show |
 | `bar.seen` | {name}, seen |
+| `load.failed` | Stories could not be loaded. |
+| `load.retry` | Try again |
 | `links.newTab` |  (opens in a new tab) |
 | `poll.voted` | You voted {label}. |
 | `poll.chose` | You chose {label}. |
@@ -252,6 +260,7 @@ init({
 | `onActionClicked` | A button, an image button or the swipe-up link was activated, before it navigates. Cancelable. | `group`, `tale`, `component` (`id`, `type`), `url`, `newTab`, `preventDefault()` |
 | `onUserInteracted` | The server accepted a poll, quiz or Rating answer. | `group`, `tale`, `component` (`id`, `type`, `value`) |
 | `onDismissed` | The viewer closed. | `group` |
+| `onGroupCapped` | The frequency cap left a tale group out of the display. Once per group per render. | `groupId`, `rule` |
 | `onEvent` | Every event above, in one stream. | the same as the event |
 
 - `group` is `{ id, name, index }` (its position in the zone, from 0); `tale` is `{ id, index, title }` (its position in
@@ -262,11 +271,68 @@ init({
 
 Each event is also a DOM event on the `<taleart-view>` element: bubbling and composed, named `taleart:` and the event's
 name in kebab case (`taleart:load-failed`, `taleart:group-impression`, `taleart:tale-shown`, `taleart:action-clicked`,
-`taleart:user-interacted`). Its `detail` is the payload. Only `taleart:action-clicked` is cancelable.
+`taleart:user-interacted`, `taleart:group-capped`). Its `detail` is the payload. Only `taleart:action-clicked` is cancelable.
 
 ```js
 document.querySelector('taleart-view').addEventListener('taleart:user-interacted', (e) => {
   console.log(e.detail.component.id, e.detail.component.value);
+});
+```
+
+## Load failures
+
+When the zone cannot be read (a refused, rotated or revoked key, a network failure, a bad answer) the element renders
+nothing by default and `onLoadFailed` fires. To show something in its place, use either of two things:
+
+- A child of the element with `slot="fallback"`: your own markup, shown instead of the zone. It wins over `fallback`.
+
+```html
+<taleart-view zone-key="YOUR_ZONE_KEY">
+  <p slot="fallback">Stories are unavailable right now.</p>
+</taleart-view>
+```
+
+- `fallback="message"` (an attribute, or `init({ fallback: 'message' })`; the element's attribute wins): the SDK's
+  text `load.failed` ("Stories could not be loaded.") and a button labelled `load.retry` ("Try again") that calls
+  `retry()`.
+
+While the zone has failed the element has `data-state="failed"`. A reload or a successful load removes it. `retry()`
+reads the zone again, at once:
+
+```js
+document.querySelector('taleart-view').retry();
+```
+
+## Frequency cap
+
+`frequency` limits how often a viewer sees a tale group. It is set with the attribute `frequency`, or
+`init({ frequency })` for every element (the element's attribute wins). The values:
+
+| Value | The group is left out of the display |
+| --- | --- |
+| `once` | after its first view |
+| `daily` | for 24 hours after a view |
+| `weekly` | for 7 days after a view |
+| a whole number N from 1 to 50 | after N views, for good |
+
+Default: none. An invalid value logs one console warning and is ignored.
+
+```html
+<taleart-view zone-key="YOUR_ZONE_KEY" frequency="daily"></taleart-view>
+```
+
+- A view is a viewer opening that tale group, the same moment the group is marked as seen.
+- Views are counted in this browser only, in local storage under the key `taleart.views`, as `{ [groupId]: [timestamps] }`:
+  the newest 50 views of each group and the newest 500 groups. They are never sent to the server, so another device
+  counts its own views.
+- When every group of the zone is capped, the display renders nothing.
+- `onGroupCapped` (or the DOM event `taleart:group-capped`) fires once per capped group per render, with `groupId`
+  and `rule`.
+
+```js
+init({
+  frequency: 'once',
+  hooks: { onGroupCapped: (e) => console.log('capped', e.groupId, e.rule) },
 });
 ```
 

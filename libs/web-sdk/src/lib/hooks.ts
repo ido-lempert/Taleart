@@ -1,6 +1,7 @@
 // The SDK's hooks (listener-style): callbacks the host page sets with `Taleart.init({ hooks })` for every
 // element, or with `element.hooks` for one. Each event is also a bubbling DOM CustomEvent on the element.
 import { getConfig } from './config';
+import type { FrequencyRule } from './frequency';
 
 /** A tale group in the zone, as the event names it: its id, name and position in the zone (from 0). */
 export interface GroupRef {
@@ -80,6 +81,13 @@ export interface ActionClickedEvent extends EventBase {
   preventDefault(): void;
 }
 
+/** A tale group was left out of the display by the frequency cap (once per group per render). `rule` is the cap. */
+export interface GroupCappedEvent extends EventBase {
+  name: 'groupCapped';
+  groupId: string;
+  rule: FrequencyRule;
+}
+
 /** The visitor's answer to a poll, a quiz or a Rating was accepted by the server. */
 export interface UserInteractedEvent extends EventBase {
   name: 'userInteracted';
@@ -97,7 +105,8 @@ export type TaleartEvent =
   | DismissedEvent
   | TaleShownEvent
   | ActionClickedEvent
-  | UserInteractedEvent;
+  | UserInteractedEvent
+  | GroupCappedEvent;
 
 /** The name of an event, as in `onLoaded` (the hook is `on` plus the name). */
 export type TaleartEventName = TaleartEvent['name'];
@@ -112,6 +121,7 @@ export interface TaleartHooks {
   onTaleShown?: (event: TaleShownEvent) => void;
   onActionClicked?: (event: ActionClickedEvent) => void;
   onUserInteracted?: (event: UserInteractedEvent) => void;
+  onGroupCapped?: (event: GroupCappedEvent) => void;
   onEvent?: (event: TaleartEvent) => void;
 }
 

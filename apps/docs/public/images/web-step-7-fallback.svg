@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="310" viewBox="0 0 640 310" role="img" font-family="system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <title>What a zone shows when it cannot be loaded</title>
+  <desc>When the zone cannot be read, the element checks in order: a child with slot fallback is shown if there is one; otherwise, with fallback message, the SDK's text and a Try again button; with neither, nothing renders. A retry call reads the zone again.</desc>
+  <style>
+    .ink { fill: #1d1d1f; }
+    .muted { fill: #6e6e73; }
+    .box { fill: #ffffff; stroke: #c7c7cc; }
+    .host { fill: #eef6f2; stroke: #0a7d4f; }
+    .flow { stroke: #1d1d1f; stroke-width: 2; fill: none; marker-end: url(#arr); }
+    .code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1d1d1f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="640" height="310" fill="#f5f5f7"/>
+
+  <!-- The failure -->
+  <rect x="24" y="24" width="592" height="56" rx="10" class="box"/>
+  <text x="40" y="46" font-size="14" font-weight="700" class="ink">Zone cannot be read</text>
+  <text x="40" y="66" font-size="12.5" class="muted">A refused or revoked key, a network failure or a bad answer. onLoadFailed fires.</text>
+
+  <path d="M320,80 L320,104" class="flow"/>
+
+  <!-- The decision -->
+  <rect x="164" y="104" width="312" height="44" rx="10" class="box"/>
+  <text x="180" y="124" font-size="14" font-weight="700" class="ink">Which placeholder applies?</text>
+  <text x="180" y="140" font-size="12.5" class="muted">Checked in this order.</text>
+
+  <path d="M220,148 L220,166 L117,166 L117,184" class="flow"/>
+  <path d="M320,148 L320,184" class="flow"/>
+  <path d="M420,148 L420,166 L523,166 L523,184" class="flow"/>
+  <text x="124" y="160" font-size="12" class="muted">yes</text>
+  <text x="328" y="172" font-size="12" class="muted">no</text>
+  <text x="430" y="160" font-size="12" class="muted">no</text>
+
+  <!-- 1. Your child -->
+  <rect x="24" y="184" width="186" height="100" rx="10" class="host"/>
+  <text x="40" y="210" font-size="14" font-weight="700" class="ink">1. Your child</text>
+  <text x="40" y="232" class="code ink">slot="fallback"</text>
+  <text x="40" y="256" font-size="12.5" class="muted">Your markup, shown</text>
+  <text x="40" y="272" font-size="12.5" class="muted">in place of the zone.</text>
+
+  <!-- 2. Message -->
+  <rect x="227" y="184" width="186" height="100" rx="10" class="box"/>
+  <text x="243" y="210" font-size="14" font-weight="700" class="ink">2. Message</text>
+  <text x="243" y="232" class="code ink">fallback="message"</text>
+  <text x="243" y="256" font-size="12.5" class="muted">The SDK's text and</text>
+  <text x="243" y="272" font-size="12.5" class="muted">a Try again button.</text>
+
+  <!-- 3. Neither -->
+  <rect x="430" y="184" width="186" height="100" rx="10" class="box"/>
+  <text x="446" y="210" font-size="14" font-weight="700" class="ink">3. Neither</text>
+  <text x="446" y="256" font-size="12.5" class="muted">Nothing renders:</text>
+  <text x="446" y="272" font-size="12.5" class="muted">the default.</text>
+
+  <text x="24" y="302" font-size="12" class="muted">While the zone has failed, the element has data-state="failed". retry() reads the zone again.</text>
+</svg>

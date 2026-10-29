@@ -29,6 +29,9 @@ export const DEFAULT_STRINGS = {
 
   'bar.seen': '{name}, seen',
 
+  'load.failed': 'Stories could not be loaded.',
+  'load.retry': 'Try again',
+
   'links.newTab': ' (opens in a new tab)',
 
   'poll.voted': 'You voted {label}.',

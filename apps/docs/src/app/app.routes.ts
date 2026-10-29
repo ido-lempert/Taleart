@@ -9,6 +9,7 @@ import { NotFoundPage } from './pages/not-found';
 import { TargetingPage } from './pages/targeting';
 import { WebGuidePage } from './pages/web-guide';
 import { WebSdkReferencePage } from './pages/web-sdk-reference';
+import { WebPerformancePage } from './pages/web-performance';
 import { AndroidGuidePage } from './pages/android-guide';
 import { AndroidSdkReferencePage } from './pages/android-sdk-reference';
 import { IosGuidePage } from './pages/ios-guide';
@@ -29,6 +30,7 @@ export const DOCS_PAGES: ReadonlyArray<{ path: string; label: string; title: str
   { path: 'api-tokens', label: 'API tokens', title: 'API tokens', component: ApiTokensPage },
   { path: 'api-reference', label: 'API reference', title: 'API reference', component: ApiReferencePage },
   { path: 'reference/web-sdk', label: 'Web SDK reference', title: 'Web SDK reference', component: WebSdkReferencePage },
+  { path: 'reference/performance', label: 'Performance', title: 'Performance', component: WebPerformancePage },
   { path: 'reference/android-sdk', label: 'Android SDK reference', title: 'Android SDK reference', component: AndroidSdkReferencePage },
   { path: 'reference/ios-sdk', label: 'iOS SDK reference', title: 'iOS SDK reference', component: IosSdkReferencePage },
   {

@@ -10,9 +10,21 @@ import {
   renderBar,
   setItemSeen,
 } from './bar';
-import { getConfig, init, mergeStrings, onConfigChange, readStrings, type ConfigKey } from './config';
+import {
+  checkFallback,
+  checkFrequency,
+  getConfig,
+  init,
+  mergeStrings,
+  onConfigChange,
+  parseFallback,
+  readStrings,
+  type ConfigKey,
+  type FallbackMode,
+} from './config';
 import { fetchZone } from './delivery-client';
 import { emit, type GroupRef, type TaleRef, type TaleartHooks } from './hooks';
+import { cappedGroupIds, type FrequencyRule, parseFrequency, recordView } from './frequency';
 import { responseClient } from './responses';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import { createTranslate, type StringsConfig, type Translate } from './i18n';
@@ -23,9 +35,19 @@ import { TaleViewer, VIEWER_STYLES } from './viewer';
 
 export const TALEART_ELEMENT_TAG = 'taleart-view';
 
+// The failed view's text and retry button, in the shadow root (fallback="message").
+const FALLBACK_STYLES = `
+.failed { display: grid; gap: 0.5rem; justify-items: center; padding: 1rem; font: inherit; text-align: center; }
+.failed button { font: inherit; padding: 0.4rem 0.9rem; border: 1px solid currentColor; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+`;
+
 const API_URL_ATTR = 'api-url';
 const ZONE_KEY_ATTR = 'zone-key';
 const LOCALE_ATTR = 'locale';
+const FALLBACK_ATTR = 'fallback';
+const FREQUENCY_ATTR = 'frequency';
+// The host's state while its zone failed to load (`failed`); removed on a reload or a success.
+const STATE_ATTR = 'data-state';
 // The zone's slug: read only for a configureZone theme when the response does not name it.
 const ZONE_ATTR = 'zone';
 // The attribute of the removed site key: it is no longer read, and one warning says so.
@@ -183,7 +205,7 @@ const ElementBase: typeof HTMLElement = typeof HTMLElement === 'undefined' ? (cl
 
 export class TaleartElement extends ElementBase {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR];
+    return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR, FALLBACK_ATTR, FREQUENCY_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -332,6 +354,36 @@ export class TaleartElement extends ElementBase {
   }
 
   /**
+   * What this element shows when its zone fails to load: `none` (nothing, the default) or `message` (the
+   * SDK's text and a retry button). A light-DOM child with `slot="fallback"` is shown instead when there
+   * is one. Set `null` to remove it; the SDK's `fallback` option applies then.
+   */
+  get fallback(): FallbackMode | null {
+    return parseFallback(this.getAttribute(FALLBACK_ATTR)) ?? null;
+  }
+  set fallback(value: FallbackMode | null) {
+    if (value === null) this.removeAttribute(FALLBACK_ATTR);
+    else this.setAttribute(FALLBACK_ATTR, value);
+  }
+
+  /**
+   * How often a viewer sees a tale group of this element (see `frequency.ts`): `once`, `daily`, `weekly`
+   * or a positive integer N. Set `null` to remove it; the SDK's `frequency` option applies then.
+   */
+  get frequency(): FrequencyRule | null {
+    return parseFrequency(this.getAttribute(FREQUENCY_ATTR)) ?? null;
+  }
+  set frequency(value: FrequencyRule | null) {
+    if (value === null) this.removeAttribute(FREQUENCY_ATTR);
+    else this.setAttribute(FREQUENCY_ATTR, String(value));
+  }
+
+  /** Reads the zone again after a failed load: the retry button of `fallback="message"` calls it. */
+  retry(): void {
+    this.reload();
+  }
+
+  /**
    * This element's texts, per locale or flat (see `i18n.ts`), added to the SDK configuration's
    * `strings` (this element's win). Set an object, or `null` to remove them. Reading returns a copy.
    */
@@ -383,7 +435,7 @@ export class TaleartElement extends ElementBase {
       console.warn(`TaleArt: the ${SITE_KEY_ATTR} attribute is no longer read; place the zone with ${ZONE_KEY_ATTR}`);
     }
     // Properties set before the SDK defined the element shadow the accessors: pass them through.
-    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings', 'hooks'] as const) {
+    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings', 'hooks', 'fallback', 'frequency'] as const) {
       if (!Object.prototype.hasOwnProperty.call(this, name)) continue;
       const value: unknown = (this as unknown as Record<string, unknown>)[name];
       delete (this as unknown as Record<string, unknown>)[name];
@@ -404,7 +456,12 @@ export class TaleartElement extends ElementBase {
     if (name === THEME_ATTR) {
       if (this.skipThemeAttribute) this.skipThemeAttribute = false;
       else this.theme = this.parseThemeAttribute(newValue) as Partial<Theme> | null;
-    } else if (this.isConnected) this.scheduleLoad();
+      return;
+    }
+    // An invalid fallback or frequency is ignored with one warning, and the SDK's option applies.
+    if (name === FALLBACK_ATTR) checkFallback(newValue, "the element's fallback attribute");
+    if (name === FREQUENCY_ATTR) checkFrequency(newValue, "the element's frequency attribute");
+    if (this.isConnected) this.scheduleLoad();
   }
 
   // The `theme` attribute's JSON. A missing or empty attribute is no override; text that is not
@@ -478,6 +535,7 @@ export class TaleartElement extends ElementBase {
     const apiUrl = this.apiUrl || getConfig().apiUrl;
     const key = this.zoneKey;
     this.loaded = null;
+    this.removeAttribute(STATE_ATTR);
     const focusGroup = this.clear();
     this.impressed.clear();
     this.hookKeyPrefix = key.slice(0, KEY_PREFIX_LENGTH);
@@ -499,9 +557,10 @@ export class TaleartElement extends ElementBase {
       this.render(targeted(zone), focusGroup, configName);
     } catch (err) {
       if (id !== this.loadId) return;
-      this.root.replaceChildren();
       const message = err instanceof Error ? err.message : String(err);
       console.error(`TaleArt: ${message}`);
+      this.root.replaceChildren(this.failedView());
+      this.setAttribute(STATE_ATTR, 'failed');
       emit(this, 'loadFailed', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: this.zone, error: message });
     }
   }
@@ -520,10 +579,60 @@ export class TaleartElement extends ElementBase {
     return focusGroup;
   }
 
+  // What a zone that failed to load shows, as a fragment: the light-DOM fallback child, in its slot;
+  // or, with fallback="message" and no such child, the SDK's text and a retry button. Nothing otherwise.
+  private failedView(): DocumentFragment {
+    const view = document.createDocumentFragment();
+    if (this.querySelector(':scope > [slot="fallback"]')) {
+      const slot = document.createElement('slot');
+      slot.name = 'fallback';
+      view.append(slot);
+    } else if (this.fallbackMode() === 'message') {
+      const wrap = document.createElement('div');
+      wrap.className = 'failed';
+      wrap.setAttribute('role', 'status');
+      const style = document.createElement('style');
+      style.textContent = FALLBACK_STYLES;
+      const text = document.createElement('p');
+      text.textContent = this.t('load.failed');
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.textContent = this.t('load.retry');
+      retry.addEventListener('click', () => this.retry());
+      wrap.append(text, retry);
+      view.append(style, wrap);
+    }
+    return view;
+  }
+
+  // The fallback mode: the element's attribute when valid, else the SDK's option, else none.
+  private fallbackMode(): FallbackMode {
+    return parseFallback(this.getAttribute(FALLBACK_ATTR)) ?? getConfig().fallback;
+  }
+
+  // The frequency cap: the element's attribute when valid, else the SDK's option, else none.
+  private frequencyRule(): FrequencyRule | null {
+    return parseFrequency(this.getAttribute(FREQUENCY_ATTR)) ?? getConfig().frequency;
+  }
+
+  // The zone without the tale groups the frequency cap has reached; each one is reported (groupCapped).
+  private withinFrequency(zone: DeliveryZone, configName: string): DeliveryZone {
+    const rule = this.frequencyRule();
+    if (rule === null) return zone;
+    const capped = cappedGroupIds(zone.taleGroups.map((group) => group.id), rule);
+    if (capped.size === 0) return zone;
+    const base = { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: configName };
+    for (const groupId of capped) emit(this, 'groupCapped', { ...base, groupId, rule });
+    return { ...zone, taleGroups: zone.taleGroups.filter((group) => !capped.has(group.id)) };
+  }
+
   // Renders the zone's display (AD-17) when the SDK knows its type; unknown types are skipped (AD-5).
-  private render(zone: DeliveryZone, focusGroup: string | null, configName: string): void {
+  private render(input: DeliveryZone, focusGroup: string | null, configName: string): void {
     this.pendingFocus = null;
-    this.renderedKey = groupKey(zone);
+    this.renderedKey = groupKey(input);
+    const zone = this.withinFrequency(input, configName);
+    // Every group is capped: the display renders nothing.
+    if (zone.taleGroups.length === 0 && input.taleGroups.length > 0) return;
     // The response is untrusted: anything but an object reads as no display.
     const frame = typeof zone.frame === 'object' && zone.frame !== null ? zone.frame : null;
     const names = new Map(zone.taleGroups.map((group) => [group.id, group.name]));
@@ -562,6 +671,7 @@ export class TaleartElement extends ElementBase {
     const viewer = new TaleViewer(themed, zone.taleGroups, {
       onGroupShown: (groupId) => {
         markGroupSeen(groupId);
+        recordView(groupId);
         const item = barItems?.get(groupId);
         if (item) setItemSeen(item, names.get(groupId) ?? '', true, t);
       },

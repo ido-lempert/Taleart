@@ -34,15 +34,17 @@ describe('the Web guide page', () => {
     page = harness.routeNativeElement as HTMLElement;
   });
 
-  it('has the six steps, in order, as a numbered list', () => {
+  it('has the eight steps, in order, as a numbered list', () => {
     const steps = [...page.querySelectorAll('ol.steps > li')];
-    expect(steps.length).toBe(6);
+    expect(steps.length).toBe(8);
     expect(steps[0].textContent).toContain('Issue the zone key');
     expect(steps[1].textContent).toContain('Add the script once per page');
     expect(steps[2].textContent).toContain('Place the zone');
     expect(steps[3].textContent).toContain('Optional: set options once for the page');
     expect(steps[4].textContent).toContain('Listen to the hooks');
     expect(steps[5].textContent).toContain('Verify with the test page');
+    expect(steps[6].textContent).toContain("Show a placeholder when stories can't load");
+    expect(steps[7].textContent).toContain('Limit how often a group shows');
   });
 
   it('gives every step a figure with an image, its alt text, its size and a caption', () => {
