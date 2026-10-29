@@ -102,12 +102,15 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         the old, for that zone only.
         <figure>
           <img
-            src="images/web-step-1-zone-key.svg"
-            alt="Diagram of the zone's Install tab: first with no key, then with the new key shown once next to a Copy button."
-            width="640"
-            height="320"
+            src="guides/images/05-install-tab.png"
+            alt="The zone's Install tab in the dashboard, with its zone key issued: the Zone key card shows the key's first characters and the Rotate and Revoke buttons, and the snippet below it has the script tag, where your own API address appears here."
+            width="1280"
+            height="800"
           />
-          <figcaption>A diagram of the Install tab, not a screenshot. The key is a placeholder.</figcaption>
+          <figcaption>
+            The Install tab with the zone key issued (a real screenshot of the dashboard). The key is shown once, when it is
+            issued, and the card then shows only its first characters.
+          </figcaption>
         </figure>
       </li>
 
@@ -208,12 +211,15 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Test page link"><code>{{ testPageSample }}</code></pre>
         <figure>
           <img
-            src="images/web-step-6-test-page.svg"
-            alt="Diagram: the Install tab's Open test page link opens a test page served by TaleArt, whose URL carries the zone key after the hash sign."
-            width="640"
-            height="260"
+            src="images/web-shot-test-page.png"
+            alt="The TaleArt test page with a zone key from the link: the heading, an empty zone key field, a status line saying the zone is shown with the key from the link, and a bar of three circles named Summer sale, New arrivals and Winter."
+            width="1100"
+            height="400"
           />
-          <figcaption>The test page link. A diagram, not a screenshot.</figcaption>
+          <figcaption>
+            The test page the Install tab opens, a real screenshot of the page served by the API, with a sample zone. The
+            key is not shown on the page.
+          </figcaption>
         </figure>
         <figure>
           <img

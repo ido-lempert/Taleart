@@ -15,11 +15,11 @@ function workspaceRoot(): string {
   return dir;
 }
 
-const IMAGES = join(workspaceRoot(), 'apps/docs/public/images');
+const PUBLIC = join(workspaceRoot(), 'apps/docs/public');
 
-/** The intrinsic size of a PNG (from its IHDR chunk) or an SVG (from its viewBox). */
+/** The intrinsic size of a PNG (from its IHDR chunk) or an SVG (from its viewBox), of a file under apps/docs/public. */
 function intrinsicSize(file: string): { width: number; height: number } {
-  const bytes = readFileSync(join(IMAGES, file));
+  const bytes = readFileSync(join(PUBLIC, file));
   if (file.endsWith('.png')) return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
   const [, , , width, height] = /viewBox="([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)"/.exec(bytes.toString('utf8'))!.map(Number);
   return { width, height };
@@ -67,9 +67,10 @@ describe('the Web guide page', () => {
   it('points only at images that exist, sized as the files are', () => {
     for (const img of page.querySelectorAll('img')) {
       const src = img.getAttribute('src') ?? '';
-      expect(src.startsWith('images/web-')).toBe(true);
-      const file = src.slice('images/'.length);
-      expect(existsSync(join(IMAGES, file)), file).toBe(true);
+      // The guides' own shots are under images/web-*; the step that shows the dashboard reuses the guide's screenshot.
+      expect(src.startsWith('images/web-') || src === 'guides/images/05-install-tab.png', src).toBe(true);
+      const file = src;
+      expect(existsSync(join(PUBLIC, file)), file).toBe(true);
       expect({ file, width: Number(img.getAttribute('width')), height: Number(img.getAttribute('height')) }).toEqual({
         file,
         ...(() => {
