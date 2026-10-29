@@ -1,29 +1,123 @@
 <a class="skip-link" [attr.href]="skipHref()">Skip to content</a>
 <header class="site-header">
-  <a class="site-header__brand" routerLink="/"><img class="site-header__logo" src="logo.svg" width="28" height="28" alt="" />TaleArt docs</a>
-</header>
-<div class="layout">
-  <nav class="side-nav" aria-label="Docs">
-    @for (group of groups; track group.name) {
-      <details class="side-nav__section" [open]="isOpen(group.name)" (toggle)="onToggle(group.name, $event)">
-        <summary>{{ group.name }}</summary>
-        <ul>
-          @for (page of group.pages; track page.path) {
-            <li>
-              <a
-                [routerLink]="'/' + page.path"
-                routerLinkActive="is-active"
-                [routerLinkActiveOptions]="{ exact: true }"
-                ariaCurrentWhenActive="page"
-                >{{ page.label }}</a
-              >
-            </li>
+  <div class="site-header__inner">
+    <button
+      #menuButton
+      class="site-header__menu"
+      type="button"
+      aria-controls="docs-nav"
+      [attr.aria-expanded]="menuOpen()"
+      (click)="toggleMenu()"
+    >
+      <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        @if (menuOpen()) {
+        <path d="M6 6l12 12M18 6L6 18" />
+        } @else {
+        <path d="M4 7h16M4 12h16M4 17h16" />
+        }
+      </svg>
+      <span class="visually-hidden">Menu</span>
+    </button>
+    <a class="site-header__brand" routerLink="/"
+      ><img class="site-header__logo" src="logo.svg" width="28" height="28" alt="" />TaleArt docs</a
+    >
+    <nav class="site-header__links" aria-label="Primary">
+      <a routerLink="/guides/web" routerLinkActive="is-active">Guides</a>
+      <a routerLink="/reference/web-sdk" routerLinkActive="is-active">Reference</a>
+      <a routerLink="/api-reference" routerLinkActive="is-active">API reference</a>
+    </nav>
+    <!-- Phase 2: the Search button (opens the search dialog, "/" or Ctrl/Cmd+K) goes here, before the GitHub link. -->
+    <div class="site-header__end">
+      <a class="site-header__github" href="https://github.com/ido-lempert/Taleart">
+        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"
+          />
+        </svg>
+        <span class="site-header__github-text">GitHub</span>
+      </a>
+      <button class="theme-toggle" type="button" [attr.aria-pressed]="theme.dark()" (click)="theme.toggle()">
+        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          @if (theme.dark()) {
+          <circle cx="12" cy="12" r="4" />
+          <path
+            d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+          />
+          } @else {
+          <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />
           }
-        </ul>
-      </details>
+        </svg>
+        <span class="visually-hidden">Dark theme</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  @if (menuOpen()) {
+  <div class="scrim" aria-hidden="true" (click)="closeMenu(true)"></div>
+  }
+  <nav id="docs-nav" #nav class="side-nav" [class.is-open]="menuOpen()" aria-label="Docs">
+    @for (group of groups; track group.name) {
+    <details class="side-nav__section" [open]="isOpen(group.name)" (toggle)="onToggle(group.name, $event)">
+      <summary>{{ group.name }}</summary>
+      <ul>
+        @for (page of group.pages; track page.path) {
+        <li>
+          <a
+            [routerLink]="'/' + page.path"
+            routerLinkActive="is-active"
+            [routerLinkActiveOptions]="{ exact: true }"
+            ariaCurrentWhenActive="page"
+            >{{ page.label }}</a
+          >
+        </li>
+        }
+      </ul>
+    </details>
     }
   </nav>
-  <main id="main" class="content" tabindex="-1">
-    <router-outlet />
+  <main id="main" class="content" tabindex="-1" [attr.inert]="menuOpen() ? '' : null">
+    @if (page(); as current) {
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <ol>
+        <li>{{ current.group }}</li>
+        <li aria-current="page">{{ current.label }}</li>
+      </ol>
+    </nav>
+    }
+    <docs-on-this-page class="toc-inline" variant="inline" />
+    <div class="article">
+      <router-outlet />
+    </div>
+    @if (page()) {
+    <div class="page-foot">
+      @if (editUrl(); as url) {
+      <p class="edit-link"><a [href]="url">Edit this page on GitHub</a></p>
+      }
+      <nav class="pager" aria-label="Previous and next pages">
+        @if (neighbours().previous; as prev) {
+        <a class="pager__link pager__link--prev" [routerLink]="'/' + prev.path">
+          <span class="pager__dir">Previous</span>
+          <span class="pager__title">{{ prev.label }}</span>
+          <span class="pager__group">{{ prev.group }}</span>
+        </a>
+        } @else {
+        <span></span>
+        } @if (neighbours().next; as next) {
+        <a class="pager__link pager__link--next" [routerLink]="'/' + next.path">
+          <span class="pager__dir">Next</span>
+          <span class="pager__title">{{ next.label }}</span>
+          <span class="pager__group">{{ next.group }}</span>
+        </a>
+        }
+      </nav>
+    </div>
+    }
   </main>
+  <docs-on-this-page class="toc-column" variant="column" />
 </div>
+
+<footer class="site-footer">
+  <p>TaleArt docs · <a [href]="repo">Source and issues on GitHub</a></p>
+</footer>

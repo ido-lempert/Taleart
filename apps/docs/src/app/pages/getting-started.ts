@@ -7,18 +7,60 @@ import { DOCS_SNIPPET } from '../docs-content';
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h1 tabindex="-1">Getting started</h1>
-    <p class="lede">
-      TaleArt shows tales (full-screen pages of images, video and text) in spots on your site called zones. This page
-      takes you from a new project to a tale on a test page.
-    </p>
+    <section class="hero" aria-labelledby="hero-title">
+      <h1 id="hero-title" tabindex="-1">Getting started</h1>
+      <p class="lede">
+        TaleArt shows tales (full-screen pages of images, video and text) in spots on your site called zones. This page
+        takes you from a new project to a tale on a test page.
+      </p>
+      <div class="hero__actions">
+        <a class="button button--primary" routerLink="/guides/web">Start with the Web guide</a>
+        <a class="button" routerLink="/reference/web-sdk">Browse the reference</a>
+      </div>
+    </section>
 
     <h2 id="platform-guides">Build with an SDK</h2>
     <p>Each platform guide takes a zone from its key to a visible tale in an app or site, step by step.</p>
-    <ul>
-      <li><a routerLink="/guides/web">Web guide</a>: a web page, with the script and the element.</li>
-      <li><a routerLink="/android-guide">Android guide</a>: a Compose or Views app.</li>
-      <li><a routerLink="/ios-guide">iOS guide</a>: a SwiftUI or UIKit app.</li>
+    <ul class="cards">
+      <li>
+        <a class="card" routerLink="/guides/web">
+          <span class="card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="14" rx="2" />
+              <path d="M3 8h18M7 21h10M12 18v3" />
+            </svg>
+          </span>
+          <span class="card__title">Web</span>
+          <span class="card__text">A web page: the script, the zone element and a test on your site.</span>
+          <span class="card__link">Web guide</span>
+        </a>
+      </li>
+      <li>
+        <a class="card" routerLink="/android-guide">
+          <span class="card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <rect x="6" y="2.5" width="12" height="19" rx="2.5" />
+              <path d="M10.5 18.5h3" />
+            </svg>
+          </span>
+          <span class="card__title">Android</span>
+          <span class="card__text">A Compose or Views app, with the Android SDK.</span>
+          <span class="card__link">Android guide</span>
+        </a>
+      </li>
+      <li>
+        <a class="card" routerLink="/ios-guide">
+          <span class="card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <rect x="6" y="2.5" width="12" height="19" rx="3" />
+              <circle cx="12" cy="18" r="0.6" />
+            </svg>
+          </span>
+          <span class="card__title">iOS</span>
+          <span class="card__text">A SwiftUI or UIKit app, with the iOS SDK.</span>
+          <span class="card__link">iOS guide</span>
+        </a>
+      </li>
     </ul>
 
     <h2 id="from-sign-up-to-a-visible-tale">From sign-up to a visible tale</h2>
@@ -50,11 +92,14 @@ import { DOCS_SNIPPET } from '../docs-content';
     <h2 id="visible-on-site-or-not-visible-because">Visible on site, or not visible because…</h2>
     <p>
       Every zone, tale group and tale in the dashboard says <em>Visible on site</em> or <em>Not visible:</em> and the
-      first reason, such as "group is off", "zone has no display" or "zone not installed" (the zone has no zone
-      key yet). The dashboard and the Delivery API decide visibility with the same rule.
+      first reason, such as "group is off", "zone has no display" or "zone not installed" (the zone has no zone key
+      yet). The dashboard and the Delivery API decide visibility with the same rule.
     </p>
 
-    <p>Next: <a routerLink="/concepts">Concepts</a> explains zones, displays, templates and the rest, and <a routerLink="/visibility">Visibility and troubleshooting</a> explains a zone that does not show.</p>
+    <p>
+      Next: <a routerLink="/concepts">Concepts</a> explains zones, displays, templates and the rest, and
+      <a routerLink="/visibility">Visibility and troubleshooting</a> explains a zone that does not show.
+    </p>
 
     <h2 id="all-pages">All pages</h2>
     <p>The same groups as the navigation.</p>

@@ -28,7 +28,7 @@ import { RouterLink } from '@angular/router';
 
     <h2 id="use-it">Use it</h2>
     <p>Send it in the <code>Authorization</code> header of each request:</p>
-    <pre><code>curl -H "Authorization: Bearer $TALEART_TOKEN" https://your-taleart-api/api/v1/zones</code></pre>
+    <pre tabindex="0" role="region" aria-label="Example request"><code>curl -H "Authorization: Bearer $TALEART_TOKEN" https://your-taleart-api/api/v1/zones</code></pre>
     <p>
       Keep it in your script's secret settings, never in a page's HTML: a page uses a zone key
       (<code>tak_</code>) instead. A token works only on the Management API; zone keys and the project's site key (<code>tas_</code>, for servers) work only on the Delivery API.

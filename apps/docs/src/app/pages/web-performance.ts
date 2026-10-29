@@ -82,14 +82,14 @@ import { SDK_BUDGET } from './sdk-budget.generated';
 
     <h2 id="verify">How to verify</h2>
     <p>From the repository root, run the build's size check and the budget measurement:</p>
-    <pre><code>pnpm nx run web-sdk:measure-budget
+    <pre tabindex="0" role="region" aria-label="Budget command"><code>pnpm nx run web-sdk:measure-budget
 pnpm nx run web-sdk:size</code></pre>
     <p>
       <code>measure-budget</code> builds the SDK, measures its gzipped ES and UMD builds, and writes
       <code>apps/docs/src/app/pages/sdk-budget.generated.ts</code>. <code>size</code> builds it and fails when the SDK is
       over the budget. To check the docs agree with the measurement, run the docs tests:
     </p>
-    <pre><code>pnpm nx test docs</code></pre>
+    <pre tabindex="0" role="region" aria-label="Test command"><code>pnpm nx test docs</code></pre>
     <p>
       The numbers above are read from the measured file the build writes, so they change with each measurement.
       To check the requests yourself, open your page with the browser's developer tools on the Network tab: one script

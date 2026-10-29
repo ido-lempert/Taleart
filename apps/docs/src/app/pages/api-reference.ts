@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
   InjectionToken,
@@ -11,6 +12,7 @@ import {
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { ThemeService } from '../theme';
 import {
   DEFAULT_API_URL,
   normalizeApiUrl,
@@ -80,7 +82,8 @@ function browserLoader(doc: Document): ApiReferenceLoader {
             const el = doc.createElement('script');
             el.src = url(SWAGGER_UI.script);
             el.integrity = SWAGGER_UI.scriptIntegrity;
-            el.onload = () => (win?.SwaggerUIBundle ? resolve(win.SwaggerUIBundle) : reject(new Error('no SwaggerUIBundle')));
+            el.onload = () =>
+              win?.SwaggerUIBundle ? resolve(win.SwaggerUIBundle) : reject(new Error('no SwaggerUIBundle'));
             el.onerror = () => reject(new Error(`${SWAGGER_UI.script} did not load`));
             doc.head.append(el);
           });
@@ -120,7 +123,8 @@ export const API_REFERENCE_LOADER = new InjectionToken<ApiReferenceLoader>('API 
 });
 
 const DIALOG_TITLE_ID = 'docs-swagger-dialog-title';
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Fills in what Swagger UI's markup leaves out (WCAG 4.1.2): the Authorize dialog's icon-only close
@@ -199,11 +203,13 @@ type State = 'loading' | 'ready' | 'failed';
     <ol class="steps">
       <li>
         Set the <strong>API URL</strong> below to your TaleArt API. It starts as the local API,
-        <code>{{ defaultApiUrl }}</code>.
+        <code>{{ defaultApiUrl }}</code
+        >.
       </li>
       <li>
         Choose <strong>Authorize</strong> and paste an <a routerLink="/api-tokens">API token</a> (<code>tat_…</code>)
-        for the Management API, or a zone key (<code>tak_…</code>) or the project's site key (<code>tas_…</code>) for the Delivery API.
+        for the Management API, or a zone key (<code>tak_…</code>) or the project's site key (<code>tas_…</code>) for
+        the Delivery API.
       </li>
       <li>Open an operation, choose <strong>Try it out</strong>, then <strong>Execute</strong>.</li>
     </ol>
@@ -213,14 +219,14 @@ type State = 'loading' | 'ready' | 'failed';
         changes your data. Use a test project and a read-only token where you can.
       </p>
       <p>
-        The token stays in this page only: it is not stored, and is gone when you leave, reload or change the API URL. The dashboard's
-        signed-in session (a cookie) cannot be used from the docs, so operations that need it, such as managing API
-        tokens, say <em>Dashboard only</em>.
+        The token stays in this page only: it is not stored, and is gone when you leave, reload or change the API URL.
+        The dashboard's signed-in session (a cookie) cannot be used from the docs, so operations that need it, such as
+        managing API tokens, say <em>Dashboard only</em>.
       </p>
     </div>
     <p>
-      From a terminal or a script, the <code>taleart</code> command-line tool calls these operations for you; an AI agent
-      can drive it with the TaleArt skill: see <a routerLink="/ai-agents">AI agents</a>.
+      From a terminal or a script, the <code>taleart</code> command-line tool calls these operations for you; an AI
+      agent can drive it with the TaleArt skill: see <a routerLink="/ai-agents">AI agents</a>.
     </p>
 
     <form class="api-url" (submit)="apply($event)" novalidate>
@@ -254,22 +260,24 @@ type State = 'loading' | 'ready' | 'failed';
     @if (state() === 'failed') {
       <p>
         The reference could not load. The OpenAPI document is
-        <a [href]="openapiAsset">{{ openapiAsset }}</a>; the API also serves it at <code>/api/openapi.json</code>.
+        <a [href]="openapiAsset">{{ openapiAsset }}</a
+        >; the API also serves it at <code>/api/openapi.json</code>.
       </p>
     } @else if (state() === 'loading') {
       <p class="muted">
         Loading the reference… It needs JavaScript; without it, read the OpenAPI document at
-        <a [href]="openapiAsset">{{ openapiAsset }}</a>.
+        <a [href]="openapiAsset">{{ openapiAsset }}</a
+        >.
       </p>
     }
     <div #host class="api-reference" [class.is-hidden]="state() !== 'ready'"></div>
 
     <h2 id="accessibility">Accessibility</h2>
     <p>
-      The reference is Swagger UI {{ swaggerVersion }}. The docs restyle it for contrast in the light and dark
-      themes, enlarge its copy buttons, name its dialog and close button, keep the keyboard inside the Authorize
-      dialog and return it to the button that opened it, and let wide tables scroll on narrow screens. What the docs
-      cannot change from outside:
+      The reference is Swagger UI {{ swaggerVersion }}. The docs restyle it for contrast in the light and dark themes,
+      enlarge its copy buttons, name its dialog and close button, keep the keyboard inside the Authorize dialog and
+      return it to the button that opened it, and let wide tables scroll on narrow screens. What the docs cannot change
+      from outside:
     </p>
     <ul>
       <li>
@@ -282,8 +290,8 @@ type State = 'loading' | 'ready' | 'failed';
       </li>
     </ul>
     <p>
-      Every operation is also in the OpenAPI document, <a [href]="openapiAsset">{{ openapiAsset }}</a>, which any
-      OpenAPI tool reads.
+      Every operation is also in the OpenAPI document, <a [href]="openapiAsset">{{ openapiAsset }}</a
+      >, which any OpenAPI tool reads.
     </p>
   `,
   styles: `
@@ -352,6 +360,7 @@ export class ApiReferencePage {
   private stopTrap: (() => void) | null = null;
   private source: OpenApiDocument | null = null;
   private left = false;
+  private readonly theme = inject(ThemeService);
 
   protected readonly defaultApiUrl = DEFAULT_API_URL;
   protected readonly openapiAsset = OPENAPI_ASSET;
@@ -363,19 +372,13 @@ export class ApiReferencePage {
 
   constructor() {
     afterNextRender(() => void this.start());
-    const scheme = this.doc.defaultView?.matchMedia?.('(prefers-color-scheme: dark)');
-    // Swagger UI's own dark theme (its `dark-mode` class on <html>) follows the docs' theme.
-    const followTheme = () => this.doc.documentElement.classList.toggle('dark-mode', !!scheme?.matches);
+    // Swagger UI's own dark theme (its `dark-mode` class on <html>) follows the docs' theme, whichever the reader chose.
+    effect(() => this.doc.documentElement.classList.toggle('dark-mode', this.theme.dark()));
     inject(DestroyRef).onDestroy(() => {
       this.left = true;
       this.observer?.disconnect();
       this.stopTrap?.();
-      scheme?.removeEventListener?.('change', followTheme);
       this.loader.leave();
-    });
-    afterNextRender(() => {
-      followTheme();
-      scheme?.addEventListener?.('change', followTheme);
     });
   }
 
@@ -402,9 +405,13 @@ export class ApiReferencePage {
         labelSwaggerControls(host);
         const open = !!host.querySelector('.modal-ux');
         if (open && !opener) {
-          opener = lastOutside?.isConnected ? lastOutside : host.querySelector<HTMLElement>('.scheme-container .btn.authorize');
+          opener = lastOutside?.isConnected
+            ? lastOutside
+            : host.querySelector<HTMLElement>('.scheme-container .btn.authorize');
         } else if (!open && opener) {
-          const back = opener.isConnected ? opener : host.querySelector<HTMLElement>('.scheme-container .btn.authorize');
+          const back = opener.isConnected
+            ? opener
+            : host.querySelector<HTMLElement>('.scheme-container .btn.authorize');
           opener = null;
           back?.focus();
         }

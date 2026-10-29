@@ -45,11 +45,16 @@ test('loads Swagger UI only on the API reference page', async ({ page }) => {
   await expect(page.locator('h1')).toHaveText('Getting started');
   expect(scripts.filter((u) => u.includes('swagger-ui'))).toEqual([]);
   // The Reference group is collapsed on the home page.
-  await page.locator('details.side-nav__section', { has: page.locator('summary', { hasText: 'Reference' }) }).locator('summary').click();
-  await page.getByRole('link', { name: 'API reference' }).click();
+  await page
+    .locator('details.side-nav__section', { has: page.locator('summary', { hasText: 'Reference' }) })
+    .locator('summary')
+    .click();
+  // The header's primary links repeat some names, so the clicks use the Docs navigation.
+  const docsNav = page.getByRole('navigation', { name: 'Docs' });
+  await docsNav.getByRole('link', { name: 'API reference' }).click();
   await expect(page.locator('.swagger-ui .opblock').first()).toBeVisible();
   expect(scripts.filter((u) => u.includes('swagger-ui-bundle.js'))).toHaveLength(1);
-  await page.getByRole('link', { name: 'Concepts' }).click();
+  await docsNav.getByRole('link', { name: 'Concepts' }).click();
   await expect(page.locator('link[href*="swagger-ui.css"]')).toHaveCount(0);
 });
 
@@ -98,7 +103,11 @@ test('sends Try it out to the API URL with the token, and keeps the URL', async 
   await page.locator('.scheme-container .btn.authorize').click();
   const dialog = page.getByRole('dialog');
   await dialog.locator('.auth-container').filter({ hasText: 'token' }).locator('input').fill('tat_example');
-  await dialog.locator('.auth-container').filter({ hasText: 'token' }).getByRole('button', { name: 'Apply credentials' }).click();
+  await dialog
+    .locator('.auth-container')
+    .filter({ hasText: 'token' })
+    .getByRole('button', { name: 'Apply credentials' })
+    .click();
   await dialog.getByRole('button', { name: 'Close' }).first().click();
 
   const projects = operation(page, 'GET', '/projects');
@@ -144,7 +153,11 @@ test('clears the credentials when the API URL changes, so no token reaches the n
   const tokenInput = dialog.locator('.auth-container').filter({ hasText: 'token' }).locator('input');
   await expect(tokenInput).toHaveAttribute('type', 'password');
   await tokenInput.fill('tat_first_host_only');
-  await dialog.locator('.auth-container').filter({ hasText: 'token' }).getByRole('button', { name: 'Apply credentials' }).click();
+  await dialog
+    .locator('.auth-container')
+    .filter({ hasText: 'token' })
+    .getByRole('button', { name: 'Apply credentials' })
+    .click();
   await dialog.getByRole('button', { name: 'Close' }).first().click();
 
   const projects = operation(page, 'GET', '/projects');

@@ -1,7 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { installSnippet, SDK_BUNDLE_PATH, SDK_TEST_PAGE_PATH, testPageLink, ZONE_KEY_PLACEHOLDER } from '@taleart/contract/core';
+import {
+  installSnippet,
+  SDK_BUNDLE_PATH,
+  SDK_TEST_PAGE_PATH,
+  testPageLink,
+  ZONE_KEY_PLACEHOLDER,
+} from '@taleart/contract/core';
 import { App } from './app';
 import { AGENT_SESSION } from './agent-session';
 import { appRoutes, DOCS_GROUPS, DOCS_PAGES } from './app.routes';
@@ -56,7 +62,17 @@ describe('docs app', () => {
     const terms = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('#glossary tbody th')].map((th) =>
       th.childNodes[0].textContent?.trim(),
     );
-    expect(terms).toEqual(['Project', 'Zone', 'Display', 'Template', 'Tale group', 'Tale', 'Theme', 'Zone key', 'Site key']);
+    expect(terms).toEqual([
+      'Project',
+      'Zone',
+      'Display',
+      'Template',
+      'Tale group',
+      'Tale',
+      'Theme',
+      'Zone key',
+      'Site key',
+    ]);
   });
 
   it('says that zone keys are back and the stage attribute was removed, and how to move', async () => {
@@ -124,10 +140,18 @@ describe('docs app', () => {
   });
 
   it('groups the pages in six groups, none with a single page, in the navigation order', () => {
-    expect([...DOCS_GROUPS]).toEqual(['Introduction', 'Installation', 'Campaigns', 'Workspace', 'SDK guides', 'Reference']);
+    expect([...DOCS_GROUPS]).toEqual([
+      'Introduction',
+      'Installation',
+      'Campaigns',
+      'Workspace',
+      'SDK guides',
+      'Reference',
+    ]);
     const groups = DOCS_PAGES.map((p) => p.group).filter((g, i, all) => all.indexOf(g) === i);
     expect(groups).toEqual([...DOCS_GROUPS]);
-    for (const group of DOCS_GROUPS) expect(DOCS_PAGES.filter((p) => p.group === group).length, group).toBeGreaterThan(1);
+    for (const group of DOCS_GROUPS)
+      expect(DOCS_PAGES.filter((p) => p.group === group).length, group).toBeGreaterThan(1);
   });
 
   it('lists every page on the home page under its group, in the navigation order', async () => {
@@ -143,7 +167,9 @@ describe('docs app', () => {
         DOCS_PAGES.filter((p) => p.group === group && p.path !== '').map((p) => `/${p.path}`),
       );
     }
-    const platform = [...page.querySelector('#platform-guides ~ ul')?.querySelectorAll('a') ?? []].map((a) => a.getAttribute('href'));
+    const platform = [...(page.querySelector('#platform-guides ~ ul')?.querySelectorAll('a') ?? [])].map((a) =>
+      a.getAttribute('href'),
+    );
     expect(platform).toEqual(['/guides/web', '/android-guide', '/ios-guide']);
   });
 
@@ -161,7 +187,9 @@ describe('docs app', () => {
     const harness = await RouterTestingHarness.create();
     for (const path of ['/api-tokens', '/api-reference']) {
       await harness.navigateByUrl(path);
-      const hrefs = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('a')].map((a) => a.getAttribute('href'));
+      const hrefs = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('a')].map((a) =>
+        a.getAttribute('href'),
+      );
       expect(hrefs).toContain('/ai-agents');
     }
   });
@@ -173,7 +201,15 @@ describe('docs app', () => {
 
   it('labels every code block and table scroll region and keeps it focusable', async () => {
     const harness = await RouterTestingHarness.create();
-    for (const page of ['/', '/concepts', '/install', '/moving-from-stages', '/ai-agents', '/guides/web', '/reference/web-sdk']) {
+    for (const page of [
+      '/',
+      '/concepts',
+      '/install',
+      '/moving-from-stages',
+      '/ai-agents',
+      '/guides/web',
+      '/reference/web-sdk',
+    ]) {
       await harness.navigateByUrl(page);
       const regions = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('pre, .table-wrap')];
       expect(regions.length).toBeGreaterThan(0);
@@ -200,5 +236,60 @@ describe('docs app', () => {
     await fixture.whenStable();
     await new Promise((done) => setTimeout(done));
     expect(document.activeElement?.textContent).toBe('Concepts');
+  });
+
+  it('links the previous and next pages in navigation order, and the page source on GitHub', async () => {
+    const fixture = TestBed.createComponent(App);
+    await TestBed.inject(Router).navigateByUrl('/concepts');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const index = DOCS_PAGES.findIndex((page) => page.path === 'concepts');
+    expect(root.querySelector('.pager__link--prev')?.getAttribute('href')).toBe(`/${DOCS_PAGES[index - 1].path}`);
+    expect(root.querySelector('.pager__link--next')?.getAttribute('href')).toBe(`/${DOCS_PAGES[index + 1].path}`);
+    expect(root.querySelector('.edit-link a')?.getAttribute('href')).toBe(
+      'https://github.com/ido-lempert/Taleart/edit/main/apps/docs/src/app/pages/concepts.ts',
+    );
+  });
+
+  it('names the source file of every page, as a file name in the pages folder', () => {
+    for (const page of DOCS_PAGES) expect(page.file, page.path).toMatch(/^[a-z0-9-]+$/);
+  });
+
+  it('opens the navigation from the Menu button, closes it with Escape and returns the focus to the button', async () => {
+    const fixture = TestBed.createComponent(App);
+    await TestBed.inject(Router).navigateByUrl('/concepts');
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    const button = root.querySelector<HTMLButtonElement>('.site-header__menu');
+    const nav = root.querySelector('#docs-nav');
+    expect(button?.getAttribute('aria-controls')).toBe('docs-nav');
+    expect(button?.getAttribute('aria-expanded')).toBe('false');
+    button?.click();
+    fixture.detectChanges();
+    expect(button?.getAttribute('aria-expanded')).toBe('true');
+    expect(nav?.classList.contains('is-open')).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(button?.getAttribute('aria-expanded')).toBe('false');
+    expect(nav?.classList.contains('is-open')).toBe(false);
+    await new Promise((done) => setTimeout(done));
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('lists the headings of a page with two or more in "On this page", each with a link and a section link', async () => {
+    const fixture = TestBed.createComponent(App);
+    await TestBed.inject(Router).navigateByUrl('/reference/web-sdk');
+    await fixture.whenStable();
+    await new Promise((done) => setTimeout(done));
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const headings = [...root.querySelectorAll<HTMLElement>('#main h2[id], #main h3[id]')];
+    expect(headings.length).toBeGreaterThan(1);
+    const links = [...root.querySelectorAll<HTMLAnchorElement>('aside.toc a')];
+    expect(links.map((a) => a.getAttribute('href')?.split('#')[1])).toEqual(headings.map((h) => h.id));
+    expect(root.querySelectorAll('#main .heading-anchor').length).toBe(headings.length);
+    expect(root.querySelector('#main .heading-anchor')?.getAttribute('aria-label')).toBe('Link to this section');
   });
 });

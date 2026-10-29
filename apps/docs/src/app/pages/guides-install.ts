@@ -13,7 +13,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 </ul>
 <h2 id="run-it">Run it</h2>
 <p>The repo README documents:</p>
-<pre><code class="language-sh">npm ci
+<pre tabindex="0" role="region" aria-label="Install commands"><code class="language-sh">npm ci
 npx nx serve dashboard   # documented, not executed for this guide
 </code></pre>
 <p>This starts the API (port 3333) and the dashboard (port 4200); the dashboard proxies <code>/api</code> to the API. Sign-in redirect and passkeys use <code>http://localhost:4200</code> by default (<code>RP_ID</code>, <code>RP_ORIGIN</code>).</p>
