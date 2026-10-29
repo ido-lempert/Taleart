@@ -58,6 +58,9 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
       'Add poll',
       'Add rating',
       'Add quiz',
+      'Add countdown',
+      'Add promo code',
+      'Add reaction',
     ]);
     await expect(page.locator('#studio-add-test-badge')).toHaveCount(0);
     expect(await axeViolations(page)).toEqual([]);
@@ -103,7 +106,7 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
     await page.keyboard.press('Escape');
     await expect(search()).toHaveValue('');
     await expect(search()).toBeFocused();
-    expect((await tileIds()).length).toBe(20);
+    expect((await tileIds()).length).toBe(21);
     await page.keyboard.press('Escape');
     await expect(page.locator('[id^="studio-el-"]').first()).toBeFocused();
 
@@ -119,7 +122,8 @@ test.describe.serial('Tale Studio 2: a grouped, searchable palette (story 11.3)'
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('#studio-add-image')).toBeFocused();
     await page.keyboard.press('End');
-    await expect(page.locator('#studio-add-promo-code')).toBeFocused();
+    // End is the last tile in reading order: Reaction now follows Promo code.
+    await expect(page.locator('#studio-add-reaction')).toBeFocused();
     await page.keyboard.press('Home');
     await expect(page.locator('#studio-add-heading')).toBeFocused();
     await page.keyboard.press('ArrowUp');

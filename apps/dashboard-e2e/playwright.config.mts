@@ -50,7 +50,11 @@ export default defineConfig({
       },
     },
     {
-      command: 'node apps/dashboard-e2e/scripts/serve-dashboard.mjs',
+      // E2E_BUILT_DASHBOARD=1 serves the built bundle instead of the dev server (no Nx task lock on
+      // dashboard:serve:development). It needs `nx run dashboard:build:development` first.
+      command: process.env['E2E_BUILT_DASHBOARD'] === '1'
+        ? 'node apps/dashboard-e2e/scripts/serve-built-dashboard.mjs'
+        : 'node apps/dashboard-e2e/scripts/serve-dashboard.mjs',
       url: dashboardOrigin,
       cwd: workspaceRoot,
       reuseExistingServer: false,
