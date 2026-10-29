@@ -8,7 +8,7 @@ import { RouterLink } from '@angular/router';
   template: `
 <h1 tabindex="-1">Tale Studio</h1>
 <p>Tale Studio is the editor for one tale. It opens from <strong>Edit in Tale Studio</strong> in the tale panel.</p>
-<p><img class="guide-img" alt="Tale Studio" src="guides/images/11-tale-studio.png" /></p>
+<p><img class="guide-img" alt="Tale Studio" src="guides/images/11-tale-studio.png" width="1100" height="773" /></p>
 <h2 id="the-canvas">The canvas</h2>
 <ul>
 <li>The canvas is 9:16, like a phone screen.</li>
@@ -68,16 +68,16 @@ import { RouterLink } from '@angular/router';
 <p>Studio saves a draft as you work. Visitors keep seeing the last published version until you click <strong>Update tale</strong>. You can discard the draft, and duplicate or copy a document.</p>
 <h2 id="accessibility-checks">Accessibility checks</h2>
 <p>Studio warns about text with a contrast ratio below 4.5:1, about elements outside the safe area, and about images with no alt text.</p>
-<h3>Example: fixing a low-contrast heading</h3>
+<h3 id="example-fixing-a-low-contrast-heading">Example: fixing a low-contrast heading</h3>
 <ol>
 <li>Click <strong>Heading</strong> in the Elements palette and change its text.</li>
 <li>Studio saves ("All changes saved"), but the status says changes are not updated yet.</li>
 <li>Click <strong>Update tale</strong>. Studio confirms that visitors now see this version.</li>
 </ol>
-<p><img class="guide-img" alt="Heading with a low-contrast warning" src="guides/images/12-studio-heading-low-contrast.png" /></p>
+<p><img class="guide-img" alt="Heading with a low-contrast warning" src="guides/images/12-studio-heading-low-contrast.png" width="1100" height="773" /></p>
 <p>White text on a light photo scored about 1.4:1. Set the text <strong>Background</strong> to <strong>Highlight behind each line</strong> (or <strong>Solid box</strong>) with a dark colour. The panel then reports 21.0:1 for black.</p>
-<p><img class="guide-img" alt="After the fix" src="guides/images/14-studio-heading-fixed.png" />
-<img class="guide-img" alt="The fixed heading in the viewer" src="guides/images/13-viewer-with-heading.png" /></p>
+<p><img class="guide-img" alt="After the fix" src="guides/images/14-studio-heading-fixed.webp" width="1100" height="773" />
+<img class="guide-img" alt="The fixed heading in the viewer" src="guides/images/13-viewer-with-heading.webp" width="430" height="800" /></p>
 <p>Only the Heading element was exercised by hand for these guides. The other elements are described from the source.</p>
   `,
 })

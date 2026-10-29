@@ -4,8 +4,8 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { appRoutes } from '../app.routes';
 import { SDK_BUDGET } from './sdk-budget.generated';
 
-// The page's numbers are written by hand (web-performance.ts); this spec holds them to the measurement
-// that `nx run web-sdk:measure-budget` writes to sdk-budget.generated.ts.
+// The page reads its numbers from sdk-budget.generated.ts, the file `nx run web-sdk:measure-budget` writes;
+// this spec checks that the table shows them.
 
 describe('the performance page', () => {
   let page: HTMLElement;

@@ -45,7 +45,7 @@ import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from '../skill-files';
       with the <code>taleart</code> command-line tool, and tells it how to handle your API token.
     </p>
 
-    <h2>What the skill does</h2>
+    <h2 id="what-the-skill-does">What the skill does</h2>
     <ul>
       <li>
         Gives the agent the TaleArt words (project, zone, display, tale group, tale, site key, tags, user lists, Visible
@@ -63,7 +63,7 @@ import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from '../skill-files';
       <li>Has it report what changed: names, ids, On or Off, and whether each thing is visible on site.</li>
     </ul>
 
-    <h2>Safety rules</h2>
+    <h2 id="safety-rules">Safety rules</h2>
     <p>The skill tells the agent to:</p>
     <ul>
       <li>
@@ -106,7 +106,7 @@ import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from '../skill-files';
       </p>
     </div>
 
-    <h2>Install it</h2>
+    <h2 id="install-it">Install it</h2>
     <p>With the <code>taleart</code> command-line tool, in one line:</p>
     <pre
       tabindex="0"
@@ -131,7 +131,7 @@ cp -R skills/taleart ~/.claude/skills/taleart</code></pre>
       builds it to <code>dist/apps/cli/taleart.js</code> (Node 22 or later).
     </p>
 
-    <h2>Give it a token</h2>
+    <h2 id="give-it-a-token">Give it a token</h2>
     <ol class="steps">
       <li>
         Create an <a routerLink="/api-tokens">API token</a> in the dashboard (Settings &gt; API tokens): only the
@@ -151,7 +151,7 @@ read -rs TALEART_TOKEN &amp;&amp; export TALEART_TOKEN   # paste the token; it i
       prefix, never the token.
     </p>
 
-    <h2>An example session</h2>
+    <h2 id="an-example-session">An example session</h2>
     <p>
       The skill's main recipe, run through the CLI against a test API (answers shortened; the site key is redacted,
       and the token never appears):
@@ -169,7 +169,7 @@ read -rs TALEART_TOKEN &amp;&amp; export TALEART_TOKEN   # paste the token; it i
       }
     </ol>
 
-    <h2>The skill</h2>
+    <h2 id="the-skill">The skill</h2>
     <p>
       <code>SKILL.md</code> holds what an agent reads first; it points to the reference files for the rest. Download
       each file, or read it here.

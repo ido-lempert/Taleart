@@ -102,7 +102,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         the old, for that zone only.
         <figure>
           <img
-            src="/images/web-step-1-zone-key.svg"
+            src="images/web-step-1-zone-key.svg"
             alt="Diagram of the zone's Install tab: first with no key, then with the new key shown once next to a Copy button."
             width="640"
             height="320"
@@ -119,7 +119,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="npm install"><code>{{ npmSnippet }}</code></pre>
         <figure>
           <img
-            src="/images/web-step-2-script.svg"
+            src="images/web-step-2-script.svg"
             alt="Two options side by side: a script tag that loads the SDK from the API, or the npm package imported in the app. Both place the same taleart-view element."
             width="640"
             height="300"
@@ -135,7 +135,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="The zone element"><code>{{ elementSample }}</code></pre>
         <figure>
           <img
-            src="/images/web-view-bar.png"
+            src="images/web-view-bar.png"
             alt="A rendered bar zone: four circles with group names under them (Summer, New arrivals, Winter, Trips), each with a picture from its first tale."
             width="1120"
             height="284"
@@ -146,7 +146,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </figure>
         <figure>
           <img
-            src="/images/web-view-banner.png"
+            src="images/web-view-banner.png"
             alt="A rendered banner zone: a large picture slide with previous and next arrows, a pause button and four dots for the slides."
             width="1120"
             height="800"
@@ -164,7 +164,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Locale and strings"><code>{{ localeSample }}</code></pre>
         <figure>
           <img
-            src="/images/web-view-hebrew.png"
+            src="images/web-view-hebrew.png"
             alt="The viewer open on a Hebrew group, right to left: the group name at the top right, a close button and a pause button, and the progress bars across the top."
             width="780"
             height="1400"
@@ -190,7 +190,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </p>
         <figure>
           <img
-            src="/images/web-step-5-hooks.svg"
+            src="images/web-step-5-hooks.svg"
             alt="Diagram of one event's path: the element calls the element's hooks, then the page's init hooks, then dispatches a DOM event. A host route can call preventDefault to stop a link."
             width="640"
             height="330"
@@ -208,7 +208,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Test page link"><code>{{ testPageSample }}</code></pre>
         <figure>
           <img
-            src="/images/web-step-6-test-page.svg"
+            src="images/web-step-6-test-page.svg"
             alt="Diagram: the Install tab's Open test page link opens a test page served by TaleArt, whose URL carries the zone key after the hash sign."
             width="640"
             height="260"
@@ -217,7 +217,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </figure>
         <figure>
           <img
-            src="/images/web-view-viewer.png"
+            src="images/web-view-viewer.png"
             alt="The viewer open full screen on the Summer group of a phone-sized window: a sunset picture, a progress bar at the top, and the group name, a pause button and a close button."
             width="780"
             height="1400"
@@ -246,7 +246,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Load-failure placeholder"><code>{{ fallbackSample }}</code></pre>
         <figure>
           <img
-            src="/images/web-shot-failure-slot.png"
+            src="images/web-shot-failure-slot.png"
             alt="A home page with the heading Home and a zone that cannot load. In the zone's place is a card with a yellow-to-violet gradient and the text Today's stories are on their way and Check back in a moment, the placeholder from the slot."
             width="1120"
             height="376"
@@ -258,7 +258,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </figure>
         <figure>
           <img
-            src="/images/web-shot-failure-message.png"
+            src="images/web-shot-failure-message.png"
             alt="The same home page with the zone set to fallback message: the text Stories could not be loaded. in the zone's place, and a Try again button below it."
             width="1120"
             height="416"
@@ -291,7 +291,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Frequency cap"><code>{{ frequencySample }}</code></pre>
         <figure>
           <img
-            src="/images/web-shot-frequency-before.png"
+            src="images/web-shot-frequency-before.png"
             alt="A bar of three circles, each with a picture and a name under it: Morning, Afternoon and Evening. Nothing has been viewed yet."
             width="1120"
             height="284"
@@ -300,7 +300,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </figure>
         <figure>
           <img
-            src="/images/web-shot-frequency-after.png"
+            src="images/web-shot-frequency-after.png"
             alt="The same bar after a viewer opened the Morning group and the page was reloaded: the Morning circle is gone, and Afternoon and Evening remain."
             width="1120"
             height="284"
@@ -329,7 +329,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </ol>
         <figure>
           <img
-            src="/images/web-shot-countdown.png"
+            src="images/web-shot-countdown.png"
             alt="A tale in the viewer at phone size: a sunset sale picture with a white card that reads Sale ends in, and the days, hours and minutes left: 2 days, 5 hours and 40 minutes."
             width="780"
             height="1400"
@@ -338,7 +338,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </figure>
         <figure>
           <img
-            src="/images/web-shot-promo.png"
+            src="images/web-shot-promo.png"
             alt="A tale in the viewer at phone size: a teal picture with a gift box, and a white card with the title Your welcome gift, the code SUMMER25 in a dashed chip, its note, and a Copy button."
             width="780"
             height="1400"
@@ -356,7 +356,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Component event DOM event"><code>{{ componentDomSample }}</code></pre>
         <figure>
           <img
-            src="/images/web-shot-promo-copied.png"
+            src="images/web-shot-promo-copied.png"
             alt="The promo code card after a visitor pressed Copy: the code SUMMER25 in its chip, and the status under the button, Copied. The viewer's header at the top names the group, Welcome gift."
             width="780"
             height="1400"
@@ -392,7 +392,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <pre tabindex="0" role="region" aria-label="Reaction event hook"><code>{{ reactionSample }}</code></pre>
         <figure>
           <img
-            src="/images/web-shot-reaction.png"
+            src="images/web-shot-reaction.png"
             alt="The viewer at phone size on the Tonight group: a fireworks picture, and a white card with the title Your reaction, the question How do you feel? and three emoji buttons, a red heart, a face with tears of joy and a surprised face, with no counts yet."
             width="780"
             height="1400"
@@ -401,7 +401,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         </figure>
         <figure>
           <img
-            src="/images/web-shot-reaction-answered.png"
+            src="images/web-shot-reaction-answered.png"
             alt="The same card after a tap on the red heart: each emoji shows its count, 129, 41 and 17, and the heart is pressed, marked by a thicker border and a grey background."
             width="780"
             height="1400"
@@ -414,7 +414,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
     </ol>
 
-    <h2>When it is live</h2>
+    <h2 id="when-it-is-live">When it is live</h2>
     <p>
       The zone shows on the page once the key is in place, the zone has a display, and it has visible content. The
       zone page's <em>Visible on site</em> says so. A page that places a zone must keep its key: rotating the key stops

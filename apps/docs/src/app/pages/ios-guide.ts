@@ -403,10 +403,13 @@ import {
     <h2 id="backups">Backups and the visitor id</h2>
     <p>
       The SDK makes a visitor id once and keeps it in its own store on the device: the <code>taleart-sdk</code>
-      NSUserDefaults suite. It is random, not derived from the person or the device, and tied to no account. It is still a
-      stable identifier of an app install, so cover it in your privacy notice and your consent setup. Deleting the app
-      makes a new one, and iOS backups restore that store too. The docs do not yet show how to exclude it from a backup
-      (an open item), so a restored device keeps its id.
+      NSUserDefaults suite, under the key <code>taleart.visitor</code>. It is random, not derived from the person or the
+      device, and tied to no account. It is still a stable identifier of an app install, so cover it in your privacy
+      notice and your consent setup. Deleting the app makes a new one. iOS backups restore that store too, so a restored
+      device keeps its id. The SDK does not exclude the store from backups, and iOS has no backup rule for a single
+      defaults key. To start fresh after a restore, remove the key once, in the app, when it first runs after the
+      restore: <code>UserDefaults(suiteName: "taleart-sdk")?.removeObject(forKey: "taleart.visitor")</code>. The SDK makes
+      a new id the next time the app starts. Do not remove it on every launch, or every launch gets a new id.
     </p>
 
     <h2 id="not-yet">Not available natively yet</h2>

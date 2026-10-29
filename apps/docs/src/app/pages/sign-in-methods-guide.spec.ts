@@ -85,7 +85,7 @@ describe('the Sign-in methods guide', () => {
       const src = img?.getAttribute('src') ?? '';
       expect(img?.getAttribute('alt')?.trim().length ?? 0, src).toBeGreaterThan(40);
       expect(figures[0].querySelector('figcaption')?.textContent?.trim(), src).toBeTruthy();
-      const file = src.replace(/^\/images\//, '');
+      const file = src.replace(/^images\//, '');
       expect(existsSync(join(IMAGES, file)), file).toBe(true);
       expect(statSync(join(IMAGES, file)).size, file).toBeLessThanOrEqual(300 * 1024);
       const size = pngSize(file);

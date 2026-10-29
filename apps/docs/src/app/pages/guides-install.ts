@@ -17,7 +17,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 npx nx serve dashboard   # documented, not executed for this guide
 </code></pre>
 <p>This starts the API (port 3333) and the dashboard (port 4200); the dashboard proxies <code>/api</code> to the API. Sign-in redirect and passkeys use <code>http://localhost:4200</code> by default (<code>RP_ID</code>, <code>RP_ORIGIN</code>).</p>
-<h3>What was actually tested</h3>
+<h3 id="what-was-actually-tested">What was actually tested</h3>
 <ul>
 <li><code>npm ci</code> (Node 22).</li>
 <li>PostgreSQL on localhost:5432 with user, password and database <code>taleart</code> (the API's default).</li>
@@ -27,9 +27,9 @@ npx nx serve dashboard   # documented, not executed for this guide
 </ul>
 <h2 id="first-run-setup">First-run setup</h2>
 <p>The first screen creates the admin and your first project. You give a name, an email and a project name, then create a passkey (stored on your device or in your password manager), or a username and password if your server has TALEART_SETUP_PASSWORD=true.</p>
-<p><img class="guide-img" alt="First-run setup screen" src="guides/images/01-setup.png" /></p>
+<p><img class="guide-img" alt="First-run setup screen" src="guides/images/01-setup.png" width="1000" height="625" /></p>
 <p>After setup you land on the Zones page of your new project.</p>
-<p><img class="guide-img" alt="Dashboard after setup, no zones yet" src="guides/images/02-dashboard.png" /></p>
+<p><img class="guide-img" alt="Dashboard after setup, no zones yet" src="guides/images/02-dashboard.png" width="1000" height="625" /></p>
   `,
 })
 export class GuidesInstallPage {}

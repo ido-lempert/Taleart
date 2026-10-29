@@ -12,14 +12,14 @@ import { RouterLink } from '@angular/router';
 <p>A visitor sees a group only when all of these hold:</p>
 <ol>
 <li>The zone has a display.</li>
-<li>The project has an active site key, and the page uses it.</li>
+<li>The zone has an active zone key, and the page uses it.</li>
 <li>The group is <strong>On</strong> (not Off, paused or archived).</li>
 <li>The group is placed in the zone.</li>
 <li>The group has at least one <strong>Shown</strong> tale.</li>
 <li>Now is inside the group's schedule, if it has one.</li>
 <li>The visitor matches the group's tags and user lists, if it has any.</li>
 </ol>
-<p><img class="guide-img" alt="Not visible: group is off" src="guides/images/22-groups-visibility.png" /></p>
+<p><img class="guide-img" alt="Not visible: group is off" src="guides/images/22-groups-visibility.png" width="1280" height="800" /></p>
 <h2 id="common-cases">Common cases</h2>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
 <thead>
@@ -31,7 +31,7 @@ import { RouterLink } from '@angular/router';
 <tbody>
 <tr>
 <td>Nothing renders and the console shows one error</td>
-<td>The slug is wrong, or the site key was rotated or revoked.</td>
+<td>The slug is wrong, or the zone key was rotated or revoked.</td>
 </tr>
 <tr>
 <td>The zone says "group is off"</td>
@@ -51,7 +51,7 @@ import { RouterLink } from '@angular/router';
 </tr>
 </tbody>
 </table></div>
-<p>The <a routerLink="/install">test page</a> renders one zone with the SDK and asks for the site key. It is the quickest way to tell a page problem from a content problem.</p>
+<p>The <a routerLink="/install">test page</a> renders one zone with the SDK and asks for the zone key. It is the quickest way to tell a page problem from a content problem.</p>
   `,
 })
 export class VisibilityPage {}

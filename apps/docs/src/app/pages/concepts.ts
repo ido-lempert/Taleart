@@ -37,14 +37,14 @@ import { GLOSSARY } from '../docs-content';
       </table>
     </div>
 
-    <h2>How they fit together</h2>
+    <h2 id="how-they-fit-together">How they fit together</h2>
     <p>
       A project has zones and tale groups. Each zone has one display and shows tale groups in an order you set; one tale
       group can show in several zones. A tale group holds tales. The project's theme styles every zone, and a page
       shows a zone with that zone's key.
     </p>
 
-    <h2>On and Off, Shown and Hidden</h2>
+    <h2 id="on-and-off-shown-and-hidden">On and Off, Shown and Hidden</h2>
     <ul>
       <li>A tale group is <strong>On</strong> or <strong>Off</strong>. New groups start Off.</li>
       <li>

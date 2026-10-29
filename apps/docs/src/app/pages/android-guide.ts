@@ -108,8 +108,8 @@ import {
         <figure class="native-figure native-shot">
           <img
             src="images/android-shot-zone.png"
-            width="506"
-            height="900"
+            width="720"
+            height="1280"
             loading="lazy"
             alt="Screenshot of the TaleArt sample app on Android: a bar of three round covers with group names under them (Summer sale, Staff picks and a Hebrew group), below the app's title and Settings button."
           />
@@ -189,8 +189,8 @@ import {
         <figure class="native-figure native-shot">
           <img
             src="images/android-shot-viewer-he.png"
-            width="506"
-            height="900"
+            width="720"
+            height="1280"
             loading="lazy"
             alt="Screenshot of the TaleArt sample app's viewer on Android, open on a Hebrew group: a right-to-left Hebrew headline, text and call-to-action button over an illustrated slide, with the group name in a chip and pause and close buttons."
           />
@@ -219,8 +219,8 @@ import {
         <figure class="native-figure native-shot">
           <img
             src="images/android-shot-viewer.png"
-            width="506"
-            height="900"
+            width="720"
+            height="1280"
             loading="lazy"
             alt="Screenshot of the TaleArt sample app's viewer on Android, open on the Summer sale group: a Summer sale poster slide with a headline, a line of text and a Shop the sale button, with a group chip, pause and close buttons and four progress bars."
           />
@@ -229,8 +229,8 @@ import {
         <figure class="native-figure native-shot">
           <img
             src="images/android-shot-settings.png"
-            width="506"
-            height="900"
+            width="720"
+            height="1280"
             loading="lazy"
             alt="Screenshot of the TaleArt sample app's debug settings screen on Android, not an SDK screen: an API URL field, a zone key field with the key partly masked, and Load and Cancel buttons."
           />

@@ -58,8 +58,8 @@ describe('the Read your analytics guide', () => {
     expect(images.length).toBe(4);
     for (const img of images) {
       const src = img.getAttribute('src') ?? '';
-      expect(src).toMatch(/^\/images\/analytics-shot-[a-z]+\.png$/);
-      const file = src.slice('/images/'.length);
+      expect(src).toMatch(/^images\/analytics-shot-[a-z]+\.png$/);
+      const file = src.slice('images/'.length);
       expect(existsSync(join(IMAGES, file)), file).toBe(true);
       const size = pngSize(file);
       expect(size.width, file).toBeLessThanOrEqual(1200);

@@ -10,7 +10,7 @@ import { RouterLink } from '@angular/router';
 <p>A <strong>tale group</strong> is one circle in a bar (or one card in a banner). A <strong>tale</strong> is one full-screen page inside a group. A visitor taps a group and moves through its tales.</p>
 <h2 id="create-a-group">Create a group</h2>
 <p><strong>Tale groups</strong>, then <strong>New tale group</strong>. Name it and upload images or videos. Each file becomes one tale. New tales are <strong>Shown</strong>. New groups are <strong>Off</strong>: turn the group <strong>On</strong> to publish it.</p>
-<p><img class="guide-img" alt="The tale group list" src="guides/images/04-tale-groups.png" /></p>
+<p><img class="guide-img" alt="The tale group list" src="guides/images/04-tale-groups.png" width="1000" height="703" /></p>
 <h2 id="group-states">Group states</h2>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
 <thead>
@@ -49,12 +49,12 @@ import { RouterLink } from '@angular/router';
 <li><strong>Copy to zone</strong>: make an independent copy. Later edits do not carry over.</li>
 <li><strong>Archive</strong>.</li>
 </ul>
-<p><img class="guide-img" alt="The group menu" src="guides/images/16-group-menu.png" />
-<img class="guide-img" alt="The Schedule panel" src="guides/images/17-schedule.png" /></p>
+<p><img class="guide-img" alt="The group menu" src="guides/images/16-group-menu.png" width="1280" height="800" />
+<img class="guide-img" alt="The Schedule panel" src="guides/images/17-schedule.png" width="1280" height="800" /></p>
 <h2 id="tales">Tales</h2>
 <p>Open a group to see its tales. Use <strong>Add tale</strong> to add more. Click a tale to open its panel: <strong>Shown</strong> or <strong>Hidden</strong>, <strong>Archive</strong>, <strong>Delete</strong>, <strong>Replace media</strong> and <strong>Edit in Tale Studio</strong>. Reorder groups and tales by dragging. A tale can have its own schedule too.</p>
-<p><img class="guide-img" alt="Tale group page" src="guides/images/09-tale-group.png" />
-<img class="guide-img" alt="Tale panel" src="guides/images/10-tale-panel.png" /></p>
+<p><img class="guide-img" alt="Tale group page" src="guides/images/09-tale-group.png" width="1000" height="703" />
+<img class="guide-img" alt="Tale panel" src="guides/images/10-tale-panel.png" width="1100" height="773" /></p>
 <h2 id="limits">Limits</h2>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
 <thead>

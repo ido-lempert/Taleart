@@ -51,7 +51,7 @@ import { RouterLink } from '@angular/router';
 </tr>
 <tr>
 <td>Web, Android, iOS</td>
-<td><a routerLink="/guides-web-sdk">Web SDK</a>, <a routerLink="/guides-android-sdk">Android SDK</a>, <a routerLink="/guides-ios-sdk">iOS SDK</a></td>
+<td><a routerLink="/guides/web">Web guide</a>, <a routerLink="/android-guide">Android guide</a>, <a routerLink="/ios-guide">iOS guide</a></td>
 </tr>
 <tr>
 <td>API, tokens, CLI, agents</td>

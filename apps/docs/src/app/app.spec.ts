@@ -4,7 +4,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { installSnippet, SDK_BUNDLE_PATH, SDK_TEST_PAGE_PATH, testPageLink, ZONE_KEY_PLACEHOLDER } from '@taleart/contract/core';
 import { App } from './app';
 import { AGENT_SESSION } from './agent-session';
-import { appRoutes, DOCS_PAGES } from './app.routes';
+import { appRoutes, DOCS_GROUPS, DOCS_PAGES } from './app.routes';
 import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from './skill-files';
 
 const api = 'https://api.example.com';
@@ -114,13 +114,47 @@ describe('docs app', () => {
       'android-guide',
       'ios-guide',
       'reference/web-sdk',
-      'reference/analytics',
-      'reference/sign-in-methods',
       'reference/performance',
       'reference/android-sdk',
       'reference/ios-sdk',
+      'reference/analytics',
+      'reference/sign-in-methods',
       'ai-agents',
     ]);
+  });
+
+  it('groups the pages in six groups, none with a single page, in the navigation order', () => {
+    expect([...DOCS_GROUPS]).toEqual(['Introduction', 'Installation', 'Campaigns', 'Workspace', 'SDK guides', 'Reference']);
+    const groups = DOCS_PAGES.map((p) => p.group).filter((g, i, all) => all.indexOf(g) === i);
+    expect(groups).toEqual([...DOCS_GROUPS]);
+    for (const group of DOCS_GROUPS) expect(DOCS_PAGES.filter((p) => p.group === group).length, group).toBeGreaterThan(1);
+  });
+
+  it('lists every page on the home page under its group, in the navigation order', async () => {
+    const harness = await RouterTestingHarness.create('/');
+    const page = harness.routeNativeElement as HTMLElement;
+    const lists = [...page.querySelectorAll<HTMLElement>('h3[id^="index-"]')].map((h3) => ({
+      group: h3.textContent,
+      hrefs: [...(h3.nextElementSibling?.querySelectorAll('a') ?? [])].map((a) => a.getAttribute('href')),
+    }));
+    expect(lists.map((l) => l.group)).toEqual([...DOCS_GROUPS]);
+    for (const { group, hrefs } of lists) {
+      expect(hrefs, group ?? '').toEqual(
+        DOCS_PAGES.filter((p) => p.group === group && p.path !== '').map((p) => `/${p.path}`),
+      );
+    }
+    const platform = [...page.querySelector('#platform-guides ~ ul')?.querySelectorAll('a') ?? []].map((a) => a.getAttribute('href'));
+    expect(platform).toEqual(['/guides/web', '/android-guide', '/ios-guide']);
+  });
+
+  it('sends the three short SDK guides to the detailed guides', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/guides-web-sdk');
+    expect(TestBed.inject(Router).url).toBe('/guides/web');
+    await harness.navigateByUrl('/guides-android-sdk');
+    expect(TestBed.inject(Router).url).toBe('/android-guide');
+    await harness.navigateByUrl('/guides-ios-sdk');
+    expect(TestBed.inject(Router).url).toBe('/ios-guide');
   });
 
   it('links AI agents from API tokens and API reference', async () => {

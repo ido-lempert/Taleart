@@ -48,7 +48,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         tab. API tokens are unchanged by any of this.
         <figure>
           <img
-            src="/images/signin-shot-01-methods.png"
+            src="images/signin-shot-01-methods.png"
             alt="The Sign-in methods page of Settings on a fresh install. A red notice, Provider secrets cannot be saved yet, sits above the Methods section. Passkey is on, Username and password is off, and the Providers section is empty."
             width="1000"
             height="900"
@@ -68,7 +68,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         <pre tabindex="0" role="region" aria-label="Allow a password for the first admin"><code>{{ setupPasswordSample }}</code></pre>
         <figure>
           <img
-            src="/images/signin-shot-02-password.png"
+            src="images/signin-shot-02-password.png"
             alt="The Methods section with Username and password switched on. Both Passkey and Username and password read On; the notice about the secret key is still shown above."
             width="1000"
             height="900"
@@ -86,7 +86,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         <em>Test</em>: the check passes when the provider's settings work.
         <figure>
           <img
-            src="/images/signin-shot-03-google-drawer.png"
+            src="images/signin-shot-03-google-drawer.png"
             alt="The Add a sign-in provider drawer with Google chosen. Button name is Google, Client ID holds an example value, and the client secret is masked. The redirect URI note says it appears once the provider is saved."
             width="420"
             height="900"
@@ -104,7 +104,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         <em>The provider did not pass the check: discovery_failed</em>.
         <figure>
           <img
-            src="/images/signin-shot-04-oidc-test.png"
+            src="images/signin-shot-04-oidc-test.png"
             alt="The Edit Company SSO drawer of a saved generic OpenID Connect provider. Its client secret shows only as Secret is set, the redirect URI is visible, and Test reports that the provider settings work, with the issuer and the endpoints found."
             width="420"
             height="900"
@@ -122,7 +122,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         The private key is stored encrypted, like a client secret.
         <figure>
           <img
-            src="/images/signin-shot-05-apple-drawer.png"
+            src="images/signin-shot-05-apple-drawer.png"
             alt="The Add a sign-in provider drawer with Apple chosen. Client ID, Team ID and Key ID hold example values, and the Private key (.p8) field holds the placeholder text. Nothing is saved."
             width="420"
             height="900"
@@ -138,7 +138,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         stored, and the server has its key. A method that is off is not shown at all.
         <figure>
           <img
-            src="/images/signin-shot-06-sign-in.png"
+            src="images/signin-shot-06-sign-in.png"
             alt="The sign-in page for a signed-out browser: the Sign in heading, Sign in with a passkey, a username and password form, and a Continue with Company SSO button for the provider."
             width="1000"
             height="900"
@@ -157,7 +157,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         itself: it can only join an invitation or be linked by a user who is signed in.
         <figure>
           <img
-            src="/images/signin-shot-07-invitation.png"
+            src="images/signin-shot-07-invitation.png"
             alt="The invitation page Join Shop on TaleArt, opened by a signed-out visitor. It has Name and Email fields, Create passkey, a username and password form with Join with a password, and a Continue with Company SSO button for the provider."
             width="1000"
             height="1038"
@@ -173,7 +173,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         choose <em>Link a provider</em> to attach one to the account. A method can be removed only while another one remains.
         <figure>
           <img
-            src="/images/signin-shot-08-my-methods.png"
+            src="images/signin-shot-08-my-methods.png"
             alt="The My sign-in methods page of an admin: Passkeys says No passkeys, Username and password shows the username and Change password and Remove password buttons, and Linked providers offers Continue with Company SSO under Link a provider."
             width="1000"
             height="900"
@@ -191,7 +191,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         link replaces the earlier unused ones.
         <figure>
           <img
-            src="/images/signin-shot-09-reset-link.png"
+            src="images/signin-shot-09-reset-link.png"
             alt="The Reset link for Sam Example dialog. The Password reset link field is blurred, and a note says the link works once until a date and is shown only now. Copy link and Done are below it."
             width="420"
             height="900"
@@ -209,7 +209,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         that each admin signs in with it, and only then turn the old one off.
         <figure>
           <img
-            src="/images/signin-shot-10-lockout.png"
+            src="images/signin-shot-10-lockout.png"
             alt="The Sign-in methods page with the passkey switched off. A red message reads: That would leave an admin with no way to sign in. Every admin needs a passkey, a password, or a linked provider that is on."
             width="1000"
             height="900"

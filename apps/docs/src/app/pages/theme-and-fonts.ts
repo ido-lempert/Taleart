@@ -8,7 +8,7 @@ import { RouterLink } from '@angular/router';
   template: `
 <h1 tabindex="-1">Theme and fonts</h1>
 <p>The theme sets how bars and banners look. Open <strong>Projects</strong>, then <strong>Theme</strong> for a project.</p>
-<p><img class="guide-img" alt="Project theme" src="guides/images/18-theme.png" /></p>
+<p><img class="guide-img" alt="Project theme" src="guides/images/18-theme.png" width="1280" height="800" /></p>
 <h2 id="fields">Fields</h2>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
 <thead>
@@ -60,7 +60,7 @@ import { RouterLink } from '@angular/router';
 <p>A value is read from the most specific place that sets it: the element's <code>theme</code> attribute, then <code>configureZone</code> in the page's script, then the project theme, then the default. Examples are on <a routerLink="/install">Install a zone</a>.</p>
 <h2 id="project-fonts">Project fonts</h2>
 <p><strong>Projects</strong>, then <strong>Fonts</strong>. Upload a WOFF2 file (at most 500 KB), give it a family name, weight and style, and confirm you may use and distribute it. Tale Studio and the SDK can then use the family. Text shows in the fallback font until the font has loaded.</p>
-<p><img class="guide-img" alt="Fonts" src="guides/images/19-fonts.png" /></p>
+<p><img class="guide-img" alt="Fonts" src="guides/images/19-fonts.png" width="1280" height="800" /></p>
   `,
 })
 export class ThemeAndFontsPage {}

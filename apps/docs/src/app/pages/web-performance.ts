@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { SDK_BUDGET } from './sdk-budget.generated';
 
-// The budget figures are the sizes the build measures (libs/web-sdk/scripts/measure-budget.mjs). They are
-// written here as numbers, and web-performance.spec.ts fails when they differ from SDK_BUDGET in
-// sdk-budget.generated.ts: after a new measurement, change both.
+// The budget figures are read from SDK_BUDGET, the sizes the build measured
+// (libs/web-sdk/scripts/measure-budget.mjs writes sdk-budget.generated.ts).
 @Component({
   selector: 'docs-web-performance',
   imports: [RouterLink],
@@ -33,13 +33,13 @@ import { RouterLink } from '@angular/router';
         <tbody>
           <tr>
             <td>ES module build (<code>index.js</code>), gzipped</td>
-            <td>50 KB</td>
-            <td>37.32 KB</td>
+            <td>{{ budgetKb }} KB</td>
+            <td>{{ esmKb }} KB</td>
           </tr>
           <tr>
             <td>UMD build (<code>index.umd.cjs</code>), gzipped</td>
-            <td>50 KB</td>
-            <td>34.11 KB</td>
+            <td>{{ budgetKb }} KB</td>
+            <td>{{ umdKb }} KB</td>
           </tr>
           <tr>
             <td>Script requests per page</td>
@@ -91,10 +91,14 @@ pnpm nx run web-sdk:size</code></pre>
     </p>
     <pre><code>pnpm nx test docs</code></pre>
     <p>
-      The docs test <em>web-performance.spec.ts</em> fails when a number on this page differs from the generated file.
+      The numbers above are read from the measured file the build writes, so they change with each measurement.
       To check the requests yourself, open your page with the browser's developer tools on the Network tab: one script
       request, one request per zone, and no request to another host.
     </p>
   `,
 })
-export class WebPerformancePage {}
+export class WebPerformancePage {
+  protected readonly budgetKb = SDK_BUDGET.budgetKb;
+  protected readonly esmKb = SDK_BUDGET.esmGzipKb.toFixed(2);
+  protected readonly umdKb = SDK_BUDGET.umdGzipKb.toFixed(2);
+}

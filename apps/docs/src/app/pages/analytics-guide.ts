@@ -31,7 +31,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
         a shared link shows the same window.
         <figure>
           <img
-            src="/images/analytics-shot-tab.png"
+            src="images/analytics-shot-tab.png"
             alt="The Analytics tab of a zone with 30 days chosen: seven metric tiles across the top with their numbers, and below them a line chart of daily impressions and clicks that rises through the month and peaks on a launch day."
             width="980"
             height="829"
@@ -49,7 +49,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
         divided by Reach, and the tile says so.
         <figure>
           <img
-            src="/images/analytics-shot-definition.png"
+            src="images/analytics-shot-definition.png"
             alt="The metric tiles with the Engagement rate tile's Definition open. It reads: engaged visitors divided by Reach, as a percentage, one decimal, where engaged visitors are the distinct visitors with at least one impression and at least one open in the period."
             width="930"
             height="460"
@@ -65,7 +65,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
         reach, opens and engagement name a group. Reach is distinct per row, so a total is not the sum of its rows.
         <figure>
           <img
-            src="/images/analytics-shot-tables.png"
+            src="images/analytics-shot-tables.png"
             alt="Two tables. By tale group lists four groups with impressions, reach, opens, tale views, clicks, engagement rate and CTR. By tale lists tales with their group, a dash where a group-level count does not apply, views, clicks and CTR."
             width="930"
             height="721"
@@ -83,7 +83,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
         <pre tabindex="0" role="region" aria-label="Turn analytics off for one element"><code>{{ optOutElementSample }}</code></pre>
         <figure>
           <img
-            src="/images/analytics-shot-empty.png"
+            src="images/analytics-shot-empty.png"
             alt="The Analytics tab of a zone with no events: the heading No events yet, a paragraph that says the counts stay at zero until a visitor sees a tale group, and the note on setting analytics off on the element or with Taleart.init."
             width="980"
             height="406"
@@ -96,7 +96,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
       </li>
     </ol>
 
-    <h2>Where the numbers come from</h2>
+    <h2 id="where-the-numbers-come-from">Where the numbers come from</h2>
     <p>
       The Web SDK sends four events: an impression when a group is half on screen, an open, a view of a tale and a click
       on a tale's button. Events are sent in batches. The Delivery API accepts an event up to 7 days after it happened, and

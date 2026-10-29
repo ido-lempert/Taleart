@@ -44,8 +44,8 @@ test('loads Swagger UI only on the API reference page', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('h1')).toHaveText('Getting started');
   expect(scripts.filter((u) => u.includes('swagger-ui'))).toEqual([]);
-  // The Developers group is collapsed on the home page.
-  await page.locator('details.side-nav__section', { has: page.locator('summary', { hasText: 'Developers' }) }).locator('summary').click();
+  // The Reference group is collapsed on the home page.
+  await page.locator('details.side-nav__section', { has: page.locator('summary', { hasText: 'Reference' }) }).locator('summary').click();
   await page.getByRole('link', { name: 'API reference' }).click();
   await expect(page.locator('.swagger-ui .opblock').first()).toBeVisible();
   expect(scripts.filter((u) => u.includes('swagger-ui-bundle.js'))).toHaveLength(1);

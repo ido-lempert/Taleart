@@ -67,8 +67,8 @@ describe('the Web guide page', () => {
   it('points only at images that exist, sized as the files are', () => {
     for (const img of page.querySelectorAll('img')) {
       const src = img.getAttribute('src') ?? '';
-      expect(src.startsWith('/images/web-')).toBe(true);
-      const file = src.slice('/images/'.length);
+      expect(src.startsWith('images/web-')).toBe(true);
+      const file = src.slice('images/'.length);
       expect(existsSync(join(IMAGES, file)), file).toBe(true);
       expect({ file, width: Number(img.getAttribute('width')), height: Number(img.getAttribute('height')) }).toEqual({
         file,

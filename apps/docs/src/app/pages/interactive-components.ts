@@ -52,11 +52,11 @@ import { RouterLink } from '@angular/router';
 
 <h2 id="in-tale-studio">In Tale Studio</h2>
 <p>Countdown, promo code and reaction are in the <strong>Interactive</strong> group of the Elements palette, with poll, rating and quiz.</p>
-<p><img class="guide-img" src="/images/studio-shot-palette.png" width="223" height="509" alt="The Elements palette's Interactive group: Poll, Rating and Quiz in the first row, and in the second row Countdown, Promo code and Reaction, each with its icon." /></p>
+<p><img class="guide-img" src="images/studio-shot-palette.png" width="223" height="509" alt="The Elements palette's Interactive group: Poll, Rating and Quiz in the first row, and in the second row Countdown, Promo code and Reaction, each with its icon." /></p>
 <p>Each one's inspector lists its fields. A countdown's inspector:</p>
-<p><img class="guide-img" src="/images/studio-shot-countdown-inspector.png" width="296" height="509" alt="The inspector of a countdown: Ends at (UTC) with a date and time in ISO 8601 UTC, a title Sale ends in, Text when it ends, the theme and the position and size." /></p>
+<p><img class="guide-img" src="images/studio-shot-countdown-inspector.png" width="296" height="509" alt="The inspector of a countdown: Ends at (UTC) with a date and time in ISO 8601 UTC, a title Sale ends in, Text when it ends, the theme and the position and size." /></p>
 <p>A promo code's inspector:</p>
-<p><img class="guide-img" src="/images/studio-shot-promo-code-inspector.png" width="296" height="509" alt="The inspector of a promo code: the code SUMMER25, a title Your welcome gift, a note 20% off sandals, until Sunday, the theme and the position and size." /></p>
+<p><img class="guide-img" src="images/studio-shot-promo-code-inspector.png" width="296" height="509" alt="The inspector of a promo code: the code SUMMER25, a title Your welcome gift, a note 20% off sandals, until Sunday, the theme and the position and size." /></p>
 
 <h2 id="countdown">Countdown</h2>
 <p>
@@ -174,8 +174,8 @@ import { RouterLink } from '@angular/router';
   In the studio, a reaction shows its question on the canvas. Its inspector lists the question, the title, the theme and the
   emoji, in the order they show to a visitor:
 </p>
-<p><img class="guide-img" src="/images/studio-shot-reaction-studio.png" width="1200" height="750" alt="Tale Studio with a reaction on the canvas: its question, How do you feel?, in a box on the purple tale, and the Reaction tile in the Interactive group of the palette greyed, since a tale holds one." /></p>
-<p><img class="guide-img" src="/images/studio-shot-reaction-inspector.png" width="296" height="509" alt="The inspector of a reaction: the question How do you feel?, the title Your reaction, the theme Light, and the start of the Emoji list: a red heart and a face with tears of joy, each with a Choose emoji button." /></p>
+<p><img class="guide-img" src="images/studio-shot-reaction-studio.png" width="1200" height="750" alt="Tale Studio with a reaction on the canvas: its question, How do you feel?, in a box on the purple tale, and the Reaction tile in the Interactive group of the palette greyed, since a tale holds one." /></p>
+<p><img class="guide-img" src="images/studio-shot-reaction-inspector.png" width="296" height="509" alt="The inspector of a reaction: the question How do you feel?, the title Your reaction, the theme Light, and the start of the Emoji list: a red heart and a face with tears of joy, each with a Choose emoji button." /></p>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Reaction props"><table>
 <caption>Reaction props</caption>
 <thead>
@@ -229,7 +229,7 @@ import { RouterLink } from '@angular/router';
   In Tale Studio, the inspector of a poll, quiz, rating or reaction has a <strong>Responses</strong> panel. Press
   <strong>Refresh</strong> to read the counts: for a reaction, each emoji with its taps and the total.
 </p>
-<p><img class="guide-img" src="/images/studio-shot-reaction-responses.png" width="271" height="260" alt="The Responses panel of a reaction after Refresh: a red heart with 14, a face with tears of joy with 6 and a surprised face with 2, and 22 reactions in total." /></p>
+<p><img class="guide-img" src="images/studio-shot-reaction-responses.png" width="271" height="260" alt="The Responses panel of a reaction after Refresh: a red heart with 14, a face with tears of joy with 6 and a surprised face with 2, and 22 reactions in total." /></p>
 <p>Counts are kept per visitor id (a random id in the browser's local storage), so they are indicative only. The same person on two devices counts twice, and clearing storage resets the count.</p>
 <h2 id="not-in-the-current-source">Not in the current source</h2>
 <p>A dashboard page with charts for answers, and a per-tale analytics view, were not found in the current source.</p>

@@ -166,7 +166,6 @@ import {
             <th scope="col">When it fires</th>
             <th scope="col">Payload</th>
             <th scope="col">Can handle</th>
-            <th scope="col">Native SDK</th>
           </tr>
         </thead>
         <tbody>
@@ -176,7 +175,6 @@ import {
               <td>{{ row.fired }}</td>
               <td>{{ row.payload }}</td>
               <td>{{ row.handles }}</td>
-              <td>{{ row.native ? 'Yes' : 'Not yet' }}</td>
             </tr>
           }
         </tbody>

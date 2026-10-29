@@ -8,7 +8,7 @@ same summary.
 | Project | Holds zones, tale groups, user lists, tags and one site key. A token may reach only some projects. | `Project` (`id`, `name`) |
 | Zone | A place on the site where tales show, named by its **slug** (lowercase letters, digits and hyphens, such as `home-top`). A page places it with `<taleart-view zone="home-top">`. | `Zone` (`id`, `slug`, `name`, `frame`, `visibility`) |
 | Display | How a zone shows its tale groups: a **bar** (a row of circles, one per group) or a **banner** (wide slides that rotate). A zone has at most one. | `Zone.frame` (`type`, `settings`); `taleart zones display-types` |
-| Site key | `tas_...`, one per project, shown only once when issued. Pages send it to the Delivery API with the zone slug. Rotating it breaks every page that has the old one. | `IssuedSiteKey.key` (once), `SiteKeyInfo.prefix` |
+| Site key | `tas_...`, one per project, shown only once when issued. Server-side callers send it to the Delivery API with the zone slug. Web pages use each zone's zone key instead. Rotating it breaks every server that has the old one. | `IssuedSiteKey.key` (once), `SiteKeyInfo.prefix` |
 | Install snippet | The script tag and `<taleart-view>` element for a page, and a test page link. | `taleart zones snippet` |
 | Tale group | A set of tales, one circle in a bar or one slide in a banner. Belongs to the project; placed in one or more zones, in an order per zone. | `TaleGroup` (`id`, `name`, `status`, `storedStatus`, `zoneIds`, `tales`, `tags`, `tagMatch`, `userLists`, `visibility`) |
 | On / Off | A group shows only when **On** (stored `live`). New groups start Off (`draft`); Off is `paused`. | `taleart groups on`, `taleart groups off` |

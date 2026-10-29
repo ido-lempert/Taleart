@@ -195,7 +195,7 @@ type State = 'loading' | 'ready' | 'failed';
       your TaleArt API.
     </p>
 
-    <h2>Before you try</h2>
+    <h2 id="before-you-try">Before you try</h2>
     <ol class="steps">
       <li>
         Set the <strong>API URL</strong> below to your TaleArt API. It starts as the local API,
@@ -250,7 +250,7 @@ type State = 'loading' | 'ready' | 'failed';
     </form>
     <p class="api-status" role="status">{{ statusText() }}</p>
 
-    <h2>Operations</h2>
+    <h2 id="operations">Operations</h2>
     @if (state() === 'failed') {
       <p>
         The reference could not load. The OpenAPI document is

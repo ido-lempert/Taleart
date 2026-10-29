@@ -13,7 +13,7 @@ import { RouterLink } from '@angular/router';
       signing in with a passkey.
     </p>
 
-    <h2>Create one</h2>
+    <h2 id="create-one">Create one</h2>
     <ol class="steps">
       <li>In the dashboard, open <strong>Settings</strong>, then <strong>API tokens</strong>.</li>
       <li>
@@ -26,7 +26,7 @@ import { RouterLink } from '@angular/router';
       </li>
     </ol>
 
-    <h2>Use it</h2>
+    <h2 id="use-it">Use it</h2>
     <p>Send it in the <code>Authorization</code> header of each request:</p>
     <pre><code>curl -H "Authorization: Bearer $TALEART_TOKEN" https://your-taleart-api/api/v1/zones</code></pre>
     <p>
@@ -39,7 +39,7 @@ import { RouterLink } from '@angular/router';
       token when its task only reads.
     </p>
 
-    <h2>What a token can do</h2>
+    <h2 id="what-a-token-can-do">What a token can do</h2>
     <ul>
       <li>
         It acts as you, as you are at the time of each request: your role and your projects. It reaches the projects you
@@ -57,7 +57,7 @@ import { RouterLink } from '@angular/router';
       </li>
     </ul>
 
-    <h2>What a token can never do</h2>
+    <h2 id="what-a-token-can-never-do">What a token can never do</h2>
     <ul>
       <li>Create, list or revoke API tokens.</li>
       <li>Sign in or out, set up TaleArt, or manage passkeys and sessions.</li>
@@ -66,7 +66,7 @@ import { RouterLink } from '@angular/router';
     </ul>
     <p>Those need you, signed in to the dashboard with one of your sign-in methods (a passkey, a password or a linked provider).</p>
 
-    <h2>Revoke and limits</h2>
+    <h2 id="revoke-and-limits">Revoke and limits</h2>
     <ul>
       <li>Revoke a token under Settings &gt; API tokens; it stops working at once.</li>
       <li>
