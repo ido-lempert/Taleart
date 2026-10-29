@@ -1,0 +1,23 @@
+# Docs shell redesign and content repair (2026-10-29)
+
+Owner request: go through all docs (not everything is up to date, some images are broken) and make the shell look more professional, in the way of a mature framework docs site. No competing product is named anywhere in the docs; this is a visual reference only.
+
+## Repair (from the audit, scratchpad docs-audit.md)
+1. Images: relative `images/...` everywhere (never `/images/...`): the GitHub Pages build serves under `/Taleart/`. Add a docs-e2e or unit check that fails on any `src="/..."` absolute path in page templates and on any referenced file that does not exist.
+2. Site key is not the install credential: zone key (`tak_`, `zone-key`). Fix every page the audit lists. Site key stays only on the "server-side / legacy" mentions.
+3. Merge or remove the three short SDK guides (`guides-web-sdk`, `guides-android-sdk`, `guides-ios-sdk`) into the detailed guides; keep redirects (route aliases) so old URLs still work.
+4. Re-take stale screenshots (22 dated 2026-10-26) with the current dashboard using the throwaway-DB scripts (studio-shots.mjs pattern), and compress images over 400 KB. Match width/height attributes to files.
+5. Navigation order: Introduction, Installation, Guides (campaigns), Targeting and audience merged into Campaigns or Workspace (no one-item group), Developers split in "Guides" and "Reference". Every h2/h3 gets an id.
+6. Counts, env vars, step numbers verified against code (the specs exist for most: keep them green).
+
+## Shell (apps/docs/src/app/app.{ts,html,css}, ../styles.css, new small components)
+The owner has uncommitted WIP in app.{css,html,ts}: a mobile "Menu" button (`menuOpen` signal, `aria-controls="docs-nav"`). Keep that behaviour and build on it.
+- Layout: sticky header (logo + "TaleArt docs", search, version badge from the SDK package version, GitHub link, theme toggle), left sidebar with collapsible groups and the current page highlighted, article column with a readable measure (about 72ch), right column "On this page" (h2/h3 of the page, scroll-spy), previous/next links at the bottom, "Edit this page on GitHub" link. Breakpoints: ≥1200 three columns, 768-1199 two columns (TOC collapses into a dropdown above the article), <768 one column with the existing Menu button.
+- Design tokens (CSS custom properties) for color, type scale, spacing, radius, shadows; light and dark themes (`prefers-color-scheme` by default, a toggle that stores the choice in localStorage inside try/catch; no flash: set the theme attribute before first paint), brand color = the dashboard's primary (read apps/dashboard styles) with accessible contrast (WCAG AA for text, 3:1 for UI), visible focus rings, `prefers-reduced-motion` honoured.
+- Typography: system UI stack with a self-hosted variable font only if it is already in the repo (no external font CDN, no third-party requests): otherwise the system stack; monospace stack for code. Headings with anchor links on hover and keyboard focus.
+- Content components (pure CSS classes usable inside the existing inline templates, no breaking change to them): code blocks with a language label and a Copy button (progressive enhancement via one small directive/script, works without JS as plain code), inline code, tables (zebra, sticky header, horizontal scroll region already labelled by the existing a11y rule), callouts (note, tip, warning, security) as `<aside class="callout callout--note">`, numbered steps (`ol.steps`) with big step numbers, figures with captions and a click-to-zoom (a `<dialog>`), definition lists, keyboard shortcut chips.
+- Search: client-side, built at build time from the page templates (title, headings, first paragraphs) into a small JSON file (script in apps/docs/scripts, run by a build target), a command-palette style dialog opened with `/` or Ctrl/Cmd+K, results grouped by page with highlighted match, fully keyboard operable, announced results count. No external service.
+- Home page (Getting started): a hero with the one-line value, three path cards (Web, Android, iOS) linking to the guides, then the guide index by group.
+- Print stylesheet: hide chrome, show the article, expand links.
+- Must keep: the a11y e2e suite (docs-e2e, axe) passing, the skip link, landmarks, lazy-loaded pages, prerendering of every route, bundle budget (initial ≤ 500 KB warning), docs-terms and all unit specs, no horizontal scroll at 320 px, RTL not required.
+- Verification: Playwright screenshots of home, a guide, a reference page and a long table page in light and dark at 1440, 900 and 390 px widths, looked at by the main agent before acceptance.
