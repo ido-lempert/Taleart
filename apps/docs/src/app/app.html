@@ -4,19 +4,24 @@
 </header>
 <div class="layout">
   <nav class="side-nav" aria-label="Docs">
-    <ul>
-      @for (page of pages; track page.path) {
-        <li>
-          <a
-            [routerLink]="'/' + page.path"
-            routerLinkActive="is-active"
-            [routerLinkActiveOptions]="{ exact: true }"
-            ariaCurrentWhenActive="page"
-            >{{ page.label }}</a
-          >
-        </li>
-      }
-    </ul>
+    @for (group of groups; track group.name) {
+      <details class="side-nav__section" [open]="isOpen(group.name)" (toggle)="onToggle(group.name, $event)">
+        <summary>{{ group.name }}</summary>
+        <ul>
+          @for (page of group.pages; track page.path) {
+            <li>
+              <a
+                [routerLink]="'/' + page.path"
+                routerLinkActive="is-active"
+                [routerLinkActiveOptions]="{ exact: true }"
+                ariaCurrentWhenActive="page"
+                >{{ page.label }}</a
+              >
+            </li>
+          }
+        </ul>
+      </details>
+    }
   </nav>
   <main id="main" class="content" tabindex="-1">
     <router-outlet />

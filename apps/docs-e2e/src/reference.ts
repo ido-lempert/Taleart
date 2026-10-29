@@ -4,7 +4,7 @@ import { workspaceRoot } from '@nx/devkit';
 import { expect, type Page } from '@playwright/test';
 
 /** The docs' pages, by path, as the navigation lists them (apps/docs/src/app/app.routes.ts). */
-export const DOCS_PATHS = ['/', '/concepts', '/install', '/api-tokens', '/api-reference', '/ai-agents', '/moving-from-stages', '/targeting', '/guides/web', '/reference/web-sdk', '/reference/performance', '/android-guide', '/ios-guide', '/reference/android-sdk', '/reference/ios-sdk'];
+export const DOCS_PATHS = ['/', '/concepts', '/install', '/targeting', '/api-tokens', '/api-reference', '/ai-agents', '/moving-from-stages', '/guides-install', '/guides-create-campaign', '/guides-connect-website', '/zones-and-displays', '/tale-groups-and-tales', '/tale-studio', '/interactive-components', '/theme-and-fonts', '/visibility', '/projects-and-team', '/import-from-another-tool', '/guides-web-sdk', '/guides-android-sdk', '/guides-ios-sdk', '/cli', '/coverage-and-limits', '/guides/web', '/reference/web-sdk', '/reference/performance', '/android-guide', '/ios-guide', '/reference/android-sdk', '/reference/ios-sdk'];
 
 /** The localStorage key of the API reference's API URL (`API_URL_STORAGE_KEY` in api-reference-spec.ts). */
 export const API_URL_KEY = 'taleart-docs:api-reference:api-url';
