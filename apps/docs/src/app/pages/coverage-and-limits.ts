@@ -65,7 +65,7 @@ import { RouterLink } from '@angular/router';
 <li>Multi-step flows and other widget types beyond the bar and the banner.</li>
 <li>Integrations with marketing platforms.</li>
 <li>React Native and Flutter SDKs.</li>
-<li>An analytics dashboard. Interactive answers are readable through the API only.</li>
+<li>Charts of interactive answers. The Analytics tab counts impressions, opens, views and clicks; answers are read through the API or the Tale Studio's Responses panel.</li>
 </ul>
 <h2 id="verification-limits">Verification limits</h2>
 <ul>

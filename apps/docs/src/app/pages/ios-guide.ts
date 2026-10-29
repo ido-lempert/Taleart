@@ -20,7 +20,7 @@ import {
     <h1 tabindex="-1">iOS guide</h1>
     <p class="lede">
       Show a TaleArt zone in an iOS app with the iOS SDK: a view controller for UIKit, or a SwiftUI view made from it.
-      You need the zone key from the dashboard, the same key the Web SDK uses.
+      You need the zone key from the dashboard, the same key the Web SDK uses. The iOS SDK does not send analytics events yet, so the zone's Analytics tab counts the web only.
     </p>
 
     <h2 id="before">Before you start</h2>

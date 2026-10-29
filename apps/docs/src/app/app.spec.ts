@@ -108,10 +108,12 @@ describe('docs app', () => {
     expect(page?.loadComponent).toBeDefined();
     expect(page?.component).toBeUndefined();
     expect(DOCS_PAGES.filter((p) => p.loadComponent).map((p) => p.path)).toEqual([
+      'guides/analytics',
       'guides/web',
       'android-guide',
       'ios-guide',
       'reference/web-sdk',
+      'reference/analytics',
       'reference/performance',
       'reference/android-sdk',
       'reference/ios-sdk',

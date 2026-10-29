@@ -26,7 +26,7 @@ import {
     <h1 tabindex="-1">Android guide</h1>
     <p class="lede">
       Show a TaleArt zone in an Android app with the Android SDK: a view for XML layouts, or a composable for Jetpack
-      Compose. You need the zone key from the dashboard, the same key the Web SDK uses.
+      Compose. You need the zone key from the dashboard, the same key the Web SDK uses. The Android SDK does not send analytics events yet, so the zone's Analytics tab counts the web only.
     </p>
 
     <h2 id="before">Before you start</h2>
