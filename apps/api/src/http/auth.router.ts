@@ -11,6 +11,8 @@ import {
 import {
   CHALLENGE_TTL_MS,
   deleteSession,
+  enabledMethods,
+  PASSWORD_METHOD,
   finishInvitation,
   finishSetup,
   finishSignIn,
@@ -46,10 +48,14 @@ export interface AuthOptions {
   verifier: PasskeyVerifier;
   /** Adds `Secure` to the cookies; true when the dashboard origin is https. */
   secureCookies: boolean;
+  /** True when the server has a valid secret key, so a provider is offered only then. */
+  secretsAvailable: boolean;
+  /** True when TALEART_SETUP_PASSWORD=true: on an empty install the password is then a setup method. */
+  setupPasswordAllowed: boolean;
 }
 
 /** Setup of the first admin, joining by invitation, passkey sign-in and sign-out (AD-9). */
-export function authRouter(pool: Pool, { verifier, secureCookies }: AuthOptions): Router {
+export function authRouter(pool: Pool, { verifier, secureCookies, secretsAvailable, setupPasswordAllowed }: AuthOptions): Router {
   const router = Router();
 
   const setChallenge = (res: Response, id: string) =>
@@ -65,9 +71,16 @@ export function authRouter(pool: Pool, { verifier, secureCookies }: AuthOptions)
 
   router.get('/state', async (req, res, next) => {
     try {
+      const needsSetup = await setupRequired(pool);
+      const methods = await enabledMethods(pool, secretsAvailable);
+      // On an empty install with the setup flag, the password is offered even though its switch is still off.
+      if (needsSetup && setupPasswordAllowed && !methods.some((m) => m.id === PASSWORD_METHOD.id)) {
+        methods.push({ ...PASSWORD_METHOD });
+      }
       const body: AuthState = {
-        setupRequired: await setupRequired(pool),
+        setupRequired: needsSetup,
         user: await findSessionUser(pool, readCookie(req, SESSION_COOKIE)),
+        methods,
       };
       res.json(body);
     } catch (err) {

@@ -22,7 +22,7 @@ export interface JoinedProject extends SignedInUser {
   projectId: string;
 }
 
-interface ValidInvitation {
+export interface ValidInvitation {
   id: string;
   projectId: string;
   projectName: string;
@@ -48,7 +48,7 @@ export async function createInvitation(
 }
 
 // The unused, unexpired invitation with this token, or InvitationInvalidError.
-async function validInvitation(db: Db, token: string | undefined): Promise<ValidInvitation> {
+export async function validInvitation(db: Db, token: string | undefined): Promise<ValidInvitation> {
   if (!token) throw new InvitationInvalidError();
   const { rows } = await db.query<ValidInvitation>(
     `SELECT i.id, i.project_id AS "projectId", p.name AS "projectName", i.expires_at AS "expiresAt"
@@ -66,7 +66,7 @@ export async function previewInvitation(db: Db, token: string | undefined): Prom
   return { projectName: invitation.projectName, expiresAt: invitation.expiresAt.toISOString() };
 }
 
-async function emailTaken(db: Db, email: string): Promise<boolean> {
+export async function emailTaken(db: Db, email: string): Promise<boolean> {
   const { rowCount } = await db.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [email]);
   return (rowCount ?? 0) > 0;
 }

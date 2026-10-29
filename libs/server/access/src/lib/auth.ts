@@ -7,7 +7,7 @@ import type { PasskeyVerifier, StoredPasskey } from './passkey-verifier';
 import { createSession, type NewSession } from './sessions';
 
 // Key of the transaction-scoped advisory lock that serializes setup.
-const SETUP_LOCK = "SELECT pg_advisory_xact_lock(hashtextextended('access:setup', 0))";
+export const SETUP_LOCK = "SELECT pg_advisory_xact_lock(hashtextextended('access:setup', 0))";
 
 /** True while no user exists: the install still needs its first admin. */
 export async function setupRequired(db: Db): Promise<boolean> {

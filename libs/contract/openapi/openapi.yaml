@@ -41,8 +41,14 @@ tags:
       The Delivery API for SDKs and host pages, with the project's site key, and public media.
   - name: Sign-in
     description: >-
-      Passkey setup, sign-in, sign-out and invitations. Cookies only; any request with an
-      `Authorization` header is refused.
+      Passkey setup, sign-in, sign-out, username and password sign-in and invitations, and the
+      signed-in user's own sign-in methods. Cookies only; any request with an `Authorization`
+      header is refused.
+  - name: Sign-in methods
+    description: >-
+      Which sign-in methods are on, the external identity providers, and admin-issued password
+      reset links. Admins only, with a session cookie; any request with an `Authorization` header
+      is refused.
 paths:
   /openapi.json:
     servers:
@@ -87,10 +93,14 @@ paths:
       tags:
         - Sign-in
       operationId: getAuthState
-      summary: Whether setup is still needed, and who is signed in.
+      summary: Whether setup is still needed, who is signed in, and the sign-in methods on.
       description: >-
         Works with or without a session. `user` is null when the request has
-        no valid session.
+        no valid session. `methods` lists the sign-in methods an admin has turned
+        on and that are usable, in the order the sign-in page shows them: passkey,
+        password, then the providers. On an empty install with
+        `TALEART_SETUP_PASSWORD=true`, `password` is listed as well, since the first
+        admin can set up with it. It carries no configuration and no secrets.
       security: []
       responses:
         '200':
@@ -315,6 +325,497 @@ paths:
         '409':
           $ref: '#/components/responses/Error'
         '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/password/sign-in:
+    post:
+      tags:
+        - Sign-in
+      operationId: signInWithPassword
+      summary: Sign in with a username and password.
+      description: >-
+        Only while the password method is on (an admin turns it on under Sign-in
+        methods). Sets the `taleart_session` cookie (7 days) and, like a passkey
+        sign-in, ends the user's other sessions only when they change their password.
+        An unknown username, a wrong password and a turned-off method all answer
+        the same 401 `sign_in_failed`. Failures are throttled per address (a burst
+        of 10, then 10 a minute) and per username: after 5 failures the username
+        waits 30 s, doubling per further failure up to 15 minutes; while it waits
+        the answer is 429 `rate_limited` with `Retry-After`. A success clears the
+        username's failures.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordSignInRequest'
+      responses:
+        '200':
+          description: The signed-in user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedIn'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/setup/password:
+    post:
+      tags:
+        - Sign-in
+      operationId: setupWithPassword
+      summary: Create the first admin with a username and password, and sign them in.
+      description: >-
+        The password variant of setup. Only while no user exists (409 `setup_closed`).
+        Refused with 403 `sign_in_method_disabled` unless the server runs with
+        `TALEART_SETUP_PASSWORD=true`; then the password method is turned on in the
+        same step, so the new admin can sign in with it. The password must meet the password policy (400
+        `password_rejected`) and the username is taken at most once (409 `username_taken`).
+        Sets the `taleart_session` cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRegistrationRequest'
+      responses:
+        '201':
+          description: The admin, now signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedIn'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/invitations/{token}/password:
+    parameters:
+      - $ref: '#/components/parameters/InvitationToken'
+    post:
+      tags:
+        - Sign-in
+      operationId: redeemInvitationWithPassword
+      summary: Join through an invitation with a username and password, and sign in.
+      description: >-
+        The password variant of redeeming an invitation, for when the password method
+        is on. Creates the content manager with the password, their membership of the
+        invitation's project, marks the invitation used and sets the `taleart_session`
+        cookie, in one transaction. Unknown, used or expired invitation: 410
+        `invitation_invalid`; the password method off: 403 `sign_in_method_disabled`;
+        an email that already belongs to a user: 409 `email_taken`; a username taken:
+        409 `username_taken`; a password that breaks the policy: 400 `password_rejected`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRegistrationRequest'
+      responses:
+        '201':
+          description: The new content manager, now signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedIn'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/password-resets/{token}:
+    parameters:
+      - $ref: '#/components/parameters/PasswordResetToken'
+    get:
+      tags:
+        - Sign-in
+      operationId: getPasswordReset
+      summary: Read a password reset link before using it.
+      description: >-
+        Works without a session. Says whose password the link sets and whether the
+        form must ask for a username (the user has no password yet). An unknown,
+        used or expired link, or one while the password method is off, answers 410
+        `password_reset_invalid`.
+      security: []
+      responses:
+        '200':
+          description: Whose password the link sets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordResetPreview'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/password-resets/{token}/redeem:
+    parameters:
+      - $ref: '#/components/parameters/PasswordResetToken'
+    post:
+      tags:
+        - Sign-in
+      operationId: redeemPasswordReset
+      summary: Set a new password through a reset link, and sign the user in.
+      description: >-
+        Sets the password (and the username, when the user has none yet), marks the
+        link used, ends every other session of the user and sets the `taleart_session`
+        cookie for a new one, all in one transaction. The link is single-use and
+        expires after 24 hours. The password must meet the policy (400
+        `password_rejected`) and a username given for a user who already has one must
+        match it (400 `validation_failed`). An unknown, used or expired link, or one
+        while the password method is off: 410 `password_reset_invalid`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemPasswordResetRequest'
+      responses:
+        '200':
+          description: The user, now signed in with a new session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedIn'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/account/methods:
+    get:
+      tags:
+        - Sign-in methods
+      operationId: getAccountMethods
+      summary: The signed-in user's sign-in methods.
+      description: >-
+        Lists the user's passkeys, whether they have a password (its username, never
+        the password), and their linked provider identities. A session cookie only;
+        a request with an `Authorization` header is refused.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The user's sign-in methods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountMethods'
+        '401':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/account/password:
+    put:
+      tags:
+        - Sign-in methods
+      operationId: setAccountPassword
+      summary: Set the signed-in user's password, or change it.
+      description: >-
+        A user without a password sets one: `username` is then required, and
+        `currentPassword` is not. A user with one must send `currentPassword` (403
+        `password_incorrect` when it is wrong, counted against the username's
+        failures) and may not change `username` here. The password must meet the
+        policy (400 `password_rejected`). Every other session of the user ends; the
+        session making the request stays signed in.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRequest'
+      responses:
+        '204':
+          description: The password is set.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags:
+        - Sign-in methods
+      operationId: removeAccountPassword
+      summary: Remove the signed-in user's password.
+      description: >-
+        Refused with 409 `last_sign_in_method` unless another method the user holds
+        stays usable: a passkey, or a provider identity whose provider is on.
+        Without a password: 404 `not_found`.
+      security:
+        - session: []
+      responses:
+        '204':
+          description: The password is removed.
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/account/passkeys/{passkeyId}:
+    parameters:
+      - name: passkeyId
+        in: path
+        required: true
+        description: The passkey's id, from `GET /auth/account/methods`.
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags:
+        - Sign-in methods
+      operationId: removeAccountPasskey
+      summary: Remove one of the signed-in user's passkeys.
+      description: >-
+        Refused with 409 `last_sign_in_method` unless another method the user holds
+        stays usable (see the password removal). Another user's passkey or an unknown
+        one: 404 `not_found`.
+      security:
+        - session: []
+      responses:
+        '204':
+          description: The passkey is removed.
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/account/identities/{identityId}:
+    parameters:
+      - name: identityId
+        in: path
+        required: true
+        description: The linked identity's id, from `GET /auth/account/methods`.
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags:
+        - Sign-in methods
+      operationId: removeAccountIdentity
+      summary: Unlink one of the signed-in user's provider identities.
+      description: >-
+        Refused with 409 `last_sign_in_method` unless another method the user holds
+        stays usable. Another user's identity or an unknown one: 404 `not_found`.
+      security:
+        - session: []
+      responses:
+        '204':
+          description: The identity is unlinked.
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/settings:
+    get:
+      tags:
+        - Sign-in methods
+      operationId: getAuthSettings
+      summary: Which sign-in methods are on.
+      description: >-
+        Passkey and password on or off, and whether the server has the key that
+        encrypts provider secrets (`secretKeyConfigured`). Admins only.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The sign-in method settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSettings'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags:
+        - Sign-in methods
+      operationId: setAuthSettings
+      summary: Turn the passkey and password methods on or off.
+      description: >-
+        Admins only. At least one method must stay on: none on answers 409
+        `last_sign_in_method`. A change that would leave no method on that every
+        admin can use (every admin needs a passkey, a password, or an identity of a
+        provider that is on) answers 409 `sign_in_lockout`. A fresh install has the
+        passkey on and the password off.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAuthSettingsRequest'
+      responses:
+        '200':
+          description: The settings now in force.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSettings'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/providers:
+    get:
+      tags:
+        - Sign-in methods
+      operationId: listAuthProviders
+      summary: The external identity providers an admin has added.
+      description: >-
+        Admins only. Never returns a secret: `hasSecret` says whether one is stored.
+        `usable` is true when the provider is on and, if it needs a secret, that
+        secret is stored and the server has its key. `redirectUri` is the URL to
+        register at the provider.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The providers, by slug.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuthProvider'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/providers/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/ProviderSlug'
+    put:
+      tags:
+        - Sign-in methods
+      operationId: saveAuthProvider
+      summary: Add a provider, or replace its settings.
+      description: >-
+        Admins only. The slug names the provider: `google` and `apple` are the
+        presets, any other slug is a generic OpenID Connect provider (method
+        `oidc:<slug>`). The secret is write-only: send it in `secret` to store it
+        (encrypted), `null` to remove it, or leave the field out to keep the stored
+        one. The secret is refused with 503 `secret_key_missing` when the server has
+        no valid `TALEART_SECRET_KEY`. Turning a provider off that the sign-in
+        methods depend on answers 409 `sign_in_lockout` or `last_sign_in_method`.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveAuthProviderRequest'
+      responses:
+        '200':
+          description: The provider as saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvider'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags:
+        - Sign-in methods
+      operationId: deleteAuthProvider
+      summary: Remove a provider and its secret.
+      description: >-
+        Admins only. The identities users linked to it stay in place but cannot sign
+        in while it is gone. Refused with 409 `sign_in_lockout` or
+        `last_sign_in_method` when that would lock every admin out or leave no method on.
+      security:
+        - session: []
+      responses:
+        '204':
+          description: The provider is removed.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/users/{userId}/password-reset:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user the link is for.
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - Sign-in methods
+      operationId: issuePasswordReset
+      summary: Issue a one-time password reset link for a user.
+      description: >-
+        Admins only. The link works once, for 24 hours, and is shown only in this
+        response; only its hash is stored. Issuing a link replaces the user's earlier
+        unused links. It also adds a password to a user who has none. Unknown user:
+        404 `not_found`.
+      security:
+        - session: []
+      responses:
+        '201':
+          description: The link, to share once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordResetLink'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -3465,6 +3966,24 @@ components:
       description: The one-time token from the invitation link.
       schema:
         type: string
+    PasswordResetToken:
+      name: token
+      in: path
+      required: true
+      description: The one-time token from the password reset link.
+      schema:
+        type: string
+    ProviderSlug:
+      name: slug
+      in: path
+      required: true
+      description: >-
+        The provider's slug: `google`, `apple`, or the slug of a generic OpenID
+        Connect provider (lower case letters, digits and hyphens, starting with a
+        letter or digit, at most 40 characters).
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]{0,39}$'
   responses:
     Error:
       description: The request failed.
@@ -5374,7 +5893,7 @@ components:
           $ref: '#/components/schemas/UserRole'
     AuthState:
       type: object
-      required: [setupRequired, user]
+      required: [setupRequired, user, methods]
       properties:
         setupRequired:
           type: boolean
@@ -5384,6 +5903,258 @@ components:
           oneOf:
             - $ref: '#/components/schemas/User'
             - type: 'null'
+        methods:
+          type: array
+          description: The sign-in methods on and usable, for the sign-in page.
+          items:
+            $ref: '#/components/schemas/AuthMethod'
+    AuthMethodKind:
+      type: string
+      enum: [passkey, password, oidc, google, apple]
+    AuthMethod:
+      type: object
+      description: A sign-in method on for the sign-in page. Carries no configuration and no secret.
+      required: [id, label, kind]
+      properties:
+        id:
+          type: string
+          description: '`passkey`, `password`, `google`, `apple`, or `oidc:<slug>`.'
+        label:
+          type: string
+          description: The button or heading the sign-in page shows.
+        kind:
+          $ref: '#/components/schemas/AuthMethodKind'
+    PasswordSignInRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+    PasswordRegistrationRequest:
+      type: object
+      required: [name, email, username, password]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          description: '3 to 40 characters: letters, digits, `.`, `_` and `-`. Stored in lower case.'
+        password:
+          type: string
+          description: 12 to 128 characters, not the username or the email's local part, not a common password.
+    PasswordResetPreview:
+      type: object
+      required: [name, usernameRequired, expiresAt]
+      properties:
+        name:
+          type: string
+          description: The name of the user the link is for.
+        usernameRequired:
+          type: boolean
+          description: True when the user has no password yet, so the form asks for a username.
+        expiresAt:
+          type: string
+          format: date-time
+    RedeemPasswordResetRequest:
+      type: object
+      required: [password]
+      properties:
+        username:
+          type: string
+          description: Required when the user has no password yet; otherwise it must match the current username.
+        password:
+          type: string
+          description: 12 to 128 characters, not the username or the email's local part, not a common password.
+    SetPasswordRequest:
+      type: object
+      required: [password]
+      properties:
+        username:
+          type: string
+          description: Required when the user has no password yet. Not changeable once set.
+        currentPassword:
+          type: string
+          description: Required when the user has a password.
+        password:
+          type: string
+          description: 12 to 128 characters, not the username or the email's local part, not a common password.
+    AccountPasskey:
+      type: object
+      required: [id, createdAt, lastUsedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+    AccountIdentity:
+      type: object
+      required: [id, provider, email, createdAt, lastUsedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+          description: '`google`, `apple`, or `oidc:<slug>`.'
+        email:
+          type: [string, 'null']
+          description: The email the provider reported, when it reported a verified one.
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+    AccountMethods:
+      type: object
+      required: [passkeys, password, identities]
+      properties:
+        passkeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountPasskey'
+        password:
+          description: The user's password, without the password itself; null when they have none.
+          oneOf:
+            - type: object
+              required: [username, updatedAt]
+              properties:
+                username:
+                  type: string
+                updatedAt:
+                  type: string
+                  format: date-time
+            - type: 'null'
+        identities:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountIdentity'
+    AuthSettings:
+      type: object
+      required: [passkeyEnabled, passwordEnabled, secretKeyConfigured]
+      properties:
+        passkeyEnabled:
+          type: boolean
+        passwordEnabled:
+          type: boolean
+        secretKeyConfigured:
+          type: boolean
+          description: True when the server has a valid `TALEART_SECRET_KEY`, so provider secrets can be saved.
+    UpdateAuthSettingsRequest:
+      type: object
+      required: [passkeyEnabled, passwordEnabled]
+      properties:
+        passkeyEnabled:
+          type: boolean
+        passwordEnabled:
+          type: boolean
+    AuthProviderKind:
+      type: string
+      enum: [oidc, google, apple]
+    AuthProviderConfig:
+      type: object
+      description: >-
+        The settings that are not secret. Only the fields of the provider's kind are
+        allowed: `oidc` takes `issuer`, `clientId` and `scopes`; `google` takes
+        `clientId` and `scopes`; `apple` takes `clientId`, `teamId` and `keyId`.
+      additionalProperties: false
+      properties:
+        issuer:
+          type: string
+          format: uri
+          description: The issuer URL, https (http only for localhost outside production). Discovery must answer with exactly this issuer.
+        clientId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        scopes:
+          type: string
+          maxLength: 200
+          description: Space-separated scopes; must include `openid`. Defaults to `openid email profile` (Apple `name email`).
+        teamId:
+          type: string
+          description: The Apple developer team id, 10 letters and digits.
+        keyId:
+          type: string
+          description: The Apple key id, 10 letters and digits.
+    AuthProvider:
+      type: object
+      required: [slug, kind, id, displayName, enabled, usable, config, hasSecret, redirectUri, updatedAt]
+      properties:
+        slug:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AuthProviderKind'
+        id:
+          type: string
+          description: 'The sign-in method id: `google`, `apple` or `oidc:<slug>`.'
+        displayName:
+          type: string
+        enabled:
+          type: boolean
+        usable:
+          type: boolean
+          description: True when enabled, and the secret it needs is stored and the server has its key.
+        config:
+          $ref: '#/components/schemas/AuthProviderConfig'
+        hasSecret:
+          type: boolean
+          description: True when a secret is stored. The secret itself is never returned.
+        redirectUri:
+          type: string
+          format: uri
+          description: The redirect URI to register at the provider, `<PUBLIC_API_URL>/api/v1/auth/callback/<slug>`.
+        updatedAt:
+          type: string
+          format: date-time
+    SaveAuthProviderRequest:
+      type: object
+      required: [displayName, enabled, config]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        enabled:
+          type: boolean
+        config:
+          $ref: '#/components/schemas/AuthProviderConfig'
+        secret:
+          type: [string, 'null']
+          maxLength: 8192
+          description: >-
+            The client secret, or for Apple the `.p8` private key as PEM. Write-only:
+            `null` removes the stored one, and leaving it out keeps it.
+    PasswordResetLink:
+      type: object
+      required: [id, userId, url, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        url:
+          type: string
+          description: The one-time link to share, `<dashboard origin>/password-reset/<token>`. Shown only once.
+        expiresAt:
+          type: string
+          format: date-time
     SetupRequest:
       type: object
       required: [name, email]
@@ -5971,6 +6742,16 @@ components:
         - user_list_exists
         - user_list_limit_reached
         - user_list_file_too_large
+        - sign_in_failed
+        - password_rejected
+        - username_taken
+        - password_incorrect
+        - password_reset_invalid
+        - sign_in_method_disabled
+        - last_sign_in_method
+        - sign_in_lockout
+        - secret_key_missing
+        - provider_not_found
         - internal_error
     ErrorBody:
       type: object

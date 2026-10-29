@@ -1,6 +1,7 @@
 import type { Db } from './db';
 import { migrateApiTokens } from './apiTokens';
 import { migrateSiteKeys } from './siteKeys';
+import { migrateSignInMethods } from './signInMethods';
 
 /**
  * Forward-only migration for the tables the access module owns.
@@ -100,4 +101,7 @@ export async function migrateAccess(db: Db): Promise<void> {
 
   // Personal API tokens for scripts (epic developer experience 10.1).
   await migrateApiTokens(db);
+
+  // Sign-in methods: passwords, provider identities, the method settings, providers and reset links.
+  await migrateSignInMethods(db);
 }

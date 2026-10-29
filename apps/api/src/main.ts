@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, SDK_BUNDLE_PATH } from '@taleart/contract';
-import { SimpleWebAuthnVerifier } from '@taleart/server-access';
+import { parseSecretKey, SECRET_KEY_ENV, SimpleWebAuthnVerifier } from '@taleart/server-access';
 import {
   DEFAULT_another tool_API_URL,
   parseAllowedAddresses,
@@ -78,7 +78,20 @@ async function start(): Promise<void> {
     verifier: new SimpleWebAuthnVerifier(rp),
     secureCookies: secureCookiesFor(rp),
     dashboardOrigin: rp.origin,
+    // Provider secrets (client secrets, the Apple key) are encrypted with TALEART_SECRET_KEY (32 bytes,
+    // base64). Without a valid key the API runs, refuses to save a secret, and offers no provider.
+    secretKey: parseSecretKey(process.env[SECRET_KEY_ENV]),
+    // TALEART_SETUP_PASSWORD=true lets the first admin set up with a username and password (off by default).
+    setupPassword: process.env['TALEART_SETUP_PASSWORD'] === 'true',
   };
+  if (auth.secretKey === null) {
+    log(
+      'info',
+      process.env[SECRET_KEY_ENV]
+        ? `Provider secrets off: ${SECRET_KEY_ENV} is not 32 bytes of base64`
+        : `Provider secrets off: ${SECRET_KEY_ENV} is not set`,
+    );
+  }
 
   // The importer (AD-8): source tokens are encrypted with IMPORT_TOKEN_KEY while
   // a job runs. Without a valid key the import routes answer 503 and no worker runs.

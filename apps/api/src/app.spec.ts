@@ -10,6 +10,7 @@ import {
   addProjectMember,
   createSession,
   createUser,
+  decryptSecret,
   PasskeyFailedError,
   type PasskeyVerifier,
   type TransactionalDb,
@@ -80,7 +81,7 @@ import {
 import { purgeAnalyticsEvents, visitorHash } from '@taleart/server-analytics';
 import type { Pool, PoolClient } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
-import { createApp, type ImporterConfig, type ProjectMediaOptions, type UserListOptions } from './app';
+import { createApp, type AppAuth, type ImporterConfig, type ProjectMediaOptions, type UserListOptions } from './app';
 import { createPool, databasePoolMax, migrate } from './db';
 
 // Runs against a separate test database. It clears tables, so it must never
@@ -172,6 +173,9 @@ const fakeVerifier: PasskeyVerifier = {
 
 // The public origin Delivery media URLs start with (PUBLIC_API_URL).
 const publicApiUrl = 'https://api.example.com';
+
+// The one sign-in method a fresh install offers (sign-in methods epic): the passkey.
+const PASSKEY_METHOD = { id: 'passkey', label: 'Passkey', kind: 'passkey' };
 
 // What the Delivery API sends for a tale with neither media nor a document (Tale Studio R16).
 const NO_MEDIA_DOCUMENT = {
@@ -387,7 +391,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -4156,7 +4160,7 @@ describe('Management API v1: projects and zones', () => {
       expect(user).toEqual({ id: expect.any(String), name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
       sessionCookie = `taleart_session=${cookieValue(res, 'taleart_session')}`;
 
-      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user });
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user, methods: [PASSKEY_METHOD] });
       expect(await (await send('GET', '/projects')).json()).toEqual([a.project]);
       expect(await (await send('GET', '/zones')).json()).toEqual([{ ...a.zone, visibility: SOME_VISIBILITY }]);
       expect((await send('GET', `/zones/${a.zone.id}/tale-groups`)).status).toBe(200);
@@ -16220,14 +16224,14 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE analytics_events, import_records, import_media, import_links, import_jobs, site_keys, zone_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, users',
+        'TRUNCATE analytics_events, import_records, import_media, import_links, import_jobs, site_keys, zone_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
       );
     });
 
     it('reports that setup is required on an empty install', async () => {
       const res = await send('GET', '/auth/state');
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ setupRequired: true, user: null });
+      expect(await res.json()).toEqual({ setupRequired: true, user: null, methods: [PASSKEY_METHOD] });
     });
 
     it('answers setup options with creation options and an http-only challenge cookie', async () => {
@@ -16282,7 +16286,7 @@ describe('Management API v1: projects and zones', () => {
       const passkeys = await pool.query('SELECT credential_id, counter FROM passkeys');
       expect(passkeys.rows).toEqual([{ credential_id: 'cred-1', counter: '0' }]);
 
-      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user });
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user, methods: [PASSKEY_METHOD] });
       expect((await send('GET', '/projects')).status).toBe(200);
     });
 
@@ -16408,7 +16412,7 @@ describe('Management API v1: projects and zones', () => {
       const res = await send('GET', '/projects');
       expect(res.status).toBe(401);
       expect((await res.json()).error.code).toBe('unauthenticated');
-      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user: null });
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user: null, methods: [PASSKEY_METHOD] });
     });
 
     it('signs out: deletes the session, clears the cookie and refuses the old cookie', async () => {
@@ -17090,5 +17094,615 @@ describe('Management API v1: API tokens for scripts (epic developer experience 1
     await createToken({});
     await pool.query('DELETE FROM users WHERE id = $1', [adminId]);
     expect((await pool.query('SELECT 1 FROM api_tokens')).rowCount).toBe(0);
+  });
+});
+
+describe('Management API v1: sign-in methods (password sign-in, method settings, providers, reset links, account)', () => {
+  let pool: Pool;
+  let base = '';
+  let servers: Server[] = [];
+  // Everything the process printed during a test: a secret must never be among it.
+  let printed: string[] = [];
+  let adminId = '';
+  let adminCookie = '';
+  let managerId = '';
+  let managerCookie = '';
+
+  const SECRET_KEY = randomBytes(32);
+  const PASSWORD = 'ada-passphrase-2026';
+  const CLIENT_SECRET = 'gcp-client-secret-do-not-leak-7731';
+  const APPLE_KEY = '-----BEGIN PRIVATE KEY-----\nAPPLE-P8-BODY-do-not-leak\n-----END PRIVATE KEY-----';
+
+  // Starts an API with these auth options and makes it the one `send` calls.
+  async function useApp(auth: Partial<AppAuth> = {}): Promise<void> {
+    const s = createApp(
+      pool,
+      loadFrameTypeRegistry(frameTypesDir),
+      new LocalDiskStorage(mediaDir),
+      { verifier: fakeVerifier, secretKey: SECRET_KEY, passwordAddressLimit: null, ...auth },
+      { publicApiUrl },
+      undefined,
+      undefined,
+      { rateLimit: null },
+    ).listen(0);
+    await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+    servers.push(s);
+    base = `http://127.0.0.1:${(s.address() as AddressInfo).port}/api/v1`;
+  }
+
+  // A request. The admin's session unless `cookie` says otherwise ('' sends none).
+  function send(
+    method: string,
+    path: string,
+    opts: { cookie?: string; body?: unknown; authorization?: string } = {},
+  ): Promise<Response> {
+    const headers: Record<string, string> = {};
+    const cookie = opts.cookie ?? adminCookie;
+    if (cookie) headers['Cookie'] = cookie;
+    if (opts.authorization) headers['Authorization'] = opts.authorization;
+    if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+    return globalThis.fetch(`${base}${path}`, {
+      method,
+      headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    });
+  }
+
+  // The `taleart_session=<token>` a response set, to send back as a Cookie header.
+  function sessionCookieOf(res: Response): string {
+    const line = res.headers.getSetCookie().find((l) => l.startsWith('taleart_session='));
+    if (!line) throw new Error('the response set no session cookie');
+    return line.split(';')[0];
+  }
+
+  async function cookieFor(userId: string): Promise<string> {
+    return `taleart_session=${(await createSession(pool, userId)).token}`;
+  }
+
+  async function addPasskey(userId: string): Promise<string> {
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO passkeys (user_id, credential_id, public_key, counter, transports)
+       VALUES ($1, $2, $3, 0, '{internal}') RETURNING id`,
+      [userId, `cred-${randomUUID()}`, Buffer.from([1, 2, 3])],
+    );
+    return rows[0].id;
+  }
+
+  async function setSettings(passkeyEnabled: boolean, passwordEnabled: boolean): Promise<Response> {
+    return send('PUT', '/auth/settings', { body: { passkeyEnabled, passwordEnabled } });
+  }
+
+  // Turns the password method on (with the passkey, as it is by default) for the signing-in tests.
+  async function turnPasswordOn(): Promise<void> {
+    expect((await setSettings(true, true)).status).toBe(200);
+  }
+
+  beforeAll(async () => {
+    pool = createPool(testDatabaseUrl);
+    await migrate(pool);
+  });
+
+  beforeEach(async () => {
+    printed = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => void printed.push(args.map(String).join(' ')));
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => void printed.push(args.map(String).join(' ')));
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void printed.push(args.map(String).join(' ')));
+    await pool.query(
+      'TRUNCATE users, projects, auth_settings, auth_providers, password_resets, user_passwords, user_identities, invitations, sessions, passkeys, auth_challenges CASCADE',
+    );
+    await pool.query('INSERT INTO auth_settings (id) VALUES (1)');
+    // An admin with a passkey (as every admin of a real install has one), and a content manager.
+    const admin = await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+    adminId = admin.id;
+    await addPasskey(admin.id);
+    adminCookie = await cookieFor(admin.id);
+    const manager = await createUser(pool, { name: 'Casey Content', email: 'casey@example.com', role: 'content_manager' });
+    managerId = manager.id;
+    managerCookie = await cookieFor(manager.id);
+    await useApp();
+  });
+
+  afterEach(async () => {
+    // No secret, password or key reaches a log line, whatever the test did.
+    const output = printed.join('\n');
+    expect(output).not.toContain(CLIENT_SECRET);
+    expect(output).not.toContain('APPLE-P8-BODY');
+    expect(output).not.toContain(PASSWORD);
+    vi.restoreAllMocks();
+    await Promise.all(servers.splice(0).map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+  });
+
+  afterAll(async () => {
+    await pool.query('TRUNCATE auth_providers, auth_settings, password_resets, user_passwords, user_identities CASCADE');
+    await pool.end();
+  });
+
+  it('lists only the passkey on a fresh install, and answers the settings to an admin', async () => {
+    const state = await (await send('GET', '/auth/state', { cookie: '' })).json();
+    expect(state).toEqual({ setupRequired: false, user: null, methods: [{ id: 'passkey', label: 'Passkey', kind: 'passkey' }] });
+
+    const settings = await send('GET', '/auth/settings');
+    expect(settings.status).toBe(200);
+    expect(await settings.json()).toEqual({ passkeyEnabled: true, passwordEnabled: false, secretKeyConfigured: true });
+  });
+
+  it('keeps the settings, providers and reset links from content managers, strangers and API tokens', async () => {
+    const admin = await send('GET', '/auth/settings', { cookie: managerCookie });
+    expect(admin.status).toBe(403);
+    expect((await admin.json()).error.code).toBe('forbidden');
+    expect((await send('PUT', '/auth/settings', { cookie: managerCookie, body: { passkeyEnabled: true, passwordEnabled: true } })).status).toBe(403);
+    expect((await send('GET', '/auth/providers', { cookie: managerCookie })).status).toBe(403);
+    expect((await send('POST', `/auth/users/${managerId}/password-reset`, { cookie: managerCookie })).status).toBe(403);
+
+    expect((await send('GET', '/auth/settings', { cookie: '' })).status).toBe(401);
+
+    // Every new route answers 403 to a request with an Authorization header, session or not.
+    const routes: [string, string, unknown?][] = [
+      ['GET', '/auth/settings'],
+      ['PUT', '/auth/settings', { passkeyEnabled: true, passwordEnabled: true }],
+      ['GET', '/auth/providers'],
+      ['PUT', '/auth/providers/google', { displayName: 'Google', enabled: false, config: { clientId: 'x' } }],
+      ['DELETE', '/auth/providers/google'],
+      ['POST', `/auth/users/${managerId}/password-reset`],
+      ['GET', '/auth/account/methods'],
+      ['PUT', '/auth/account/password', { password: PASSWORD }],
+      ['DELETE', '/auth/account/password'],
+      ['DELETE', `/auth/account/passkeys/${randomUUID()}`],
+      ['DELETE', `/auth/account/identities/${randomUUID()}`],
+      ['POST', '/auth/password/sign-in', { username: 'ada', password: PASSWORD }],
+      ['POST', '/auth/setup/password', { name: 'A', email: 'a@example.com', username: 'ada', password: PASSWORD }],
+      ['POST', '/auth/invitations/abc/password', { name: 'A', email: 'a@example.com', username: 'ada', password: PASSWORD }],
+      ['GET', '/auth/password-resets/abc'],
+      ['POST', '/auth/password-resets/abc/redeem', { password: PASSWORD }],
+    ];
+    for (const [method, path, body] of routes) {
+      const res = await send(method, path, { cookie: adminCookie, body, authorization: 'Bearer tat_not-a-real-token' });
+      expect(res.status, `${method} ${path}`).toBe(403);
+      expect((await res.json()).error.code, `${method} ${path}`).toBe('forbidden');
+    }
+    // The admin's settings are as they were.
+    expect(await (await send('GET', '/auth/settings')).json()).toMatchObject({ passkeyEnabled: true, passwordEnabled: false });
+  });
+
+  it('signs in with a username and password once the method is on, and refuses every wrong attempt the same way', async () => {
+    expect((await send('PUT', '/auth/account/password', { body: { username: 'Ada.Admin', password: PASSWORD } })).status).toBe(204);
+    await turnPasswordOn();
+    const state = await (await send('GET', '/auth/state', { cookie: '' })).json();
+    expect(state.methods).toEqual([
+      { id: 'passkey', label: 'Passkey', kind: 'passkey' },
+      { id: 'password', label: 'Username and password', kind: 'password' },
+    ]);
+
+    const ok = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ADA.admin', password: PASSWORD } });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ user: { id: adminId, name: 'Ada Admin', email: 'ada@example.com', role: 'admin' } });
+    const cookie = sessionCookieOf(ok);
+    expect(await (await send('GET', '/auth/state', { cookie })).json()).toMatchObject({ user: { id: adminId } });
+
+    const wrong = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ada.admin', password: 'not-the-passphrase' } });
+    const unknown = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'nobody-here', password: PASSWORD } });
+    // The method switched off: a correct password is refused like the others.
+    expect((await setSettings(true, false)).status).toBe(200);
+    const disabled = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ada.admin', password: PASSWORD } });
+    for (const res of [wrong, unknown, disabled]) {
+      expect(res.status).toBe(401);
+    }
+    const bodies = await Promise.all([wrong, unknown, disabled].map((res) => res.text()));
+    expect(new Set(bodies).size).toBe(1);
+    expect(JSON.parse(bodies[0])).toEqual({ error: { code: 'sign_in_failed', message: 'The username or password is not correct' } });
+  });
+
+  it('throttles a username after five failures with a growing wait, whether the username exists or not', async () => {
+    expect((await send('PUT', '/auth/account/password', { body: { username: 'ada.admin', password: PASSWORD } })).status).toBe(204);
+    await turnPasswordOn();
+    for (let i = 0; i < 5; i++) {
+      expect((await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ada.admin', password: 'wrong-guess-here' } })).status).toBe(401);
+    }
+    const waiting = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ada.admin', password: PASSWORD } });
+    expect(waiting.status).toBe(429);
+    expect((await waiting.json()).error.code).toBe('rate_limited');
+    const retryAfter = Number(waiting.headers.get('Retry-After'));
+    expect(retryAfter).toBeGreaterThan(25);
+    expect(retryAfter).toBeLessThanOrEqual(30);
+    // An unknown username counts the same way: it is refused the same 429 after five failures.
+    for (let i = 0; i < 5; i++) {
+      await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'nobody-here', password: 'wrong-guess-here' } });
+    }
+    expect((await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'nobody-here', password: 'x' } })).status).toBe(429);
+  });
+
+  it('limits password sign-in per address: a burst of ten, then refused until the bucket refills', async () => {
+    await useApp({ passwordAddressLimit: undefined });
+    await turnPasswordOn();
+    for (let i = 0; i < 10; i++) {
+      const res = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: `nobody-${i}`, password: 'wrong-guess-here' } });
+      expect(res.status, `attempt ${i}`).toBe(401);
+    }
+    const refused = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'nobody-x', password: 'wrong-guess-here' } });
+    expect(refused.status).toBe(429);
+    expect((await refused.json()).error.code).toBe('rate_limited');
+    expect(Number(refused.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1);
+  });
+
+  it('sets and changes the signed-in password under the policy, and keeps usernames unique', async () => {
+    const empty = await send('PUT', '/auth/account/password', { body: { password: PASSWORD } });
+    expect(empty.status).toBe(400);
+    expect((await empty.json()).error.code).toBe('validation_failed');
+
+    const badName = await send('PUT', '/auth/account/password', { body: { username: 'a b', password: PASSWORD } });
+    expect(badName.status).toBe(400);
+    expect((await badName.json()).error.code).toBe('validation_failed');
+
+    // The policy: length, the username, the email's name part, a common password.
+    // (The email's name part is covered by the unit tests: this admin's email is too short to be a password.)
+    for (const [username, password] of [
+      ['ada.admin', 'short-pass1'],
+      ['ada.admin.long', 'ADA.ADMIN.LONG'],
+      ['ada.admin', 'Password12345'],
+      ['ada.admin', 'x'.repeat(129)],
+    ] as const) {
+      const res = await send('PUT', '/auth/account/password', { body: { username, password } });
+      expect(res.status, password).toBe(400);
+      expect((await res.json()).error.code, password).toBe('password_rejected');
+    }
+    expect((await send('PUT', '/auth/account/password', { body: { username: 'ada.admin', password: 'x'.repeat(128) } })).status).toBe(204);
+
+    // The username is taken once: another user cannot claim it.
+    const taken = await send('PUT', '/auth/account/password', { cookie: managerCookie, body: { username: 'ADA.admin', password: PASSWORD } });
+    expect(taken.status).toBe(409);
+    expect((await taken.json()).error.code).toBe('username_taken');
+
+    // A change needs the current password, and does not rename the user.
+    const missing = await send('PUT', '/auth/account/password', { body: { password: PASSWORD } });
+    expect(missing.status).toBe(400);
+    const wrong = await send('PUT', '/auth/account/password', { body: { currentPassword: 'not-the-current-one', password: PASSWORD } });
+    expect(wrong.status).toBe(403);
+    expect((await wrong.json()).error.code).toBe('password_incorrect');
+    const renamed = await send('PUT', '/auth/account/password', { body: { username: 'other.name', currentPassword: 'x'.repeat(128), password: PASSWORD } });
+    expect(renamed.status).toBe(400);
+    const changed = await send('PUT', '/auth/account/password', { body: { currentPassword: 'x'.repeat(128), password: PASSWORD } });
+    expect(changed.status).toBe(204);
+
+    expect(await (await send('GET', '/auth/account/methods')).json()).toMatchObject({
+      password: { username: 'ada.admin' },
+      identities: [],
+    });
+  });
+
+  it('ends the other sessions of a user when the password changes, and keeps the one that changed it', async () => {
+    await send('PUT', '/auth/account/password', { body: { username: 'ada.admin', password: PASSWORD } });
+    await turnPasswordOn();
+    const first = sessionCookieOf(await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ada.admin', password: PASSWORD } }));
+    const second = sessionCookieOf(await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ada.admin', password: PASSWORD } }));
+
+    const changed = await send('PUT', '/auth/account/password', {
+      cookie: first,
+      body: { currentPassword: PASSWORD, password: 'a-new-passphrase-2026' },
+    });
+    expect(changed.status).toBe(204);
+    expect((await send('GET', '/auth/state', { cookie: first })).status).toBe(200);
+    expect(await (await send('GET', '/auth/state', { cookie: first })).json()).toMatchObject({ user: { id: adminId } });
+    expect(await (await send('GET', '/auth/state', { cookie: second })).json()).toMatchObject({ user: null });
+    expect(await (await send('GET', '/projects', { cookie: second })).status).toBe(401);
+    // Only the session that changed the password is left: the admin's session from the test set-up ended too.
+    expect((await pool.query('SELECT 1 FROM sessions WHERE user_id = $1', [adminId])).rowCount).toBe(1);
+    expect(await (await send('GET', '/auth/state', { cookie: adminCookie })).json()).toMatchObject({ user: null });
+  });
+
+  it('issues a one-time reset link, stores only its hash, and sets the password once', async () => {
+    await turnPasswordOn();
+    const issued = await send('POST', `/auth/users/${managerId}/password-reset`);
+    expect(issued.status).toBe(201);
+    expect(issued.headers.get('Cache-Control')).toBe('no-store');
+    const link = (await issued.json()) as { id: string; userId: string; url: string; expiresAt: string };
+    expect(link.userId).toBe(managerId);
+    const token = link.url.slice(link.url.indexOf('/password-reset/') + '/password-reset/'.length);
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // Only the hash is kept.
+    expect((await pool.query('SELECT 1 FROM password_resets WHERE token_hash = $1', [createHash('sha256').update(token).digest('hex')])).rowCount).toBe(1);
+    expect((await pool.query('SELECT 1 FROM password_resets WHERE token_hash = $1', [token])).rowCount).toBe(0);
+    const expiresIn = new Date(link.expiresAt).getTime() - Date.now();
+    expect(expiresIn).toBeGreaterThan(23 * 60 * 60 * 1000);
+    expect(expiresIn).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+
+    const preview = await send('GET', `/auth/password-resets/${token}`, { cookie: '' });
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({ name: 'Casey Content', usernameRequired: true });
+
+    // A weak password is refused and the link keeps working.
+    const weak = await send('POST', `/auth/password-resets/${token}/redeem`, { cookie: '', body: { username: 'casey', password: 'short-pass1' } });
+    expect(weak.status).toBe(400);
+    expect((await weak.json()).error.code).toBe('password_rejected');
+    expect((await send('GET', `/auth/password-resets/${token}`, { cookie: '' })).status).toBe(200);
+
+    // A session the manager already had ends with the reset; the redemption signs them in.
+    const oldSession = await cookieFor(managerId);
+    const redeemed = await send('POST', `/auth/password-resets/${token}/redeem`, {
+      cookie: '',
+      body: { username: 'casey', password: 'casey-new-passphrase-2026' },
+    });
+    expect(redeemed.status).toBe(200);
+    expect(await redeemed.json()).toMatchObject({ user: { id: managerId, role: 'content_manager' } });
+    expect(await (await send('GET', '/auth/state', { cookie: oldSession })).json()).toMatchObject({ user: null });
+    expect(await (await send('GET', '/auth/state', { cookie: sessionCookieOf(redeemed) })).json()).toMatchObject({ user: { id: managerId } });
+
+    // Used once: neither redeeming nor previewing it again works.
+    expect((await send('POST', `/auth/password-resets/${token}/redeem`, { cookie: '', body: { password: 'another-passphrase-2026' } })).status).toBe(410);
+    const gone = await send('GET', `/auth/password-resets/${token}`, { cookie: '' });
+    expect(gone.status).toBe(410);
+    expect((await gone.json()).error.code).toBe('password_reset_invalid');
+    expect(
+      (await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'casey', password: 'casey-new-passphrase-2026' } })).status,
+    ).toBe(200);
+  });
+
+  it('refuses a reset link that is replaced, expired or used while the password method is off', async () => {
+    await turnPasswordOn();
+    const tokenOf = async (userId: string) => {
+      const res = await send('POST', `/auth/users/${userId}/password-reset`);
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { url: string }).url.split('/password-reset/')[1];
+    };
+
+    // Issuing a new link replaces the unused one.
+    const first = await tokenOf(managerId);
+    const second = await tokenOf(managerId);
+    expect((await send('GET', `/auth/password-resets/${first}`, { cookie: '' })).status).toBe(410);
+    expect((await send('GET', `/auth/password-resets/${second}`, { cookie: '' })).status).toBe(200);
+
+    // Expired after 24 hours.
+    await pool.query("UPDATE password_resets SET expires_at = now() - interval '1 second' WHERE user_id = $1", [managerId]);
+    expect((await send('GET', `/auth/password-resets/${second}`, { cookie: '' })).status).toBe(410);
+
+    // While the password method is off a link cannot set a password.
+    const live = await tokenOf(managerId);
+    expect((await setSettings(true, false)).status).toBe(200);
+    const off = await send('POST', `/auth/password-resets/${live}/redeem`, { cookie: '', body: { username: 'casey', password: PASSWORD } });
+    expect(off.status).toBe(410);
+    expect((await off.json()).error.code).toBe('password_reset_invalid');
+
+    // An unknown token is the same refusal.
+    expect((await send('GET', '/auth/password-resets/nope', { cookie: '' })).status).toBe(410);
+  });
+
+  it('answers the reset issue with 404 for an unknown user, and refuses a bad user id the same way', async () => {
+    const unknown = await send('POST', `/auth/users/${randomUUID()}/password-reset`);
+    expect(unknown.status).toBe(404);
+    expect((await unknown.json()).error.code).toBe('not_found');
+    expect((await send('POST', '/auth/users/not-a-uuid/password-reset')).status).toBe(404);
+  });
+
+  it('sets up the first admin with a password only with TALEART_SETUP_PASSWORD=true, which turns the method on', async () => {
+    await pool.query('TRUNCATE users, projects, auth_settings, password_resets, user_passwords, user_identities, invitations, sessions, passkeys CASCADE');
+    await pool.query('INSERT INTO auth_settings (id) VALUES (1)');
+    const body = { name: 'Ada Admin', email: 'ada@example.com', username: 'ada.admin', password: PASSWORD };
+
+    // Flag off (the default): the password is not offered on the empty install, and setup is refused.
+    expect(await (await send('GET', '/auth/state', { cookie: '' })).json()).toMatchObject({ setupRequired: true, methods: [PASSKEY_METHOD] });
+    // Refused like a disabled method, even if the password switch were on.
+    await pool.query('UPDATE auth_settings SET password_enabled = true WHERE id = 1');
+    const off = await send('POST', '/auth/setup/password', { cookie: '', body });
+    expect(off.status).toBe(403);
+    expect((await off.json()).error.code).toBe('sign_in_method_disabled');
+    await pool.query('UPDATE auth_settings SET password_enabled = false WHERE id = 1');
+
+    // Flag on: the password is offered on the empty install, and setup creates the admin.
+    await useApp({ setupPassword: true });
+    expect(await (await send('GET', '/auth/state', { cookie: '' })).json()).toMatchObject({
+      setupRequired: true,
+      methods: [PASSKEY_METHOD, { id: 'password', label: 'Username and password', kind: 'password' }],
+    });
+    const created = await send('POST', '/auth/setup/password', { cookie: '', body });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({ user: { name: 'Ada Admin', role: 'admin' } });
+    // The password method is now on, in the same step as the admin.
+    expect(await (await send('GET', '/auth/settings', { cookie: sessionCookieOf(created) })).json()).toMatchObject({ passwordEnabled: true });
+    expect(await (await send('GET', '/auth/state', { cookie: '' })).json()).toMatchObject({ setupRequired: false, methods: [PASSKEY_METHOD, { id: 'password' }] });
+
+    // The new admin signs in with the password.
+    const signedIn = await send('POST', '/auth/password/sign-in', { cookie: '', body: { username: 'ADA.admin', password: PASSWORD } });
+    expect(signedIn.status).toBe(200);
+    expect(await signedIn.json()).toMatchObject({ user: { email: 'ada@example.com', role: 'admin' } });
+
+    // Setup is closed once a user exists: a second setup is refused, flag or not.
+    const again = await send('POST', '/auth/setup/password', { cookie: '', body: { ...body, email: 'other@example.com', username: 'other.name' } });
+    expect(again.status).toBe(409);
+    expect((await again.json()).error.code).toBe('setup_closed');
+    expect(await (await send('GET', '/auth/state', { cookie: '' })).json()).toMatchObject({ setupRequired: false, methods: [PASSKEY_METHOD, { id: 'password' }] });
+  });
+
+  it('joins through an invitation with a password only while the password method is on', async () => {
+    const project = await (await send('POST', '/projects', { body: { name: 'Acme' } })).json();
+    const invitation = await (await send('POST', `/projects/${project.id}/invitations`)).json();
+    const token = (invitation as { url: string }).url.split('/invite/')[1];
+    const body = { name: 'Dee Member', email: 'dee@example.com', username: 'dee.member', password: PASSWORD };
+
+    const off = await send('POST', `/auth/invitations/${token}/password`, { cookie: '', body });
+    expect(off.status).toBe(403);
+    expect((await off.json()).error.code).toBe('sign_in_method_disabled');
+    expect((await send('GET', `/auth/invitations/${token}`, { cookie: '' })).status).toBe(200);
+
+    await turnPasswordOn();
+    const joined = await send('POST', `/auth/invitations/${token}/password`, { cookie: '', body });
+    expect(joined.status).toBe(201);
+    expect(await joined.json()).toMatchObject({ user: { email: 'dee@example.com', role: 'content_manager' } });
+    expect((await pool.query('SELECT 1 FROM project_members WHERE project_id = $1', [project.id])).rowCount).toBe(1);
+
+    // The link is used: a second join is refused.
+    const again = await send('POST', `/auth/invitations/${token}/password`, { cookie: '', body: { ...body, email: 'eve@example.com', username: 'eve.member' } });
+    expect(again.status).toBe(410);
+    expect((await again.json()).error.code).toBe('invitation_invalid');
+  });
+
+  it('refuses a settings change that would lock every admin out, and turning every method off', async () => {
+    // Enabling the password method is fine while the passkey still works for every admin.
+    expect((await setSettings(true, true)).status).toBe(200);
+    // Without the passkey, the password is the only method, and this admin has none: a lock-out.
+    const lockout = await setSettings(false, true);
+    expect(lockout.status).toBe(409);
+    expect((await lockout.json()).error.code).toBe('sign_in_lockout');
+    expect(await (await send('GET', '/auth/settings')).json()).toMatchObject({ passkeyEnabled: true, passwordEnabled: true });
+
+    // With the admin's own password in place, the change goes through.
+    await send('PUT', '/auth/account/password', { body: { username: 'ada.admin', password: PASSWORD } });
+    expect((await setSettings(false, true)).status).toBe(200);
+
+    // At least one method stays on.
+    const none = await setSettings(false, false);
+    expect(none.status).toBe(409);
+    expect((await none.json()).error.code).toBe('last_sign_in_method');
+
+    // A second admin with only a passkey: the password can no longer keep every admin in.
+    const second = await createUser(pool, { name: 'Bo Admin', email: 'bo@example.com', role: 'admin' });
+    await addPasskey(second.id);
+    expect((await setSettings(true, true)).status).toBe(200);
+    expect((await setSettings(true, false)).status).toBe(200);
+    expect((await setSettings(false, true)).status).toBe(409);
+  });
+
+  it('refuses to remove a user\'s last usable method, and keeps the rest working', async () => {
+    await send('PUT', '/auth/account/password', { cookie: managerCookie, body: { username: 'casey', password: PASSWORD } });
+    const passkeyId = await addPasskey(managerId);
+    await turnPasswordOn();
+    const { rows: [identity] } = await pool.query<{ id: string }>(
+      `INSERT INTO user_identities (user_id, provider, subject, email) VALUES ($1, 'google', 'sub-1', 'casey@example.com') RETURNING id`,
+      [managerId],
+    );
+
+    // A passkey goes while the password and the identity remain.
+    expect((await send('DELETE', `/auth/account/passkeys/${passkeyId}`, { cookie: managerCookie })).status).toBe(204);
+    // The identity goes while the password remains.
+    expect((await send('DELETE', `/auth/account/identities/${identity.id}`, { cookie: managerCookie })).status).toBe(204);
+    // The last one cannot.
+    const last = await send('DELETE', '/auth/account/password', { cookie: managerCookie });
+    expect(last.status).toBe(409);
+    expect((await last.json()).error.code).toBe('last_sign_in_method');
+
+    // A password that is off is not a method the user keeps: the passkey goes only with another usable one.
+    const passkey = await addPasskey(managerId);
+    expect((await setSettings(true, false)).status).toBe(200);
+    const off = await send('DELETE', `/auth/account/passkeys/${passkey}`, { cookie: managerCookie });
+    expect(off.status).toBe(409);
+    expect((await off.json()).error.code).toBe('last_sign_in_method');
+
+    // Another user's passkey is not found, and neither is a bad id.
+    const adminPasskey = (await pool.query<{ id: string }>('SELECT id FROM passkeys WHERE user_id = $1', [adminId])).rows[0].id;
+    expect((await send('DELETE', `/auth/account/passkeys/${adminPasskey}`, { cookie: managerCookie })).status).toBe(404);
+    expect((await send('DELETE', '/auth/account/passkeys/not-an-id', { cookie: managerCookie })).status).toBe(404);
+    const methods = await (await send('GET', '/auth/account/methods', { cookie: managerCookie })).json();
+    expect(methods.identities).toEqual([]);
+    expect(methods.passkeys).toHaveLength(1);
+  });
+
+  it('saves a provider with an encrypted secret, never returns it, and offers it only when usable', async () => {
+    const saved = await send('PUT', '/auth/providers/google', {
+      body: { displayName: 'Google', enabled: false, config: { clientId: '123-abc.apps.googleusercontent.com' }, secret: CLIENT_SECRET },
+    });
+    expect(saved.status).toBe(200);
+    const body = await saved.json();
+    expect(body).toEqual({
+      slug: 'google',
+      kind: 'google',
+      id: 'google',
+      displayName: 'Google',
+      enabled: false,
+      usable: false,
+      config: { clientId: '123-abc.apps.googleusercontent.com' },
+      hasSecret: true,
+      redirectUri: 'https://api.example.com/api/v1/auth/callback/google',
+      updatedAt: expect.any(String),
+    });
+    expect(JSON.stringify(body)).not.toContain(CLIENT_SECRET);
+
+    // Stored encrypted: the plain secret is not in the row, and the key reads it back.
+    const { rows } = await pool.query<{ secret: Buffer }>('SELECT secret_enc AS secret FROM auth_providers WHERE slug = $1', ['google']);
+    expect(rows[0].secret.includes(Buffer.from(CLIENT_SECRET))).toBe(false);
+    expect(decryptSecret(rows[0].secret, SECRET_KEY)).toBe(CLIENT_SECRET);
+
+    // A save without a secret keeps the stored one; null removes it.
+    const kept = await send('PUT', '/auth/providers/google', { body: { displayName: 'Google', enabled: true, config: { clientId: '123-abc.apps.googleusercontent.com' } } });
+    expect(await kept.json()).toMatchObject({ hasSecret: true, usable: true });
+    expect((await (await send('GET', '/auth/state', { cookie: '' })).json()).methods).toContainEqual({ id: 'google', label: 'Google', kind: 'google' });
+    const cleared = await send('PUT', '/auth/providers/google', { body: { displayName: 'Google', enabled: true, config: { clientId: '123-abc.apps.googleusercontent.com' }, secret: null } });
+    expect(await cleared.json()).toMatchObject({ hasSecret: false, usable: false });
+    expect((await (await send('GET', '/auth/state', { cookie: '' })).json()).methods).toEqual([{ id: 'passkey', label: 'Passkey', kind: 'passkey' }]);
+
+    const list = await send('GET', '/auth/providers');
+    expect(await list.json()).toEqual([expect.objectContaining({ slug: 'google', hasSecret: false })]);
+    expect((await send('GET', '/auth/providers', { cookie: managerCookie })).status).toBe(403);
+  });
+
+  it('refuses a provider secret without a valid key, with a clear error and no echo of the secret', async () => {
+    await useApp({ secretKey: null });
+    const refused = await send('PUT', '/auth/providers/google', {
+      body: { displayName: 'Google', enabled: false, config: { clientId: 'abc' }, secret: CLIENT_SECRET },
+    });
+    expect(refused.status).toBe(503);
+    const error = await refused.json();
+    expect(error.error.code).toBe('secret_key_missing');
+    expect(JSON.stringify(error)).toContain('TALEART_SECRET_KEY');
+    expect(JSON.stringify(error)).not.toContain(CLIENT_SECRET);
+    expect((await pool.query('SELECT 1 FROM auth_providers')).rowCount).toBe(0);
+
+    // Without a secret the provider saves, and is not usable.
+    const plain = await send('PUT', '/auth/providers/google', { body: { displayName: 'Google', enabled: true, config: { clientId: 'abc' } } });
+    expect(plain.status).toBe(200);
+    expect(await plain.json()).toMatchObject({ hasSecret: false, usable: false });
+    expect(await (await send('GET', '/auth/settings')).json()).toMatchObject({ secretKeyConfigured: false });
+  });
+
+  it('validates each provider kind\'s settings and secret, and never echoes the secret in a refusal', async () => {
+    const put = (slug: string, body: unknown) => send('PUT', `/auth/providers/${slug}`, { body });
+    const expectRefused = async (res: Response) => {
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('validation_failed');
+    };
+
+    // Unknown settings for the kind, and a bad slug.
+    await expectRefused(await put('google', { displayName: 'Google', enabled: false, config: { clientId: 'a', issuer: 'https://x.example' } }));
+    await expectRefused(await put('Bad Slug', { displayName: 'X', enabled: false, config: { clientId: 'a' } }));
+    // OpenID Connect: an https issuer, or http on localhost outside production only.
+    await expectRefused(await put('corp', { displayName: 'Corp', enabled: false, config: { issuer: 'http://idp.example.com', clientId: 'a' }, secret: 's' }));
+    await expectRefused(await put('corp', { displayName: 'Corp', enabled: false, config: { issuer: 'https://user:pw@idp.example.com', clientId: 'a' }, secret: 's' }));
+    // Apple: the team and key ids, and the .p8 key as PEM, never echoed.
+    await expectRefused(await put('apple', { displayName: 'Apple', enabled: false, config: { clientId: 'com.example.web', teamId: 'short', keyId: 'KEY1234567' }, secret: APPLE_KEY }));
+    const badKey = await put('apple', { displayName: 'Apple', enabled: false, config: { clientId: 'com.example.web', teamId: 'ABCDE12345', keyId: 'KEY1234567' }, secret: 'not a key at all' });
+    // The body is read once, here: it is the refusal's, and it must not echo the secret.
+    const badKeyText = await badKey.text();
+    expect(badKey.status).toBe(400);
+    expect(JSON.parse(badKeyText).error.code).toBe('validation_failed');
+    expect(badKeyText).not.toContain('not a key at all');
+    // A secret over 8 KB, and scopes without openid.
+    await expectRefused(await put('corp', { displayName: 'Corp', enabled: false, config: { issuer: 'https://idp.example.com', clientId: 'a' }, secret: 'x'.repeat(8193) }));
+    await expectRefused(await put('corp', { displayName: 'Corp', enabled: false, config: { issuer: 'https://idp.example.com', clientId: 'a', scopes: 'email profile' }, secret: 's' }));
+
+    // Valid ones save, and the OpenID Connect method is named by its slug.
+    const oidc = await put('corp', { displayName: 'Corp', enabled: false, config: { issuer: 'https://idp.example.com/', clientId: 'a' }, secret: 'corp-secret-value' });
+    expect(oidc.status).toBe(200);
+    expect(await oidc.json()).toMatchObject({ kind: 'oidc', id: 'oidc:corp', redirectUri: 'https://api.example.com/api/v1/auth/callback/corp' });
+    const apple = await put('apple', { displayName: 'Apple', enabled: false, config: { clientId: 'com.example.web', teamId: 'ABCDE12345', keyId: 'KEY1234567' }, secret: APPLE_KEY });
+    expect(apple.status).toBe(200);
+    expect(await apple.json()).toMatchObject({ kind: 'apple', id: 'apple', hasSecret: true });
+
+    // Deleting: an unknown slug is 404, a known one goes.
+    expect((await send('DELETE', '/auth/providers/nothing-here')).status).toBe(404);
+    expect((await (await send('DELETE', '/auth/providers/nothing-here')).json()).error.code).toBe('provider_not_found');
+    expect((await send('DELETE', '/auth/providers/corp')).status).toBe(204);
+    expect((await send('GET', '/auth/providers')).status).toBe(200);
+    expect(await (await send('GET', '/auth/providers')).json()).toHaveLength(1);
+  });
+
+  it('refuses to delete the provider that is the last method on, and lets an admin keep the last one usable', async () => {
+    await useApp({ secretKey: SECRET_KEY });
+    await send('PUT', '/auth/account/password', { body: { username: 'ada.admin', password: PASSWORD } });
+    // Google is on, usable (a secret and the key) and the admin signs in with it, so the passkey can go.
+    expect((await send('PUT', '/auth/providers/google', { body: { displayName: 'Google', enabled: true, config: { clientId: 'abc' }, secret: CLIENT_SECRET } })).status).toBe(200);
+    await pool.query("INSERT INTO user_identities (user_id, provider, subject) VALUES ($1, 'google', 'admin-sub')", [adminId]);
+    expect((await setSettings(false, false)).status).toBe(200);
+    // Removing the provider leaves no method on at all.
+    const gone = await send('DELETE', '/auth/providers/google');
+    expect(gone.status).toBe(409);
+    expect((await gone.json()).error.code).toBe('last_sign_in_method');
+    expect((await send('GET', '/auth/providers')).status).toBe(200);
   });
 });

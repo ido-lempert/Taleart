@@ -49,8 +49,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Whether setup is still needed, and who is signed in.
-         * @description Works with or without a session. `user` is null when the request has no valid session.
+         * Whether setup is still needed, who is signed in, and the sign-in methods on.
+         * @description Works with or without a session. `user` is null when the request has no valid session. `methods` lists the sign-in methods an admin has turned on and that are usable, in the order the sign-in page shows them: passkey, password, then the providers. On an empty install with `TALEART_SETUP_PASSWORD=true`, `password` is listed as well, since the first admin can set up with it. It carries no configuration and no secrets.
          */
         get: operations["getAuthState"];
         put?: never;
@@ -224,6 +224,299 @@ export interface paths {
          * @description Creates the user as a `content_manager`, their passkey and their membership of the invitation's project, marks the invitation used and sets the `taleart_session` cookie, all in one transaction. Bad or expired challenge, or failed verification: 400 `passkey_failed`. The invitation was used meanwhile or expired: 410 `invitation_invalid`.
          */
         post: operations["finishInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a username and password.
+         * @description Only while the password method is on (an admin turns it on under Sign-in methods). Sets the `taleart_session` cookie (7 days) and, like a passkey sign-in, ends the user's other sessions only when they change their password. An unknown username, a wrong password and a turned-off method all answer the same 401 `sign_in_failed`. Failures are throttled per address (a burst of 10, then 10 a minute) and per username: after 5 failures the username waits 30 s, doubling per further failure up to 15 minutes; while it waits the answer is 429 `rate_limited` with `Retry-After`. A success clears the username's failures.
+         */
+        post: operations["signInWithPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/setup/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the first admin with a username and password, and sign them in.
+         * @description The password variant of setup. Only while no user exists (409 `setup_closed`). Refused with 403 `sign_in_method_disabled` unless the server runs with `TALEART_SETUP_PASSWORD=true`; then the password method is turned on in the same step, so the new admin can sign in with it. The password must meet the password policy (400 `password_rejected`) and the username is taken at most once (409 `username_taken`). Sets the `taleart_session` cookie.
+         */
+        post: operations["setupWithPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/invitations/{token}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join through an invitation with a username and password, and sign in.
+         * @description The password variant of redeeming an invitation, for when the password method is on. Creates the content manager with the password, their membership of the invitation's project, marks the invitation used and sets the `taleart_session` cookie, in one transaction. Unknown, used or expired invitation: 410 `invitation_invalid`; the password method off: 403 `sign_in_method_disabled`; an email that already belongs to a user: 409 `email_taken`; a username taken: 409 `username_taken`; a password that breaks the policy: 400 `password_rejected`.
+         */
+        post: operations["redeemInvitationWithPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-resets/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the password reset link. */
+                token: components["parameters"]["PasswordResetToken"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a password reset link before using it.
+         * @description Works without a session. Says whose password the link sets and whether the form must ask for a username (the user has no password yet). An unknown, used or expired link, or one while the password method is off, answers 410 `password_reset_invalid`.
+         */
+        get: operations["getPasswordReset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-resets/{token}/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the password reset link. */
+                token: components["parameters"]["PasswordResetToken"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password through a reset link, and sign the user in.
+         * @description Sets the password (and the username, when the user has none yet), marks the link used, ends every other session of the user and sets the `taleart_session` cookie for a new one, all in one transaction. The link is single-use and expires after 24 hours. The password must meet the policy (400 `password_rejected`) and a username given for a user who already has one must match it (400 `validation_failed`). An unknown, used or expired link, or one while the password method is off: 410 `password_reset_invalid`.
+         */
+        post: operations["redeemPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/account/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The signed-in user's sign-in methods.
+         * @description Lists the user's passkeys, whether they have a password (its username, never the password), and their linked provider identities. A session cookie only; a request with an `Authorization` header is refused.
+         */
+        get: operations["getAccountMethods"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/account/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the signed-in user's password, or change it.
+         * @description A user without a password sets one: `username` is then required, and `currentPassword` is not. A user with one must send `currentPassword` (403 `password_incorrect` when it is wrong, counted against the username's failures) and may not change `username` here. The password must meet the policy (400 `password_rejected`). Every other session of the user ends; the session making the request stays signed in.
+         */
+        put: operations["setAccountPassword"];
+        post?: never;
+        /**
+         * Remove the signed-in user's password.
+         * @description Refused with 409 `last_sign_in_method` unless another method the user holds stays usable: a passkey, or a provider identity whose provider is on. Without a password: 404 `not_found`.
+         */
+        delete: operations["removeAccountPassword"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/account/passkeys/{passkeyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The passkey's id, from `GET /auth/account/methods`. */
+                passkeyId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the signed-in user's passkeys.
+         * @description Refused with 409 `last_sign_in_method` unless another method the user holds stays usable (see the password removal). Another user's passkey or an unknown one: 404 `not_found`.
+         */
+        delete: operations["removeAccountPasskey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/account/identities/{identityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The linked identity's id, from `GET /auth/account/methods`. */
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unlink one of the signed-in user's provider identities.
+         * @description Refused with 409 `last_sign_in_method` unless another method the user holds stays usable. Another user's identity or an unknown one: 404 `not_found`.
+         */
+        delete: operations["removeAccountIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which sign-in methods are on.
+         * @description Passkey and password on or off, and whether the server has the key that encrypts provider secrets (`secretKeyConfigured`). Admins only.
+         */
+        get: operations["getAuthSettings"];
+        /**
+         * Turn the passkey and password methods on or off.
+         * @description Admins only. At least one method must stay on: none on answers 409 `last_sign_in_method`. A change that would leave no method on that every admin can use (every admin needs a passkey, a password, or an identity of a provider that is on) answers 409 `sign_in_lockout`. A fresh install has the passkey on and the password off.
+         */
+        put: operations["setAuthSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The external identity providers an admin has added.
+         * @description Admins only. Never returns a secret: `hasSecret` says whether one is stored. `usable` is true when the provider is on and, if it needs a secret, that secret is stored and the server has its key. `redirectUri` is the URL to register at the provider.
+         */
+        get: operations["listAuthProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/providers/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add a provider, or replace its settings.
+         * @description Admins only. The slug names the provider: `google` and `apple` are the presets, any other slug is a generic OpenID Connect provider (method `oidc:<slug>`). The secret is write-only: send it in `secret` to store it (encrypted), `null` to remove it, or leave the field out to keep the stored one. The secret is refused with 503 `secret_key_missing` when the server has no valid `TALEART_SECRET_KEY`. Turning a provider off that the sign-in methods depend on answers 409 `sign_in_lockout` or `last_sign_in_method`.
+         */
+        put: operations["saveAuthProvider"];
+        post?: never;
+        /**
+         * Remove a provider and its secret.
+         * @description Admins only. The identities users linked to it stay in place but cannot sign in while it is gone. Refused with 409 `sign_in_lockout` or `last_sign_in_method` when that would lock every admin out or leave no method on.
+         */
+        delete: operations["deleteAuthProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/users/{userId}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the link is for. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a one-time password reset link for a user.
+         * @description Admins only. The link works once, for 24 hours, and is shown only in this response; only its hash is stored. Issuing a link replaces the user's earlier unused links. It also adds a password to a user who has none. Unknown user: 404 `not_found`.
+         */
+        post: operations["issuePasswordReset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2480,6 +2773,147 @@ export interface components {
             setupRequired: boolean;
             /** @description The signed-in user, or null without a valid session. */
             user: components["schemas"]["User"] | null;
+            /** @description The sign-in methods on and usable, for the sign-in page. */
+            methods: components["schemas"]["AuthMethod"][];
+        };
+        /** @enum {string} */
+        AuthMethodKind: "passkey" | "password" | "oidc" | "google" | "apple";
+        /** @description A sign-in method on for the sign-in page. Carries no configuration and no secret. */
+        AuthMethod: {
+            /** @description `passkey`, `password`, `google`, `apple`, or `oidc:<slug>`. */
+            id: string;
+            /** @description The button or heading the sign-in page shows. */
+            label: string;
+            kind: components["schemas"]["AuthMethodKind"];
+        };
+        PasswordSignInRequest: {
+            username: string;
+            password: string;
+        };
+        PasswordRegistrationRequest: {
+            name: string;
+            /** Format: email */
+            email: string;
+            /** @description 3 to 40 characters: letters, digits, `.`, `_` and `-`. Stored in lower case. */
+            username: string;
+            /** @description 12 to 128 characters, not the username or the email's local part, not a common password. */
+            password: string;
+        };
+        PasswordResetPreview: {
+            /** @description The name of the user the link is for. */
+            name: string;
+            /** @description True when the user has no password yet, so the form asks for a username. */
+            usernameRequired: boolean;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        RedeemPasswordResetRequest: {
+            /** @description Required when the user has no password yet; otherwise it must match the current username. */
+            username?: string;
+            /** @description 12 to 128 characters, not the username or the email's local part, not a common password. */
+            password: string;
+        };
+        SetPasswordRequest: {
+            /** @description Required when the user has no password yet. Not changeable once set. */
+            username?: string;
+            /** @description Required when the user has a password. */
+            currentPassword?: string;
+            /** @description 12 to 128 characters, not the username or the email's local part, not a common password. */
+            password: string;
+        };
+        AccountPasskey: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastUsedAt: string | null;
+        };
+        AccountIdentity: {
+            /** Format: uuid */
+            id: string;
+            /** @description `google`, `apple`, or `oidc:<slug>`. */
+            provider: string;
+            /** @description The email the provider reported, when it reported a verified one. */
+            email: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastUsedAt: string | null;
+        };
+        AccountMethods: {
+            passkeys: components["schemas"]["AccountPasskey"][];
+            /** @description The user's password, without the password itself; null when they have none. */
+            password: {
+                username: string;
+                /** Format: date-time */
+                updatedAt: string;
+            } | null;
+            identities: components["schemas"]["AccountIdentity"][];
+        };
+        AuthSettings: {
+            passkeyEnabled: boolean;
+            passwordEnabled: boolean;
+            /** @description True when the server has a valid `TALEART_SECRET_KEY`, so provider secrets can be saved. */
+            secretKeyConfigured: boolean;
+        };
+        UpdateAuthSettingsRequest: {
+            passkeyEnabled: boolean;
+            passwordEnabled: boolean;
+        };
+        /** @enum {string} */
+        AuthProviderKind: "oidc" | "google" | "apple";
+        /** @description The settings that are not secret. Only the fields of the provider's kind are allowed: `oidc` takes `issuer`, `clientId` and `scopes`; `google` takes `clientId` and `scopes`; `apple` takes `clientId`, `teamId` and `keyId`. */
+        AuthProviderConfig: {
+            /**
+             * Format: uri
+             * @description The issuer URL, https (http only for localhost outside production). Discovery must answer with exactly this issuer.
+             */
+            issuer?: string;
+            clientId?: string;
+            /** @description Space-separated scopes; must include `openid`. Defaults to `openid email profile` (Apple `name email`). */
+            scopes?: string;
+            /** @description The Apple developer team id, 10 letters and digits. */
+            teamId?: string;
+            /** @description The Apple key id, 10 letters and digits. */
+            keyId?: string;
+        };
+        AuthProvider: {
+            slug: string;
+            kind: components["schemas"]["AuthProviderKind"];
+            /** @description The sign-in method id: `google`, `apple` or `oidc:<slug>`. */
+            id: string;
+            displayName: string;
+            enabled: boolean;
+            /** @description True when enabled, and the secret it needs is stored and the server has its key. */
+            usable: boolean;
+            config: components["schemas"]["AuthProviderConfig"];
+            /** @description True when a secret is stored. The secret itself is never returned. */
+            hasSecret: boolean;
+            /**
+             * Format: uri
+             * @description The redirect URI to register at the provider, `<PUBLIC_API_URL>/api/v1/auth/callback/<slug>`.
+             */
+            redirectUri: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SaveAuthProviderRequest: {
+            displayName: string;
+            enabled: boolean;
+            config: components["schemas"]["AuthProviderConfig"];
+            /** @description The client secret, or for Apple the `.p8` private key as PEM. Write-only: `null` removes the stored one, and leaving it out keeps it. */
+            secret?: string | null;
+        };
+        PasswordResetLink: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            userId: string;
+            /** @description The one-time link to share, `<dashboard origin>/password-reset/<token>`. Shown only once. */
+            url: string;
+            /** Format: date-time */
+            expiresAt: string;
         };
         SetupRequest: {
             name: string;
@@ -2763,7 +3197,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -3175,6 +3609,10 @@ export interface components {
     parameters: {
         /** @description The one-time token from the invitation link. */
         InvitationToken: string;
+        /** @description The one-time token from the password reset link. */
+        PasswordResetToken: string;
+        /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+        ProviderSlug: string;
     };
     requestBodies: never;
     headers: never;
@@ -3456,6 +3894,424 @@ export interface operations {
             400: components["responses"]["Error"];
             409: components["responses"]["Error"];
             410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    signInWithPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordSignInRequest"];
+            };
+        };
+        responses: {
+            /** @description The signed-in user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignedIn"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setupWithPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description The admin, now signed in. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignedIn"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    redeemInvitationWithPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description The new content manager, now signed in. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignedIn"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the password reset link. */
+                token: components["parameters"]["PasswordResetToken"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whose password the link sets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetPreview"];
+                };
+            };
+            410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    redeemPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the password reset link. */
+                token: components["parameters"]["PasswordResetToken"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemPasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description The user, now signed in with a new session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignedIn"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getAccountMethods: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's sign-in methods. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountMethods"];
+                };
+            };
+            401: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setAccountPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password is set. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    removeAccountPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The password is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    removeAccountPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The passkey's id, from `GET /auth/account/methods`. */
+                passkeyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The passkey is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    removeAccountIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The linked identity's id, from `GET /auth/account/methods`. */
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The identity is unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getAuthSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sign-in method settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSettings"];
+                };
+            };
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setAuthSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAuthSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The settings now in force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listAuthProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The providers, by slug. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProvider"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    saveAuthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveAuthProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description The provider as saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProvider"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteAuthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The provider's slug: `google`, `apple`, or the slug of a generic OpenID Connect provider (lower case letters, digits and hyphens, starting with a letter or digit, at most 40 characters). */
+                slug: components["parameters"]["ProviderSlug"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    issuePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user the link is for. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link, to share once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetLink"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -5814,6 +6670,8 @@ export const projectMediaSourceValues: ReadonlyArray<FlattenedDeepRequired<compo
 export const projectFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["style"]> = ["normal", "italic"];
 export const projectFontFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
+export const authMethodKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthMethodKind"]> = ["passkey", "password", "oidc", "google", "apple"];
+export const authProviderKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthProviderKind"]> = ["oidc", "google", "apple"];
 export const importEntityChoiceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportEntityChoice"]> = ["taleGroups", "media", "tags"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale", "tag"];
@@ -5821,7 +6679,7 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];

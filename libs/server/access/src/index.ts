@@ -1,6 +1,8 @@
 // Public interface of the access module (AD-1). It owns the `projects`,
 // `users`, `passkeys`, `sessions`, `auth_challenges`, `project_members`,
-// `invitations`, `zone_keys`, `site_keys`, `api_tokens` and `api_token_projects` tables; other modules reach them only through these exports.
+// `invitations`, `zone_keys`, `site_keys`, `api_tokens` and `api_token_projects` tables, and the sign-in
+// method tables `user_identities`, `user_passwords`, `auth_settings`, `auth_providers` and `password_resets`;
+// other modules reach them only through these exports.
 export type {
   CheckedOutClient,
   CheckoutClient,
@@ -37,7 +39,54 @@ export {
   SiteKeyNotFoundError,
   ApiTokenNotFoundError,
   ApiTokenLimitError,
+  SignInRefusal,
+  SignInFailedError,
+  SignInThrottledError,
+  PasswordRejectedError,
+  InputInvalidError,
+  UsernameTakenError,
+  PasswordIncorrectError,
+  PasswordResetInvalidError,
+  SignInMethodDisabledError,
+  LastSignInMethodError,
+  SignInLockoutError,
+  SecretKeyMissingError,
+  ProviderNotFoundError,
+  SignInItemNotFoundError,
 } from './lib/errors';
+export {
+  enabledMethods,
+  PASSWORD_METHOD,
+  providerMethodId,
+  signInSettings,
+  setSignInSettings,
+  type SignInSettings,
+} from './lib/signInMethods';
+export {
+  PROVIDER_SECRET_MAX_BYTES,
+  listProviders,
+  saveProvider,
+  deleteProvider,
+  type ProviderContext,
+} from './lib/providers';
+export { SECRET_KEY_ENV, parseSecretKey, encryptSecret, decryptSecret } from './lib/secrets';
+export { hashPassword, verifyPassword, checkPassword, normalizeUsername } from './lib/passwords';
+export { PasswordThrottle, passwordWaitMs } from './lib/throttle';
+export {
+  setupWithPassword,
+  redeemInvitationWithPassword,
+  signInWithPassword,
+  setOwnPassword,
+  removeOwnPassword,
+  type PasswordCredentials,
+} from './lib/passwordSignIn';
+export {
+  issuePasswordReset,
+  previewPasswordReset,
+  redeemPasswordReset,
+  type NewPasswordReset,
+} from './lib/passwordResets';
+export { accountMethods, removeOwnPasskey, removeOwnIdentity } from './lib/accountMethods';
 export {
   API_TOKEN_LAST_USED_INTERVAL_MS,
   createApiToken,

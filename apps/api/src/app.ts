@@ -7,6 +7,7 @@ import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { authRouter } from './http/auth.router';
+import { signInMethodsRouter } from './http/sign-in-methods.router';
 import { apiTokensRouter, userApiTokensRouter } from './http/api-tokens.router';
 import { refuseAuthorizationHeader, requireCaller } from './http/credentials';
 import { coversRouter } from './http/covers.router';
@@ -57,6 +58,14 @@ export interface AppAuth {
   dashboardOrigin?: string;
   /** Failed API token attempts allowed per address; the default when left out, off when null. */
   tokenGuessLimit?: RateLimitOptions | null;
+  /** The key that encrypts provider secrets (TALEART_SECRET_KEY), or null when missing or invalid. */
+  secretKey?: Buffer | null;
+  /** Whether an OpenID Connect issuer may be http on localhost. Defaults to true unless NODE_ENV is production. */
+  allowHttpIssuer?: boolean;
+  /** Password sign-in attempts allowed per address; the default when left out, off when null. */
+  passwordAddressLimit?: RateLimitOptions | null;
+  /** TALEART_SETUP_PASSWORD=true: the first admin may set up with a username and password. Off by default. */
+  setupPassword?: boolean;
 }
 
 /** How the Delivery API is limited. */
@@ -148,10 +157,30 @@ export function createApp(
   });
   // Sign-in, sign-out, setup and invitations read cookies only: a request with an Authorization header
   // (an API token) is refused there, so a token never starts, ends or stands in for a session.
+  // The sign-in method routes (password sign-in, reset links, the account's and the admins' methods)
+  // sit behind the same refusal, so a token reaches none of them, the admin routes included.
   v1.use(
     '/auth',
     refuseAuthorizationHeader,
-    authRouter(pool, { verifier: auth.verifier, secureCookies: auth.secureCookies ?? false }),
+    authRouter(pool, {
+      verifier: auth.verifier,
+      secureCookies: auth.secureCookies ?? false,
+      secretsAvailable: (auth.secretKey ?? null) !== null,
+      setupPasswordAllowed: auth.setupPassword === true,
+    }),
+  );
+  v1.use(
+    '/auth',
+    refuseAuthorizationHeader,
+    signInMethodsRouter(pool, {
+      secureCookies: auth.secureCookies ?? false,
+      publicApiUrl,
+      dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200',
+      secretKey: auth.secretKey ?? null,
+      allowHttpIssuer: auth.allowHttpIssuer ?? process.env['NODE_ENV'] !== 'production',
+      passwordAddressLimit: auth.passwordAddressLimit,
+      setupPasswordAllowed: auth.setupPassword === true,
+    }),
   );
   // Every other route, media included, needs a signed-in session or an API token acting as its user
   // (AD-9, epic developer experience 10.1), and each checks the caller's access to the project it

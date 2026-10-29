@@ -58,6 +58,29 @@ export type MediaContentType = Schemas['MediaContentType'];
 export type UserRole = Schemas['UserRole'];
 export type User = Schemas['User'];
 export type AuthState = Schemas['AuthState'];
+/** A sign-in method on for the sign-in page: its id, label and kind (no configuration, no secret). */
+export type AuthMethod = Schemas['AuthMethod'];
+export type AuthMethodKind = Schemas['AuthMethodKind'];
+export type PasswordSignInRequest = Schemas['PasswordSignInRequest'];
+/** The password variant of setup and of an invitation: the name and email, then the username and password. */
+export type PasswordRegistrationRequest = Schemas['PasswordRegistrationRequest'];
+export type PasswordResetPreview = Schemas['PasswordResetPreview'];
+export type RedeemPasswordResetRequest = Schemas['RedeemPasswordResetRequest'];
+export type SetPasswordRequest = Schemas['SetPasswordRequest'];
+/** The signed-in user's sign-in methods (My sign-in methods). Never a password or a secret. */
+export type AccountMethods = Schemas['AccountMethods'];
+export type AccountPasskey = Schemas['AccountPasskey'];
+export type AccountIdentity = Schemas['AccountIdentity'];
+export type AuthSettings = Schemas['AuthSettings'];
+export type UpdateAuthSettingsRequest = Schemas['UpdateAuthSettingsRequest'];
+export type AuthProviderKind = Schemas['AuthProviderKind'];
+/** The non-secret settings of a provider; only the fields of its kind are set. */
+export type AuthProviderConfig = Schemas['AuthProviderConfig'];
+/** An external identity provider as the admin sees it: its settings, whether its secret is stored, never the secret. */
+export type AuthProvider = Schemas['AuthProvider'];
+export type SaveAuthProviderRequest = Schemas['SaveAuthProviderRequest'];
+/** A password reset link, the only time its URL is shown. */
+export type PasswordResetLink = Schemas['PasswordResetLink'];
 export type SetupRequest = Schemas['SetupRequest'];
 export type SignedIn = Schemas['SignedIn'];
 export type RedeemInvitationRequest = Schemas['RedeemInvitationRequest'];
@@ -176,6 +199,22 @@ export const CHALLENGE_COOKIE = 'taleart_challenge';
 
 /** How long an invitation link can be used. */
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** How long a password reset link can be used (admin-issued, one time). */
+export const PASSWORD_RESET_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** The fewest and most characters of a password (any characters, no composition rules). */
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_LENGTH = 128;
+
+/** The fewest and most characters of a username; stored in lower case. */
+export const USERNAME_MIN_LENGTH = 3;
+export const USERNAME_MAX_LENGTH = 40;
+
+/** The dashboard path a password reset link opens: `/password-reset/<token>`. */
+export function passwordResetPath(token: string): string {
+  return `/password-reset/${encodeURIComponent(token)}`;
+}
 
 /** The dashboard path an invitation link opens: `/invite/<token>`. */
 export function invitationPath(token: string): string {
@@ -760,6 +799,16 @@ export const ErrorCodes = {
   userListExists: 'user_list_exists',
   userListLimitReached: 'user_list_limit_reached',
   userListFileTooLarge: 'user_list_file_too_large',
+  signInFailed: 'sign_in_failed',
+  passwordRejected: 'password_rejected',
+  usernameTaken: 'username_taken',
+  passwordIncorrect: 'password_incorrect',
+  passwordResetInvalid: 'password_reset_invalid',
+  signInMethodDisabled: 'sign_in_method_disabled',
+  lastSignInMethod: 'last_sign_in_method',
+  signInLockout: 'sign_in_lockout',
+  secretKeyMissing: 'secret_key_missing',
+  providerNotFound: 'provider_not_found',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

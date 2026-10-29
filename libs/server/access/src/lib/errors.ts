@@ -1,4 +1,4 @@
-import { ErrorCodes, MAX_API_TOKENS_PER_USER } from '@taleart/contract';
+import { ErrorCodes, MAX_API_TOKENS_PER_USER, type ErrorCode } from '@taleart/contract';
 
 /** Thrown when setup is attempted after a user exists. */
 export class SetupClosedError extends Error {
@@ -87,5 +87,122 @@ export class ApiTokenLimitError extends Error {
   constructor() {
     super(`You have ${MAX_API_TOKENS_PER_USER} active API tokens, the most allowed. Revoke one you no longer use.`);
     this.name = 'ApiTokenLimitError';
+  }
+}
+
+/**
+ * A refusal of a sign-in method (password sign-in, the method settings, providers, reset links and
+ * the signed-in user's own methods). The API maps it to `status` and `code` as they are.
+ */
+export class SignInRefusal extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: ErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
+
+/**
+ * Wrong username, wrong password, or the password method is off: all the same, so a caller learns
+ * nothing about which (no username enumeration, no method probing).
+ */
+export class SignInFailedError extends SignInRefusal {
+  constructor() {
+    super(401, ErrorCodes.signInFailed, 'The username or password is not correct');
+  }
+}
+
+/** The username or password is failing too often: the caller waits `retryAfterSeconds`. */
+export class SignInThrottledError extends SignInRefusal {
+  constructor(readonly retryAfterSeconds: number) {
+    super(429, ErrorCodes.rateLimited, 'Too many failed sign-in attempts for this username. Try again later.');
+  }
+}
+
+/** A password that breaks the policy (length, username, email, common password). */
+export class PasswordRejectedError extends SignInRefusal {
+  constructor(message: string) {
+    super(400, ErrorCodes.passwordRejected, message);
+  }
+}
+
+/** A username, slug, config value or other input that is malformed. */
+export class InputInvalidError extends SignInRefusal {
+  constructor(message: string) {
+    super(400, ErrorCodes.validationFailed, message);
+  }
+}
+
+/** A username that another user already holds. */
+export class UsernameTakenError extends SignInRefusal {
+  constructor() {
+    super(409, ErrorCodes.usernameTaken, 'That username is taken. Choose another.');
+  }
+}
+
+/** The signed-in user's current password is wrong. */
+export class PasswordIncorrectError extends SignInRefusal {
+  constructor() {
+    super(403, ErrorCodes.passwordIncorrect, 'The current password is not correct');
+  }
+}
+
+/** A reset link that is unknown, used or expired, or that cannot be used while the password method is off. */
+export class PasswordResetInvalidError extends SignInRefusal {
+  constructor() {
+    super(410, ErrorCodes.passwordResetInvalid, 'This password reset link is no longer valid. Ask an admin for a new one.');
+  }
+}
+
+/** Setup or an invitation with a password while the password method is off. */
+export class SignInMethodDisabledError extends SignInRefusal {
+  constructor() {
+    super(403, ErrorCodes.signInMethodDisabled, 'The password sign-in method is off. Ask an admin to turn it on.');
+  }
+}
+
+/** A change that would leave no sign-in method on, or the user with no method that stays usable. */
+export class LastSignInMethodError extends SignInRefusal {
+  constructor(message: string) {
+    super(409, ErrorCodes.lastSignInMethod, message);
+  }
+}
+
+/** A change that would leave no sign-in method that every admin can use. */
+export class SignInLockoutError extends SignInRefusal {
+  constructor() {
+    super(
+      409,
+      ErrorCodes.signInLockout,
+      'This change would lock an admin out: keep a sign-in method on that every admin can use (a passkey, a password or a linked provider)',
+    );
+  }
+}
+
+/** A provider secret cannot be saved: the server has no valid TALEART_SECRET_KEY. */
+export class SecretKeyMissingError extends SignInRefusal {
+  constructor() {
+    super(
+      503,
+      ErrorCodes.secretKeyMissing,
+      'The server has no valid TALEART_SECRET_KEY (32 bytes, base64), so provider secrets cannot be saved',
+    );
+  }
+}
+
+/** A provider slug that is not configured. */
+export class ProviderNotFoundError extends SignInRefusal {
+  constructor() {
+    super(404, ErrorCodes.providerNotFound, 'No sign-in provider has this slug');
+  }
+}
+
+/** A user's own passkey, identity or password that is not theirs or does not exist. */
+export class SignInItemNotFoundError extends SignInRefusal {
+  constructor(message: string) {
+    super(404, ErrorCodes.notFound, message);
   }
 }

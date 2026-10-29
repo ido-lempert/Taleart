@@ -39,6 +39,7 @@ import {
 import {
   ApiTokenLimitError,
   ApiTokenNotFoundError,
+  SignInRefusal,
   EmailTakenError,
   InvitationInvalidError,
   PasskeyFailedError,
@@ -101,6 +102,11 @@ export const notFoundHandler: express.RequestHandler = (req, res) => {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof HttpError) {
+    res.status(err.status).json(errorBody(err.code, err.message));
+    return;
+  }
+  // A sign-in method refusal carries its own status and code (libs/server/access, sign-in methods).
+  if (err instanceof SignInRefusal) {
     res.status(err.status).json(errorBody(err.code, err.message));
     return;
   }
