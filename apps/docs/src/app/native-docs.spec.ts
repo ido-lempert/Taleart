@@ -134,7 +134,7 @@ describe('native docs: the reference rows match the SDK sources', () => {
   });
 
   it('lists every public TaleartListener method, with its payload and whether the native SDK fires it', () => {
-    expect(listenerMethods().length).toBe(10);
+    expect(listenerMethods().length).toBe(11);
     expect(sorted(LISTENER_HOOKS.map((h) => h.name))).toEqual(sorted(listenerMethods()));
     const notFiring = LISTENER_HOOKS.filter((h) => !h.native).map((h) => h.name);
     expect(sorted(notFiring)).toEqual(['onUserInteracted']);

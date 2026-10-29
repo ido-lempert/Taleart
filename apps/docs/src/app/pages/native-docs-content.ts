@@ -104,6 +104,21 @@ class AppHooks(private val router: AppRouter) : TaleartListener {
 // In Application.onCreate, next to apiUrl:
 //     TaleartConfig(apiUrl = "https://api.example.com", listener = AppHooks(router))`;
 
+export const ANDROID_COMPONENTS = `import site.lempert.taleart.sdk.TaleartEvent
+import site.lempert.taleart.sdk.TaleartListener
+
+// A countdown's end and a promo code's copy reach the listener as componentEvent.
+class ComponentHooks : TaleartListener {
+    override fun onComponentEvent(event: TaleartEvent) {
+        when (event.action) {
+            // A countdown reached its end, once; event.component.type is "countdown".
+            "ended" -> println("Countdown \${event.component?.id} ended")
+            // A promo code was copied; the code is the component's value.
+            "copied" -> println("Copied \${event.component?.value}")
+        }
+    }
+}`;
+
 export const ANDROID_LOCALE = `TaleartSdk.init(
     TaleartConfig(
         apiUrl = "https://api.example.com",
@@ -245,6 +260,21 @@ final class AppTaleartHooks: TaleartListenerBase {
     }
 }`;
 
+export const SWIFT_COMPONENTS = `import TaleartSDK
+
+final class ComponentTaleartHooks: TaleartListenerBase {
+    // A countdown's end and a promo code's copy reach the listener as componentEvent.
+    override func onComponentEvent(event: TaleartEvent) {
+        switch event.action {
+        // A countdown reached its end, once; component.type is "countdown".
+        case "ended": print("Countdown \\(event.component?.id ?? "") ended")
+        // A promo code was copied; the code is the component's value.
+        case "copied": print("Copied \\(event.component?.value ?? "")")
+        default: break
+        }
+    }
+}`;
+
 export const SWIFT_LOCALE = `// At launch (the config above), or for one zone:
 let zone = TaleartZoneView(apiUrl: "https://api.example.com", zoneKey: "tak_YOUR_ZONE_KEY")
 zone.locale = "he-IL"
@@ -326,6 +356,7 @@ export const LISTENER_HOOKS: readonly HookRow[] = [
   { name: 'onTaleShown', fired: 'A tale came on screen in the viewer.', payload: 'event.group, event.tale', handles: 'Nothing to return.', native: true },
   { name: 'onActionClicked', fired: 'A call to action was activated, before it opens its URL.', payload: 'event.url, event.newTab (false on native), event.component, event.group, event.tale', handles: 'Return true when your app routed the link. Return false (the default) and the system browser opens it.', native: true },
   { name: 'onUserInteracted', fired: 'The server accepted a poll, quiz or rating answer. Not yet on native: the method exists, but the SDK does not call it yet.', payload: 'event.component (value), event.group, event.tale', handles: 'Nothing to return.', native: false },
+  { name: 'onComponentEvent', fired: 'A component of the tale did something: a countdown reached its end (action ended), or a promo code was copied (action copied, component.value the code). The listeners hear it; no analytics event is sent for it.', payload: 'event.component (type, value), event.action, event.group, event.tale', handles: 'Nothing to return.', native: true },
   { name: 'onEvent', fired: 'Every event, after its named method.', payload: 'The event', handles: 'Nothing to return.', native: true },
 ];
 
@@ -351,12 +382,13 @@ export const CONFIG_FIELDS: readonly FieldRow[] = [
 ];
 
 export const EVENT_FIELDS: readonly FieldRow[] = [
-  { name: 'name', type: 'String', def: '(required)', meaning: 'The hook’s name without “on”, in lower camel case: loaded, loadFailed, groupImpression, groupCapped, presented, dismissed, taleShown, actionClicked, userInteracted.' },
+  { name: 'name', type: 'String', def: '(required)', meaning: 'The hook’s name without “on”, in lower camel case: loaded, loadFailed, groupImpression, groupCapped, presented, dismissed, taleShown, actionClicked, userInteracted, componentEvent.' },
   { name: 'zoneKeyPrefix', type: 'String', def: '(required)', meaning: 'The first 8 characters of the zone key. The whole key is never in an event.' },
   { name: 'zoneSlug', type: 'String', def: '""', meaning: 'The zone’s slug, such as home-top. Empty when the read failed before the zone came.' },
   { name: 'group', type: 'GroupRef?', def: 'null', meaning: 'The group: its id, name and position in the zone (from 0).' },
   { name: 'tale', type: 'TaleRef?', def: 'null', meaning: 'The tale: its id, position in the group (from 0) and title.' },
-  { name: 'component', type: 'ComponentRef?', def: 'null', meaning: 'A call to action or an interactive part: its id, its type (button, image-button, swipe-up) and, for an answer, its value.' },
+  { name: 'component', type: 'ComponentRef?', def: 'null', meaning: 'A call to action or a component: its id, its type (button, image-button, swipe-up, countdown, promo-code) and, for a promo code, its value (the code).' },
+  { name: 'action', type: 'String?', def: 'null', meaning: 'On componentEvent: what the component did. ended (a countdown reached its end) or copied (a promo code was copied). Null for other events.' },
   { name: 'url', type: 'String?', def: 'null', meaning: 'The destination of an action that opens one.' },
   { name: 'newTab', type: 'Boolean', def: 'false', meaning: 'Always false on native: links open in the system browser.' },
   { name: 'error', type: 'String?', def: 'null', meaning: 'The message of a failed load.' },
@@ -391,6 +423,14 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'load.failed', english: 'Stories could not be loaded.', note: 'The message of a failed read, with fallback = Message.' },
   { key: 'load.retry', english: 'Try again', note: 'The retry button under the message; it reads the zone again.' },
   { key: 'links.open', english: 'Open in browser', note: 'Native only: a link that leaves the app for the browser.' },
+  { key: 'countdown.ended', english: 'Ended', note: 'The text a countdown shows at and after its end, when its endedText is left out.' },
+  { key: 'countdown.days', english: 'Days', note: 'The unit under a countdown’s days.' },
+  { key: 'countdown.hours', english: 'Hours', note: 'The unit under a countdown’s hours.' },
+  { key: 'countdown.minutes', english: 'Min', note: 'The unit under a countdown’s minutes.' },
+  { key: 'countdown.seconds', english: 'Sec', note: 'The unit under a countdown’s seconds.' },
+  { key: 'promo.copy', english: 'Copy', note: 'The Copy button of a promo code.' },
+  { key: 'promo.copied', english: 'Copied', note: 'The status line after the code reached the clipboard; it clears after two seconds.' },
+  { key: 'promo.copyFailed', english: 'Could not copy. Select the code and copy it yourself.', note: 'The status line when the clipboard refused the code.' },
 ];
 
 // ---------- Android and iOS member tables ----------

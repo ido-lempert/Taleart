@@ -32,6 +32,16 @@ object TaleartStrings {
         "load.failed" to "Stories could not be loaded.",
         "load.retry" to "Try again",
 
+        "countdown.ended" to "Ended",
+        "countdown.days" to "Days",
+        "countdown.hours" to "Hours",
+        "countdown.minutes" to "Min",
+        "countdown.seconds" to "Sec",
+
+        "promo.copy" to "Copy",
+        "promo.copied" to "Copied",
+        "promo.copyFailed" to "Could not copy. Select the code and copy it yourself.",
+
         // Native only: a link leaves the app for the browser (the Web SDK says the same with `links.newTab`).
         "links.open" to "Open in browser",
     )

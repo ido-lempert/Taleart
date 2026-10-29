@@ -25,7 +25,7 @@ import {
     <p class="lede">
       The iOS SDK's classes, members, hooks and texts, as its Kotlin sources declare them and Swift sees them. The steps
       are in the <a routerLink="/ios-guide">iOS guide</a>.
-      Interactive components, such as the countdown, the promo code and the reaction, are not rendered by the native SDKs yet.
+      Polls, quizzes, ratings and reactions are not rendered by the native SDKs yet. Countdowns and promo codes are drawn.
     </p>
 
     <h2 id="package">Package and requirements</h2>

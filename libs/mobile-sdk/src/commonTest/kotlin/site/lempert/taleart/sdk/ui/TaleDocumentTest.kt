@@ -48,6 +48,8 @@ class TaleDocumentTest {
         is DocumentElement.Button -> "button"
         is DocumentElement.ImageButton -> "image-button"
         is DocumentElement.SwipeUp -> "swipe-up"
+        is DocumentElement.Countdown -> "countdown"
+        is DocumentElement.PromoCode -> "promo-code"
     }
 
     @Test

@@ -29,6 +29,9 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
     // (Home, or a browser a link opened): the viewer follows the host's lifecycle instead, so the
     // tale waits while the app is away.
     val host = LocalLifecycleOwner.current
+    // The clipboard service of a promo code's Copy needs the app's context: the viewer hands it over.
+    val application = LocalContext.current.applicationContext
+    SideEffect { AndroidClipboardApplication.context = application }
     // Back asks the viewer to close: it fades out, then leaves the composition, removing the dialog.
     Dialog(
         onDismissRequest = onBack,

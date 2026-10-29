@@ -14,7 +14,11 @@ data class TaleRef(
     val title: String,
 )
 
-/** A call to action or an interactive component of a tale: its element id, its type (`button`, `image-button`, `swipe-up`) and, for an answer, its value. */
+/**
+ * A call to action or a component of a tale: its element id, its type (`button`, `image-button`,
+ * `swipe-up`, `countdown`, `promo-code`) and, for a component that reports a value, the value (a
+ * promo code's code).
+ */
 data class ComponentRef(
     val id: String,
     val type: String,
@@ -25,10 +29,11 @@ data class ComponentRef(
  * What a [TaleartListener] hook receives, the same for every hook as the Web SDK's event
  * (libs/web-sdk/src/lib/hooks.ts): [name] is the hook's name without `on` in lower camel case
  * (`loaded`, `loadFailed`, `groupImpression`, `groupCapped`, `presented`, `dismissed`, `taleShown`,
- * `actionClicked`, `userInteracted`). The zone is named by [zoneKeyPrefix], the first 8
+ * `actionClicked`, `userInteracted`, `componentEvent`). The zone is named by [zoneKeyPrefix], the first 8
  * characters of its key (never the whole key) and [zoneSlug] (empty when the read failed before
  * the zone came). Each event fills what applies: [group], [tale], [component], [url] and [newTab]
- * for an action, [error] for a failed load, [rule] for a capped group.
+ * for an action, [component] and [action] for a component event, [error] for a failed load, [rule]
+ * for a capped group.
  */
 data class TaleartEvent(
     val name: String,
@@ -37,6 +42,11 @@ data class TaleartEvent(
     val group: GroupRef? = null,
     val tale: TaleRef? = null,
     val component: ComponentRef? = null,
+    /**
+     * What a component of the tale did (`componentEvent`): `ended` (a countdown reached its end), or
+     * `copied` (a promo code was copied, its value the code). [component] names the component.
+     */
+    val action: String? = null,
     /** The destination of an action, when it opens one. */
     val url: String? = null,
     /** Whether the action opens a new tab (always false in the native SDK, which opens links in the system browser). */
@@ -93,6 +103,13 @@ interface TaleartListener {
     /** The server accepted a visitor's answer to a poll, a quiz or a rating. */
     fun onUserInteracted(event: TaleartEvent) {}
 
+    /**
+     * A component of a tale did something (components, 2026-10-29), as the Web SDK's `componentEvent`:
+     * `event.component` names it and `event.action` says what it did (`ended` for a countdown, `copied`
+     * for a promo code, whose `component.value` is the code). Fired in addition to the other events.
+     */
+    fun onComponentEvent(event: TaleartEvent) {}
+
     /** Every event, in one stream. */
     fun onEvent(event: TaleartEvent) {}
 }
@@ -111,6 +128,7 @@ open class TaleartListenerBase : TaleartListener {
     override fun onTaleShown(event: TaleartEvent) {}
     override fun onActionClicked(event: TaleartEvent): Boolean = false
     override fun onUserInteracted(event: TaleartEvent) {}
+    override fun onComponentEvent(event: TaleartEvent) {}
     override fun onEvent(event: TaleartEvent) {}
 }
 

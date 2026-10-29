@@ -54,6 +54,7 @@ internal class TaleartContext(
         tale: TaleRef? = null,
         component: ComponentRef? = null,
         url: String? = null,
+        action: String? = null,
     ) = TaleartEvent(
         name = name,
         zoneKeyPrefix = zoneKeyPrefix,
@@ -61,6 +62,7 @@ internal class TaleartContext(
         group = group,
         tale = tale,
         component = component,
+        action = action,
         url = url,
     )
 }
@@ -87,6 +89,16 @@ internal fun interface LinkOpener {
 }
 
 internal val LocalLinkOpener = compositionLocalOf<LinkOpener?> { null }
+
+/**
+ * Reports a component of the viewer's tale that did something (`componentEvent`): the viewer provides it
+ * to the tale's elements, and it reaches the listeners. Null outside the viewer and in a preview.
+ */
+internal fun interface ComponentReporter {
+    fun report(component: ComponentRef, action: String)
+}
+
+internal val LocalComponentReporter = compositionLocalOf<ComponentReporter?> { null }
 
 /**
  * Opens [href] for the call to action [component]: through the viewer's [opener] (which reports it

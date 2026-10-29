@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
+import kotlin.time.Instant
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -19,7 +20,9 @@ import kotlin.math.sin
 // of a type this SDK does not know is skipped, so an older SDK still shows the rest of a tale.
 
 /** The element types of the registry (`libs/contract/tale-document/element-types/registry.json`) this SDK draws; test-only types are not among them. */
-val DOCUMENT_ELEMENT_TYPES: Set<String> = setOf("text", "image", "video", "shape", "emoji", "sticker", "button", "image-button", "swipe-up")
+val DOCUMENT_ELEMENT_TYPES: Set<String> = setOf(
+    "text", "image", "video", "shape", "emoji", "sticker", "button", "image-button", "swipe-up", "countdown", "promo-code",
+)
 
 /** The canvas's width to height (`TALE_CANVAS_ASPECT`). */
 const val CANVAS_ASPECT_WIDTH = 9.0
@@ -198,6 +201,37 @@ sealed interface DocumentElement {
         override val decorative: Boolean get() = false
     }
 
+    /**
+     * A countdown (`countdown`, components 2026-10-29): the days, hours, minutes and seconds left until [endsAt],
+     * on a card with an optional [title]; at and after [endsAt] it shows [endedText] (null: the SDK's "ended" string).
+     */
+    data class Countdown(
+        override val id: String,
+        override val box: ElementBox,
+        override val layer: Int,
+        val title: String?,
+        val endsAt: Instant,
+        val endedText: String?,
+        /** The card is dark (`theme` `dark`), else light. */
+        val dark: Boolean,
+    ) : DocumentElement {
+        override val decorative: Boolean get() = false
+    }
+
+    /** A promo code (`promo-code`): the [code] in a chip with a Copy button, a [title] and a [note] over and under it. */
+    data class PromoCode(
+        override val id: String,
+        override val box: ElementBox,
+        override val layer: Int,
+        val title: String?,
+        val code: String,
+        val note: String?,
+        /** The card is dark (`theme` `dark`), else light. */
+        val dark: Boolean,
+    ) : DocumentElement {
+        override val decorative: Boolean get() = false
+    }
+
     /** The swipe-up link (`swipe-up`): a label under an arrow, pinned to the bottom safe area. */
     data class SwipeUp(
         override val id: String,
@@ -338,6 +372,8 @@ private fun readElement(p: Placed, layer: Int): DocumentElement? {
             val name = linkLabel(rawLabel).ifEmpty { linkHost(href) }
             DocumentElement.ImageButton(id, p.box, layer, url, href, props.numberIn("radius", 0.0, 0.5, 0.0), name)
         }
+        "countdown" -> readCountdown(id, p.box, layer, props)
+        "promo-code" -> readPromoCode(id, p.box, layer, props)
         "swipe-up" -> {
             val label = linkLabel(props.text("label"))
             val href = linkHref(props.text("href"))

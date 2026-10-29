@@ -124,6 +124,8 @@ internal fun DocumentElementsLayer(
 ) {
     // Boxes are placed from the canvas's left edge whatever the host's layout direction, as the
     // web's `left:`; each text keeps its own direction (`TextStyle.textDirection`).
+    // A preview (inert links) reports no component events: it is a still of a tale in transition.
+    val reporter = if (inertLinks) null else LocalComponentReporter.current
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr, LocalProjectFonts provides projectFonts) {
         BoxWithConstraints(modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
             val density = LocalDensity.current
@@ -133,7 +135,7 @@ internal fun DocumentElementsLayer(
             val canvas = CanvasMetrics(width, height, density)
             layer.elements.forEachIndexed { index, element ->
                 key(element.id, index) {
-                    Element(element, index, canvas, themeFont, imageLoader, video, inertLinks, layer.elements.filter { it.layer > element.layer }, topChrome)
+                    Element(element, index, canvas, themeFont, imageLoader, video, inertLinks, layer.elements.filter { it.layer > element.layer }, topChrome, reporter)
                 }
             }
         }
@@ -141,7 +143,7 @@ internal fun DocumentElementsLayer(
 }
 
 // The canvas's size in pixels and the density that turns pixels into dp and sp.
-private class CanvasMetrics(val width: Float, val height: Float, val density: Density) {
+internal class CanvasMetrics(val width: Float, val height: Float, val density: Density) {
     /** A fraction of the canvas height in pixels. */
     fun h(fraction: Double): Float = (fraction * height).toFloat()
     fun dp(px: Float): Dp = with(density) { px.toDp() }
@@ -180,6 +182,7 @@ private fun Element(
     inertLinks: Boolean,
     above: List<DocumentElement>,
     topChrome: Dp,
+    reporter: ComponentReporter?,
 ) {
     val player = LocalTaleVideoPlayer.current ?: remember { platformTaleVideoPlayer() }
     // A native video view that draws its own look takes no Compose rotation.
@@ -204,6 +207,8 @@ private fun Element(
         is DocumentElement.Button -> ButtonElement(element, canvas, themeFont, inertLinks, placed)
         is DocumentElement.ImageButton -> ImageButtonElement(element, canvas, loader, inertLinks, placed)
         is DocumentElement.SwipeUp -> SwipeUpElement(element, canvas, themeFont, inertLinks, placed)
+        is DocumentElement.Countdown -> CountdownElement(element, canvas, reporter, placed)
+        is DocumentElement.PromoCode -> PromoCodeElement(element, canvas, reporter, placed)
     }
 }
 

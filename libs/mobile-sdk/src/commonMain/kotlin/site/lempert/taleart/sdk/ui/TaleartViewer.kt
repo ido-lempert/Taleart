@@ -105,6 +105,7 @@ import kotlin.math.abs
 import site.lempert.taleart.sdk.ComponentRef
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 import site.lempert.taleart.sdk.deliver
+import site.lempert.taleart.sdk.deliver
 import site.lempert.taleart.sdk.deliverAction
 
 /** Test tag of the viewer. */
@@ -286,6 +287,20 @@ internal fun ViewerContent(
             if (!deliverAction(context.listener, event)) runCatching { uri.openUri(url) }
         }
     }
+    // A component of the tale that did something (a countdown ended, a promo code copied): the listeners hear it.
+    val reporter = remember(state, context) {
+        ComponentReporter { component, action ->
+            val tale = state.group.tales.getOrNull(state.taleIndex)
+            val event = context.event(
+                "componentEvent",
+                group = groupRef(state.groups, state.group),
+                tale = tale?.let { taleRef(it, state.taleIndex) },
+                component = component,
+                action = action,
+            )
+            deliver(context.listener, event) { it.onComponentEvent(event) }
+        }
+    }
     // An unknown group, or one without tales: nothing opens (`open` returns false).
     val opened = remember(state) { state.isOpen }
     if (!opened) return
@@ -451,7 +466,7 @@ internal fun ViewerContent(
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val width = if (maxWidth < maxHeight * 9f / 16f) maxWidth else maxHeight * 9f / 16f
             Box(Modifier.width(width).fillMaxHeight()) {
-                CompositionLocalProvider(LocalLinkOpener provides opener) {
+                CompositionLocalProvider(LocalLinkOpener provides opener, LocalComponentReporter provides reporter) {
                     Stage(state, rtl, theme.fontFamily, motion, dragDown)
                 }
                 TopBar(state, accent, font)

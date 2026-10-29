@@ -4,6 +4,7 @@ import {
   NATIVE_STYLES,
   NOT_YET_NATIVE,
   SWIFT_ANALYTICS,
+  SWIFT_COMPONENTS,
   SWIFT_FALLBACK,
   SWIFT_FREQUENCY,
   SWIFT_HOOKS,
@@ -144,7 +145,8 @@ import {
         <pre tabindex="0" role="region" aria-label="Listener subclass and link override"><code>{{ swiftHooks }}</code></pre>
         <p>
           The methods, their payloads and the events are in the <a routerLink="/reference/ios-sdk">iOS SDK reference</a>.
-          <code>onGroupImpression</code> fires on native too, once per group per load. <code>onUserInteracted</code> is not
+          <code>onGroupImpression</code> fires on native too, once per group per load. <code>onComponentEvent</code> reports a
+          countdown's end and a promo code's copy. <code>onUserInteracted</code> is not
           called by the native SDK yet.
         </p>
         <figure class="native-figure">
@@ -235,6 +237,27 @@ import {
     </p>
     <pre tabindex="0" role="region" aria-label="Analytics for one zone"><code>{{ swiftAnalytics }}</code></pre>
 
+    <h2 id="components">Countdowns and promo codes</h2>
+    <p>
+      A tale can hold a countdown: the days, hours, minutes and seconds left to a moment in UTC, then its ended text. A
+      tale can also hold a promo code: the code in a chip, with a Copy button. Add either in the dashboard, as you add any
+      element of a tale; the SDK draws it as the web SDK does. The countdown counts on the device's clock, so a visitor with
+      a wrong clock sees a wrong time. A promo code is visible to every visitor, so it is not a secret.
+    </p>
+    <h3 id="component-countdown">Countdown</h3>
+    <p>
+      Set the end as an instant in UTC, such as <code>2026-12-31T21:00:00Z</code>. The units read Days, Hours, Min and Sec,
+      and from the end on the ended text shows (Ended, unless you set your own). The end reaches your listener once, as
+      <code>onComponentEvent</code> with <code>event.action</code> "ended" and the countdown as <code>event.component</code>.
+    </p>
+    <h3 id="component-promo">Promo code</h3>
+    <p>
+      Set the code: 1 to 32 letters, digits, <code>_</code> or <code>-</code>. Copy puts it on the clipboard and the status
+      line says Copied for two seconds; when the clipboard refuses, it says Could not copy. A copy reaches your listener as
+      <code>onComponentEvent</code> with <code>event.action</code> "copied" and the code as <code>event.component.value</code>.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Countdown and promo code events"><code>{{ swiftComponents }}</code></pre>
+
     <h2 id="backups">Backups and the visitor id</h2>
     <p>
       The SDK makes a visitor id once and keeps it in its own store on the device: the <code>taleart-sdk</code>
@@ -250,7 +273,7 @@ import {
         <li>{{ line }}</li>
       }
     </ul>
-    <p>Interactive components, such as the countdown, the promo code and the reaction, are not rendered by the native SDKs yet.</p>
+    <p>Polls, quizzes, ratings and reactions are not rendered by the native SDKs yet.</p>
     <p>
       The Web SDK sends these and the native SDK does not yet. The <a routerLink="/install">Install a zone</a> page
       covers the Web SDK.
@@ -267,5 +290,6 @@ export class IosGuidePage {
   protected readonly swiftFallback = SWIFT_FALLBACK;
   protected readonly swiftFrequency = SWIFT_FREQUENCY;
   protected readonly swiftAnalytics = SWIFT_ANALYTICS;
+  protected readonly swiftComponents = SWIFT_COMPONENTS;
   protected readonly notYet = NOT_YET_NATIVE;
 }

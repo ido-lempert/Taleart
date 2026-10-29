@@ -26,7 +26,7 @@ import {
     <p class="lede">
       The Android SDK's classes, members, hooks and texts, as its Kotlin and XML sources declare them. The steps are in
       the <a routerLink="/android-guide">Android guide</a>.
-      Interactive components, such as the countdown, the promo code and the reaction, are not rendered by the native SDKs yet.
+      Polls, quizzes, ratings and reactions are not rendered by the native SDKs yet. Countdowns and promo codes are drawn.
     </p>
 
     <h2 id="coordinates">Coordinates and requirements</h2>
