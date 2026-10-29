@@ -25,9 +25,9 @@ import {
   SDK_PINNED_CACHE_TEXT,
 } from './docs-content';
 
-// Epic UX rework R17: the docs, the Web SDK README and the dashboard's text use site key plus zone,
-// and never tell anyone to create a stage, apply a playbook or use a zone key (removed in 8.7, owner
-// decision 2026-10-22). Text between `docs-check:removed` and `/docs-check:removed` says what was
+// Epic UX rework R17, revised by SDK v2: the docs, the Web SDK README and the dashboard's text use one
+// zone key per zone, and never tell anyone to create a stage, apply a playbook or use the stage
+// attribute (zone keys were removed in 8.7 and are back). Text between `docs-check:removed` and `/docs-check:removed` says what was
 // removed; such sections are allowed only on the docs' "Stages and zone keys" page and in the README.
 
 function workspaceRoot(): string {
@@ -74,10 +74,7 @@ const RETIRED: ReadonlyArray<[string, RegExp]> = [
   ['creating a stage', /\b(creat\w*|add\w*|new)\s+(an?\s+|the\s+)?stages?\b/i],
   ['the stage attribute', /\bstage\s*=/i],
   ['playbooks', /\bplaybooks?\b/i],
-  ['the zone-key attribute', /zone-key/i],
-  ['the zoneKey property', /zoneKey/],
-  ['a zone key value', /tak_/],
-  ['issuing or using a zone key', /\b(issu|rotat|us|creat|add|copy|copi|past)\w*\s+(an?\s+|the\s+|its\s+|your\s+)?zone keys?\b/i],
+  ['the site-key attribute', /\bsite-key\s*=/i],
 ];
 
 const offenders = (paths: readonly string[], pattern: RegExp) => paths.filter((path) => pattern.test(readable(path)));
@@ -100,8 +97,8 @@ describe('docs terms (epic UX rework R17)', () => {
   });
 
   it('keeps the removed sections where the move is explained', () => {
-    expect(read(MOVING_PAGE)).toMatch(/zone-key/);
-    expect(readable(MOVING_PAGE)).not.toMatch(/zone-key/);
+    expect(read(MOVING_PAGE)).toMatch(/stage="top"/);
+    expect(readable(MOVING_PAGE)).not.toMatch(/stage=/);
     expect(read(README)).toMatch(/<!-- docs-check:removed -->[\s\S]*removed[\s\S]*<!-- \/docs-check:removed -->/);
   });
 
@@ -119,20 +116,20 @@ describe('the docs snippet', () => {
   const api = 'https://api.example.com';
 
   it('is what the Install tab builds for the example zone', () => {
-    expect(DOCS_SNIPPET).toBe(installSnippet({ apiUrl: api, sdkUrl: api + SDK_BUNDLE_PATH }, 'home-top', null));
+    expect(DOCS_SNIPPET).toBe(installSnippet({ sdkUrl: api + SDK_BUNDLE_PATH }, null));
     expect(DOCS_SNIPPET).toBe(
       '<script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>\n' +
-        '<taleart-view api-url="https://api.example.com" site-key="YOUR_SITE_KEY" zone="home-top"></taleart-view>',
+        '<!-- Optional, once per page: <script>Taleart.init({ locale: "en" })</script> -->\n' +
+        '<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>',
     );
   });
 
-  it('places two zones with one script tag', () => {
+  it('places two zones with one script tag and one zone key each', () => {
     expect(DOCS_TWO_ZONES_SNIPPET.split('\n')).toEqual([
       sdkScriptTag(EXAMPLE_INSTALL),
-      zoneElement(EXAMPLE_INSTALL, 'home-top', null),
-      zoneElement(EXAMPLE_INSTALL, 'home-promo', null),
+      zoneElement('YOUR_ZONE_KEY_HOME_TOP'),
+      zoneElement('YOUR_ZONE_KEY_HOME_PROMO'),
     ]);
-    expect(DOCS_TWO_ZONES_SNIPPET.startsWith(DOCS_SNIPPET)).toBe(true);
   });
 
   it('imports configureZone from the URL of the script tag', () => {

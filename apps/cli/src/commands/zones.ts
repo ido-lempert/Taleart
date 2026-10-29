@@ -251,23 +251,23 @@ export const zones: GroupSpec = {
       result: '{ "zone": string, "snippet": string, "testPageUrl": string, "apiUrl": string, "sdkUrl": string }',
       summary: 'Print the HTML that places a zone on a page, and its test page link.',
       description:
-        'The site key is shown only when it is issued, so the snippet says YOUR_SITE_KEY unless you pass --site-key ' +
-        '(or set TALEART_SITE_KEY). The test page link carries the key in its fragment, never sent to a server.',
+        'The zone key is shown only when it is issued, so the snippet says YOUR_ZONE_KEY unless you pass --zone-key ' +
+        '(or set TALEART_ZONE_KEY). The test page link carries the key in its fragment, never sent to a server.',
       project: 'optional',
       args: [zoneArg],
       options: {
-        'site-key': { type: 'string', valueName: '<tas_…>', description: 'The project\'s site key, to put in the snippet and link.' },
+        'zone-key': { type: 'string', valueName: '<tak_…>', description: 'The zone\'s key, to put in the snippet and link.' },
       },
-      examples: ['taleart zones snippet home-top', 'taleart zones snippet home-top --site-key "$SITE_KEY" --json'],
+      examples: ['taleart zones snippet home-top', 'taleart zones snippet home-top --zone-key "$ZONE_KEY" --json'],
       async run(ctx) {
         const client = ctx.client();
-        const siteKey = (ctx.opts['site-key'] as string | undefined) || ctx.io.env['TALEART_SITE_KEY'] || null;
+        const zoneKey = (ctx.opts['zone-key'] as string | undefined) || ctx.io.env['TALEART_ZONE_KEY'] || null;
         const [zone, info] = await Promise.all([
           resolveZone(client, ctx.args['zone'] as string, await ctx.projectIdOrNull()),
           client.get<InstallInfo>('/install'),
         ]);
-        const snippet = installSnippet(info, zone.slug, siteKey);
-        const testPageUrl = testPageLink(info, zone.slug, siteKey);
+        const snippet = installSnippet(info, zoneKey);
+        const testPageUrl = testPageLink(info, zoneKey);
         if (!zone.frame) ctx.warn(`Zone ${zone.slug} has no display yet: it shows nothing until you run taleart zones display.`);
         return {
           data: { zone: zone.slug, snippet, testPageUrl, apiUrl: info.apiUrl, sdkUrl: info.sdkUrl },

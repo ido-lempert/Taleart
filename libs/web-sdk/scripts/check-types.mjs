@@ -38,10 +38,13 @@ if (leaks.length) {
 const consumer = `import {
   configureZone,
   defineTaleartElement,
+  init,
   setExternalUserId,
   setTags,
   TaleartElement,
   TALEART_ELEMENT_TAG,
+  type TaleartEvent,
+  type TaleartHooks,
   type ZoneOptions,
 } from ${JSON.stringify(join(dist, 'index.js'))};
 
@@ -60,15 +63,33 @@ setExternalUserId('cust-1001');
 setExternalUserId(null);
 // @ts-expect-error the ID is text
 setExternalUserId(1001);
+
+// The SDK's options (SDK v2): every one optional, a locale and strings for the texts, hooks for the events.
+const hooks: TaleartHooks = {
+  onLoaded: (event) => void event.zoneSlug,
+  onActionClicked: (event) => {
+    const url: string = event.url;
+    if (url) event.preventDefault();
+  },
+  onEvent: (event: TaleartEvent) => void event.name,
+};
+init({ apiUrl: 'https://api.example.com', locale: 'he-IL', strings: { he: { 'viewer.close': 'סגור' } }, hooks });
+init({ locale: null, strings: null, hooks: null });
+// @ts-expect-error the locale is text
+init({ locale: 1 });
+
 const element = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
-element.siteKey = 'tas_…';
+element.zoneKey = 'tak_example';
+const key: string = element.zoneKey;
 element.zone = 'home-top';
 const slug: string = element.zone;
-const siteKey: string = element.siteKey;
-export { slug, siteKey };
-// Zone keys are gone (story 8.7): an element is placed only with a site key and a slug.
+element.locale = 'he';
+element.hooks = { onGroupImpression: (event) => void event.group.index };
+element.strings = { he: { 'bar.seen': '{name}, נצפה' } };
+export { key, slug };
+// Site keys are gone (SDK v2): the element is placed with its zone key, and reads no site key.
 // @ts-expect-error no such property
-element.zoneKey = 'old';
+element.siteKey = 'tas_old';
 element.theme = { accentColor: '#ffffff' };
 const ringWidth: number | undefined = element.theme.ringWidth;
 export { ringWidth };

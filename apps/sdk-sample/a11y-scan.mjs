@@ -3,13 +3,13 @@
 // stubbed, so no API, database or key is needed. Also drives the viewer by keyboard and checks
 // that focus returns to the bar item and the viewed group shows the seen ring after a reload.
 // A zone has one display (AD-17): the page places a second zone, whose display is a banner, below
-// the bar zone (`?zones=…#siteKey=…`), each named by its slug. The banner: rotating and stopped, its controls, swipe,
+// the bar zone (`#zoneKeys=…`), each named by its zone key. The banner: rotating and stopped, its controls, swipe,
 // opening the viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
-// Then two zones with two bars, each with its own shape and its own named items, and an unknown slug
+// Then two zones with two bars, each with its own shape and its own named items, and an unknown zone key
 // that renders nothing and logs one error.
 // Then templates (epic UX rework R5): a zone created from each template with a display renders its preset.
-// Then one site key with zones named by slug (epic UX rework R3): two zones, an unknown slug, and a
-// theme override for one slug only.
+// Then zones named by their zone keys (`tak_…`): two zones, an unknown key, and a
+// theme override for one zone slug only.
 // Then a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
 // the bar, the banner, the seen ring and the viewer; then the zones' SDK theme override wins over it.
 // Then a composed tale (Tale Studio story 7.10): read in visual order by a screen reader and by Tab,
@@ -104,22 +104,22 @@ const bannerZone = (settings) => ({ ...ZONE, id: 'z2', name: 'Home promo', slug:
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, X-TaleArt-Visitor' };
 
-// The project's site key the scan's pages place their zones with (epic UX rework R3).
-const SITE_KEY = 'tas_scan';
+// The zone key the scan's pages place a zone with: the fake Delivery API reads the slug out of it.
+const zoneKeyOf = (slug) => `tak_${slug}`;
 
-// Serves the Delivery API by site key and slug: each slug in `zones` reads its zone with SITE_KEY;
-// any other slug or key is refused, as the API refuses it.
+// Serves the Delivery API by the bearer zone key: the key `tak_<slug>` of each slug in `zones` reads
+// its zone; any other key is refused, as the API refuses it.
 async function serve(page, zones) {
   await page.route(
-    (url) => url.href.startsWith(`${API}/delivery/v1/zone?`),
+    (url) => url.origin + url.pathname === `${API}/delivery/v1/zone`,
     (route) => {
-      const slug = new URL(route.request().url()).searchParams.get('zone') ?? '';
       const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
-      return key === SITE_KEY && Object.hasOwn(zones, slug)
+      const slug = key.startsWith('tak_') ? key.slice(4) : '';
+      return Object.hasOwn(zones, slug)
         ? route.fulfill({ json: zones[slug], headers: CORS })
         : route.fulfill({
             status: 401,
-            json: { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } },
+            json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } },
             headers: CORS,
           });
     },
@@ -129,9 +129,9 @@ async function serve(page, zones) {
   );
 }
 
-// The sample page placing one element per slug, the site key in the fragment; `extra` joins the query.
+// The sample page placing one element per slug's zone key, the keys in the fragment; `extra` joins the query.
 const pageUrl = (port, slugs, extra = '') =>
-  `http://localhost:${port}/?zones=${slugs.join(',')}&api=${encodeURIComponent(API)}${extra}#siteKey=${SITE_KEY}`;
+  `http://localhost:${port}/?api=${encodeURIComponent(API)}${extra}#zoneKeys=${slugs.map(zoneKeyOf).join(',')}`;
 
 async function scan(page, label, axe) {
   return (await axeViolations(page, label, axe)).length;
@@ -393,7 +393,7 @@ try {
   await phone.close();
 
   // Two zones on one page (AD-17), each a bar with its own shape and its own tale groups, so every
-  // control has its own name; a third element with an unknown slug renders nothing and logs one error.
+  // control has its own name; a third element with an unknown zone key renders nothing and logs one error.
   const twoZones = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const placed2 = await twoZones.newPage();
   const placedErrors = [];
@@ -435,10 +435,10 @@ try {
   );
   const allLabels = shapes.flatMap((s) => s.labels);
   check(new Set(allLabels).size === allLabels.length && allLabels.length === 5, 'every bar item on the page has its own name');
-  check(shapes[2].nodes === 0, 'an unknown slug renders nothing');
+  check(shapes[2].nodes === 0, 'an unknown zone key renders nothing');
   // The browser itself also reports the refused request (401) on the console.
   const sdkErrors = placedErrors.filter((e) => !e.startsWith('Failed to load resource'));
-  check(sdkErrors.length === 1 && sdkErrors[0].includes('TaleArt'), `an unknown slug logs one error${sdkErrors.length === 1 ? '' : `: ${placedErrors.join('; ')}`}`);
+  check(sdkErrors.length === 1 && sdkErrors[0].includes('TaleArt'), `an unknown zone key logs one error${sdkErrors.length === 1 ? '' : `: ${placedErrors.join('; ')}`}`);
   check(placedWarnings.length === 0, 'no warnings with two zones');
   await views.nth(1).locator('button.item').first().click();
   const placedDialog = views.nth(1).locator('dialog.viewer');
@@ -447,7 +447,7 @@ try {
   await placed2.keyboard.press('Escape');
   await placedDialog.waitFor({ state: 'hidden' });
   check((await focused(placed2, 1))?.group === 'gd', "closing the viewer returns focus to the second zone's bar item");
-  violations += await scan(placed2, 'two zones and an unknown slug', axe);
+  violations += await scan(placed2, 'two zones and an unknown key', axe);
   await twoZones.close();
 
   // Templates (epic UX rework R5): a zone shaped as the API creates it from each template with a
@@ -561,10 +561,9 @@ try {
   violations += await scan(themed, 'themed bar and banner', axe);
   await themedContext.close();
 
-  // One site key for the project, zones named by slug (epic UX rework R3): the sample page's
-  // `?zones=a,b,c#siteKey=…` places one element per slug, the key in the fragment. Each shows its
-  // own display, an unknown slug renders nothing and logs one error, and a theme override for one
-  // slug changes only that zone.
+  // Zones named by their zone keys: the sample page's `#zoneKeys=a,b,c` places one element per key,
+  // the keys in the fragment. Each shows its own display, an unknown key renders nothing and logs one
+  // error, and a theme override for one zone slug changes only that zone.
   const siteContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const sitePage = await siteContext.newPage();
   const siteErrors = [];
@@ -579,17 +578,16 @@ try {
   };
   const siteRequests = [];
   await sitePage.route(
-    (url) => url.href.startsWith(`${API}/delivery/v1/zone?`),
+    (url) => url.origin + url.pathname === `${API}/delivery/v1/zone`,
     (route) => {
-      const url = new URL(route.request().url());
-      const slug = url.searchParams.get('zone') ?? '';
       const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
-      siteRequests.push(slug);
-      return key === 'tas_site' && bySlug[slug]
+      const slug = key.startsWith('tak_') ? key.slice(4) : '';
+      siteRequests.push(key);
+      return bySlug[slug]
         ? route.fulfill({ json: bySlug[slug], headers: CORS })
         : route.fulfill({
             status: 401,
-            json: { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } },
+            json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } },
             headers: CORS,
           });
     },
@@ -599,7 +597,7 @@ try {
   );
   const siteTop = encodeURIComponent(JSON.stringify({ ringColors: ['#0000ff'] }));
   await sitePage.goto(
-    `http://localhost:${port}/?zones=home-top,home-promo,nope&api=${encodeURIComponent(API)}&theme=${siteTop}&themeZone=home-top#siteKey=tas_site`,
+    `http://localhost:${port}/?api=${encodeURIComponent(API)}&theme=${siteTop}&themeZone=home-top#zoneKeys=tak_home-top,tak_home-promo,tak_nope`,
   );
   const siteViews = sitePage.locator('taleart-view');
   await siteViews.nth(0).locator('.bar').waitFor();
@@ -613,21 +611,13 @@ try {
       ring: view.shadowRoot.querySelector('.taleart')?.style.getPropertyValue('--ta-ring') ?? null,
     })),
   );
-  check(siteLooks[0].bar && !siteLooks[0].banner, 'a site key and the slug home-top show that zone\'s bar');
-  check(siteLooks[1].banner && !siteLooks[1].bar, 'the same site key and the slug home-promo show that zone\'s banner');
-  check(siteLooks[2].nodes === 0, 'an unknown slug renders nothing');
-  check(siteErrors.length === 1 && siteErrors[0].includes('TaleArt'), `an unknown slug logs one error${siteErrors.length === 1 ? '' : `: ${siteErrors.join('; ')}`}`);
+  check(siteLooks[0].bar && !siteLooks[0].banner, 'the zone key of home-top shows that zone\'s bar');
+  check(siteLooks[1].banner && !siteLooks[1].bar, 'the zone key of home-promo shows that zone\'s banner');
+  check(siteLooks[2].nodes === 0, 'an unknown zone key renders nothing');
+  check(siteErrors.length === 1 && siteErrors[0].includes('TaleArt'), `an unknown zone key logs one error${siteErrors.length === 1 ? '' : `: ${siteErrors.join('; ')}`}`);
   check(siteLooks[0].ring === '#0000ff' && siteLooks[1].ring === '#ff0000', 'a theme override for one slug changes only that zone');
   check(new Set(siteRequests).size === siteRequests.length, 'one request per zone');
-  violations += await scan(sitePage, 'site key with two zones and an unknown slug', axe);
-  // The zone key form of earlier builds places nothing and says so in one line (story 8.7).
-  await sitePage.goto(`http://localhost:${port}/?api=${encodeURIComponent(API)}#key=tak_old`);
-  const oldNotice = (await sitePage.locator('#old-key-notice').textContent()) ?? '';
-  check(oldNotice.includes('Zone keys are no longer supported'), 'a page with only the old key says zone keys are gone');
-  check(
-    (await sitePage.evaluate(() => document.querySelector('taleart-view')?.shadowRoot?.childNodes.length ?? 0)) === 0,
-    'a page with only the old key places nothing',
-  );
+  violations += await scan(sitePage, 'zone keys for two zones and an unknown key', axe);
   await siteContext.close();
 
   // The zones' SDK theme override (R9): a red project ring, overridden in blue for each zone in the

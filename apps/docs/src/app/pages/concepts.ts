@@ -41,7 +41,7 @@ import { GLOSSARY } from '../docs-content';
     <p>
       A project has zones and tale groups. Each zone has one display and shows tale groups in an order you set; one tale
       group can show in several zones. A tale group holds tales. The project's theme styles every zone, and a page
-      places a zone with the project's site key and the zone's slug.
+      shows a zone with that zone's key.
     </p>
 
     <h2>On and Off, Shown and Hidden</h2>

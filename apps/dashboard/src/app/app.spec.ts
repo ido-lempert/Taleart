@@ -232,6 +232,7 @@ describe('App', () => {
   // install URLs on its own.
   function flushSiteKeys(): void {
     for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/site-key'))) req.flush(null);
+    for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/key') && r.url.includes('/zones/'))) req.flush(null);
     for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/install'))) {
       req.flush({ apiUrl: 'http://api.test', sdkUrl: 'http://api.test/sdk/v1/taleart.js', testPageUrl: 'http://api.test/sdk/v1/test-page' });
     }
@@ -1452,18 +1453,18 @@ describe('App', () => {
       expect(state?.textContent?.trim()).toBe('To do');
     });
 
-    it('tells a content manager to ask an admin, and focuses the Site key heading', async () => {
+    it('tells a content manager to ask an admin, and focuses the Zone key heading', async () => {
       const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager });
       await flushRefresh(fixture, { projects: [acme], zones: [newZone] });
       const root = fixture.nativeElement as HTMLElement;
-      expect(steps(root)[1]).toEqual(['Ask an admin to issue a site key', 'To do']);
-      stepLink(root, 'Ask an admin to issue a site key').click();
+      expect(steps(root)[1]).toEqual(['Ask an admin to issue a zone key', 'To do']);
+      stepLink(root, 'Ask an admin to issue a zone key').click();
       await settle(fixture);
       expect(selected(root)).toEqual(['Install']);
-      expect(document.activeElement?.id).toBe('site-key-title');
+      expect(document.activeElement?.id).toBe('zone-key-title');
     });
 
     it('says why the group step is open when every group is On, and focuses the first group', async () => {
@@ -1560,7 +1561,7 @@ describe('App', () => {
       expect(setup.textContent).toContain('0 of 3 done');
       expect(steps(root)).toEqual([
         ['Choose a display', 'To do'],
-        ['Install (issue a site key)', 'To do'],
+        ['Install (issue a zone key)', 'To do'],
         ['Turn a tale group On with a shown tale', 'To do'],
       ]);
 
@@ -1570,10 +1571,10 @@ describe('App', () => {
       expect(url()).toBe('/zones/z1?tab=display');
       expect(document.activeElement?.id).toBe('display-choose');
 
-      stepLink(setup, 'Install (issue a site key)').click();
+      stepLink(setup, 'Install (issue a zone key)').click();
       await settle(fixture);
       expect(selected(root)).toEqual(['Install']);
-      expect(document.activeElement?.id).toBe('site-key-issue');
+      expect(document.activeElement?.id).toBe('zone-key-issue');
 
       stepLink(setup, 'Turn a tale group On with a shown tale').click();
       await settle(fixture);
@@ -1882,13 +1883,12 @@ describe('App', () => {
     });
   });
 
-  describe('zone keys (removed, UX rework story 8.7)', () => {
-    it('shows no Zone key card and never asks for a zone key', async () => {
-      const { root } = await open('/zones/z1', oneZone);
-      expect(root.querySelector('section[aria-labelledby="key-title"]')).toBeNull();
-      expect(root.textContent).not.toContain('Zone key');
-      expect(root.textContent).not.toContain('Issue zone key');
-      http.expectNone(`${API_BASE}/zones/z1/key`);
+  describe('zone keys (back, SDK v2)', () => {
+    it('reads the zone key with the zone and shows Issue on the Install tab, with the site key under Advanced', async () => {
+      const { root } = await open('/zones/z1?tab=install', oneZone);
+      expect(root.querySelector('#zone-key-issue')).not.toBeNull();
+      expect(root.querySelector('#advanced-server > summary')?.textContent).toContain('Advanced / server-side');
+      expect(root.querySelector('#advanced-server app-site-key-card')).not.toBeNull();
     });
   });
 

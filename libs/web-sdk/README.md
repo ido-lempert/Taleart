@@ -1,8 +1,7 @@
 # web-sdk
 
 The TaleArt Web SDK: a `<taleart-view>` custom element that renders a zone's display (a bar or a banner) and opens its
-tale groups in a full-screen viewer, reading published content from the Delivery API with the project's site key and
-the zone's slug.
+tale groups in a full-screen viewer, reading published content from the Delivery API with the zone's key (`tak_…`).
 
 ## Terms
 
@@ -10,37 +9,38 @@ These are the words the dashboard and the docs app use (the UX review's glossary
 
 | Term | Meaning |
 | --- | --- |
-| Project | Your app or site: its zones, tale groups, theme, fonts and site key. |
+| Project | Your app or site: its zones, tale groups, theme and fonts. |
 | Zone | One spot in your app or site where tales appear, named on a page by its slug (`home-top`). |
 | Display | How a zone looks: a bar or a banner, plus its settings. One per zone (the API and code call it a frame). |
 | Template | A preset picked when a zone is created (Stories bar, Promo banner, Blank). It sets the display once. |
 | Tale group | A set of tales shown as one item: one circle in a bar or one slide in a banner. On or Off. |
 | Tale | One full-screen page of a group, made in Tale Studio. Shown or Hidden. |
 | Theme | Colours, rings and fonts for every zone of the project. |
-| Site key | The project's one key for host pages (`tas_…`). |
+| Zone key | The key of one zone (`tak_…`), issued in the dashboard. It names the zone on a host page and is the only key the page holds. |
 
 ## Placing a zone
 
-The zone page's Install tab in the dashboard gives this snippet for its zone, with the API URL and the zone's slug
-filled in (and the site key, right after it is issued):
+The zone page's Install tab in the dashboard gives this snippet for its zone, with the API URL and the zone key filled in
+(the key is shown once, when it is issued):
 
 ```html
 <script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>
-<taleart-view api-url="https://api.example.com" site-key="YOUR_SITE_KEY" zone="home-top"></taleart-view>
+<taleart-view api-url="https://api.example.com" zone-key="tak_YOUR_ZONE_KEY"></taleart-view>
 ```
 
-Several zones of a project go on one page with one script tag and one element per zone, all with the same site key:
+`zone-key` is the only attribute an element needs. A zone has one active key: rotating it issues a new one and revokes
+the old, and revoking it takes the zone off every page that places it. A refused, rotated or revoked key renders nothing
+and logs one console error per element.
+
+Several zones on one page take one script tag and one element per zone, each with its own key:
 
 ```html
-<taleart-view api-url="https://api.example.com" site-key="YOUR_SITE_KEY" zone="home-promo"></taleart-view>
+<taleart-view api-url="https://api.example.com" zone-key="tak_YOUR_PROMO_KEY"></taleart-view>
+<taleart-view api-url="https://api.example.com" zone-key="tak_YOUR_TOP_KEY"></taleart-view>
 ```
 
-A project has one site key (`tas_…`), issued in the dashboard; every zone of the project is placed with it and its
-slug, so several elements on a page share one key. Elements that ask for the same zone at the same time share one
-request. An unknown slug, or a revoked or rotated site key, renders nothing and logs one console error per element.
-Rotating the site key affects every zone of the project: update every page that uses it. The key is
-not a secret once it is in a page's HTML: anyone who sees it can read every zone of the project that has a display and
-visible content, by its slug.
+Elements that ask for the same zone at the same time share one request. Rotating a key affects only its zone: update the
+page that places it.
 
 The Install tab also has a Copy button and an "Open test page" link (below).
 
@@ -73,9 +73,10 @@ The Install tab also has a Copy button and an "Open test page" link (below).
   Delivery API. It is served with a strict Content Security Policy (scripts from the API only), `noindex` and no
   referrer.
 
-An element renders only with both a site key and a slug. Put the key only in `site-key` (or `siteKey`), never in a
-query string: the SDK sends it only in the `Authorization` header. Slugs are not access control (they are often easy
-to guess), so treat what a visible zone shows as public. The Delivery API limits how often one visitor may ask (by
+An element renders with its zone key alone (`zone-key`, or `zoneKey`). Put the key only in the attribute or the property,
+never in a query string: the SDK sends it only in the `Authorization` header. The key is a credential for reading its
+zone, not access control for the zone's content: anyone who sees it in a page can read what the zone shows, so treat a
+visible zone as public. The Delivery API limits how often one visitor may ask (by
 default bursts of 600, then 20 a second), and one address ten times that in all; over the limit it answers 429, and
 the element renders nothing and logs one console error. A flood from one device behind a shared network (a NAT, such
 as an office or a mobile carrier) can use up that address's allowance for everyone behind it. Whoever runs the API must
@@ -97,18 +98,12 @@ restore that store, so an app that wants a fresh id after a reinstall excludes `
 Android backup rules (`android:fullBackupContent` and `android:dataExtractionRules`).
 
 <!-- docs-check:removed -->
-### Removed: zone keys and the `stage` attribute
+### The `stage` attribute and the `site-key` attribute
 
-Builds before the zone rework placed a zone with its own zone key (`tak_…`, the `zone-key` attribute or `zoneKey`
-property) and picked one of its stages with `stage="…"`. They were removed in the zone rework (story 8.7, owner
-decision 2026-10-22): such an element renders nothing. The `zone-key` attribute logs one console warning per element;
-the `zoneKey` property, the `stage` attribute and `configureZone` with a zone key are ignored without a word. The
-upgrade (story 8.5) turned every stage, and every frame beyond a zone's first, into a zone of its own with one display
-and a copy of the zone's tale groups. A stage's key became its zone's slug (with a `-2`, `-3` suffix where another zone
-already had it); a zone made from a frame took the original zone's new slug plus `-<type>-<n>`, counting that zone's
-frames of the type oldest first (`top-bar-2` for the second bar of a zone that became `top`). To move a page, issue the project's site key and replace the
-element with the Install tab's snippet for the zone that came from the stage. The docs app's "Stages and zone keys"
-page has the details.
+Zone keys are back (SDK v2; they were removed for a while in the zone rework, story 8.7). The `stage="…"` attribute
+is gone: it is ignored. The `site-key` attribute, and the `siteKey` property, are no longer read: an element that
+has one logs one console warning and places nothing with it. To move a page, replace the element with the Install
+tab's snippet for its zone, which names it with `zone-key`.
 <!-- /docs-check:removed -->
 
 Loading the SDK registers `<taleart-view>`. The ES build exports the API below; the UMD build puts the same exports on
@@ -116,10 +111,162 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 
 | Attribute / property | Meaning |
 | --- | --- |
-| `api-url` / `apiUrl` | The TaleArt API origin. |
-| `site-key` / `siteKey` | The project's site key (`tas_…`) issued in the dashboard. |
-| `zone` / `zone` | The zone's slug, such as `home-top`, shown on the zone page. |
+| `api-url` / `apiUrl` | The TaleArt API origin. Default: the origin the script loads from (see `init`). |
+| `zone-key` / `zoneKey` | The zone's key (`tak_…`), issued in the dashboard. Required: the element renders nothing without it. |
+| `locale` / `locale` | This element's locale (BCP 47, such as `he-IL`). Default: the SDK's locale (see `init`). |
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
+
+Properties without an attribute:
+
+| Property | Meaning |
+| --- | --- |
+| `zone` | The zone's slug, such as `home-top`, from the response. Set it only to name the zone's `configureZone` theme when the response does not carry the slug. |
+| `strings` | This element's texts, per locale or flat, added to the SDK's `strings` (this element's win). See Locale and strings. |
+| `hooks` | This element's hooks, called before the SDK's `hooks` (see Hooks). |
+
+## Configuration: `Taleart.init`
+
+The script sets `globalThis.Taleart`, with the functions below. `init(config)` (also a named export of the module) sets
+the SDK's options, before or after the elements connect; elements that show a zone read the options again. Every
+option is optional: an option left out keeps its value. `null` clears `locale`, `strings`, `theme`, `externalUserId`,
+`tags` and `hooks`. An invalid option logs one console warning naming it and keeps its value.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `apiUrl` | The origin the script loads from | The TaleArt API origin. An element's `api-url` wins. |
+| `locale` | `document.documentElement.lang`, then `en` | The locale of the SDK's texts (BCP 47). An element's `locale` wins. |
+| `strings` | none | Texts per locale, or flat for every locale (see Locale and strings). |
+| `theme` | none | Theme fields for every element. A zone's `configureZone` theme and an element's own theme win over it. |
+| `externalUserId` | none | The viewer's external user ID (see User lists). |
+| `tags` | none | The viewer's targeting tags (see Targeting tags). |
+| `hooks` | none | Hooks for every element (see Hooks). |
+
+```js
+import { init } from 'https://api.example.com/sdk/v1/taleart.js';
+
+init({
+  locale: 'he-IL',
+  strings: { he: { 'viewer.close': 'סגור' } },
+  hooks: { onActionClicked: (event) => analytics.track('tale-cta', { url: event.url }) },
+});
+```
+
+`setTags`, `setExternalUserId`, `configureZone` and `defineTaleartElement` remain, each the same as its `init` option.
+
+## Locale and strings
+
+The SDK's texts (the viewer's buttons, the banner's controls, the names it announces) are in English by default. The
+locale comes from the element's `locale` attribute, else `init({ locale })`, else the page's `lang`, else `en`. A
+text is looked up under the full locale (`he-IL`), then its language (`he`), then the flat `strings`, then English; a
+key nobody defines shows English, never the key itself. A `{name}` in a text is filled in by the SDK.
+
+```js
+init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{name}, נצפה' } } });
+```
+
+```html
+<taleart-view api-url="…" zone-key="tak_…" locale="he"></taleart-view>
+```
+
+| Key | English default |
+| --- | --- |
+| `viewer.close` | Close |
+| `viewer.play` | Play |
+| `viewer.pause` | Pause |
+| `viewer.previousTale` | Previous tale |
+| `viewer.nextTale` | Next tale |
+| `viewer.previousGroup` | Previous |
+| `viewer.nextGroup` | Next |
+| `viewer.previousGroupName` | Previous group: {name} |
+| `viewer.nextGroupName` | Next group: {name} |
+| `viewer.progress` | {group}, tale {tale} of {count} |
+| `viewer.taleFallback` | Tale {number} |
+| `banner.label` | Banner |
+| `banner.carousel` | carousel |
+| `banner.slide` | slide |
+| `banner.slideOf` | {index} of {count} |
+| `banner.previousSlide` | Previous slide |
+| `banner.nextSlide` | Next slide |
+| `banner.showGroup` | Show {name} |
+| `banner.stopRotation` | Stop automatic slide show |
+| `banner.startRotation` | Start automatic slide show |
+| `bar.seen` | {name}, seen |
+| `links.newTab` |  (opens in a new tab) |
+| `poll.voted` | You voted {label}. |
+| `poll.chose` | You chose {label}. |
+| `poll.previewNotRecorded` | Votes are not recorded in the preview. |
+| `poll.failed` | Your vote could not be sent. Try again. |
+| `quiz.answered` | You answered {label}. |
+| `quiz.right` | Right! You answered {label}. |
+| `quiz.wrongAnswer` | Wrong: you answered {label}. The correct answer is {correct}. |
+| `quiz.correct` |  correct answer |
+| `quiz.wrong` |  wrong |
+| `quiz.previewNotRecorded` | Answers are not recorded in the preview. |
+| `quiz.failed` | Your answer could not be sent. Try again. |
+| `rating.sliderLabel` | Your rating |
+| `rating.valueText` | {value} out of {max} |
+| `rating.ratedValueText` | You rated {value} out of {max} |
+| `rating.sent` | You rated {value}. |
+| `rating.previewRated` | You rated {value}. Ratings are not recorded in the preview. |
+| `rating.failed` | Your rating could not be sent. Try again. |
+| `rating.summary` | Average {average} from {total} {count} |
+| `rating.singular` | rating |
+| `rating.plural` | ratings |
+| `preview.stop` | Stop preview |
+| `preview.size.small` | Small |
+| `preview.size.default` | Default |
+| `preview.size.large` | Large |
+
+## Hooks
+
+Hooks let the host page follow what the SDK does (inspired by another tool's delegate). Set them for every element with
+`init({ hooks })`, or for one element with its `hooks` property; both run, the element's first, then the global one,
+and each hook may also be an `onEvent` that gets every event. A hook's exception is logged with `console.error` and
+never breaks the viewer.
+
+```js
+init({
+  hooks: {
+    onLoaded: (e) => console.log('zone', e.zoneSlug),
+    onGroupImpression: (e) => track('group_seen', e.group.id),
+    onActionClicked: (e) => {
+      // Stop the navigation and route it in the host's own app.
+      if (e.url.startsWith('https://shop.example.com/')) {
+        e.preventDefault();
+        router.push(new URL(e.url).pathname);
+      }
+    },
+  },
+});
+```
+
+| Hook | When it fires | Payload (besides `name`, `zoneKeyPrefix`, `zoneSlug`) |
+| --- | --- | --- |
+| `onLoaded` | The zone was read. Once per load. | none |
+| `onLoadFailed` | The zone could not be read: a refused or unknown key, a network failure, a bad answer. | `error` (the message) |
+| `onGroupImpression` | A group's bar item or banner slide first is half on screen. Once per group per load. | `group` |
+| `onPresented` | The full-screen viewer opened. | `group` |
+| `onTaleShown` | A tale came on screen in the viewer. | `group`, `tale` |
+| `onActionClicked` | A button, an image button or the swipe-up link was activated, before it navigates. Cancelable. | `group`, `tale`, `component` (`id`, `type`), `url`, `newTab`, `preventDefault()` |
+| `onUserInteracted` | The server accepted a poll, quiz or Rating answer. | `group`, `tale`, `component` (`id`, `type`, `value`) |
+| `onDismissed` | The viewer closed. | `group` |
+| `onEvent` | Every event above, in one stream. | the same as the event |
+
+- `group` is `{ id, name, index }` (its position in the zone, from 0); `tale` is `{ id, index, title }` (its position in
+  the group, from 0).
+- `zoneKeyPrefix` is the first 8 characters of the zone key (`tak_abc…`); the full key is never in an event.
+- `preventDefault()` on `actionClicked` stops the navigation, for a link: the host routes it. It works from the hook,
+  or from a `taleart:action-clicked` listener on the element.
+
+Each event is also a DOM event on the `<taleart-view>` element: bubbling and composed, named `taleart:` and the event's
+name in kebab case (`taleart:load-failed`, `taleart:group-impression`, `taleart:tale-shown`, `taleart:action-clicked`,
+`taleart:user-interacted`). Its `detail` is the payload. Only `taleart:action-clicked` is cancelable.
+
+```js
+document.querySelector('taleart-view').addEventListener('taleart:user-interacted', (e) => {
+  console.log(e.detail.component.id, e.detail.component.value);
+});
+```
 
 ## Targeting tags
 
@@ -141,7 +288,7 @@ Every `<taleart-view>` on the page, now and later, then shows only the groups wh
 
 Calling `setTags` again replaces the tags, and rendered elements show the matching groups at once, without a new
 request. The SDK decides in the browser: the tags are never sent to TaleArt. The Delivery API sends every group of the
-zone with its tag names, so targeting is not access control: anyone with the site key can read every visible group
+zone with its tag names, so targeting is not access control: anyone with the zone key can read every visible group
 and its tag names. Keep anything private out of tag names.
 
 ## User lists and the external user ID
@@ -173,7 +320,7 @@ setExternalUserId('cust-1001');
   a list holds, never which. Deleting a list deletes its hashes for good and removes it from every group; a group
   targeted only to that list stops showing (to anyone) until someone changes its Audience in the dashboard.
 
-Targeting is not access control: a targeted group's tales are public media, and anyone with the site key can try IDs
+Targeting is not access control: a targeted group's tales are public media, and anyone with the zone key can try IDs
 and see which groups come back. Responses to a tale's interactive components (polls, quizzes, ratings) are accepted
 from any viewer of a delivered tale, without checking its user lists. Do not use targeting to protect content.
 
@@ -201,7 +348,7 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 ```
 
 ```html
-<taleart-view api-url="…" site-key="tas_…" zone="home-top" theme='{"fontFamily": "Georgia, serif"}'></taleart-view>
+<taleart-view api-url="…" zone-key="tak_…" theme='{"fontFamily": "Georgia, serif"}'></taleart-view>
 ```
 
 | Field | Values |
@@ -228,7 +375,7 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 - A `theme` property set by script before the SDK defines `<taleart-view>` is applied when the element upgrades and wins
   over a `theme` attribute already present then, which is left unread and logs nothing; later attribute changes apply
   as usual.
-- Warnings about a zone's theme name the zone by its slug, or a site key passed by mistake by its first 8 characters (`tas_…`) only.
+- Warnings about a zone's theme name the zone by its slug, or a key passed by mistake by its first 8 characters (`tak_…`, `tas_…`) only.
 - With an override, colour contrast is the host page's responsibility: keep titles at 4.5:1 and rings at 3:1 against the
   background (WCAG 2.2 AA).
 
@@ -324,7 +471,7 @@ and when the tale goes (by a key or the arrows) focus returns to the viewer.
 
 A poll is a card with a question and two options, each a `<button>`, inside a group named by the question; its text is
 set as text nodes and its colours come from its light or dark theme. Pressing an option (by pointer, Enter or Space)
-posts the vote to `POST /delivery/v1/responses` with the site key, the zone's slug and the visitor id; the card then
+posts the vote to `POST /delivery/v1/responses` with the zone key and the visitor id; the card then
 shows each option's percentage with the visitor's choice marked, says so in a polite live region, and takes no second
 vote (the server keeps the first one). A press on the poll never steps the tale, and the tale waits while keyboard
 focus is inside it. The SDK keeps the answer and the percentages it received in the host page's local storage under
@@ -403,7 +550,7 @@ margin. `PERF_RUNS` (default 10), `PERF_BUDGET_MS` (default 1500),
 
 What a run adds to the database, and deletes again at the end (also when it fails or gets SIGINT/SIGTERM): an admin
 user and their session (inserted directly, as the API tests sign in), and through the Management API a project, its
-zone, its bar display, eight tale groups with their zone placements, covers and 24 tales, and the project's site key; and a
+zone, its bar display, eight tale groups with their zone placements, covers and 24 tales, and the zone's key; and a
 project font with a second zone, its bar display, group and tale. The media files go
 to a temporary folder that is removed with them. A run killed outright (SIGKILL) leaves those rows, whose media keys
 then name files that no longer exist.

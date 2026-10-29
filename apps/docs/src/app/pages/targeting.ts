@@ -78,7 +78,7 @@ import { DOCS_EXTERNAL_USER_ID_SCRIPT, DOCS_TAGS_SCRIPT } from '../docs-content'
     <h2 id="not-access-control">Targeting is not access control</h2>
     <p>
       Targeting decides what a page shows, not who may see it. The tales of a targeted group are public media, and
-      anyone with your site key can try IDs and see which groups come back. Answers to a tale's polls, quizzes and
+      anyone with a zone key can try IDs and see which groups come back. Answers to a tale's polls, quizzes and
       ratings are accepted for any delivered tale without checking its user lists. Do not use targeting to protect
       content, and keep anything private out of tag and list names.
     </p>

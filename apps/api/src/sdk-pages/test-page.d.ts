@@ -1,6 +1,5 @@
 // Types of the test page's script (test-page.js), for its tests.
 export function apiBaseUrl(scriptUrl: string): string;
-export function zoneFromSearch(search: string): string;
 export function keyFromHash(hash: string): string;
 export function start(
   doc: Document,

@@ -18,4 +18,9 @@ describe('the Web SDK README', () => {
   it('names a property the element has for each attribute', () => {
     for (const { property } of rows) expect(property in TaleartElement.prototype).toBe(true);
   });
+
+  it('documents the zone key, and no site key attribute the element ignores', () => {
+    expect(readme).toContain('| `zone-key` / `zoneKey` |');
+    expect(readme).not.toMatch(/\bsite-key=/);
+  });
 });

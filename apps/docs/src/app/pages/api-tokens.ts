@@ -30,8 +30,8 @@ import { RouterLink } from '@angular/router';
     <p>Send it in the <code>Authorization</code> header of each request:</p>
     <pre><code>curl -H "Authorization: Bearer $TALEART_TOKEN" https://your-taleart-api/api/v1/zones</code></pre>
     <p>
-      Keep it in your script's secret settings, never in a page's HTML: a page uses the project's site key
-      (<code>tas_</code>) instead. A token works only on the Management API, and a site key only on the Delivery API.
+      Keep it in your script's secret settings, never in a page's HTML: a page uses a zone key
+      (<code>tak_</code>) instead. A token works only on the Management API; zone keys and the project's site key (<code>tas_</code>, for servers) work only on the Delivery API.
     </p>
     <p>
       Try it in the <a routerLink="/api-reference">API reference</a>, or let an AI agent use it through the
@@ -52,7 +52,7 @@ import { RouterLink } from '@angular/router';
       <li>A read-only token can read but never change anything.</li>
       <li>
         An admin's read-write token can do what the admin can in its projects, including issuing, rotating and revoking
-        the project's site key, which affects every zone of the project. Give such a token only to scripts you trust
+        zone keys and the project's site key, which can stop a page showing its zone. Give such a token only to scripts you trust
         with that.
       </li>
     </ul>

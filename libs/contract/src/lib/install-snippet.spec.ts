@@ -1,12 +1,15 @@
 import {
   DEFAULT_SDK_BUILDS_KEPT,
+  INIT_SNIPPET_COMMENT,
   installSnippet,
+  npmSnippet,
   pinnedSdkScriptTag,
   SDK_CACHE_SECONDS,
   SDK_PINNED_CACHE_SECONDS,
   sdkScriptTag,
-  SITE_KEY_PLACEHOLDER,
+  TEST_PAGE_KEY_PARAM,
   testPageLink,
+  ZONE_KEY_PLACEHOLDER,
   zoneElement,
 } from './core';
 
@@ -18,45 +21,50 @@ const info = {
   testPageUrl: 'https://api.example.com/sdk/v1/test-page',
 };
 
-describe('install snippet and test page link (epic UX rework R13)', () => {
-  it('loads the SDK as a module and places the zone with the API URL, the key and the slug', () => {
-    expect(installSnippet(info, 'home-top', 'tas_abc-_123')).toBe(
+describe('install snippet and test page link (zone keys)', () => {
+  it('loads the SDK as a module, shows the optional init line, then the zone element with its key', () => {
+    expect(installSnippet(info, 'tak_abc-_123')).toBe(
       '<script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>\n' +
-        '<taleart-view api-url="https://api.example.com" site-key="tas_abc-_123" zone="home-top"></taleart-view>',
+        '<!-- Optional, once per page: <script>Taleart.init({ locale: "en" })</script> -->\n' +
+        '<taleart-view zone-key="tak_abc-_123"></taleart-view>',
     );
   });
 
-  it('is the script tag and one zone element, so a page with several zones reuses the parts', () => {
-    expect(installSnippet(info, 'home-top', 'k')).toBe(`${sdkScriptTag(info)}\n${zoneElement(info, 'home-top', 'k')}`);
-  });
-
-  it('keeps the SDK five minutes at its stable URL and a year at its pinned one', () => {
-    expect(SDK_CACHE_SECONDS).toBe(5 * 60);
-    expect(SDK_PINNED_CACHE_SECONDS).toBe(365 * 24 * 60 * 60);
+  it('is the script tag, the init line and one zone element, so a page with several zones reuses the first two', () => {
+    expect(installSnippet(info, 'k')).toBe(`${sdkScriptTag(info)}\n${INIT_SNIPPET_COMMENT}\n${zoneElement('k')}`);
+    expect(installSnippet(info, 'k').match(/<script/g)).toHaveLength(2);
   });
 
   it('says the placeholder without a key', () => {
-    expect(installSnippet(info, 'home-top', null)).toContain(`site-key="${SITE_KEY_PLACEHOLDER}"`);
-    expect(installSnippet(info, 'home-top', '')).toContain('site-key="YOUR_SITE_KEY"');
+    expect(zoneElement(null)).toBe(`<taleart-view zone-key="${ZONE_KEY_PLACEHOLDER}"></taleart-view>`);
+    expect(zoneElement('')).toContain('zone-key="YOUR_ZONE_KEY"');
+    expect(ZONE_KEY_PLACEHOLDER).toBe('YOUR_ZONE_KEY');
+  });
+
+  it('shows the npm variant: the install command, the import that gives init, then the element', () => {
+    expect(npmSnippet('tak_x')).toBe(
+      'npm i @lempert/taleart\n' +
+        "import { init } from '@lempert/taleart';\n" +
+        '// Optional, once per page: init({ locale: "en" })\n' +
+        '<taleart-view zone-key="tak_x"></taleart-view>',
+    );
   });
 
   it('escapes every value for a double-quoted attribute', () => {
-    const odd = { apiUrl: 'https://a.example/"><script>x</script>&', sdkUrl: 'https://a.example/s.js?a=1&b="2"', sdkPinnedUrl: null, sdkIntegrity: null, testPageUrl: '' };
-    const html = installSnippet(odd, 'z"<>&', 'k"<>&');
+    const odd = { sdkUrl: 'https://a.example/s.js?a=1&b="2"' };
+    const html = installSnippet(odd, 'tak"<>&');
     expect(html).toBe(
       '<script type="module" src="https://a.example/s.js?a=1&amp;b=&quot;2&quot;"></script>\n' +
-        '<taleart-view api-url="https://a.example/&quot;&gt;&lt;script&gt;x&lt;/script&gt;&amp;" ' +
-        'site-key="k&quot;&lt;&gt;&amp;" zone="z&quot;&lt;&gt;&amp;"></taleart-view>',
+        `${INIT_SNIPPET_COMMENT}\n` +
+        '<taleart-view zone-key="tak&quot;&lt;&gt;&amp;"></taleart-view>',
     );
-    expect(html.match(/<script/g)).toHaveLength(1);
+    expect(html.match(/<script/g)).toHaveLength(2);
   });
 
-  it('links the test page with the slug in the query and the key only in the fragment', () => {
-    expect(testPageLink(info, 'home-top', null)).toBe('https://api.example.com/sdk/v1/test-page?zone=home-top');
-    expect(testPageLink(info, 'home-top', 'tas_a+b/c=')).toBe(
-      'https://api.example.com/sdk/v1/test-page?zone=home-top#siteKey=tas_a%2Bb%2Fc%3D',
-    );
-    expect(testPageLink(info, 'a&b', 'k').split('#')[0]).toBe('https://api.example.com/sdk/v1/test-page?zone=a%26b');
+  it('links the test page with the key only in the fragment, and the bare page without a key', () => {
+    expect(testPageLink(info, null)).toBe('https://api.example.com/sdk/v1/test-page');
+    expect(testPageLink(info, 'tak_a+b/c=')).toBe('https://api.example.com/sdk/v1/test-page#zoneKey=tak_a%2Bb%2Fc%3D');
+    expect(TEST_PAGE_KEY_PARAM).toBe('zoneKey');
   });
 });
 

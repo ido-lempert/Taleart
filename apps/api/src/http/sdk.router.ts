@@ -372,8 +372,8 @@ function notFound(res: Response): void {
 /**
  * `/sdk/v1`: the Web SDK bundle a host page loads with `<script type="module" src="…/taleart.js">`
  * (or pinned to its content, `taleart.<hash>.js`), and the TaleArt-served test page that renders
- * one zone with it (epic UX rework R13). No session and no key: both are public. The page reads the
- * zone's slug from `?zone=` and a site key from the URL fragment or a field on the page; the server
+ * one zone with it (epic UX rework R13). No session and no key: both are public. The page reads a
+ * zone key (`tak_…`, which names the zone) from the URL fragment `#zoneKey=` or a field on the page; the server
  * never sees the key, and nothing of the request goes into what it sends.
  */
 export function sdkRouter(files: SdkFiles, publicApiUrl: string, sdk: SdkSource = sdkSource(files.bundleFile)): Router {

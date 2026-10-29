@@ -30,7 +30,7 @@ const root = resolve(import.meta.dirname, '../..');
 const API = 'http://taleart-api.test';
 const PREVIEW_PAGE = 'http://studio-preview.test/';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, X-TaleArt-Visitor' };
-const SITE_KEY = 'tas_parity';
+const ZONE_KEY = 'tak_parity';
 const VIEWPORT = { width: 390, height: 844 };
 const MAX_DIFFERING = Math.floor(VIEWPORT.width * VIEWPORT.height * 0.001);
 const FROZEN_AT_MS = 1500;
@@ -168,11 +168,14 @@ try {
   const sampleErrors = [];
   sample.on('pageerror', (err) => sampleErrors.push(String(err)));
   await sample.route(
-    (url) => url.href.startsWith(`${API}/delivery/v1/zone?`),
-    (route) => route.fulfill({ json: zone, headers: CORS }),
+    (url) => url.origin + url.pathname === `${API}/delivery/v1/zone`,
+    (route) =>
+      (route.request().headers()['authorization'] ?? '') === `Bearer ${ZONE_KEY}`
+        ? route.fulfill({ json: zone, headers: CORS })
+        : route.fulfill({ status: 401, json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } }, headers: CORS }),
   );
   await routeMedia(sample);
-  await sample.goto(`http://localhost:${port}/?zones=${zone.slug}&api=${encodeURIComponent(API)}#siteKey=${SITE_KEY}`);
+  await sample.goto(`http://localhost:${port}/?api=${encodeURIComponent(API)}#zoneKeys=${ZONE_KEY}`);
   await sample.locator('taleart-view button.item').first().click();
   await sample.locator('taleart-view dialog.viewer[open] .ta-canvas img').waitFor();
   await sample.mouse.move(0, 0);

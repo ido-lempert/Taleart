@@ -47,6 +47,7 @@ import {
 import { AddExistingGroup, addableGroups } from './add-existing-group';
 import { GroupView, shownLabel } from './group-view';
 import { SiteKeyCard } from './site-key-card';
+import { ZoneKeyCard } from './zone-key-card';
 
 /** The query parameter naming the group whose view is open (epic UX rework R11). */
 const GROUP_PARAM = 'group';
@@ -90,6 +91,7 @@ type Direction = 'earlier' | 'later';
     GroupView,
     AddExistingGroup,
     SiteKeyCard,
+    ZoneKeyCard,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './zone-detail.html',
@@ -273,6 +275,14 @@ type Direction = 'earlier' | 'later';
     .zone-panel[hidden] {
       display: none;
     }
+    .advanced > summary {
+      cursor: pointer;
+      font-weight: 600;
+      padding: var(--space-2) 0;
+    }
+    .advanced[open] > summary {
+      margin-bottom: var(--space-4);
+    }
     .zone-theme-link {
       margin: var(--space-4) 0 0;
     }
@@ -304,7 +314,7 @@ export class ZoneDetailPage {
     const count = this.groups().length;
     return `${count} tale group${count === 1 ? '' : 's'}`;
   });
-  /** Installed or not (an active site key, epic UX rework R3); null while unknown. */
+  /** Installed or not (an active zone key or site key, epic UX rework R3); null while unknown. */
   protected readonly installed = computed(() => {
     const zone = this.zone();
     return zone ? zoneInstalled(zone) : null;
@@ -487,7 +497,7 @@ export class ZoneDetailPage {
       this.selectTab(step.tab, (root) => first(root, '#display-choose', '#display-type-select'));
     } else if (step.id === 'install') {
       // A content manager has no key action: the card's heading, which says to ask an admin.
-      this.selectTab(step.tab, (root) => first(root, '#site-key-issue', '#site-key-rotate', '#site-key-title'));
+      this.selectTab(step.tab, (root) => first(root, '#zone-key-issue', '#zone-key-rotate', '#zone-key-title'));
     } else {
       // An Off group's switch; with every group On, a group whose tales are all Hidden, opened at
       // its first Hidden tale's switch; else the first group's name, whose row says why it is not

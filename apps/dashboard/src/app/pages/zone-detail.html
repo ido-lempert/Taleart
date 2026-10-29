@@ -368,8 +368,14 @@
         tabindex="-1"
         [hidden]="selectedTab() !== 'install'"
       >
-        <!-- The project's site key (story 8.6); story 8.13 adds the snippet and the test page. -->
-        <app-site-key-card [projectId]="zone.projectId" [zoneSlug]="zone.slug" [admin]="auth.isAdmin()" />
+        <!-- The zone's key, the snippet with it and the test page (zone keys, the Web SDK's zone-key attribute). -->
+        <app-zone-key-card [zoneId]="zone.id" [admin]="auth.isAdmin()" />
+
+        <!-- The project's site key is for server-side and legacy callers only, so it sits under a disclosure. -->
+        <details class="advanced" id="advanced-server">
+          <summary>Advanced / server-side</summary>
+          <app-site-key-card [projectId]="zone.projectId" [admin]="auth.isAdmin()" />
+        </details>
       </div>
 
     } @else if (!store.apiDown()) {

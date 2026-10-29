@@ -69,5 +69,5 @@ createServer(async (req, res) => {
     res.end(missing ? 'Not found' : 'Error');
   }
 }).listen(port, () => {
-  console.log(`SDK sample at http://localhost:${port}/?zones=<slug>,<slug>&api=http://localhost:3333#siteKey=<site key>`);
+  console.log(`SDK sample at http://localhost:${port}/?api=http://localhost:3333#zoneKeys=<key>,<key>`);
 });

@@ -100,8 +100,8 @@ const zone = (overrides = {}) => ({
   ...overrides,
 });
 
-// The project's site key the review's pages place their zones with (epic UX rework R3).
-const SITE_KEY = 'tas_review';
+// The zone key the review's pages place a zone with: the fake Delivery API reads the slug out of it.
+const zoneKeyOf = (slug) => `tak_${slug}`;
 
 // The zones a page fixture stands for, keyed by their slugs: one zone per display, as the Delivery
 // API sends it (`frame`).
@@ -116,18 +116,18 @@ function zonesOf(page) {
 }
 
 // True for a Delivery API zone request, whatever its query.
-const deliveryZoneUrl = (url) => url.href.startsWith(`${API}/delivery/v1/zone?`);
+const deliveryZoneUrl = (url) => url.origin + url.pathname === `${API}/delivery/v1/zone`;
 
-// Answers the Delivery API by the site key and the `zone` slug, as the API does.
+// Answers the Delivery API by the bearer zone key (`tak_<slug>` here), as the API does.
 function deliverZones(zones) {
   return (route) => {
-    const slug = new URL(route.request().url()).searchParams.get('zone') ?? '';
     const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
-    return key === SITE_KEY && Object.hasOwn(zones, slug)
+    const slug = key.startsWith('tak_') ? key.slice(4) : '';
+    return Object.hasOwn(zones, slug)
       ? route.fulfill({ json: zones[slug], headers: CORS })
       : route.fulfill({
           status: 401,
-          json: { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } },
+          json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } },
           headers: CORS,
         });
   };
@@ -245,7 +245,7 @@ async function openSample(
     );
   }
   await page.goto(
-    `http://localhost:${port}/?zones=${Object.keys(zones).join(',')}&api=${encodeURIComponent(API)}${query}#siteKey=${SITE_KEY}`,
+    `http://localhost:${port}/?api=${encodeURIComponent(API)}${query}#zoneKeys=${Object.keys(zones).map(zoneKeyOf).join(',')}`,
   );
   await page.locator('taleart-view button.item, taleart-view section.banner').first().waitFor();
   page.errors = errors;
@@ -2124,7 +2124,7 @@ try {
         if (url.includes('-bg.')) return route.fulfill({ body: backdrop, contentType: 'image/svg+xml', headers });
         return route.fulfill({ body: picture, contentType: 'image/svg+xml', headers });
       });
-      await page.goto(`http://localhost:${port}/?zones=${z.slug}&api=${encodeURIComponent(API)}#siteKey=${SITE_KEY}`);
+      await page.goto(`http://localhost:${port}/?api=${encodeURIComponent(API)}#zoneKeys=${zoneKeyOf(z.slug)}`);
       await page.locator('taleart-view button.item').first().click();
       await page.locator('taleart-view dialog.viewer').waitFor();
       await page.evaluate(() => {

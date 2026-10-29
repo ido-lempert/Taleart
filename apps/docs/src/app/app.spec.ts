@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { installSnippet, SDK_BUNDLE_PATH, SDK_TEST_PAGE_PATH, testPageLink } from '@taleart/contract/core';
+import { installSnippet, SDK_BUNDLE_PATH, SDK_TEST_PAGE_PATH, testPageLink, ZONE_KEY_PLACEHOLDER } from '@taleart/contract/core';
 import { App } from './app';
 import { AGENT_SESSION } from './agent-session';
 import { appRoutes, DOCS_PAGES } from './app.routes';
@@ -38,16 +38,16 @@ describe('docs app', () => {
     const harness = await RouterTestingHarness.create('/');
     const text = harness.routeNativeElement?.textContent ?? '';
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('Getting started');
-    expect(text).toContain(installSnippet(info, 'home-top', null));
+    expect(text).toContain(installSnippet(info, null));
   });
 
   it('shows the Install tab snippet, the hosted and pinned SDK and the test page on Install a zone', async () => {
     const harness = await RouterTestingHarness.create('/install');
     const page = harness.routeNativeElement as HTMLElement;
-    expect(page.querySelector('#docs-snippet')?.textContent).toBe(installSnippet(info, 'home-top', null));
+    expect(page.querySelector('#docs-snippet')?.textContent).toBe(installSnippet(info, null));
     expect(page.textContent).toContain(`${api}/sdk/v1/taleart.js`);
     expect(page.textContent).toContain('integrity="sha384-…"');
-    expect(page.textContent).toContain(testPageLink(info, 'home-top', 'YOUR_SITE_KEY'));
+    expect(page.textContent).toContain(testPageLink(info, ZONE_KEY_PLACEHOLDER));
     expect(page.textContent).toContain("configureZone('home-top'");
   });
 
@@ -56,16 +56,16 @@ describe('docs app', () => {
     const terms = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('#glossary tbody th')].map((th) =>
       th.childNodes[0].textContent?.trim(),
     );
-    expect(terms).toEqual(['Project', 'Zone', 'Display', 'Template', 'Tale group', 'Tale', 'Theme', 'Site key']);
+    expect(terms).toEqual(['Project', 'Zone', 'Display', 'Template', 'Tale group', 'Tale', 'Theme', 'Zone key', 'Site key']);
   });
 
-  it('says that zone keys and stage were removed, and how to move', async () => {
+  it('says that zone keys are back and the stage attribute was removed, and how to move', async () => {
     const harness = await RouterTestingHarness.create('/moving-from-stages');
     const text = (harness.routeNativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Zone keys and the stage attribute were removed');
+    expect(text).toContain('Zone keys are back; the stage attribute stays removed');
     expect(text).toContain('Home – Bar 2');
     expect(text).toContain('top-bar-2');
-    expect(text).toContain(installSnippet(info, 'home-top', null));
+    expect(text).toContain(installSnippet(info, null));
   });
 
   it('shows the agent skill on AI agents: install, the token, a session and every skill file (story 10.4)', async () => {

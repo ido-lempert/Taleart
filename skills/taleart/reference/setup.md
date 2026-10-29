@@ -86,7 +86,7 @@ setting comes from.
   read-only token. If the user has one for such tasks, ask them to use it.
 - A read-only token answers exit 4 (`forbidden`) to any change: tell the user a read-write token is
   needed rather than looking for a way around it.
-- An admin's read-write token can rotate and revoke site keys, which affects every zone of the project.
+- An admin's read-write token can issue, rotate and revoke zone keys (one zone each) and site keys (every zone of the project, server-side only).
 
 ## Choose the project
 

@@ -71,7 +71,7 @@ as "Visible on site" or "Not visible: <reason>".
 | `not-updated-yet` | Nothing was published for the tale yet. | Publish it in Tale Studio (dashboard). |
 | `starts-at` / `ended-at` | Outside the group's schedule window (`at` says when). | Change the schedule in the dashboard. |
 | `zone-no-display` | The zone has no bar or banner. | `taleart zones display home-top --type bar --project "Shop" --json` |
-| `zone-not-installed` | The project has no active site key. | `taleart site-keys issue --project "Shop" --json`, then the snippet on the page. |
+| `zone-not-installed` | The zone has no active zone key. | `taleart zone-keys issue home-top --project "Shop" --json`, then the snippet on the page. |
 | `no-tale-groups` | The zone has no groups. | `taleart groups place Summer --zone home-top --project "Shop" --json` |
 | `no-shown-tales` | The group has no Shown tale with media. | `taleart tales create --group Summer ./img/one.png --project "Shop" --json` |
 | `audience-empty` | The group's user lists hold no ID. | `taleart user-lists upload VIPs ./vips.csv --project "Shop" --json` |

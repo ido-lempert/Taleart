@@ -203,7 +203,7 @@ type State = 'loading' | 'ready' | 'failed';
       </li>
       <li>
         Choose <strong>Authorize</strong> and paste an <a routerLink="/api-tokens">API token</a> (<code>tat_…</code>)
-        for the Management API, or the project's site key (<code>tas_…</code>) for the Delivery API.
+        for the Management API, or a zone key (<code>tak_…</code>) or the project's site key (<code>tas_…</code>) for the Delivery API.
       </li>
       <li>Open an operation, choose <strong>Try it out</strong>, then <strong>Execute</strong>.</li>
     </ol>

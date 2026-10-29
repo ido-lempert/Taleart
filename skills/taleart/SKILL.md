@@ -47,14 +47,14 @@ You run with the user's environment, so the token is within reach: keep it that 
 4. **Read-only first.** For a task that only reads (list, check, explain), prefer a read-only token
    (`readOnly: true` in `whoami`). If the token in use can write, still run only read commands.
 5. **Confirm destructive commands.** Before any command whose `destructive` flag is `true`
-   (`site-keys rotate`, `site-keys revoke`, `tales delete`, `user-lists delete`,
+   (`zone-keys rotate`, `zone-keys revoke`, `site-keys rotate`, `site-keys revoke`, `tales delete`, `user-lists delete`,
    `zones update --slug`), tell the user exactly what it will do and what breaks, and wait for a clear
    yes. Only then add `--yes`. Never add `--yes` on your own. Without it the CLI stops with exit 10 and
    changes nothing.
 6. **Confirm these too**, although the CLI does not flag them destructive, unless the user asked for
    exactly that change: `groups audience --clear` and `groups tags --clear` (the group then shows to
    more viewers), `groups on` when the group would go live in a zone that is installed (the project
-   has a site key), `tales media` (replaces a tale's image or video), and `projects use` (changes the
+   has a zone key), `tales media` (replaces a tale's image or video), and `projects use` (changes the
    default project in the user's config file).
 7. **Run no more than needed.** No exploratory writes, no test objects, no retries of a write that
    failed with exit 4, 6 or 7 without changing something first. A read is fine to repeat.
@@ -69,7 +69,7 @@ You run with the user's environment, so the token is within reach: keep it that 
 11. **Privacy.** External user IDs go only into a CSV file given to `user-lists upload`; never put
     them in a URL, a command argument, a log or your report. Never open, print, count by value or
     summarise such a CSV: ask the user whether its first row is a header. TaleArt stores only keyed hashes and
-    reports counts. A site key (`tas_...`) is shown once: give it to the user, never write it to a file
+    reports counts. A zone key (`tak_...`) or site key (`tas_...`) is shown once: give it to the user, never write it to a file
     unless they ask.
 
 ## Exit codes
@@ -107,16 +107,16 @@ taleart zones snippet home-top --project "Shop" --json
 
 - List `./img` first and pass the image or video files it holds, in the order the user wants.
 - `groups get` answers `visibility`: when `visible` is false, `reasons[].code` says why (often
-  `zone-not-installed`: the project has no site key yet; see the site key recipe).
+  `zone-not-installed`: the zone has no zone key yet; see the install recipe).
 - Give the user the snippet and the `testPageUrl` from `zones snippet`.
 
-Every other recipe (install snippet and site key, image tales, tags, user lists, why something is not
-visible, copying a group, rotating a site key) is in [reference/recipes.md](reference/recipes.md).
+Every other recipe (install snippet and zone key, image tales, tags, user lists, why something is not
+visible, copying a group, rotating a zone key) is in [reference/recipes.md](reference/recipes.md).
 
 ## Concepts in one breath
 
-A **project** holds zones, tale groups and one **site key**. A **zone** is a place on a page, named
-by its **slug**, with one **display** (bar or banner). A **tale group** is a set of **tales**; it is
+A **project** holds zones, tale groups and one **site key** (for server-side callers only). A **zone** is a place on a page, named
+by its **slug**, with one **display** (bar or banner) and one **zone key** (the page's key for that zone). A **tale group** is a set of **tales**; it is
 placed in zones and is **On** or **Off** (new groups start Off). A tale is **Shown** or **Hidden**.
 **Tags** (with match **Any** or **All**) and **user lists** (external user IDs) target a group to some
 viewers. "**Visible on site**" (`visibility.visible`) says whether it shows now. Details:

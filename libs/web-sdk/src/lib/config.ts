@@ -1,6 +1,7 @@
 // The SDK's global configuration: `Taleart.init(config)` sets it, every element reads it (epic SDK v2).
 import { encodeExternalUserIdHeader } from '@taleart/contract';
 import type { StringsConfig } from './i18n';
+import type { TaleartHooks } from './hooks';
 import type { Theme } from './public-types';
 import { readThemeOverride } from './theme';
 
@@ -12,8 +13,8 @@ import { readThemeOverride } from './theme';
 export interface TaleartConfig {
   /** The TaleArt API origin. Default: the origin the SDK script loads from. */
   apiUrl?: string;
-  /** The locale (BCP 47, such as `he-IL`). Default: `document.documentElement.lang`, then `en`. */
-  locale?: string;
+  /** The locale (BCP 47, such as `he-IL`); `null` clears it. Default: `document.documentElement.lang`, then `en`. */
+  locale?: string | null;
   /** Overrides of the SDK's texts, per locale (`{ he: { 'viewer.close': '…' } }`) or flat for every locale. */
   strings?: StringsConfig | null;
   /** Theme fields for every element. A zone's {@link configureZone} theme and an element's own theme win over it. */
@@ -22,8 +23,8 @@ export interface TaleartConfig {
   externalUserId?: string | null;
   /** The viewer's tags, as {@link setTags} takes them. */
   tags?: readonly string[] | null;
-  /** Hooks (another tool-style). Typed loosely until the hooks story. */
-  hooks?: Readonly<Record<string, unknown>> | null;
+  /** Hooks for every element (see `hooks.ts`); an element's own `hooks` property adds to them. */
+  hooks?: TaleartHooks | null;
 }
 
 /** What {@link getConfig} returns: every option with the value the SDK uses. */
@@ -34,7 +35,7 @@ export interface ResolvedTaleartConfig {
   readonly theme: Readonly<Partial<Theme>>;
   readonly externalUserId: string | null;
   readonly tags: readonly string[] | null;
-  readonly hooks: Readonly<Record<string, unknown>> | null;
+  readonly hooks: TaleartHooks | null;
 }
 
 /** The names of the options. */
@@ -99,12 +100,11 @@ interface State {
   theme: Readonly<Partial<Theme>>;
   externalUserId: string | null;
   tags: readonly string[] | null;
-  hooks: Readonly<Record<string, unknown>> | null;
+  hooks: TaleartHooks | null;
 }
 
 let state: State = {
-  // The bundle is an ES module, so import.meta is its own script URL (tsconfig.lib.json's module setting predates it).
-  // @ts-expect-error TS1343: import.meta is allowed in the ES bundle that Vite builds
+  // The bundle is an ES module, so import.meta is its own script URL.
   apiUrl: defaultApiUrl(import.meta.url),
   locale: '',
   strings: null,
@@ -150,6 +150,10 @@ export function init(config: TaleartConfig): void {
         next.apiUrl = value.replace(/\/+$/, '');
         break;
       case 'locale':
+        if (value === null) {
+          next.locale = '';
+          break;
+        }
         if (typeof value !== 'string') {
           warnInvalid(key, 'a locale string');
           continue;
@@ -185,7 +189,7 @@ export function init(config: TaleartConfig): void {
         break;
       case 'hooks':
         if (value === null) next.hooks = null;
-        else if (isRecord(value)) next.hooks = { ...value };
+        else if (isRecord(value)) next.hooks = { ...(value as TaleartHooks) };
         else {
           warnInvalid(key, 'an object, or null');
           continue;

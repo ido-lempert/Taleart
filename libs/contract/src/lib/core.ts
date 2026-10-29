@@ -248,11 +248,14 @@ export const SDK_BASE = '/sdk/v1';
 /** The Web SDK bundle (an ES module) a host page loads: `<apiUrl>/sdk/v1/taleart.js`. */
 export const SDK_BUNDLE_PATH = `${SDK_BASE}/taleart.js`;
 
-/** The TaleArt-served test page that renders one zone: `<apiUrl>/sdk/v1/test-page?zone=<slug>#siteKey=<key>`. */
+/** The TaleArt-served test page that shows one zone: `<apiUrl>/sdk/v1/test-page#zoneKey=<key>`. */
 export const SDK_TEST_PAGE_PATH = `${SDK_BASE}/test-page`;
 
-/** The URL fragment parameter of the test page that holds the site key (never the query: it would reach logs). */
-export const TEST_PAGE_KEY_PARAM = 'siteKey';
+/** The URL fragment parameter of the test page that holds the zone key (never the query: it would reach logs). */
+export const TEST_PAGE_KEY_PARAM = 'zoneKey';
+
+/** The npm package that ships the Web SDK (`npm i @lempert/taleart`). */
+export const SDK_NPM_PACKAGE = '@lempert/taleart';
 
 /** How long browsers keep the SDK at its stable URL ({@link SDK_BUNDLE_PATH}): five minutes, so a deploy reaches pages soon. */
 export const SDK_CACHE_SECONDS = 300;
@@ -267,8 +270,11 @@ export const SDK_PINNED_CACHE_SECONDS = 31_536_000;
  */
 export const DEFAULT_SDK_BUILDS_KEPT = 5;
 
-/** What the install snippet says in place of the site key when the key is not at hand (it is shown only once). */
-export const SITE_KEY_PLACEHOLDER = 'YOUR_SITE_KEY';
+/** What the install snippet says in place of the zone key when the key is not at hand (it is shown only once). */
+export const ZONE_KEY_PLACEHOLDER = 'YOUR_ZONE_KEY';
+
+/** The optional line of the snippet that shows the Web SDK's `Taleart.init` (every option is optional). */
+export const INIT_SNIPPET_COMMENT = '<!-- Optional, once per page: <script>Taleart.init({ locale: "en" })</script> -->';
 
 // An HTML attribute value in double quotes: the characters that could end it or start markup.
 function htmlAttribute(value: string): string {
@@ -291,31 +297,42 @@ export function pinnedSdkScriptTag(info: Pick<InstallInfo, 'sdkPinnedUrl' | 'sdk
 }
 
 /**
- * One `<taleart-view>` that places a zone: the API URL, the site key (or {@link SITE_KEY_PLACEHOLDER})
- * and the zone's slug, each escaped for a double-quoted attribute. A page with several zones has one
- * script tag and one of these per zone.
+ * One `<taleart-view>` that shows a zone by its zone key (or {@link ZONE_KEY_PLACEHOLDER}), escaped
+ * for a double-quoted attribute. The key names the zone, so the element needs no slug and no API URL
+ * (the script's origin is the default). A page with several zones has one of these per zone key.
  */
-export function zoneElement(info: Pick<InstallInfo, 'apiUrl'>, zone: string, siteKey: string | null): string {
-  return `<taleart-view api-url="${htmlAttribute(info.apiUrl)}" site-key="${htmlAttribute(siteKey || SITE_KEY_PLACEHOLDER)}" zone="${htmlAttribute(zone)}"></taleart-view>`;
+export function zoneElement(zoneKey: string | null): string {
+  return `<taleart-view zone-key="${htmlAttribute(zoneKey || ZONE_KEY_PLACEHOLDER)}"></taleart-view>`;
 }
 
 /**
- * The copy-ready HTML that places a zone on a host page (epic UX rework R13, R17): the Web SDK's
- * script tag and the zone's `<taleart-view>`. The dashboard's Install tab and the docs app both show
- * this text, and the docs check holds the Web SDK README to it.
+ * The copy-ready HTML that shows a zone on a host page: the Web SDK's script tag, the optional
+ * `Taleart.init` line and the zone's `<taleart-view>`. The dashboard's Install tab and the docs app
+ * both show this text, and the docs check holds the Web SDK README to it.
  */
-export function installSnippet(info: Pick<InstallInfo, 'apiUrl' | 'sdkUrl'>, zone: string, siteKey: string | null): string {
-  return [sdkScriptTag(info), zoneElement(info, zone, siteKey)].join('\n');
+export function installSnippet(info: Pick<InstallInfo, 'sdkUrl'>, zoneKey: string | null): string {
+  return [sdkScriptTag(info), INIT_SNIPPET_COMMENT, zoneElement(zoneKey)].join('\n');
 }
 
 /**
- * The test page for a zone: `?zone=<slug>`, and the site key, when given, in the URL fragment
- * (`#siteKey=…`), which the browser never sends to a server or in a Referer. Without a key the
- * page asks for one.
+ * The npm variant of the snippet: the install command, the import that also gives `init`, and the
+ * zone's `<taleart-view>` for the HTML. Used where the host app bundles the Web SDK itself.
  */
-export function testPageLink(info: Pick<InstallInfo, 'testPageUrl'>, zone: string, siteKey: string | null): string {
-  const url = `${info.testPageUrl}?zone=${encodeURIComponent(zone)}`;
-  return siteKey ? `${url}#${TEST_PAGE_KEY_PARAM}=${encodeURIComponent(siteKey)}` : url;
+export function npmSnippet(zoneKey: string | null): string {
+  return [
+    `npm i ${SDK_NPM_PACKAGE}`,
+    `import { init } from '${SDK_NPM_PACKAGE}';`,
+    '// Optional, once per page: init({ locale: "en" })',
+    zoneElement(zoneKey),
+  ].join('\n');
+}
+
+/**
+ * The test page for a zone: the zone key, when given, in the URL fragment (`#zoneKey=…`), which the
+ * browser never sends to a server or in a Referer. Without a key the page asks for one.
+ */
+export function testPageLink(info: Pick<InstallInfo, 'testPageUrl'>, zoneKey: string | null): string {
+  return zoneKey ? `${info.testPageUrl}#${TEST_PAGE_KEY_PARAM}=${encodeURIComponent(zoneKey)}` : info.testPageUrl;
 }
 
 /** The Delivery API's query parameter that names a zone by its slug, sent with a site key. */

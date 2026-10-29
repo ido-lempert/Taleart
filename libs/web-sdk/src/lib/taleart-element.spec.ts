@@ -1,5 +1,6 @@
-import type { DeliveryZone } from '@taleart/contract';
+import type { DeliveryTaleElement, DeliveryZone } from '@taleart/contract';
 import { COVER_MOTION_MS } from './bar';
+import { init } from './config';
 import { FIRST_CONTENT_MARK, ZONE_MARK } from './first-content';
 import { configureZone, defineTaleartElement, TALEART_ELEMENT_TAG, TaleartElement } from './taleart-element';
 import { visitorId } from './visitor';
@@ -1177,3 +1178,313 @@ describe('TaleartElement', () => {
     });
   });
 });
+
+// Strings, hooks and the events an element emits (epic SDK v2: i18n wiring, hooks).
+const POLL_ID = '00000000-0000-4000-8000-0000000000aa';
+const BUTTON_ID = '00000000-0000-4000-8000-0000000000bb';
+const doc = (elements: DeliveryTaleElement[] = []) => ({
+  version: 1,
+  canvas: { background: { type: 'color' as const, color: '#112233' } },
+  elements,
+});
+// The zone with a document in each tale: `t1` (Beach, in Summer) holds `elements`.
+function zoneWith(elements: DeliveryTaleElement[] = []): DeliveryZone {
+  return {
+    ...zone,
+    taleGroups: [
+      {
+        id: 'ga',
+        name: 'Summer',
+        tags: [],
+        tagMatch: 'any',
+        cover: null,
+        tales: [
+          { id: 't1', title: 'Beach', media: null, document: doc(elements) },
+          { id: 't1b', title: 'Sun', media: null, document: doc() },
+        ],
+      },
+      {
+        id: 'gb',
+        name: 'Winter',
+        tags: [],
+        tagMatch: 'any',
+        cover: null,
+        tales: [{ id: 't2', title: 'Snow', media: null, document: doc() }],
+      },
+    ],
+  } as unknown as DeliveryZone;
+}
+const button = (): DeliveryTaleElement => ({
+  id: BUTTON_ID,
+  type: 'button',
+  box: { x: 0.2, y: 0.7, w: 0.6, h: 0.07, rotation: 0 },
+  a11y: {},
+  props: { label: 'Shop now', variant: 'filled', color: '#111827', fill: '#ffffff', href: 'https://example.com/shop', newTab: true },
+} as unknown as DeliveryTaleElement);
+const poll = (): DeliveryTaleElement => ({
+  id: POLL_ID,
+  type: 'poll',
+  box: { x: 0.1, y: 0.4, w: 0.8, h: 0.3, rotation: 0 },
+  a11y: {},
+  props: { question: 'Tea or coffee?', theme: 'light', options: [{ id: 'o1', label: 'Tea' }, { id: 'o2', label: 'Coffee' }] },
+} as unknown as DeliveryTaleElement);
+
+describe('TaleartElement: strings, hooks and events', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeAll(() => defineTaleartElement());
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => respond(200, zoneWith()));
+    vi.stubGlobal('fetch', fetchMock);
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    init({ hooks: null, strings: null, locale: '' });
+    document.body.replaceChildren();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  // Every event the global hooks saw, as one JSON text: a key must never be in it.
+  function recordEvents(): unknown[] {
+    const events: unknown[] = [];
+    init({ hooks: { onEvent: (e) => events.push(e) } });
+    return events;
+  }
+  const names = (events: unknown[]) => events.map((e) => (e as { name: string }).name);
+  const ofName = (events: unknown[], name: string) => events.filter((e) => (e as { name: string }).name === name);
+
+  describe('i18n', () => {
+    it('shows the close label in the element locale, from the SDK strings', async () => {
+      init({ strings: { he: { 'viewer.close': 'סגור' } } });
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, locale: 'he' });
+      items(el)[0].click();
+      const close = el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close');
+      expect(close?.getAttribute('aria-label')).toBe('סגור');
+    });
+
+    it('takes the strings property of the element over the SDK strings', async () => {
+      init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור' } } });
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      el.strings = { he: { 'viewer.close': 'יציאה' } };
+      await settle();
+      items(el)[0].click();
+      expect(el.shadowRoot?.querySelector('dialog.viewer .close')?.getAttribute('aria-label')).toBe('יציאה');
+    });
+
+    it('names a seen group in the element locale too (the bar item and the viewer)', async () => {
+      init({ locale: 'he', strings: { he: { 'bar.seen': '{name}, נצפה' } } });
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close')?.click();
+      expect(items(el)[0].getAttribute('aria-label')).toBe('Summer, נצפה');
+    });
+  });
+
+  describe('loaded and loadFailed', () => {
+    it('emits loaded once with the zone key prefix and slug, never the whole key', async () => {
+      const events = recordEvents();
+      const seen: CustomEvent[] = [];
+      const listener = (e: Event) => seen.push(e as CustomEvent);
+      document.addEventListener('taleart:loaded', listener);
+      await mount({ 'api-url': API, 'zone-key': SITE });
+      document.removeEventListener('taleart:loaded', listener);
+      expect(ofName(events, 'loaded')).toEqual([{ name: 'loaded', zoneKeyPrefix: 'tak_test', zoneSlug: 'home' }]);
+      expect(seen).toHaveLength(1);
+      expect(JSON.stringify(seen[0].detail)).not.toContain('testkey');
+    });
+
+    it('emits loadFailed with the message when the key is refused, and nothing else', async () => {
+      fetchMock.mockImplementation(async () => respond(401, { error: 'invalid_site_key' }));
+      const events = recordEvents();
+      await mount({ 'api-url': API, 'zone-key': SITE });
+      const failed = ofName(events, 'loadFailed') as { error: string; zoneKeyPrefix: string }[];
+      expect(failed).toHaveLength(1);
+      expect(failed[0].error).toContain('401');
+      expect(failed[0].zoneKeyPrefix).toBe('tak_test');
+      expect(names(events)).not.toContain('loaded');
+      expect(JSON.stringify(events)).not.toContain('testkey');
+    });
+  });
+
+  describe('groupImpression', () => {
+    class FakeObserver {
+      static instances: FakeObserver[] = [];
+      observed: Element[] = [];
+      disconnected = false;
+      constructor(readonly callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {
+        FakeObserver.instances.push(this);
+      }
+      observe(target: Element) {
+        this.observed.push(target);
+      }
+      unobserve(target: Element) {
+        this.observed = this.observed.filter((t) => t !== target);
+      }
+      disconnect() {
+        this.disconnected = true;
+      }
+    }
+
+    beforeEach(() => {
+      FakeObserver.instances = [];
+      vi.stubGlobal('IntersectionObserver', FakeObserver);
+    });
+
+    it('emits once per group, when its item is half on screen', async () => {
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      const observer = FakeObserver.instances.at(-1) as FakeObserver;
+      // The zone's two groups with tales are observed (the Empty group has none, as before).
+      expect(observer.observed).toHaveLength(2);
+      const [summer, winter] = items(el);
+      observer.callback([{ isIntersecting: true, target: summer }, { isIntersecting: false, target: winter }]);
+      observer.callback([{ isIntersecting: true, target: summer }]);
+      observer.callback([{ isIntersecting: true, target: winter }]);
+      const impressions = ofName(events, 'groupImpression') as { group: { id: string; index: number; name: string } }[];
+      expect(impressions.map((e) => e.group)).toEqual([
+        { id: 'ga', name: 'Summer', index: 0 },
+        { id: 'gb', name: 'Winter', index: 1 },
+      ]);
+    });
+
+    it('emits nothing when no IntersectionObserver is there, and renders as before', async () => {
+      vi.stubGlobal('IntersectionObserver', undefined);
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      expect(items(el)).toHaveLength(2);
+      expect(names(events)).toEqual(['loaded']);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('viewer events', () => {
+    it('emits presented, taleShown and dismissed as the viewer opens, steps and closes', async () => {
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      const dialog = el.shadowRoot?.querySelector<HTMLDialogElement>('dialog.viewer');
+      expect(names(events).filter((n) => n !== 'groupImpression')).toEqual(['loaded', 'presented', 'taleShown']);
+      expect(ofName(events, 'presented')[0]).toMatchObject({ group: { id: 'ga', name: 'Summer', index: 0 } });
+      expect(ofName(events, 'taleShown')[0]).toMatchObject({
+        group: { id: 'ga', index: 0 },
+        tale: { id: 't1', index: 0, title: 'Beach' },
+      });
+      dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(ofName(events, 'taleShown').at(-1)).toMatchObject({ tale: { id: 't1b', index: 1, title: 'Sun' } });
+      dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(ofName(events, 'dismissed')).toEqual([
+        { name: 'dismissed', zoneKeyPrefix: 'tak_test', zoneSlug: 'home', group: { id: 'ga', name: 'Summer', index: 0 } },
+      ]);
+    });
+
+    it('calls the element hooks before the global ones, and a throwing hook does not stop the viewer', async () => {
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      const calls: string[] = [];
+      el.hooks = {
+        onPresented: () => {
+          calls.push('element');
+          throw new Error('host bug');
+        },
+      };
+      init({ hooks: { onPresented: () => calls.push('global') } });
+      items(el)[0].click();
+      expect(calls).toEqual(['element', 'global']);
+      expect(errorSpy).toHaveBeenCalled();
+      expect(el.shadowRoot?.querySelector('dialog.viewer')?.hasAttribute('open')).toBe(true);
+    });
+  });
+
+  describe('userInteracted', () => {
+    it('emits once the server accepts a poll answer, with the component and its value', async () => {
+      fetchMock.mockImplementation(async (url: string) =>
+        url.endsWith('/delivery/v1/responses')
+          ? respond(200, { value: 'o1', result: { total: 1, choices: [{ id: 'o1', count: 1, percent: 100 }, { id: 'o2', count: 0, percent: 0 }] } })
+          : respond(200, zoneWith([poll()])),
+      );
+      const events = recordEvents();
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-poll-opt')?.click();
+      await settle();
+      expect(ofName(events, 'userInteracted')).toEqual([
+        {
+          name: 'userInteracted',
+          zoneKeyPrefix: 'tak_test',
+          zoneSlug: 'home',
+          group: { id: 'ga', name: 'Summer', index: 0 },
+          tale: { id: 't1', index: 0, title: 'Beach' },
+          component: { id: POLL_ID, type: 'poll', value: 'o1' },
+        },
+      ]);
+      expect(JSON.stringify(events)).not.toContain('testkey');
+    });
+  });
+
+  describe('actionClicked', () => {
+    async function openButton(): Promise<HTMLAnchorElement> {
+      fetchMock.mockImplementation(async () => respond(200, zoneWith([button()])));
+      const el = await mount({ 'api-url': API, 'zone-key': SITE });
+      items(el)[0].click();
+      const link = el.shadowRoot?.querySelector<HTMLAnchorElement>('dialog.viewer a.ta-button');
+      if (!link) throw new Error('the button link is not rendered');
+      return link;
+    }
+
+    it('emits before the link navigates, with its url and new-tab flag', async () => {
+      const link = await openButton();
+      const order: string[] = [];
+      const events: unknown[] = [];
+      link.addEventListener('click', () => order.push('navigation'));
+      init({ hooks: { onActionClicked: () => order.push('hook'), onEvent: (e) => events.push(e) } });
+      link.click();
+      expect(order).toEqual(['hook', 'navigation']);
+      expect(ofName(events, 'actionClicked')).toMatchObject([
+        {
+          name: 'actionClicked',
+          group: { id: 'ga', index: 0 },
+          tale: { id: 't1', index: 0 },
+          component: { id: BUTTON_ID, type: 'button' },
+          url: 'https://example.com/shop',
+          newTab: true,
+        },
+      ]);
+    });
+
+    it('does not navigate when the host calls preventDefault on the event', async () => {
+      const link = await openButton();
+      const seen: boolean[] = [];
+      link.addEventListener('click', (e) => seen.push(e.defaultPrevented));
+      init({ hooks: { onActionClicked: (e) => e.preventDefault() } });
+      const notCanceled = link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(notCanceled).toBe(false);
+      expect(seen).toEqual([true]);
+    });
+
+    it('does not navigate when a DOM listener on the element prevents taleart:action-clicked', async () => {
+      const link = await openButton();
+      const el = document.querySelector(TALEART_ELEMENT_TAG) as TaleartElement;
+      el.addEventListener('taleart:action-clicked', (e) => e.preventDefault());
+      const notCanceled = link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(notCanceled).toBe(false);
+    });
+  });
+
+  it('keeps the zone key out of every event of a whole session', async () => {
+    const events = recordEvents();
+    const el = await mount({ 'api-url': API, 'zone-key': SITE });
+    items(el)[0].click();
+    el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close')?.click();
+    expect(names(events)).toEqual(expect.arrayContaining(['loaded', 'presented', 'taleShown', 'dismissed']));
+    expect(JSON.stringify(events)).not.toContain('testkey');
+    expect(JSON.stringify(events)).not.toContain(SITE);
+  });
+});
+

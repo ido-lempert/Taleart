@@ -27,15 +27,15 @@ import { DOCS_SNIPPET } from '../docs-content';
       </li>
       <li><strong>Turn the group On.</strong> Its Shown tales are now visible in the zone.</li>
       <li>
-        <strong>Install tab.</strong> Issue the project's site key (admins), then copy the snippet or choose
+        <strong>Install tab.</strong> Issue the zone's key (admins), then copy the snippet or choose
         <em>Open test page</em>. The zone page says <em>Visible on site</em> once everything is in place.
       </li>
     </ol>
 
-    <p>The snippet looks like this, with your API URL and your zone's slug filled in:</p>
+    <p>The snippet looks like this, with your API URL filled in:</p>
     <pre tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
     <p>
-      Put it in any page of your site, with your site key in place of <code>YOUR_SITE_KEY</code>.
+      Put it in any page of your site, with the zone's key in place of <code>YOUR_ZONE_KEY</code>.
       <a routerLink="/install">Install a zone</a> explains each part.
     </p>
 

@@ -3,7 +3,7 @@ import { RouterLink } from '@angular/router';
 import { DOCS_SNIPPET, FOLD_EXAMPLES } from '../docs-content';
 
 // docs-check:removed (the markup of builds before the zone rework, shown only as what to replace)
-const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="tak_…" stage="top"></taleart-view>';
+const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="tak_…" stage="top"></taleart-view>\n<taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-top"></taleart-view>';
 // /docs-check:removed
 
 @Component({
@@ -13,7 +13,7 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
   template: `
     <h1 tabindex="-1">Stages and zone keys</h1>
     <p class="lede">
-      Earlier builds placed content with stages, frames, presets and one key per zone. The zone rework replaced them.
+      Earlier builds placed content with stages, frames, presets and one key per zone. The zone rework replaced the stages and frames and, for a time, the zone keys; zone keys are back.
       This page says what the upgrade did to your content and how to move a page that still uses the old markup.
     </p>
 
@@ -21,7 +21,7 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
     <ul>
       <li>A <strong>zone</strong> is one spot with at most one <strong>display</strong> (a bar or a banner).</li>
       <li>A <strong>template</strong> sets a new zone's display once, when you create it.</li>
-      <li>A page places a zone with the project's <strong>site key</strong> and the zone's <strong>slug</strong>.</li>
+      <li>A page shows a zone with the zone's own <strong>zone key</strong>, issued on the zone's Install tab.</li>
     </ul>
 
     <!-- docs-check:removed -->
@@ -89,22 +89,25 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
       zone. A zone made from one keeps only a "created from template" note.
     </p>
 
-    <h2 id="zone-keys">Zone keys and the stage attribute were removed</h2>
+    <h2 id="zone-keys">Zone keys are back; the stage attribute stays removed</h2>
     <p>
-      Zone keys (<code>tak_…</code>) were removed in the zone rework (owner decision, 2026-10-22), with the
-      <code>zone-key</code> attribute, the <code>zoneKey</code> property, the <code>stage</code> attribute and
-      <code>configureZone</code> with a zone key. An element placed that way renders nothing. The
-      <code>zone-key</code> attribute logs one console warning per element; the others are ignored without a word.
+      The zone rework briefly removed zone keys (owner decision, 2026-10-22). They return, as one key per zone: a
+      <code>tak_…</code> key names its zone, so an element needs only <code>zone-key</code>. The
+      <code>stage</code> attribute stays removed, and so do the <code>site-key</code> and <code>zone</code> attributes of
+      the interim builds. A page that still uses a site key with <code>zone=</code> must move to a zone key from the
+      zone's Install tab. An element placed the old way renders nothing, and the <code>site-key</code> attribute logs
+      one console warning per element.
     </p>
+    <!-- docs-check:removed -->
     <p>Replace markup like this:</p>
     <pre tabindex="0" role="region" aria-label="Old markup"><code>{{ oldMarkup }}</code></pre>
     <!-- /docs-check:removed -->
     <p>with the snippet from the zone's Install tab:</p>
     <pre tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
     <ol class="steps">
-      <li>Open the zone that came from the stage (or zone) the page used, and note its slug.</li>
-      <li>On its Install tab, issue the project's site key if the project has none, and copy the snippet.</li>
-      <li>Replace the old element, and pass the slug to <code>configureZone</code> if the page set a theme.</li>
+      <li>Open the zone that came from the stage (or zone) the page used.</li>
+      <li>On its Install tab, an admin issues the zone's key, and you copy the snippet.</li>
+      <li>Replace the old element with the new one. If the page set a theme, pass the zone's slug to <code>configureZone</code>.</li>
     </ol>
     <p>See <a routerLink="/install">Install a zone</a> for the details.</p>
   `,

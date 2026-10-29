@@ -250,10 +250,16 @@ describe('taleart against a test API', () => {
 
     const listed = ok(cli(['zones', 'get', 'home-top', '--json'], inProject())).json();
     expect(listed.visibility.visible).toBe(true);
-    const snippet = ok(cli(['zones', 'snippet', 'home-top', '--site-key', issued.key, '--json'], inProject())).json();
-    expect(snippet.snippet).toContain('zone="home-top"');
-    expect(snippet.snippet).toContain(issued.key);
-    expect(snippet.testPageUrl).toBe(`${apiUrl}/sdk/v1/test-page?zone=home-top#siteKey=${encodeURIComponent(issued.key)}`);
+    const zoneKey = ok(cli(['zone-keys', 'issue', 'home-top', '--json'], inProject())).json();
+    expect(zoneKey.key).toMatch(/^tak_/);
+    const snippet = ok(cli(['zones', 'snippet', 'home-top', '--zone-key', zoneKey.key, '--json'], inProject())).json();
+    expect(snippet.snippet).toContain(`zone-key="${zoneKey.key}"`);
+    expect(snippet.snippet).not.toContain('site-key');
+    expect(snippet.testPageUrl).toBe(`${apiUrl}/sdk/v1/test-page#zoneKey=${encodeURIComponent(zoneKey.key)}`);
+    const again = cli(['zone-keys', 'issue', 'home-top', '--json'], inProject());
+    expect(again.error().code).toBe('zone_key_exists');
+    ok(cli(['zone-keys', 'revoke', 'home-top', '--yes', '--json'], inProject()));
+    expect(ok(cli(['zone-keys', 'info', 'home-top', '--json'], inProject())).json()).toBeNull();
     const page = await fetch(snippet.testPageUrl.split('#')[0]);
     expect(page.status).toBe(200);
   });

@@ -17,19 +17,15 @@
     <main>
       <h1>TaleArt test page</h1>
       <p class="lead">
-        This page shows one zone with the Web SDK, as your site will. Nothing here is saved: the site key stays in
+        This page shows one zone with the Web SDK, as your site will. Nothing here is saved: the zone key stays in
         this tab and is sent only to the TaleArt Delivery API.
       </p>
-      <p id="zone-line" class="zone-line" hidden>Zone <code id="zone-slug"></code></p>
-      <p id="no-zone" class="notice" hidden>
-        This page needs a zone. Open it with "Open test page" on a zone's Install tab in the TaleArt dashboard.
-      </p>
-      <form id="key-form" class="key-form" autocomplete="off" hidden>
-        <label for="site-key">Site key</label>
+      <form id="key-form" class="key-form" autocomplete="off">
+        <label for="zone-key">Zone key</label>
         <div class="key-row">
           <input
-            id="site-key"
-            name="siteKey"
+            id="zone-key"
+            name="zoneKey"
             type="text"
             autocomplete="off"
             autocapitalize="off"
@@ -38,7 +34,7 @@
           />
           <button type="submit">Show zone</button>
         </div>
-        <p id="key-hint" class="hint">Paste your project's site key (it starts with tas_).</p>
+        <p id="key-hint" class="hint">Paste the zone's key (it starts with tak_). Open this page from the zone's Install tab to fill it in.</p>
       </form>
       <p id="status" class="status" role="status"></p>
       <section class="zone" aria-labelledby="zone-heading">

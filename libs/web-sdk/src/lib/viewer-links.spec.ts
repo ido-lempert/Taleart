@@ -192,3 +192,59 @@ describe('TaleViewer: the swipe-up link (R7)', () => {
     expect(document.activeElement).toBe(dialog());
   });
 });
+
+describe('TaleViewer: the actions of a tale (hooks)', () => {
+  let allow: boolean;
+  let actions: { id: string; groupId: string; tale: number; type: string; url: string; newTab: boolean }[];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    allow = true;
+    actions = [];
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const groups: DeliveryTaleGroup[] = [
+      { id: 'g', name: 'G', cover: null, tales: [{ id: 't1', title: 'One', media: null, document: doc([swipeUp()]) }] },
+    ];
+    viewer = new TaleViewer(host, groups, {
+      onAction: (groupId, tale, action) => {
+        actions.push({ groupId, tale, ...action });
+        return allow;
+      },
+    });
+    viewer.open('g');
+  });
+
+  afterEach(() => {
+    viewer.close();
+    document.body.replaceChildren();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('calls onAction for a swipe-up flick, and a host that prevents it keeps the link from being followed', () => {
+    const link = q('a.ta-swipe');
+    const prevented: boolean[] = [];
+    // Listeners added after the viewer's own see the state the host left: prevented or not.
+    link.addEventListener('click', (e) => prevented.push(e.defaultPrevented));
+    allow = false;
+    pointer('pointerdown', 200, 500);
+    pointer('pointerup', 205, 500 - SWIPE_MIN_PX - 10);
+    expect(actions).toEqual([
+      expect.objectContaining({ groupId: 'g', tale: 0, type: 'swipe-up', url: 'https://example.com/more', newTab: false }),
+    ]);
+    expect(prevented).toEqual([true]);
+    expect(position()).toBe('1');
+  });
+
+  it('lets the link be followed when the host does not prevent it', () => {
+    const link = q('a.ta-swipe');
+    const prevented: boolean[] = [];
+    link.addEventListener('click', (e) => prevented.push(e.defaultPrevented));
+    pointer('pointerdown', 200, 500);
+    pointer('pointerup', 205, 500 - SWIPE_MIN_PX - 10);
+    expect(actions).toHaveLength(1);
+    expect(prevented).toEqual([false]);
+  });
+});

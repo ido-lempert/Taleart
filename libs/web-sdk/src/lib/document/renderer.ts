@@ -184,6 +184,8 @@ export interface DocumentRenderOptions {
   inertLinks?: boolean;
   /** Where interactive components send responses (R9); left out, they record nothing (the preview). */
   responses?: RenderContext['responses'];
+  /** Told when the visitor activates a link of the tale, before it navigates; returning false stops it (see `RenderContext`). */
+  onAction?: RenderContext['onAction'];
   /** The strings the document's elements show or announce, in the page's locale (see `i18n.ts`); English when left out. */
   t?: Translate;
 }
@@ -228,6 +230,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   const context: RenderContext = { reducedMotion: options.reducedMotion === true, t: options.t ?? defaultTranslate };
   if (options.inertLinks) context.inertLinks = true;
   if (options.responses) context.responses = options.responses;
+  if (options.onAction) context.onAction = options.onAction;
   const media = backgroundMedia(doc, context.reducedMotion);
   // A media background paints its band colour with it, over the tale's media too.
   if ((options.background || media) && color) canvas.style.backgroundColor = color;

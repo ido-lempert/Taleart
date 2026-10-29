@@ -12,6 +12,22 @@ export {
 } from './lib/taleart-element';
 export type { ZoneOptions } from './lib/taleart-element';
 export type { ConfigKey, ResolvedTaleartConfig, TaleartConfig } from './lib/config';
+export type {
+  ActionClickedEvent,
+  ComponentRef,
+  DismissedEvent,
+  GroupImpressionEvent,
+  GroupRef,
+  LoadedEvent,
+  LoadFailedEvent,
+  PresentedEvent,
+  TaleartEvent,
+  TaleartEventName,
+  TaleartHooks,
+  TaleRef,
+  TaleShownEvent,
+  UserInteractedEvent,
+} from './lib/hooks';
 
 // Loading the SDK registers `<taleart-view>`, so a host page needs only the script tag.
 if (typeof customElements !== 'undefined') defineTaleartElement();

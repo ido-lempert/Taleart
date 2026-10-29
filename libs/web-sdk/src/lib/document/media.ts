@@ -3,6 +3,14 @@ import type { Translate } from '../i18n';
 import type { ResponseClient } from '../responses';
 
 /** What a renderer knows about where it renders. */
+/** A link of a tale that the visitor activated: its element id and type, its destination and whether it opens a new tab. */
+export interface LinkAction {
+  id: string;
+  type: 'button' | 'image-button' | 'swipe-up';
+  url: string;
+  newTab: boolean;
+}
+
 export interface RenderContext {
   /** The visitor prefers reduced motion: nothing moves by itself (R12). */
   reducedMotion: boolean;
@@ -16,6 +24,11 @@ export interface RenderContext {
   responses?: { client: ResponseClient; taleId: string };
   /** The strings the element shows or announces, in the page's locale (see `i18n.ts`); English when left out. */
   t?: Translate;
+  /**
+   * Told when the visitor activates a link of the tale (a button, an image button or the swipe-up link), before
+   * it navigates. Returning false stops the navigation. Left out, links navigate as always.
+   */
+  onAction?: (action: LinkAction) => boolean;
 }
 
 /** Images that may move: a GIF, an animated WebP, an APNG or an animated AVIF. Under reduced motion they are drawn once. */

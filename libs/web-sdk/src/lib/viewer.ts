@@ -13,6 +13,7 @@ import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOptions } from './document/renderer';
 import type { ResponseClient } from './responses';
+import type { LinkAction } from './document/media';
 
 /** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
 export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
@@ -324,8 +325,17 @@ export function setIcon(button: HTMLElement, path: string): void {
 export interface TaleViewerOptions {
   /** Called whenever a tale of a group shows (the group is viewed). */
   onGroupShown?: (groupId: string) => void;
+  /** Called once the viewer opened, with the group it opens on. */
+  onPresented?: (groupId: string) => void;
   /** Called once the viewer closed, with the group it showed last. */
   onClose?: (groupId: string) => void;
+  /** Called when a tale of a group shows, with its index in the group (from 0). */
+  onTaleShown?: (groupId: string, tale: number) => void;
+  /**
+   * Called when the visitor activates a link of a tale (before it navigates) with the group and the tale's index.
+   * Returning false stops the navigation; left out, links navigate as always.
+   */
+  onAction?: (groupId: string, tale: number, action: LinkAction) => boolean;
   /** Sends the visitor's responses to interactive components (epic interactive components R9); none records nothing. */
   responses?: ResponseClient;
   /** The viewer's strings, in the page's locale (see `i18n.ts`); English when left out. */
@@ -440,6 +450,7 @@ export class TaleViewer {
     addEventListener('blur', this.onBlur);
     addEventListener('resize', this.onResize);
     this.entering = true;
+    this.options.onPresented?.(this.groups[index].id);
     this.show(index, 0, true);
     return true;
   }
@@ -806,6 +817,7 @@ export class TaleViewer {
     this.entering = false;
     this.layoutDeck(motion, fromGroup, fromTale);
     this.options.onGroupShown?.(g.id);
+    this.options.onTaleShown?.(g.id, tale);
     if (this.reduced) {
       // Reduced motion: every tale starts paused; only a video can be played, from the button.
       this.paused = true;
@@ -855,6 +867,9 @@ export class TaleViewer {
         reducedMotion: this.reduced,
         ...(this.options.responses && { responses: { client: this.options.responses, taleId: current.id } }),
         t: this.t,
+        ...(this.options.onAction && {
+          onAction: (action: LinkAction) => this.options.onAction?.(this.groups[this.group].id, tale, action) ?? true,
+        }),
         ...this.renderOptions,
       });
       this.parts.top.before(this.layer);

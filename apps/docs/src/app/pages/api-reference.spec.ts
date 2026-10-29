@@ -82,12 +82,12 @@ describe('the API reference spec (epic developer experience 10.2)', () => {
     expect(relative).toBeNull();
   });
 
-  it('offers the token and site key schemes, never the cookie session', () => {
-    expect(Object.keys(shown.components?.securitySchemes ?? {}).sort()).toEqual(['siteKey', 'token']);
+  it('offers the token, site key and zone key schemes, never the cookie session', () => {
+    expect(Object.keys(shown.components?.securitySchemes ?? {}).sort()).toEqual(['siteKey', 'token', 'zoneKey']);
     expect(shown.security).toEqual([{ token: [] }]);
     expect(JSON.stringify(shown)).not.toContain('"session":[]');
     const zone = shown.paths['/zone']['get'] as { security: unknown };
-    expect(zone.security).toEqual([{ siteKey: [] }]);
+    expect(zone.security).toEqual([{ siteKey: [] }, { zoneKey: [] }]);
   });
 
   it('marks the operations only a passkey session may call', () => {
@@ -246,7 +246,7 @@ describe('the API reference page', () => {
     expect(localStorage.getItem(API_URL_STORAGE_KEY)).toBe('https://api.example.com');
     expect(JSON.parse(updated[0]).servers).toEqual([{ url: 'https://api.example.com/api/v1' }]);
     expect(page.querySelector('[role="status"]')?.textContent).toContain('https://api.example.com');
-    expect(loggedOut).toEqual([['token', 'siteKey']]);
+    expect(loggedOut).toEqual([['token', 'siteKey', 'zoneKey']]);
     expect(page.querySelector('[role="status"]')?.textContent).toContain(
       'Credentials cleared; authorize again for https://api.example.com',
     );

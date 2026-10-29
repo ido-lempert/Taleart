@@ -13,7 +13,7 @@ exit code ([troubleshooting.md](troubleshooting.md)). Do not run the remaining s
 ```bash
 taleart zones create --name "Home top" --slug home-top --project "Shop" --json
 taleart zones display home-top --type bar --project "Shop" --json
-taleart site-keys get --project "Shop" --json
+taleart zone-keys info home-top --project "Shop" --json
 taleart zones snippet home-top --project "Shop" --json
 ```
 
@@ -21,19 +21,19 @@ taleart zones snippet home-top --project "Shop" --json
   `taleart zones display-types --json` lists the display types and their settings. Settings:
   `taleart zones display home-top --set size=large --set gap=8 --project "Shop" --json`.
 - A banner: `taleart zones display home-top --type banner --project "Shop" --json`.
-- `site-keys get` answers `null` when the project has no site key yet. Then, with the user's agreement
-  (a project needs one to show anything), issue it:
+- `zone-keys info` answers `null` when the zone has no key yet. Then, with the user's agreement
+  (a zone needs one to show anything), issue it:
 
   ```bash
-  taleart site-keys issue --project "Shop" --json
+  taleart zone-keys issue home-top --project "Shop" --json
   ```
 
-  The answer's `key` is shown **once**: give it to the user to keep, do not write it to a file. When
-  the project already has a key, `issue` answers exit 6 (`site_key_exists`) and changes nothing: the
-  user has the key; never rotate to get it back.
+  The answer's `key` (`tak_...`) is shown **once**: give it to the user to keep, do not write it to a file.
+  When the zone already has a key, `issue` answers exit 6 (`zone_key_exists`) and changes nothing: the
+  user has the key; never rotate to get it back. `zone-keys rotate` and `zone-keys revoke` affect only this zone.
 - `zones snippet` answers `snippet` (the HTML for the page) and `testPageUrl`. Without
-  `--site-key` the snippet says `YOUR_SITE_KEY`: the user puts their key there. Right after issuing,
-  `taleart zones snippet home-top --site-key "<the key>" --project "Shop" --json` fills it in.
+  `--zone-key` the snippet says `YOUR_ZONE_KEY`: the user puts their key there. Right after issuing,
+  `taleart zones snippet home-top --zone-key "<the key>" --project "Shop" --json` fills it in.
 
 ## 2. A tale group with image tales from local files, turned On
 
@@ -53,7 +53,7 @@ taleart groups get Summer --project "Shop" --json
 - Without `--zone`, the group belongs to the project and is placed nowhere: place it with
   `taleart groups place Summer --zone home-top --project "Shop" --json`.
 - `groups on` warns (stderr `warnings`) when the group has no tales or no zone: pass that on.
-- When the project already has a site key, `groups on` puts the group live on the site at once. The
+- When the zone already has a zone key, `groups on` puts the group live on the site at once. The
   user asked for it here; when a task did not say "turn it On", ask first.
 - Check `visibility` in the `groups get` answer; see recipe 5 when it is false.
 - Hide one tale without deleting it: `taleart tales hide <tale id> --json` (`tales show` to undo).
@@ -106,15 +106,14 @@ taleart zones get home-top --project "Shop" --json
 taleart groups list --zone home-top --project "Shop" --json
 taleart groups get Summer --project "Shop" --json
 taleart tales list --group Summer --project "Shop" --json
-taleart site-keys get --project "Shop" --json
+taleart zone-keys info home-top --project "Shop" --json
 ```
 
 - Read `visibility.reasons[].code` on the zone, the group and each tale, most useful first. Map each
   code to its fix with the table in [troubleshooting.md](troubleshooting.md#visibility-reasons), tell
   the user what is wrong and which command would fix it, and run the fix only if they ask.
-- Everything visible but nothing on the page: check the page's snippet uses this zone's slug and the
-  project's current site key (`site-keys get` answers its `prefix`), and the viewer passes the
-  group's tags and user lists.
+- Everything visible but nothing on the page: check the page's snippet has this zone's current key
+  (`zone-keys info` answers its `prefix`), and the viewer passes the group's tags and user lists.
 - This recipe only reads: a read-only token is enough.
 
 ## 6. Copy a group to another zone
@@ -135,32 +134,31 @@ taleart groups copy Summer --zone footer --project "Shop" --json
 - To show the **same** group in a second zone instead of a copy:
   `taleart groups place Summer --zone footer --project "Shop" --json`.
 
-## 7. Rotate a site key safely
+## 7. Rotate a zone key safely
 
-Rotating replaces the project's site key: the old one stops working **at once** on every page and in
-every zone of the project, until each page has the new key. It is destructive.
+Rotating replaces one zone's key: its old key stops working **at once** on every page that shows the
+zone, until the page has the new key. It is destructive.
 
 ```bash
-taleart site-keys get --project "Shop" --json
-taleart zones list --project "Shop" --json
+taleart zone-keys info home-top --project "Shop" --json
 ```
 
-1. Tell the user: the project, the current key's prefix, the zones that will stop showing until their
-   pages are updated, and that the new key is shown once.
+1. Tell the user: the zone, the current key's prefix, the pages that will stop showing it until they
+   are updated, and that the new key is shown once.
 2. Wait for a clear yes. If they want to plan first (for example deploy the pages right after), stop
    here.
 3. Only then:
 
    ```bash
-   taleart site-keys rotate --project "Shop" --yes --json
+   taleart zone-keys rotate home-top --project "Shop" --yes --json
    ```
 
 4. Give the user the new `key` once, and the snippet with it:
-   `taleart zones snippet home-top --site-key "<the new key>" --project "Shop" --json`. Do not write the
+   `taleart zones snippet home-top --zone-key "<the new key>" --project "Shop" --json`. Do not write the
    key to a file.
 
-`taleart site-keys revoke --project "Shop" --yes --json` turns every zone of the project off with no new
-key: the same confirmation, stronger wording.
+`taleart zone-keys revoke home-top --project "Shop" --yes --json` turns that zone off with no new key: the
+same confirmation, stronger wording. A project's site key (`site-keys`) is for server-side callers only.
 
 ## Other changes
 

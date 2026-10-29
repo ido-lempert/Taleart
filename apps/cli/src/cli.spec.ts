@@ -110,7 +110,7 @@ describe('help, version and usage errors', () => {
 
   it('documents --yes on exactly the destructive commands', () => {
     const destructive = allCommands.filter((c) => c.spec.destructive).map((c) => c.path.join(' '));
-    expect(destructive.sort()).toEqual(['site-keys revoke', 'site-keys rotate', 'tales delete', 'user-lists delete', 'zones update']);
+    expect(destructive.sort()).toEqual(['site-keys revoke', 'site-keys rotate', 'tales delete', 'user-lists delete', 'zone-keys revoke', 'zone-keys rotate', 'zones update']);
   });
 
   it('has group help, topics and the whole command list as JSON', async () => {

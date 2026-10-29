@@ -242,7 +242,7 @@ async function signIn(databaseUrl, seeded) {
 const GROUPS = ['New in', 'Summer sale', 'Behind the scenes', 'Top picks', 'Outdoor', 'Kids', 'Beauty', 'Gifts'];
 
 // Deletes what the run added: the seeded project with its zones, displays, theme, groups,
-// tales, placements and site key, then the admin with their session. Media files go with the temp dir.
+// tales, placements and zone keys, then the admin with their session. Media files go with the temp dir.
 async function removeSeeded(databaseUrl, { userId, projectId }) {
   if (!userId && !projectId) return;
   const client = new pg.Client({ connectionString: databaseUrl });
@@ -256,6 +256,7 @@ async function removeSeeded(databaseUrl, { userId, projectId }) {
         'tale_media',
         'project_media',
         'site_keys',
+        'zone_keys',
         'zone_tale_groups',
         'tale_group_tag_matches',
         'tale_group_tags',
@@ -326,9 +327,10 @@ async function seed(apiUrl, cookie, media, seeded) {
   // A new tale is already shown (AD-6 amended), so the saved draft shows once it is published.
   await call('POST', `/tales/${tale.id}/document/publish`, { revision: saved.revision, publishedRevision: saved.published.revision });
   await call('PUT', `/tale-groups/${group.id}/status`, { status: 'live' });
-  // One site key for the project places both zones by their slugs (epic UX rework R3).
-  const siteKey = (await call('POST', `/projects/${project.id}/site-key`)).key;
-  return { siteKey, slug: zone.slug, fontSlug: fontZone.slug };
+  // Each zone has its own key (`tak_…`), which names the zone; it is shown once, on issue.
+  const zoneKey = (await call('POST', `/zones/${zone.id}/key`)).key;
+  const fontZoneKey = (await call('POST', `/zones/${fontZone.id}/key`)).key;
+  return { zoneKey, fontZoneKey };
 }
 
 // The composed tale (story 7.14): TALE_ELEMENTS elements, of which 14 texts (every other one in the
@@ -592,11 +594,11 @@ async function main() {
     console.log(
       `Seeded media: tale images ${media.tales.map(sizeOf).join(', ')}; still covers ~${sizeOf(media.covers[1])}; animated cover ${sizeOf(media.animated)}`,
     );
-    const { siteKey, slug, fontSlug } = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
-    const sample = (zone) =>
-      `http://127.0.0.1:${samplePort}/?zones=${encodeURIComponent(zone)}&api=${encodeURIComponent(apiUrl)}#siteKey=${encodeURIComponent(siteKey)}`;
-    const url = sample(slug);
-    const fontUrl = sample(fontSlug);
+    const { zoneKey, fontZoneKey } = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
+    const sample = (key) =>
+      `http://127.0.0.1:${samplePort}/?api=${encodeURIComponent(apiUrl)}#zoneKeys=${encodeURIComponent(key)}`;
+    const url = sample(zoneKey);
+    const fontUrl = sample(fontZoneKey);
     console.log(
       `Profile: Fast 4G (${FAST_4G.latency} ms latency, 9 Mbps x 0.9 down), CPU ${CPU_SLOWDOWN}x slower, ${DEVICE.viewport.width} x ${DEVICE.viewport.height}`,
     );
@@ -657,7 +659,7 @@ async function main() {
 
     // The SDK as the API serves it (epic UX rework R13), on the API's test page.
     const served = [];
-    const servedUrl = `${apiUrl}/sdk/v1/test-page?zone=${encodeURIComponent(slug)}#siteKey=${encodeURIComponent(siteKey)}`;
+    const servedUrl = `${apiUrl}/sdk/v1/test-page#zoneKey=${encodeURIComponent(zoneKey)}`;
     let servedSdk = null;
     for (let run = 1; run <= RUNS; run++) {
       const result = await measureServed(browser, servedUrl);

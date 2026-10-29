@@ -48,17 +48,16 @@
     <h1>TaleArt Web SDK sample</h1>
     <p>
       A host page for trying the SDK. Open it as
-      <code>?zones=&lt;slug&gt;,&lt;slug&gt;&amp;api=&lt;API URL&gt;#siteKey=&lt;site key&gt;</code> to place one
-      element per zone slug with the project's site key, each under its own heading; the API URL defaults to
+      <code>?api=&lt;API URL&gt;#zoneKeys=&lt;key&gt;,&lt;key&gt;</code> to place one element per zone key
+      (<code>tak_&hellip;</code>, from the zone's Install tab), each under its own heading; the API URL defaults to
       <code>http://localhost:3333</code>. Each element shows its zone's display, a bar or a banner. Keys go in the
-      fragment (after <code>#</code>), which the browser never sends to a server or in a Referer header; the query
-      still works.
+      fragment (after <code>#</code>), which the browser never sends to a server or in a Referer header.
     </p>
     <p>
       Add <code>&amp;theme=&lt;JSON&gt;</code> to override the project's theme in the SDK configuration, for example
       <code>&amp;theme={"ringStyle":"solid","ringColors":["#0000ff"]}</code>. The page passes it to
-      <code>configureZone(zone, { theme })</code> for every zone, or only for the slug named by
-      <code>&amp;themeZone=&lt;slug&gt;</code>; a field set there wins over the project's theme, and an invalid one is
+      <code>Taleart.init({ theme })</code> for every zone, or only for the zone slug named by
+      <code>&amp;themeZone=&lt;slug&gt;</code> with <code>configureZone(slug, { theme })</code>; a field set there wins over the project's theme, and an invalid one is
       ignored with a console warning. One element can also take its own <code>theme</code> property or JSON attribute,
       which wins over the zone's. See the web-sdk README for every field.
     </p>
@@ -96,7 +95,7 @@
 
     <!-- The built SDK, served from dist/libs/web-sdk. Loading it registers <taleart-view>. -->
     <script type="module">
-      import { configureZone, setExternalUserId, setTags } from '/sdk/index.js';
+      import { configureZone, init, setExternalUserId, setTags } from '/sdk/index.js';
 
       const params = new URLSearchParams(location.search);
       // Keys are read from the fragment first (never sent to a server or in a Referer), then from the query.
@@ -104,24 +103,16 @@
       const secret = (name) => fragment.get(name) || params.get(name);
       const apiUrl = params.get('api') || 'http://localhost:3333';
       const list = (value) => (value || '').split(',').map((k) => k.trim()).filter(Boolean);
-      // `siteKey` with `zones=a,b` places one element per slug (epic UX rework R3).
-      const siteKey = secret('siteKey') || '';
-      const placements = siteKey ? list(params.get('zones') || params.get('zone')) : [];
-      // The zone key form of earlier builds (`key`, `keys`) places nothing now: say so in one line.
-      if (!siteKey && (secret('key') || secret('keys'))) {
-        const notice = document.createElement('p');
-        notice.id = 'old-key-notice';
-        notice.textContent =
-          'Zone keys are no longer supported: open this page with ?zones=<slug>#siteKey=<site key>.';
-        document.getElementById('views').before(notice);
-      }
+      // `#zoneKeys=a,b` places one element per zone key; a key names its zone (sdk-v2).
+      const zoneKeys = list(secret('zoneKeys'));
       // The zones' SDK theme override (R9), before the elements load so they render with it.
       const theme = params.get('theme');
       if (theme) {
         try {
           const parsed = JSON.parse(theme);
           const only = params.get('themeZone');
-          for (const zone of placements) if (!only || only === zone) configureZone(zone, { theme: parsed });
+          if (only) configureZone(only, { theme: parsed });
+          else init({ theme: parsed });
         } catch {
           console.warn('Sample page: the theme parameter is not valid JSON; it is ignored');
         }
@@ -171,16 +162,15 @@
         idInput.value = '';
         applyId(null);
       });
-      // One element per slug, each under its own heading; without any, the page keeps its empty element.
-      if (placements.length > 0) {
-        const sections = placements.map((zone) => {
+      // One element per zone key, each under its own heading; without any, the page keeps its empty element.
+      if (zoneKeys.length > 0) {
+        const sections = zoneKeys.map((zoneKey, index) => {
           const section = document.createElement('section');
           const heading = document.createElement('h2');
-          heading.textContent = `Zone ${zone}`;
+          heading.textContent = `Zone ${index + 1}`;
           const view = document.createElement('taleart-view');
           view.apiUrl = apiUrl;
-          view.siteKey = siteKey;
-          view.zone = zone;
+          view.zoneKey = zoneKey;
           section.append(heading, view);
           return section;
         });

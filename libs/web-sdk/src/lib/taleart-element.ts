@@ -12,6 +12,7 @@ import {
 } from './bar';
 import { getConfig, init, mergeStrings, onConfigChange, readStrings, type ConfigKey } from './config';
 import { fetchZone } from './delivery-client';
+import { emit, type GroupRef, type TaleRef, type TaleartHooks } from './hooks';
 import { responseClient } from './responses';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import { createTranslate, type StringsConfig, type Translate } from './i18n';
@@ -30,6 +31,8 @@ const ZONE_ATTR = 'zone';
 // The attribute of the removed site key: it is no longer read, and one warning says so.
 const SITE_KEY_ATTR = 'site-key';
 const THEME_ATTR = 'theme';
+// The part of the zone key that hook events may name: its first 8 characters, never the whole key.
+const KEY_PREFIX_LENGTH = 8;
 // A zone key or a site key passed where a slug goes: a warning names it by its start only.
 const KEY_PREFIX = /^ta[ks]_/;
 
@@ -115,6 +118,27 @@ function groupKey(zone: DeliveryZone): string {
   return zone.taleGroups.map((group) => group.id).join('\n');
 }
 
+// The hook payload of a group of the zone: its id, name and position in the zone (from 0).
+function groupRef(zone: DeliveryZone, groupId: string): GroupRef {
+  const index = zone.taleGroups.findIndex((group) => group.id === groupId);
+  return { id: groupId, name: zone.taleGroups[index]?.name ?? '', index };
+}
+
+// The hook payload of a tale of a group: its id, position in the group (from 0) and title.
+function taleRef(zone: DeliveryZone, groupId: string, taleIndex: number): TaleRef {
+  const tale = zone.taleGroups.find((group) => group.id === groupId)?.tales[taleIndex];
+  return { id: tale?.id ?? '', index: taleIndex, title: tale?.title ?? '' };
+}
+
+// The group and the position in it of the tale with `taleId`, or null when the zone has none.
+function locateTale(zone: DeliveryZone, taleId: string): { groupId: string; taleIndex: number } | null {
+  for (const group of zone.taleGroups) {
+    const taleIndex = group.tales.findIndex((tale) => tale.id === taleId);
+    if (taleIndex >= 0) return { groupId: group.id, taleIndex };
+  }
+  return null;
+}
+
 // Applies a configuration change to the connected elements: a theme only restyles, new tags only
 // retarget, anything else reads the zone again.
 onConfigChange((changed: ReadonlySet<ConfigKey>) => {
@@ -197,6 +221,14 @@ export class TaleartElement extends HTMLElement {
   private renderedKey: string | null = null;
   // True while new viewer tags wait for the open viewer to close: its group still matches them.
   private retargetOnClose = false;
+  // This element's hooks (`hooks` property), checked and copied; null for none.
+  private ownHooks: TaleartHooks | null = null;
+  // The first 8 characters of the zone key of the last load: what hook events name of it.
+  private hookKeyPrefix = '';
+  // Groups whose impression fired since this element's last load: each fires once per load.
+  private readonly impressed = new Set<string>();
+  // Watches the rendered groups' items for groupImpression; null without IntersectionObserver or a render.
+  private impressionObserver: IntersectionObserver | null = null;
 
   constructor() {
     super();
@@ -310,6 +342,19 @@ export class TaleartElement extends HTMLElement {
   }
 
   /**
+   * This element's hooks (see `hooks.ts`), called before the global ones from `init({ hooks })`. Set an
+   * object, or `null` to remove them. Reading returns the object as set (a copy).
+   */
+  get hooks(): TaleartHooks | null {
+    return this.ownHooks === null ? null : { ...this.ownHooks };
+  }
+  set hooks(value: TaleartHooks | null) {
+    if (value === null) this.ownHooks = null;
+    else if (typeof value === 'object' && !Array.isArray(value)) this.ownHooks = { ...value };
+    else console.warn("TaleArt: the element's hooks must be an object of hook functions, or null; it is ignored");
+  }
+
+  /**
    * The translate function of this element: `t('viewer.close')` in its locale (the `locale` attribute,
    * else the SDK's) with its strings (the `strings` property over the SDK's `strings`). Named `t`
    * because `translate` is the HTML attribute every element has.
@@ -334,7 +379,7 @@ export class TaleartElement extends HTMLElement {
       console.warn(`TaleArt: the ${SITE_KEY_ATTR} attribute is no longer read; place the zone with ${ZONE_KEY_ATTR}`);
     }
     // Properties set before the SDK defined the element shadow the accessors: pass them through.
-    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings'] as const) {
+    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings', 'hooks'] as const) {
       if (!Object.prototype.hasOwnProperty.call(this, name)) continue;
       const value: unknown = (this as unknown as Record<string, unknown>)[name];
       delete (this as unknown as Record<string, unknown>)[name];
@@ -430,6 +475,8 @@ export class TaleartElement extends HTMLElement {
     const key = this.zoneKey;
     this.loaded = null;
     const focusGroup = this.clear();
+    this.impressed.clear();
+    this.hookKeyPrefix = key.slice(0, KEY_PREFIX_LENGTH);
     if (!apiUrl || !key || !this.isConnected) return;
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
@@ -444,11 +491,14 @@ export class TaleartElement extends HTMLElement {
       // The zone's slug names its configureZone theme; the response carries it.
       const configName = typeof zone.slug === 'string' && zone.slug ? zone.slug : this.zone;
       this.loaded = { zone, configName };
+      emit(this, 'loaded', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: configName });
       this.render(targeted(zone), focusGroup, configName);
     } catch (err) {
       if (id !== this.loadId) return;
       this.root.replaceChildren();
-      console.error(`TaleArt: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`TaleArt: ${message}`);
+      emit(this, 'loadFailed', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: this.zone, error: message });
     }
   }
 
@@ -474,6 +524,29 @@ export class TaleartElement extends HTMLElement {
     const frame = typeof zone.frame === 'object' && zone.frame !== null ? zone.frame : null;
     const names = new Map(zone.taleGroups.map((group) => [group.id, group.name]));
     const seen = seenGroupIds();
+    // The strings this render shows, and what its hook events name the zone by.
+    const t = this.t;
+    const base = { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: configName };
+    // The responses client, reporting each answer the server accepts as a userInteracted event.
+    const client = this.responses;
+    const responses = client ? {
+      stored: client.stored,
+      send: async (taleId: string, elementId: string, value: string) => {
+        const response = await client.send(taleId, elementId, value);
+        const found = locateTale(zone, taleId);
+        if (found) {
+          const tale = zone.taleGroups.find((group) => group.id === found.groupId)?.tales[found.taleIndex];
+          const type = tale?.document?.elements?.find((element) => element.id === elementId)?.type ?? '';
+          emit(this, 'userInteracted', {
+            ...base,
+            group: groupRef(zone, found.groupId),
+            tale: taleRef(zone, found.groupId, found.taleIndex),
+            component: { id: elementId, type, value: response.value },
+          });
+        }
+        return response;
+      },
+    } : undefined;
     // Holds the display and the viewer, so both inherit the theme's custom properties.
     const themed = document.createElement('div');
     themed.className = 'taleart';
@@ -486,9 +559,34 @@ export class TaleartElement extends HTMLElement {
       onGroupShown: (groupId) => {
         markGroupSeen(groupId);
         const item = barItems?.get(groupId);
-        if (item) setItemSeen(item, names.get(groupId) ?? '', true);
+        if (item) setItemSeen(item, names.get(groupId) ?? '', true, t);
       },
+      onPresented: (groupId) => {
+        emit(this, 'presented', { ...base, group: groupRef(zone, groupId) });
+      },
+      onTaleShown: (groupId, taleIndex) => {
+        emit(this, 'taleShown', {
+          ...base,
+          group: groupRef(zone, groupId),
+          tale: taleRef(zone, groupId, taleIndex),
+        });
+      },
+      onAction: (groupId, taleIndex, action) =>
+        emit(
+          this,
+          'actionClicked',
+          {
+            ...base,
+            group: groupRef(zone, groupId),
+            tale: taleRef(zone, groupId, taleIndex),
+            component: { id: action.id, type: action.type },
+            url: action.url,
+            newTab: action.newTab,
+          },
+          { cancelable: true },
+        ),
       onClose: (groupId) => {
+        emit(this, 'dismissed', { ...base, group: groupRef(zone, groupId) });
         // New viewer tags arrived while it was open: show the matching groups now, focus on this one.
         if (this.retargetOnClose && this.viewer === viewer) {
           this.retargetOnClose = false;
@@ -500,7 +598,8 @@ export class TaleartElement extends HTMLElement {
         view?.focus(groupId);
       },
       // Votes go to the zone this element read (epic interactive components R9).
-      responses: this.responses ?? undefined,
+      responses,
+      t,
     });
     const open = (groupId: string) => {
       if (this.viewer === viewer) viewer.open(groupId);
@@ -508,7 +607,7 @@ export class TaleartElement extends HTMLElement {
 
     if (frame?.type === BAR_FRAME_TYPE) {
       // Cover pictures are held until the first content is laid out (loadFirstContent).
-      const bar = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings));
+      const bar = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings, undefined, t));
       const items = new Map<string, HTMLButtonElement>();
       for (const button of bar.querySelectorAll<HTMLButtonElement>('button.item')) {
         items.set(button.dataset['taleGroupId'] ?? '', button);
@@ -528,9 +627,14 @@ export class TaleartElement extends HTMLElement {
       });
     } else if (frame?.type === BANNER_FRAME_TYPE) {
       const banner = holdMedia(() =>
-        renderBanner(zone.taleGroups, frame.settings, (groupId) => {
-          if (view) open(groupId);
-        }),
+        renderBanner(
+          zone.taleGroups,
+          frame.settings,
+          (groupId) => {
+            if (view) open(groupId);
+          },
+          t,
+        ),
       );
       if (banner) {
         view = {
@@ -547,6 +651,7 @@ export class TaleartElement extends HTMLElement {
     this.viewer = viewer;
     themed.replaceChildren(view.element);
     this.root.replaceChildren(style, themed);
+    this.watchImpressions(view.element, zone, configName);
     this.limitCoverMotion();
     // The display's covers in view load first, then the rest of this render's pictures; the
     // first zone content this element shows is marked once, when it is on the page (NFR-006).
@@ -565,6 +670,34 @@ export class TaleartElement extends HTMLElement {
   private destroyView(): void {
     this.view?.destroy?.();
     this.view = null;
+    this.impressionObserver?.disconnect();
+    this.impressionObserver = null;
+  }
+
+  // Emits groupImpression once per group per load, when the group's item or slide is half on screen
+  // (IntersectionObserver; without it no impression is emitted).
+  private watchImpressions(element: HTMLElement, zone: DeliveryZone, zoneSlug: string): void {
+    this.impressionObserver?.disconnect();
+    this.impressionObserver = null;
+    if (typeof IntersectionObserver !== 'function') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const target = entry.target as HTMLElement;
+          const groupId = target.dataset['taleGroupId'] ?? '';
+          observer.unobserve(target);
+          if (!groupId || this.impressed.has(groupId)) continue;
+          this.impressed.add(groupId);
+          emit(this, 'groupImpression', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug, group: groupRef(zone, groupId) });
+        }
+      },
+      { threshold: 0.5 },
+    );
+    for (const node of element.querySelectorAll<HTMLElement>('[data-tale-group-id]')) {
+      if (!this.impressed.has(node.dataset['taleGroupId'] ?? '')) observer.observe(node);
+    }
+    this.impressionObserver = observer;
   }
 }
 

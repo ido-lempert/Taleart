@@ -25,7 +25,7 @@ same summary.
 All of these must hold:
 
 1. The zone has a display (bar or banner).
-2. The project has an active site key, and the page sends it.
+2. The zone has an active zone key, and the page sends it.
 3. The group is placed in the zone and is On, inside its schedule window if it has one.
 4. The group has at least one Shown tale whose media is ready.
 5. The viewer passes the group's targeting: its tags (Any or All) and, if it has user lists, the

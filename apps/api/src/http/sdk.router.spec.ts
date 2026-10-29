@@ -231,7 +231,7 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
   it('reflects nothing of the request into the page', async () => {
     const plain = await (await fetch(`${origin}/sdk/v1/test-page`)).text();
     const probe = '"><script>alert(1)</script>';
-    const res = await fetch(`${origin}/sdk/v1/test-page?zone=${encodeURIComponent(probe)}&siteKey=${encodeURIComponent(probe)}`);
+    const res = await fetch(`${origin}/sdk/v1/test-page?zone=${encodeURIComponent(probe)}&zoneKey=${encodeURIComponent(probe)}#zoneKey=${encodeURIComponent(probe)}`);
     expect(await res.text()).toBe(plain);
     expect(plain).toBe(readFileSync(join(pagesDir, 'test-page.html'), 'utf8'));
   });

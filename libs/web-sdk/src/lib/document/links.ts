@@ -9,7 +9,7 @@ import {
   type DeliveryTaleElement,
 } from '@taleart/contract';
 import { DEFAULT_STRINGS, defaultTranslate, type Translate } from '../i18n';
-import { renderImage, type RenderContext } from './media';
+import { renderImage, type LinkAction, type RenderContext } from './media';
 
 /**
  * A link's destination as the `href` to set, or null (AD-16): the server checked it on write, and
@@ -31,12 +31,12 @@ export function linkHref(value: unknown): string | null {
 // context (the Tale Studio preview, which shows a draft) the link looks and focuses the same but has
 // no `href` or target: it goes nowhere, and a draft's destination never becomes a live link in the
 // dashboard.
-function anchor(element: DeliveryTaleElement, className: string, context?: RenderContext): HTMLAnchorElement | null {
+function anchor(element: DeliveryTaleElement, kind: LinkAction['type'], context?: RenderContext): HTMLAnchorElement | null {
   const props = element.props as { href?: unknown; newTab?: unknown };
   const href = linkHref(props.href);
   if (!href) return null;
   const a = document.createElement('a');
-  a.className = `ta-el ta-cta ${className}`;
+  a.className = `ta-el ta-cta ${CLASS_OF[kind]}`;
   a.draggable = false;
   if (context?.inertLinks) {
     // Still a focusable link, so focus and the keyboard behave as for a visitor (the tale waits
@@ -48,8 +48,22 @@ function anchor(element: DeliveryTaleElement, className: string, context?: Rende
   a.href = href;
   a.rel = 'noopener noreferrer';
   if (props.newTab === true) a.target = '_blank';
+  const onAction = context?.onAction;
+  // Runs before the navigation: a host that calls preventDefault() on the event keeps the link from being followed.
+  if (onAction) {
+    a.addEventListener('click', (e) => {
+      if (!onAction({ id: element.id, type: kind, url: href, newTab: props.newTab === true })) e.preventDefault();
+    });
+  }
   return a;
 }
+
+// The class of each kind of link (its styles and its name for the viewer's swipe-up link).
+const CLASS_OF: Record<LinkAction['type'], string> = {
+  button: 'ta-button',
+  'image-button': 'ta-image-button',
+  'swipe-up': 'ta-swipe',
+};
 
 // True when the element's link opens a new tab (an inert link has no target, but says the same).
 function opensNewTab(element: DeliveryTaleElement): boolean {
@@ -76,7 +90,7 @@ function newTabNote(a: HTMLAnchorElement, element: DeliveryTaleElement, t: Trans
 export function renderButton(element: DeliveryTaleElement, context?: RenderContext): HTMLElement | null {
   const t = context?.t ?? defaultTranslate;
   const label = linkLabel((element.props as { label?: unknown }).label);
-  const a = label ? anchor(element, 'ta-button', context) : null;
+  const a = label ? anchor(element, 'button', context) : null;
   if (!a) return null;
   a.textContent = label;
   newTabNote(a, element, t);
@@ -98,7 +112,7 @@ export function renderButton(element: DeliveryTaleElement, context?: RenderConte
  */
 export function renderImageButton(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
   const t = context.t ?? defaultTranslate;
-  const a = anchor(element, 'ta-image-button', context);
+  const a = anchor(element, 'image-button', context);
   if (!a) return null;
   const { url, radius } = element.props as { url?: unknown; radius?: unknown };
   const image = renderImage(
@@ -127,7 +141,7 @@ export function renderImageButton(element: DeliveryTaleElement, context: RenderC
 export function renderSwipeUp(element: DeliveryTaleElement, context?: RenderContext): HTMLElement | null {
   const t = context?.t ?? defaultTranslate;
   const label = linkLabel((element.props as { label?: unknown }).label);
-  const a = label ? anchor(element, 'ta-swipe', context) : null;
+  const a = label ? anchor(element, 'swipe-up', context) : null;
   if (!a) return null;
   const look = resolveSwipeUpStyle(element.props);
   const arrow = document.createElement('span');

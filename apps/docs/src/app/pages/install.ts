@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { DEFAULT_SDK_BUILDS_KEPT } from '@taleart/contract/core';
 import {
   DOCS_PINNED_SCRIPT,
+  DOCS_NPM_SNIPPET,
   DOCS_SNIPPET,
   DOCS_TEST_PAGE,
   DOCS_TEST_PAGE_WITH_KEY,
@@ -20,16 +21,18 @@ import {
   template: `
     <h1 tabindex="-1">Install a zone</h1>
     <p class="lede">
-      A page shows a zone with the Web SDK, the project's site key and the zone's slug. The zone page's
-      <strong>Install</strong> tab gives you all three.
+      A page shows a zone with the Web SDK and the zone's key. The zone page's <strong>Install</strong> tab gives you
+      both.
     </p>
 
     <h2 id="snippet">The snippet</h2>
-    <p>The Install tab shows this snippet for its zone, with your API URL and the zone's slug filled in:</p>
+    <p>The Install tab shows this snippet for its zone, with your API URL filled in:</p>
     <pre id="docs-snippet" tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
     <p>
-      Replace <code>YOUR_SITE_KEY</code> with the project's site key. Right after you issue the key, the Install tab
-      shows the snippet with the key already in it, ready to copy; after that the key is never shown again.
+      Replace <code>YOUR_ZONE_KEY</code> with the zone's key. Right after an admin issues the key, the Install tab
+      shows the snippet with the key already in it, ready to copy; after that the key is never shown again. The
+      second line is optional: <code>Taleart.init</code> sets page-wide options once, such as the locale, the
+      strings and the theme.
     </p>
 
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="attributes-caption">
@@ -43,52 +46,71 @@ import {
         </thead>
         <tbody>
           <tr>
+            <td><code>zone-key</code> (<code>zoneKey</code>)</td>
+            <td>Required. The zone's key, <code>tak_…</code>. It names the zone, so the element needs no slug.</td>
+          </tr>
+          <tr>
             <td><code>api-url</code> (<code>apiUrl</code>)</td>
-            <td>The TaleArt API origin.</td>
+            <td>Optional. The TaleArt API origin; by default the origin the script was loaded from.</td>
           </tr>
           <tr>
-            <td><code>site-key</code> (<code>siteKey</code>)</td>
-            <td>The project's site key, <code>tas_…</code>. One per project.</td>
+            <td><code>locale</code> (<code>locale</code>)</td>
+            <td>Optional. The language of the viewer's own texts for this element; by default the page's.</td>
           </tr>
           <tr>
-            <td><code>zone</code> (<code>zone</code>)</td>
-            <td>The zone's slug, such as <code>home-top</code>, shown on the zone page.</td>
+            <td><code>strings</code> (property only)</td>
+            <td>Optional. Replacement texts for this element, an object set from script.</td>
           </tr>
           <tr>
             <td><code>theme</code> (<code>theme</code>)</td>
-            <td>Optional theme fields for this element only (JSON in the attribute).</td>
+            <td>Optional. Theme fields for this element only (JSON in the attribute).</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <h2 id="site-key">The site key</h2>
+    <h2 id="init">Page-wide options</h2>
+    <p>
+      The script loads once per page. <code>Taleart.init({{ '{' }} apiUrl, locale, strings, theme, hooks {{ '}' }})</code>
+      sets options for every element on the page, before or after the elements connect; each option is optional, and
+      an attribute on one element overrides it.
+    </p>
+
+    <h2 id="npm">With npm</h2>
+    <p>
+      If your app bundles the Web SDK itself, install the package and import <code>init</code> from it. The element
+      markup is the same.
+    </p>
+    <pre tabindex="0" role="region" aria-label="npm install"><code>{{ npmSnippet }}</code></pre>
+
+    <h2 id="zone-key">The zone key</h2>
     <ul>
       <li>
-        A project has one site key. An admin issues it on any zone's Install tab; every zone of the project is placed
-        with it and its own slug.
+        A zone has at most one active key. An admin issues it on the zone's Install tab; it is shown once, so copy it
+        then.
       </li>
       <li>
-        It sits in your page's HTML, so it is not a secret: anyone who sees it can read every zone of the project that
-        has a display and visible content.
+        It sits in your page's HTML, so anyone who sees it can read that one zone, while the zone has a display and
+        visible content. It cannot read any other zone, so treat what the zone shows as public.
       </li>
       <li>
-        Slugs are not access control either: they are often easy to guess (<code>home</code>), so treat everything a
-        visible zone shows as public.
-      </li>
-      <li>
-        Put the key only in the <code>site-key</code> attribute (or the <code>siteKey</code> property), never in a
+        Put the key only in the <code>zone-key</code> attribute (or the <code>zoneKey</code> property), never in a
         query string: a URL ends up in server logs and Referer headers. The SDK sends it only in the
         <code>Authorization</code> header.
       </li>
       <li>
-        <strong>Rotating</strong> it issues a new key and stops the old one at once, for every zone of the project:
-        update every page that uses it. <strong>Revoking</strong> it stops every zone until a new key is issued.
+        <strong>Rotating</strong> it issues a new key and stops the old one at once, for that zone only: update the
+        pages that use it. <strong>Revoking</strong> it stops that zone until a new key is issued. Other zones are not
+        affected.
+      </li>
+      <li>
+        The project's site key (<code>tas_…</code>) is for server-side or legacy Delivery API calls, which also name
+        the zone with <code>?zone=</code>. A web page does not use it.
       </li>
     </ul>
 
     <h2 id="several-zones">Several zones on one page</h2>
-    <p>Load the script once and add one element per zone. They share the site key.</p>
+    <p>Load the script once and add one element per zone, each with its own zone key.</p>
     <pre tabindex="0" role="region" aria-label="Two zones on one page"><code>{{ twoZones }}</code></pre>
 
     <h2 id="sdk-url">Where the SDK comes from</h2>
@@ -126,13 +148,13 @@ import {
 
     <h2 id="test-page">The test page</h2>
     <p>
-      <em>Open test page</em> on the Install tab renders the zone on a page TaleArt serves, before you touch your
+      <em>Open test page</em> on the Install tab shows the zone on a page TaleArt serves, before you touch your
       site:
     </p>
     <pre tabindex="0" role="region" aria-label="Test page link"><code>{{ testPageWithKey }}</code></pre>
     <ul>
       <li>
-        The site key travels only in the URL fragment (after <code>#</code>), which a browser never sends to a server;
+        The zone key travels only in the URL fragment (after <code>#</code>), which a browser never sends to a server;
         the page removes it from the address bar. Opened as <code>{{ testPage }}</code>, it asks you to paste the
         key.
       </li>
@@ -141,7 +163,7 @@ import {
 
     <h2 id="theme">Theme for one zone</h2>
     <p>
-      The project's theme styles every zone. A page can override it for one zone, by its slug, or for one element
+      The project's theme styles every zone. A page can override it for one zone, by the zone's slug, or for one element
       with its <code>theme</code> attribute. Import <code>configureZone</code> from exactly the URL of your script
       tag (the pinned one, if you pin it): another URL loads a second copy of the SDK, and the elements never see
       its settings.
@@ -182,7 +204,7 @@ import {
     <h2 id="nothing-shows">When nothing shows</h2>
     <ul>
       <li>
-        An unknown slug, or a revoked or rotated site key, renders nothing and logs one console error per element.
+        A missing, revoked or rotated zone key, renders nothing and logs one console error per element.
       </li>
       <li>
         The Delivery API limits how often one visitor may ask (by default bursts of 600, then 20 requests a second),
@@ -201,13 +223,14 @@ import {
     </ul>
 
     <p class="note">
-      Coming from an earlier build with zone keys or stages? See
+      Coming from an earlier build with stages, or a page with a site key? See
       <a routerLink="/moving-from-stages">Stages and zone keys</a>.
     </p>
   `,
 })
 export class InstallPage {
   protected readonly snippet = DOCS_SNIPPET;
+  protected readonly npmSnippet = DOCS_NPM_SNIPPET;
   protected readonly twoZones = DOCS_TWO_ZONES_SNIPPET;
   protected readonly sdkUrl = EXAMPLE_INSTALL.sdkUrl;
   protected readonly cacheText = SDK_CACHE_TEXT;

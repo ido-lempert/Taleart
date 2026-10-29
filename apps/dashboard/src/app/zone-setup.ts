@@ -47,8 +47,8 @@ export function zoneSetupSteps(zone: Pick<Zone, 'visibility' | 'frame'>, admin =
     },
     {
       id: 'install',
-      // Only admins issue site keys (AD-9); a content manager asks one.
-      label: admin ? 'Install (issue a site key)' : 'Ask an admin to issue a site key',
+      // Only admins issue zone keys (AD-9); a content manager asks one.
+      label: admin ? 'Install (issue a zone key)' : 'Ask an admin to issue a zone key',
       done: without(zone, 'zone-not-installed'),
       tab: 'install',
     },

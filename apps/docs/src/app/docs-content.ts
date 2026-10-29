@@ -1,12 +1,13 @@
 import {
   installSnippet,
+  npmSnippet,
   SDK_BUNDLE_PATH,
   SDK_CACHE_SECONDS,
   SDK_PINNED_CACHE_SECONDS,
   SDK_TEST_PAGE_PATH,
   sdkScriptTag,
-  SITE_KEY_PLACEHOLDER,
   testPageLink,
+  ZONE_KEY_PLACEHOLDER,
   zoneElement,
 } from '@taleart/contract/core';
 
@@ -25,15 +26,18 @@ export const EXAMPLE_INSTALL = {
 
 /**
  * The snippet the docs show: exactly what the zone page's Install tab gives for the example zone,
- * built by the same contract function (`installSnippet`), with the site key placeholder.
+ * built by the same contract function (`installSnippet`), with the zone key placeholder.
  */
-export const DOCS_SNIPPET = installSnippet(EXAMPLE_INSTALL, EXAMPLE_ZONE, null);
+export const DOCS_SNIPPET = installSnippet(EXAMPLE_INSTALL, null);
 
-/** Two zones of one project on one page: the script once, one element per zone, one site key. */
+/** The npm variant of the snippet, with the zone key placeholder. */
+export const DOCS_NPM_SNIPPET = npmSnippet(null);
+
+/** Two zones on one page: the script once, one element per zone, each with its own zone key. */
 export const DOCS_TWO_ZONES_SNIPPET = [
   sdkScriptTag(EXAMPLE_INSTALL),
-  zoneElement(EXAMPLE_INSTALL, EXAMPLE_ZONE, null),
-  zoneElement(EXAMPLE_INSTALL, 'home-promo', null),
+  zoneElement(`${ZONE_KEY_PLACEHOLDER}_HOME_TOP`),
+  zoneElement(`${ZONE_KEY_PLACEHOLDER}_HOME_PROMO`),
 ].join('\n');
 
 /** How long browsers keep the SDK at its stable URL, in words (from the API's own constant). */
@@ -42,11 +46,11 @@ export const SDK_CACHE_TEXT = SDK_CACHE_SECONDS === 300 ? 'five minutes' : `${SD
 /** How long browsers keep the SDK at its pinned URL, in words (from the API's own constant). */
 export const SDK_PINNED_CACHE_TEXT = SDK_PINNED_CACHE_SECONDS === 365 * 24 * 3600 ? 'a year' : `${SDK_PINNED_CACHE_SECONDS} seconds`;
 
-/** The test page link for the example zone, without a key (the page asks for one). */
-export const DOCS_TEST_PAGE = testPageLink(EXAMPLE_INSTALL, EXAMPLE_ZONE, null);
+/** The test page link, without a key (the page asks for one). */
+export const DOCS_TEST_PAGE = testPageLink(EXAMPLE_INSTALL, null);
 
 /** The test page link with a key: the key travels only in the URL fragment. */
-export const DOCS_TEST_PAGE_WITH_KEY = testPageLink(EXAMPLE_INSTALL, EXAMPLE_ZONE, SITE_KEY_PLACEHOLDER);
+export const DOCS_TEST_PAGE_WITH_KEY = testPageLink(EXAMPLE_INSTALL, ZONE_KEY_PLACEHOLDER);
 
 /** The SDK at a URL pinned to its content, with Subresource Integrity. */
 export const DOCS_PINNED_SCRIPT =
@@ -62,7 +66,7 @@ export const DOCS_THEME_SCRIPT = [
   '<script type="module">',
   `  import { configureZone } from '${EXAMPLE_INSTALL.sdkUrl}';`,
   '',
-  `  // Every <taleart-view> with zone="${EXAMPLE_ZONE}"; other zones keep the project's theme.`,
+  `  // Every <taleart-view> that shows the zone with slug "${EXAMPLE_ZONE}"; other zones keep the project's theme.`,
   `  configureZone('${EXAMPLE_ZONE}', { theme: { ringStyle: 'solid', ringColors: ['#0055ff'] } });`,
   '</script>',
 ].join('\n');
@@ -127,13 +131,13 @@ export const FOLD_EXAMPLES = [
 export const GLOSSARY: readonly GlossaryTerm[] = [
   {
     term: 'Project',
-    definition: 'Your app or site. Holds everything below, plus the theme, the fonts and the site key.',
+    definition: 'Your app or site. Holds everything below, plus the theme, the fonts and the site key (the server-side key).',
     example: 'Acme Shop',
   },
   {
     term: 'Zone',
     definition:
-      'One spot in your app or site where tales appear. A page can have several zones, and a zone can appear on several pages. A page names a zone by its slug.',
+      'One spot in your app or site where tales appear. A page can have several zones, and a zone can appear on several pages. A page shows a zone with the zone’s key; the slug names it in the dashboard and the API.',
     example: 'Home – top (slug home-top)',
   },
   {
@@ -166,9 +170,15 @@ export const GLOSSARY: readonly GlossaryTerm[] = [
     example: '–',
   },
   {
+    term: 'Zone key',
+    definition:
+      'The key a host page uses to show one zone (tak_…). One active key per zone; an admin issues it on the zone’s Install tab and it is shown once. It sits in page HTML, so it can show only that zone.',
+    example: 'tak_…',
+  },
+  {
     term: 'Site key',
     definition:
-      'The project’s one key for host pages (tas_…). Every zone of the project is placed with it and the zone’s slug. It sits in page HTML, so it is not a secret.',
+      'The project’s key for server-side or legacy Delivery API calls (tas_…), sent with the zone’s slug as ?zone=. A web page uses a zone key instead, never the site key.',
     example: 'tas_…',
   },
 ];
