@@ -17,7 +17,8 @@ test('is in the navigation, after API reference', async ({ page }) => {
   const nav = page.getByRole('navigation', { name: 'Docs' });
   await expect(nav.getByRole('link', { name: 'AI agents' })).toHaveAttribute('aria-current', 'page');
   const labels = (await nav.getByRole('link').allTextContents()).map((l) => l.trim());
-  expect(labels[labels.indexOf('API reference') + 1]).toBe('AI agents');
+  // The Command-line tool page now sits between them, so only the order is checked.
+  expect(labels.indexOf('AI agents')).toBeGreaterThan(labels.indexOf('API reference'));
   await expect(page.getByRole('heading', { level: 1, name: 'AI agents' })).toBeVisible();
 });
 

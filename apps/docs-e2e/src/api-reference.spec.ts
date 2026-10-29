@@ -33,6 +33,8 @@ test('groups operations by tag in the document order', async ({ page }) => {
     'API tokens',
     'Delivery',
     'Sign-in',
+    'Users',
+    'Sign-in methods',
   ]);
 });
 
@@ -42,6 +44,8 @@ test('loads Swagger UI only on the API reference page', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('h1')).toHaveText('Getting started');
   expect(scripts.filter((u) => u.includes('swagger-ui'))).toEqual([]);
+  // The Developers group is collapsed on the home page.
+  await page.locator('details.side-nav__section', { has: page.locator('summary', { hasText: 'Developers' }) }).locator('summary').click();
   await page.getByRole('link', { name: 'API reference' }).click();
   await expect(page.locator('.swagger-ui .opblock').first()).toBeVisible();
   expect(scripts.filter((u) => u.includes('swagger-ui-bundle.js'))).toHaveLength(1);
@@ -55,7 +59,7 @@ test('offers a token and a site key, never the cookie session, in the Authorize 
   await opener.click();
   const dialog = page.getByRole('dialog', { name: 'Available authorizations' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator('.auth-container h4')).toHaveText([/token/, /siteKey/]);
+  await expect(dialog.locator('.auth-container h4')).toHaveText([/token/, /siteKey/, /zoneKey/]);
   await expect(dialog).not.toContainText('taleart_session');
   // The keyboard stays in the dialog, and goes back to Authorize when it closes.
   for (let i = 0; i < 10; i++) {
