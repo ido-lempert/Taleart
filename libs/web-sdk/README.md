@@ -119,6 +119,7 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
 | `fallback` / `fallback` | What this element shows when its zone fails to load: `none` (default) or `message` (the SDK's text and a retry button). See Load failures. |
 | `frequency` / `frequency` | How often a viewer sees a tale group of this element: `once`, `daily`, `weekly` or a whole number from 1 to 50. Default none. See Frequency cap. |
+| `analytics` / `analytics` | `off` stops this element's analytics events. Any other value, or none, leaves it to the SDK's `analytics` option. See Analytics. |
 
 Properties without an attribute:
 
@@ -135,7 +136,7 @@ Methods: `retry()` reads the zone again after a failed load (see Load failures).
 The script sets `globalThis.Taleart`, with the functions below. `init(config)` (also a named export of the module) sets
 the SDK's options, before or after the elements connect; elements that show a zone read the options again. Every
 option is optional: an option left out keeps its value. `null` clears `locale`, `strings`, `theme`, `externalUserId`,
-`tags`, `hooks` and `frequency`, and `fallback: null` means `none`. An invalid option logs one console warning naming it and keeps its value.
+`tags`, `hooks` and `frequency`, `fallback: null` means `none`, and `analytics: null` means on. An invalid option logs one console warning naming it and keeps its value.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -148,6 +149,7 @@ option is optional: an option left out keeps its value. `null` clears `locale`, 
 | `hooks` | none | Hooks for every element (see Hooks). |
 | `fallback` | `none` | What every element shows when its zone fails to load: `none` or `message` (see Load failures). An element's `fallback` wins. |
 | `frequency` | none | How often a viewer sees a tale group: `once`, `daily`, `weekly` or a whole number from 1 to 50 (see Frequency cap). An element's `frequency` wins. |
+| `analytics` | on | Whether elements report impressions, opens, tale views and clicks (see Analytics). `false` turns them off; an element's `analytics` attribute wins. |
 
 ```js
 import { init } from 'https://api.example.com/sdk/v1/taleart.js';
@@ -345,6 +347,26 @@ init({
   frequency: 'once',
   hooks: { onGroupCapped: (e) => console.log('capped', e.groupId, e.rule) },
 });
+```
+
+## Analytics
+
+The element reports four events to the TaleArt API, which the zone's Analytics tab counts: an **impression** when a tale
+group is half on screen, an **open** when a viewer opens the group, a **view** when a tale is shown in the viewer, and a
+**click** when a tale's button, image button or swipe-up link is activated (counted whether or not the host cancels the
+navigation). Each event carries its type, its tale group's id, its tale's id (views and clicks only) and the time in UTC.
+Nothing else is sent: not the external user ID, not the tags, nothing from the page.
+
+Events wait in memory and go out together: every 5 seconds while any wait, at 20 of them, and when the page is hidden,
+by `navigator.sendBeacon` (or `fetch` with `keepalive` when a beacon is not possible). The zone key is the bearer token
+of a `fetch`, and the visitor id its header; a beacon carries both in its body. A failed send is retried once, with the
+next send, and then dropped without a message. A zone that failed to load sends nothing, and so does the Tale Studio preview.
+
+Turn analytics off for every element with `init({ analytics: false })`, or for one element with `analytics="off"`. The
+element's attribute wins: any other value turns it on.
+
+```js
+init({ analytics: false });
 ```
 
 ## Targeting tags

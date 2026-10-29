@@ -33,6 +33,8 @@ export interface TaleartConfig {
   fallback?: FallbackMode | null;
   /** How often a viewer sees a tale group: `once`, `daily`, `weekly` or a positive integer N. Default: none. */
   frequency?: FrequencyRule | null;
+  /** Whether elements report impressions, opens, views and clicks to the Delivery API. `false` turns it off; `null` means on. Default: on. */
+  analytics?: boolean | null;
 }
 
 /** What {@link getConfig} returns: every option with the value the SDK uses. */
@@ -46,6 +48,7 @@ export interface ResolvedTaleartConfig {
   readonly hooks: TaleartHooks | null;
   readonly fallback: FallbackMode;
   readonly frequency: FrequencyRule | null;
+  readonly analytics: boolean;
 }
 
 /** The names of the options. */
@@ -64,6 +67,7 @@ const KEYS: readonly ConfigKey[] = [
   'hooks',
   'fallback',
   'frequency',
+  'analytics',
 ];
 
 /**
@@ -123,6 +127,7 @@ interface State {
   hooks: TaleartHooks | null;
   fallback: FallbackMode;
   frequency: FrequencyRule | null;
+  analytics: boolean;
 }
 
 let state: State = {
@@ -136,6 +141,7 @@ let state: State = {
   hooks: null,
   fallback: 'none',
   frequency: null,
+  analytics: true,
 };
 
 const listeners = new Set<ConfigListener>();
@@ -231,6 +237,14 @@ export function init(config: TaleartConfig): void {
         next.frequency = frequency;
         break;
       }
+      case 'analytics':
+        if (value === null) next.analytics = true;
+        else if (typeof value === 'boolean') next.analytics = value;
+        else {
+          warnInvalid(key, 'true or false, or null');
+          continue;
+        }
+        break;
     }
     if (!sameValue(key, state[key as keyof State], next[key as keyof State])) changed.add(key);
   }
@@ -288,6 +302,7 @@ export function getConfig(): ResolvedTaleartConfig {
     hooks: state.hooks,
     fallback: state.fallback,
     frequency: state.frequency,
+    analytics: state.analytics,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { DeliveryTaleElement, DeliveryZone } from '@taleart/contract';
 import { COVER_MOTION_MS } from './bar';
+import { resetAnalyticsForTests } from './analytics';
 import { init } from './config';
 import { FIRST_CONTENT_MARK, ZONE_MARK } from './first-content';
 import { configureZone, defineTaleartElement, TALEART_ELEMENT_TAG, TaleartElement } from './taleart-element';
@@ -77,6 +78,7 @@ describe('TaleartElement', () => {
   });
 
   afterEach(() => {
+    resetAnalyticsForTests();
     document.body.replaceChildren();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -1246,6 +1248,7 @@ describe('TaleartElement: strings, hooks and events', () => {
   });
 
   afterEach(() => {
+    resetAnalyticsForTests();
     init({ hooks: null, strings: null, locale: '' });
     document.body.replaceChildren();
     vi.unstubAllGlobals();

@@ -1,4 +1,11 @@
-import { encodeExternalUserIdHeader, tagRulePasses, viewerTagSet, type DeliveryZone } from '@taleart/contract';
+import {
+  encodeExternalUserIdHeader,
+  tagRulePasses,
+  viewerTagSet,
+  type AnalyticsEventType,
+  type DeliveryZone,
+} from '@taleart/contract';
+import { recordAnalyticsEvent, type AnalyticsTarget } from './analytics';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
@@ -46,6 +53,9 @@ const ZONE_KEY_ATTR = 'zone-key';
 const LOCALE_ATTR = 'locale';
 const FALLBACK_ATTR = 'fallback';
 const FREQUENCY_ATTR = 'frequency';
+// `analytics="off"` turns the element's events off; any other value, or no attribute, leaves them to the SDK option.
+const ANALYTICS_ATTR = 'analytics';
+const ANALYTICS_OFF = 'off';
 // The host's state while its zone failed to load (`failed`); removed on a reload or a success.
 const STATE_ATTR = 'data-state';
 // The zone's slug: read only for a configureZone theme when the response does not name it.
@@ -168,7 +178,7 @@ onConfigChange((changed: ReadonlySet<ConfigKey>) => {
   for (const element of connected) {
     if (only('theme')) element.retheme();
     else if (only('tags')) element.retarget();
-    else if (only('hooks')) continue;
+    else if (only('hooks') || only('analytics')) continue;
     else element.reload();
   }
 });
@@ -205,7 +215,7 @@ const ElementBase: typeof HTMLElement = typeof HTMLElement === 'undefined' ? (cl
 
 export class TaleartElement extends ElementBase {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR, FALLBACK_ATTR, FREQUENCY_ATTR];
+    return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR, FALLBACK_ATTR, FREQUENCY_ATTR, ANALYTICS_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -255,6 +265,8 @@ export class TaleartElement extends ElementBase {
   private readonly impressed = new Set<string>();
   // Watches the rendered groups' items for groupImpression; null without IntersectionObserver or a render.
   private impressionObserver: IntersectionObserver | null = null;
+  // Where this element's analytics events go: the API origin and zone key of the zone last read.
+  private analyticsTarget: AnalyticsTarget | null = null;
 
   constructor() {
     super();
@@ -378,6 +390,20 @@ export class TaleartElement extends ElementBase {
     else this.setAttribute(FREQUENCY_ATTR, String(value));
   }
 
+  /**
+   * Whether this element reports its impressions, opens, views and clicks (see `analytics.ts`): `false` for
+   * `analytics="off"`, `true` for any other attribute value, `null` for none (the SDK's `analytics` option
+   * applies then). Set `null` to remove the attribute.
+   */
+  get analytics(): boolean | null {
+    const value = this.getAttribute(ANALYTICS_ATTR);
+    return value === null ? null : value !== ANALYTICS_OFF;
+  }
+  set analytics(value: boolean | null) {
+    if (value === null) this.removeAttribute(ANALYTICS_ATTR);
+    else this.setAttribute(ANALYTICS_ATTR, value ? 'on' : ANALYTICS_OFF);
+  }
+
   /** Reads the zone again after a failed load: the retry button of `fallback="message"` calls it. */
   retry(): void {
     this.reload();
@@ -435,7 +461,7 @@ export class TaleartElement extends ElementBase {
       console.warn(`TaleArt: the ${SITE_KEY_ATTR} attribute is no longer read; place the zone with ${ZONE_KEY_ATTR}`);
     }
     // Properties set before the SDK defined the element shadow the accessors: pass them through.
-    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings', 'hooks', 'fallback', 'frequency'] as const) {
+    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings', 'hooks', 'fallback', 'frequency', 'analytics'] as const) {
       if (!Object.prototype.hasOwnProperty.call(this, name)) continue;
       const value: unknown = (this as unknown as Record<string, unknown>)[name];
       delete (this as unknown as Record<string, unknown>)[name];
@@ -458,6 +484,8 @@ export class TaleartElement extends ElementBase {
       else this.theme = this.parseThemeAttribute(newValue) as Partial<Theme> | null;
       return;
     }
+    // Analytics only decides what is sent from now on: the zone is not read again.
+    if (name === ANALYTICS_ATTR) return;
     // An invalid fallback or frequency is ignored with one warning, and the SDK's option applies.
     if (name === FALLBACK_ATTR) checkFallback(newValue, "the element's fallback attribute");
     if (name === FREQUENCY_ATTR) checkFrequency(newValue, "the element's frequency attribute");
@@ -553,6 +581,7 @@ export class TaleartElement extends ElementBase {
       // The zone's slug names its configureZone theme; the response carries it.
       const configName = typeof zone.slug === 'string' && zone.slug ? zone.slug : this.zone;
       this.loaded = { zone, configName };
+      this.analyticsTarget = { apiUrl, key };
       emit(this, 'loaded', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: configName });
       this.render(targeted(zone), focusGroup, configName);
     } catch (err) {
@@ -563,6 +592,20 @@ export class TaleartElement extends ElementBase {
       this.setAttribute(STATE_ATTR, 'failed');
       emit(this, 'loadFailed', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: this.zone, error: message });
     }
+  }
+
+  // Queues one analytics event of this zone (analytics.ts), unless the SDK or the element turns analytics off,
+  // or the zone has not loaded (a failed load sends nothing). The studio preview is not an element, so it sends none.
+  private track(type: AnalyticsEventType, group: GroupRef, tale?: TaleRef): void {
+    const target = this.analyticsTarget;
+    if (!target || !this.loaded || !this.analyticsOn()) return;
+    recordAnalyticsEvent(target, { type, groupId: group.id, ...(tale ? { taleId: tale.id } : {}) });
+  }
+
+  // The element's attribute when set, else the SDK's `analytics` option.
+  private analyticsOn(): boolean {
+    const value = this.getAttribute(ANALYTICS_ATTR);
+    return value === null ? getConfig().analytics : value !== ANALYTICS_OFF;
   }
 
   // Takes the rendered display and viewer off; returns the group that takes focus once the next
@@ -685,14 +728,15 @@ export class TaleartElement extends ElementBase {
         if (item) setItemSeen(item, names.get(groupId) ?? '', true, t);
       },
       onPresented: (groupId) => {
-        emit(this, 'presented', { ...base, group: groupRef(zone, groupId) });
+        const group = groupRef(zone, groupId);
+        emit(this, 'presented', { ...base, group });
+        this.track('open', group);
       },
       onTaleShown: (groupId, taleIndex) => {
-        emit(this, 'taleShown', {
-          ...base,
-          group: groupRef(zone, groupId),
-          tale: taleRef(zone, groupId, taleIndex),
-        });
+        const group = groupRef(zone, groupId);
+        const tale = taleRef(zone, groupId, taleIndex);
+        emit(this, 'taleShown', { ...base, group, tale });
+        this.track('view', group, tale);
       },
       onComponentEvent: (groupId, taleIndex, fire) =>
         emit(this, 'componentEvent', {
@@ -701,20 +745,26 @@ export class TaleartElement extends ElementBase {
           taleId: taleRef(zone, groupId, taleIndex).id,
           ...fire,
         }),
-      onAction: (groupId, taleIndex, action) =>
-        emit(
+      onAction: (groupId, taleIndex, action) => {
+        const group = groupRef(zone, groupId);
+        const tale = taleRef(zone, groupId, taleIndex);
+        const proceed = emit(
           this,
           'actionClicked',
           {
             ...base,
-            group: groupRef(zone, groupId),
-            tale: taleRef(zone, groupId, taleIndex),
+            group,
+            tale,
             component: { id: action.id, type: action.type },
             url: action.url,
             newTab: action.newTab,
           },
           { cancelable: true },
-        ),
+        );
+        // Counted whether or not the host cancelled the navigation.
+        this.track('click', group, tale);
+        return proceed;
+      },
       onClose: (groupId) => {
         emit(this, 'dismissed', { ...base, group: groupRef(zone, groupId) });
         // New viewer tags arrived while it was open: show the matching groups now, focus on this one.
@@ -819,7 +869,9 @@ export class TaleartElement extends ElementBase {
           observer.unobserve(target);
           if (!groupId || this.impressed.has(groupId)) continue;
           this.impressed.add(groupId);
-          emit(this, 'groupImpression', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug, group: groupRef(zone, groupId) });
+          const group = groupRef(zone, groupId);
+          emit(this, 'groupImpression', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug, group });
+          this.track('impression', group);
         }
       },
       { threshold: 0.5 },

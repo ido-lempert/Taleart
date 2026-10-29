@@ -90,7 +90,7 @@ describe('the API reference spec (epic developer experience 10.2)', () => {
     expect(zone.security).toEqual([{ siteKey: [] }, { zoneKey: [] }]);
   });
 
-  it('marks the operations only a passkey session may call', () => {
+  it('marks the operations only a dashboard session may call', () => {
     const marked = operationList(shown).filter((op) => {
       const [method, path] = op.split(' ');
       const operation = shown.paths[path][method.toLowerCase()] as { description?: string };
@@ -103,6 +103,19 @@ describe('the API reference spec (epic developer experience 10.2)', () => {
         'DELETE /api-tokens/{tokenId}',
         'DELETE /users/{userId}/api-tokens',
         'POST /projects/{projectId}/invitations',
+        'GET /users',
+        'GET /auth/settings',
+        'PUT /auth/settings',
+        'GET /auth/providers',
+        'PUT /auth/providers/{slug}',
+        'DELETE /auth/providers/{slug}',
+        'POST /auth/providers/{slug}/test',
+        'POST /auth/users/{userId}/password-reset',
+        'GET /auth/account/methods',
+        'PUT /auth/account/password',
+        'DELETE /auth/account/password',
+        'DELETE /auth/account/passkeys/{passkeyId}',
+        'DELETE /auth/account/identities/{identityId}',
       ].sort(),
     );
   });

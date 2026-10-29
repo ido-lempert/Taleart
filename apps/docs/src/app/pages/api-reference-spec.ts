@@ -31,9 +31,9 @@ export const SWAGGER_UI = {
 /** The security scheme only a passkey sign-in in the dashboard sets: a cookie the docs cannot send. */
 export const SESSION_SCHEME = 'session';
 
-/** Added to an operation that only a passkey session may call (API tokens, invitations). */
+/** Added to an operation that only a signed-in dashboard session may call (API tokens, invitations). */
 export const SESSION_ONLY_NOTE =
-  '**Dashboard only.** This needs a passkey session in the dashboard; the docs cannot send its cookie, and an API token is refused here (403 `forbidden`).';
+  '**Dashboard only.** This needs a signed-in dashboard session (any sign-in method); the docs cannot send its cookie, and an API token is refused here (403 `forbidden`).';
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'] as const;
 

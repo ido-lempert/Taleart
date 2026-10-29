@@ -85,6 +85,15 @@ import { RouterLink } from '@angular/router';
               number from 1 to 50 (hidden after that many views). Default: none. Counted in this browser only.
             </td>
           </tr>
+          <tr>
+            <td><code>analytics</code></td>
+            <td><code>analytics</code></td>
+            <td>No</td>
+            <td>
+              <code>off</code> stops this element's impression, open, view and click events. Any other value, or none, leaves
+              it to the SDK's <code>analytics</code> option.
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -134,7 +143,8 @@ import { RouterLink } from '@angular/router';
       <code>init(config)</code> sets the page's options, before or after the elements connect. Every option is
       optional: an option left out keeps its value, and an element attribute overrides the option. <code>null</code>
       clears <code>locale</code>, <code>strings</code>, <code>theme</code>, <code>externalUserId</code>,
-      <code>tags</code>, <code>hooks</code> and <code>frequency</code>; <code>fallback: null</code> means <code>none</code>.
+      <code>tags</code>, <code>hooks</code> and <code>frequency</code>; <code>fallback: null</code> means <code>none</code>, and
+      <code>analytics: null</code> means on.
       An invalid option logs one console warning that names it and keeps its value.
     </p>
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="init-options-caption">
@@ -205,6 +215,12 @@ import { RouterLink } from '@angular/router';
             <td>Number from 1 to 50, <code>once</code>, <code>daily</code>, <code>weekly</code>, or null</td>
             <td>None: every group shows</td>
             <td>How often a viewer sees a tale group, counted in this browser. An element's <code>frequency</code> wins.</td>
+          </tr>
+          <tr>
+            <td><code>analytics</code></td>
+            <td><code>true</code> or <code>false</code>, or null</td>
+            <td>On</td>
+            <td>Whether elements report impressions, opens, tale views and clicks to the TaleArt API. An element's <code>analytics</code> attribute wins.</td>
           </tr>
         </tbody>
       </table>
