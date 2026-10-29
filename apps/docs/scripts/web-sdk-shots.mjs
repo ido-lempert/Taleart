@@ -5,12 +5,14 @@
 // host pages with <taleart-view> in headless Chromium and writes screenshots to apps/docs/public/images.
 //
 // Usage: node apps/docs/scripts/web-sdk-shots.mjs
+// With --reaction, only the Reaction shots are written (web-shot-reaction*.png); the other images stay as they are.
 import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 
+const REACTION_ONLY = process.argv.includes('--reaction');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
 const imagesDir = join(root, 'apps/docs/public/images');
@@ -130,6 +132,7 @@ const KEYS = {
   hebrew: 'tak_SampleHebrewKey00000001',
   features: 'tak_DemoFeaturesKey00000000001',
   frequency: 'tak_DemoFrequencyKey000000001',
+  reaction: 'tak_DemoReactionKey000000000001',
 };
 // Not in KEYS: the stand-in refuses it, so a zone with this key cannot load (the failure shots).
 const REFUSED_KEY = 'tak_RevokedDemoKey00000000001';
@@ -199,6 +202,7 @@ const HOSTS = {
       body: `<div style="font: 600 20px system-ui, sans-serif; margin: 0 0 14px">Home</div>
 <taleart-view zone-key="${REFUSED_KEY}" fallback="message"></taleart-view>`,
     }),
+  '/reaction.html': () => page({ kind: 'reaction' }),
   '/he.html': () =>
     page({
       lang: 'he-IL',
@@ -327,6 +331,56 @@ const ART = {
       <path d="M0 1010 Q240 940 480 1000 T720 980 V1280 H0Z" fill="#38b000"/>
       ${flowers}`);
   },
+  // A festival night: fireworks over a row of houses, the sparks drawn as radial lines.
+  festival: () => {
+    const rnd = seeded(43);
+    const colours = ['#ffd166', '#ef476f', '#06d6a0', '#118ab2', '#ffffff'];
+    const bursts = [
+      [170, 360, 0],
+      [540, 280, 1],
+      [360, 520, 2],
+      [110, 620, 3],
+      [600, 600, 4],
+    ]
+      .map(([cx, cy, b]) =>
+        Array.from({ length: 22 }, (_, i) => {
+          const a = (i / 22) * Math.PI * 2;
+          const r = 60 + rnd() * 46;
+          const x = (cx + Math.cos(a) * r).toFixed(1);
+          const y = (cy + Math.sin(a) * r).toFixed(1);
+          const colour = colours[(b + i) % colours.length];
+          return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="${colour}" stroke-width="4" stroke-linecap="round"/><circle cx="${x}" cy="${y}" r="3" fill="${colour}"/>`;
+        }).join(''),
+      )
+      .join('');
+    const houses = [
+      [0, 980, 92, 300],
+      [84, 930, 112, 350],
+      [188, 1010, 84, 270],
+      [264, 950, 122, 330],
+      [378, 1000, 92, 280],
+      [462, 940, 112, 340],
+      [566, 990, 104, 290],
+    ]
+      .map(([x, y, w, h], k) => {
+        const windows = Array.from({ length: 6 }, (_, i) =>
+          rnd() > 0.35
+            ? `<rect x="${x + 12 + (i % 3) * 26}" y="${y + 24 + Math.floor(i / 3) * 44}" width="14" height="20" fill="#ffd166" opacity=".9"/>`
+            : '',
+        ).join('');
+        return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${k % 2 ? '#24244a' : '#1b1b3a'}"/>${windows}`;
+      })
+      .join('');
+    return svgArt(`
+      <defs>
+        <linearGradient id="night" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#070b1f"/><stop offset=".7" stop-color="#241a4f"/><stop offset="1" stop-color="#4a2160"/>
+        </linearGradient>
+      </defs>
+      <rect width="720" height="1280" fill="url(#night)"/>
+      ${bursts}
+      ${houses}`);
+  },
   // An evening: a night sky with stars, a crescent moon and hills in silhouette.
   evening: () => {
     const rnd = seeded(31);
@@ -436,6 +490,38 @@ function featuresZone() {
     { id: 'g-morning', name: 'Morning', tales: [demoTale('t-morning', 'Morning', 'morning')] },
   ]);
 }
+// The Reaction demo: one tale with a reaction. The counts start from REACTION_SEED; each tap adds one.
+const REACTION_ID = '00000000-0000-4000-8000-0000000000e1';
+const REACTION_SEED = new Map([
+  ['❤️', 128],
+  ['\u{1F602}', 41],
+  ['\u{1F62E}', 17],
+]);
+const REACTION_COUNTS = new Map();
+function reactionZone() {
+  return demoZone('bar', [
+    {
+      id: 'g-tonight',
+      name: 'Tonight',
+      tales: [
+        demoTale('t-fireworks', 'Fireworks', 'festival', [
+          {
+            id: REACTION_ID,
+            type: 'reaction',
+            box: { x: 0.1, y: 0.62, w: 0.8, h: 0.22, rotation: 0 },
+            a11y: {},
+            props: {
+              title: 'Your reaction',
+              question: 'How do you feel?',
+              emojis: [...REACTION_SEED.keys()],
+              theme: 'light',
+            },
+          },
+        ]),
+      ],
+    },
+  ]);
+}
 function frequencyZone() {
   return demoZone('bar', [
     { id: 'g-morning', name: 'Morning', tales: [demoTale('t-morning', 'Morning', 'morning')] },
@@ -445,6 +531,12 @@ function frequencyZone() {
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 async function startServer() {
   const server = createServer(async (req, res) => {
@@ -458,8 +550,21 @@ async function startServer() {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       const kind = Object.keys(KEYS).find((k) => KEYS[k] === key);
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
-      const zone = kind === 'hebrew' ? localisedZone() : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : zoneFor(kind);
+      const zone = kind === 'hebrew' ? localisedZone() : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : zoneFor(kind);
       return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(zone));
+    }
+    if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
+      // The stand-in for a tap: the tapped emoji's count goes up by one, and the answer carries the counts as the API's does.
+      const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+      if (!Object.values(KEYS).includes(key)) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
+      const body = JSON.parse(await readBody(req));
+      const id = `${body.taleId}:${body.elementId}`;
+      const counts = REACTION_COUNTS.get(id) ?? new Map(REACTION_SEED);
+      counts.set(body.value, (counts.get(body.value) ?? 0) + 1);
+      REACTION_COUNTS.set(id, counts);
+      const reactions = [...REACTION_SEED.keys()].map((emoji) => ({ emoji, count: counts.get(emoji) ?? 0 }));
+      const result = { total: reactions.reduce((sum, r) => sum + r.count, 0), reactions };
+      return void res.writeHead(201, JSON_HEADERS).end(JSON.stringify({ elementId: body.elementId, value: body.value, recorded: true, result }));
     }
     const media = /^\/media\/(\w+)\.png$/.exec(url.pathname);
     if (media && MEDIA[media[1]]) return send('image/png', MEDIA[media[1]]);
@@ -490,6 +595,26 @@ async function main() {
         selector,
         { timeout: 15_000 },
       );
+
+    // Reaction: a row of emoji buttons in a tale of its own, before a tap and after one (components 2026-10-29).
+    const reaction = await browser.newContext({ viewport: { width: 390, height: 700 }, deviceScaleFactor: 2, locale: 'en-US' });
+    const visitor = await reaction.newPage();
+    await visitor.goto(`${origin}/reaction.html`);
+    await ready(visitor, 'button.item');
+    await visitor.waitForLoadState('networkidle');
+    await visitor.getByRole('button', { name: 'Tonight' }).click();
+    await visitor.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-reaction-btn'));
+    await visitor.waitForTimeout(900);
+    await visitor.screenshot({ path: join(imagesDir, 'web-shot-reaction.png') });
+    written.push('web-shot-reaction.png');
+
+    // The visitor taps the first emoji: the row then shows each count, with the tapped one pressed.
+    await visitor.locator('taleart-view .ta-reaction-btn').first().click();
+    await visitor.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-reaction-btn[aria-pressed="true"]'));
+    await visitor.waitForTimeout(900);
+    await visitor.screenshot({ path: join(imagesDir, 'web-shot-reaction-answered.png') });
+    written.push('web-shot-reaction-answered.png');
+    if (REACTION_ONLY) return;
 
     // Bar: the zone as a host page places it, cropped to the page's display.
     const desktop = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'en-US' });

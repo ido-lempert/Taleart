@@ -58,7 +58,7 @@ import { RouterLink } from '@angular/router';
 <td>A swipe-up link. At most one per tale.</td>
 </tr>
 <tr>
-<td>Poll, quiz, rating, countdown, promo code</td>
+<td>Poll, quiz, rating, reaction, countdown, promo code</td>
 <td>See <a routerLink="/interactive-components">Interactive components</a>.</td>
 </tr>
 </tbody>

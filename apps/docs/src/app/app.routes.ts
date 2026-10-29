@@ -7,13 +7,6 @@ import { InstallPage } from './pages/install';
 import { MovingPage } from './pages/moving';
 import { NotFoundPage } from './pages/not-found';
 import { TargetingPage } from './pages/targeting';
-import { WebGuidePage } from './pages/web-guide';
-import { WebSdkReferencePage } from './pages/web-sdk-reference';
-import { WebPerformancePage } from './pages/web-performance';
-import { AndroidGuidePage } from './pages/android-guide';
-import { AndroidSdkReferencePage } from './pages/android-sdk-reference';
-import { IosGuidePage } from './pages/ios-guide';
-import { IosSdkReferencePage } from './pages/ios-sdk-reference';
 import { GuidesInstallPage } from './pages/guides-install';
 import { GuidesCreateCampaignPage } from './pages/guides-create-campaign';
 import { GuidesConnectWebsitePage } from './pages/guides-connect-website';
@@ -61,13 +54,13 @@ export const DOCS_PAGES: ReadonlyArray<{ path: string; label: string; title: str
   { path: 'api-tokens', label: 'API tokens', title: 'API tokens', group: 'Developers', component: ApiTokensPage },
   { path: 'api-reference', label: 'API reference', title: 'API reference', group: 'Developers', component: ApiReferencePage },
   { path: 'cli', label: 'Command-line tool', title: 'Command-line tool', group: 'Developers', component: CliPage },
-  { path: 'guides/web', label: 'Web guide', title: 'Web guide', group: 'Developers', component: WebGuidePage },
-  { path: 'android-guide', label: 'Android guide', title: 'Android guide', group: 'Developers', component: AndroidGuidePage },
-  { path: 'ios-guide', label: 'iOS guide', title: 'iOS guide', group: 'Developers', component: IosGuidePage },
-  { path: 'reference/web-sdk', label: 'Web SDK reference', title: 'Web SDK reference', group: 'Developers', component: WebSdkReferencePage },
-  { path: 'reference/performance', label: 'Performance', title: 'Performance', group: 'Developers', component: WebPerformancePage },
-  { path: 'reference/android-sdk', label: 'Android SDK reference', title: 'Android SDK reference', group: 'Developers', component: AndroidSdkReferencePage },
-  { path: 'reference/ios-sdk', label: 'iOS SDK reference', title: 'iOS SDK reference', group: 'Developers', component: IosSdkReferencePage },
+  { path: 'guides/web', label: 'Web guide', title: 'Web guide', group: 'Developers', loadComponent: () => import('./pages/web-guide').then((m) => m.WebGuidePage) },
+  { path: 'android-guide', label: 'Android guide', title: 'Android guide', group: 'Developers', loadComponent: () => import('./pages/android-guide').then((m) => m.AndroidGuidePage) },
+  { path: 'ios-guide', label: 'iOS guide', title: 'iOS guide', group: 'Developers', loadComponent: () => import('./pages/ios-guide').then((m) => m.IosGuidePage) },
+  { path: 'reference/web-sdk', label: 'Web SDK reference', title: 'Web SDK reference', group: 'Developers', loadComponent: () => import('./pages/web-sdk-reference').then((m) => m.WebSdkReferencePage) },
+  { path: 'reference/performance', label: 'Performance', title: 'Performance', group: 'Developers', loadComponent: () => import('./pages/web-performance').then((m) => m.WebPerformancePage) },
+  { path: 'reference/android-sdk', label: 'Android SDK reference', title: 'Android SDK reference', group: 'Developers', loadComponent: () => import('./pages/android-sdk-reference').then((m) => m.AndroidSdkReferencePage) },
+  { path: 'reference/ios-sdk', label: 'iOS SDK reference', title: 'iOS SDK reference', group: 'Developers', loadComponent: () => import('./pages/ios-sdk-reference').then((m) => m.IosSdkReferencePage) },
   {
     path: 'ai-agents',
     label: 'AI agents',

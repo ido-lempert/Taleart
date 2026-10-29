@@ -103,11 +103,20 @@ describe('docs app', () => {
     }
   });
 
-  it('loads AI agents, with the skill text, only on demand', () => {
+  it('loads AI agents, with the skill text, and the SDK guides and references only on demand', () => {
     const page = DOCS_PAGES.find((p) => p.path === 'ai-agents');
     expect(page?.loadComponent).toBeDefined();
     expect(page?.component).toBeUndefined();
-    expect(DOCS_PAGES.filter((p) => p.loadComponent).map((p) => p.path)).toEqual(['ai-agents']);
+    expect(DOCS_PAGES.filter((p) => p.loadComponent).map((p) => p.path)).toEqual([
+      'guides/web',
+      'android-guide',
+      'ios-guide',
+      'reference/web-sdk',
+      'reference/performance',
+      'reference/android-sdk',
+      'reference/ios-sdk',
+      'ai-agents',
+    ]);
   });
 
   it('links AI agents from API tokens and API reference', async () => {

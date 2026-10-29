@@ -10,8 +10,11 @@
 // Usage (after `pnpm nx run api:build` and `pnpm nx run dashboard:build:development`):
 //   E2E_DATABASE_URL=postgres://user@localhost:5432/<name>_e2e_test node apps/docs/scripts/studio-shots.mjs
 // The name must end in _e2e_test and must differ from TEST_DATABASE_URL and DATABASE_URL.
+// With --reaction, the palette and the Reaction shots are written (studio-shot-palette, studio-shot-reaction-*): the
+// reaction is published, its group live, and answered through the Delivery API; the countdown and promo-code shots are
+// not written. E2E_API_PORT and E2E_DASHBOARD_PORT pick other ports when the defaults are in use.
 import { spawn } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
 import { mkdir } from 'node:fs/promises';
@@ -52,6 +55,7 @@ function serveDashboard() {
 }
 
 const database = e2eDatabase(process.env); // throws for a name that is not a throwaway one
+const REACTION = process.argv.includes('--reaction');
 
 // A child process of its own group, so the whole tree can be stopped.
 function start(command, args, env, cwd = root) {
@@ -178,24 +182,70 @@ async function main() {
     await palette.getByRole('group', { name: 'Interactive' }).scrollIntoViewIfNeeded();
     await shot('studio-shot-palette', palette);
 
-    // The countdown: added from its tile, its title typed, then the whole studio and the inspector.
-    await page.locator('#studio-add-countdown').click();
     const inspector = page.locator('#studio-inspector');
-    await inspector.getByLabel('Title', { exact: true }).fill('Sale ends in');
-    await inspector.getByLabel('Text when it ends').fill('The sale is over');
-    await page.waitForTimeout(600);
-    await shot('studio-shot-countdown-studio');
-    await shot('studio-shot-countdown-inspector', inspector);
+    if (REACTION) {
+      // The reaction: added from its tile, its question and title typed, then the studio and the inspector.
+      await page.locator('#studio-add-reaction').click();
+      await inspector.getByLabel('Question', { exact: true }).fill('How do you feel?');
+      await inspector.getByLabel('Title', { exact: true }).fill('Your reaction');
+      await page.waitForTimeout(600);
+      await shot('studio-shot-reaction-studio');
+      await shot('studio-shot-reaction-inspector', inspector);
 
-    // The promo code: the countdown is deleted first, so the two do not overlap on the canvas.
-    await inspector.getByRole('button', { name: 'Delete countdown' }).click();
-    await page.locator('#studio-add-promo-code').click();
-    await inspector.getByLabel('Code', { exact: true }).fill('SUMMER25');
-    await inspector.getByLabel('Title', { exact: true }).fill('Your welcome gift');
-    await inspector.getByLabel('Note', { exact: true }).fill('20% off sandals, until Sunday');
-    await page.waitForTimeout(600);
-    await shot('studio-shot-promo-code-studio');
-    await shot('studio-shot-promo-code-inspector', inspector);
+      // Published with Update tale, its group live, and a zone key: the Delivery API then takes taps. The taps
+      // come from distinct visitors, as a visitor's tap is counted once.
+      await page.locator('#studio-update').click();
+      let published;
+      for (let i = 0; i < 60 && !published?.elements?.some((e) => e.type === 'reaction'); i++) {
+        await page.waitForTimeout(500);
+        published = (await call('get', `/tales/${tale.id}/document`)).published?.document;
+      }
+      const reactionId = published?.elements?.find((e) => e.type === 'reaction')?.id;
+      if (!reactionId) throw new Error('The reaction was not published');
+      await call('put', `/tale-groups/${group.id}/status`, { status: 'live' });
+      const { key } = await call('post', `/zones/${zone.id}/key`, {});
+      const taps = [
+        ['❤️', 14],
+        ['\u{1F602}', 6],
+        ['\u{1F62E}', 2],
+      ];
+      for (const [emoji, count] of taps) {
+        for (let i = 0; i < count; i++) {
+          const res = await fetch(`${apiOrigin}/delivery/v1/responses`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-TaleArt-Visitor': randomUUID() },
+            body: JSON.stringify({ taleId: tale.id, elementId: reactionId, value: emoji, clientAt: new Date().toISOString() }),
+          });
+          if (!res.ok) throw new Error(`POST /delivery/v1/responses: ${res.status} ${await res.text()}`);
+        }
+      }
+
+      // The Responses panel of the inspector, after Refresh: each emoji with its taps.
+      await page.locator('#studio-responses-refresh').click();
+      await page.locator('#studio-responses li').first().waitFor();
+      await page.waitForFunction(() => document.querySelector('#studio-responses-total')?.textContent?.includes('22'));
+      await page.locator('#studio-responses-title').scrollIntoViewIfNeeded();
+      await page.waitForTimeout(600);
+      await shot('studio-shot-reaction-responses', page.locator('section[aria-labelledby="studio-responses-title"]'));
+    } else {
+      // The countdown: added from its tile, its title typed, then the whole studio and the inspector.
+      await page.locator('#studio-add-countdown').click();
+      await inspector.getByLabel('Title', { exact: true }).fill('Sale ends in');
+      await inspector.getByLabel('Text when it ends').fill('The sale is over');
+      await page.waitForTimeout(600);
+      await shot('studio-shot-countdown-studio');
+      await shot('studio-shot-countdown-inspector', inspector);
+
+      // The promo code: the countdown is deleted first, so the two do not overlap on the canvas.
+      await inspector.getByRole('button', { name: 'Delete countdown' }).click();
+      await page.locator('#studio-add-promo-code').click();
+      await inspector.getByLabel('Code', { exact: true }).fill('SUMMER25');
+      await inspector.getByLabel('Title', { exact: true }).fill('Your welcome gift');
+      await inspector.getByLabel('Note', { exact: true }).fill('20% off sandals, until Sunday');
+      await page.waitForTimeout(600);
+      await shot('studio-shot-promo-code-studio');
+      await shot('studio-shot-promo-code-inspector', inspector);
+    }
   } finally {
     if (browser) await browser.close();
     if (dashboard) await new Promise((done) => dashboard.close(done));

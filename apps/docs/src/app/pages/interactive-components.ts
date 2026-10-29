@@ -7,7 +7,7 @@ import { RouterLink } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <h1 tabindex="-1">Interactive components</h1>
-<p>Five elements sit on a tale. Three let a visitor answer: a tale holds at most one of each kind. Two show something the visitor can use: a countdown and a promo code, and a tale may hold several of each.</p>
+<p>Six elements sit on a tale. Four let a visitor answer: a poll, a quiz, a rating and a reaction, and a tale holds at most one of each kind. Two show something the visitor can use: a countdown and a promo code, and a tale may hold several of each.</p>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Interactive components"><table>
 <thead>
 <tr>
@@ -33,6 +33,11 @@ import { RouterLink } from '@angular/router';
 <td>Choose the emoji</td>
 </tr>
 <tr>
+<td>Reaction</td>
+<td>Taps one of 2 to 6 emoji, then sees each emoji's count</td>
+<td>The question and the emoji</td>
+</tr>
+<tr>
 <td>Countdown</td>
 <td>Watches the time left until an instant</td>
 <td>The end time in UTC</td>
@@ -46,8 +51,8 @@ import { RouterLink } from '@angular/router';
 </table></div>
 
 <h2 id="in-tale-studio">In Tale Studio</h2>
-<p>Countdown and promo code are in the <strong>Interactive</strong> group of the Elements palette, with poll, rating and quiz.</p>
-<p><img class="guide-img" src="/images/studio-shot-palette.png" width="223" height="509" alt="The Elements palette's Interactive group: Poll, Rating, Quiz, and in the second row Countdown and Promo code, each with its icon." /></p>
+<p>Countdown, promo code and reaction are in the <strong>Interactive</strong> group of the Elements palette, with poll, rating and quiz.</p>
+<p><img class="guide-img" src="/images/studio-shot-palette.png" width="223" height="509" alt="The Elements palette's Interactive group: Poll, Rating and Quiz in the first row, and in the second row Countdown, Promo code and Reaction, each with its icon." /></p>
 <p>Each one's inspector lists its fields. A countdown's inspector:</p>
 <p><img class="guide-img" src="/images/studio-shot-countdown-inspector.png" width="296" height="509" alt="The inspector of a countdown: Ends at (UTC) with a date and time in ISO 8601 UTC, a title Sale ends in, Text when it ends, the theme and the position and size." /></p>
 <p>A promo code's inspector:</p>
@@ -159,8 +164,72 @@ import { RouterLink } from '@angular/router';
   Use a promo code for an offer that anyone may use, not for a code that must stay private.
 </p>
 
+<h2 id="reaction">Reaction</h2>
+<p>
+  A reaction asks a question over a row of two to six emoji. A visitor taps one, and the tap is posted like a poll vote; then
+  each emoji shows how many taps it has, and the one tapped is pressed. A visitor taps once. A tale holds one reaction, and
+  its counts are shown to every visitor, not only to the one who tapped.
+</p>
+<p>
+  In the studio, a reaction shows its question on the canvas. Its inspector lists the question, the title, the theme and the
+  emoji, in the order they show to a visitor:
+</p>
+<p><img class="guide-img" src="/images/studio-shot-reaction-studio.png" width="1200" height="750" alt="Tale Studio with a reaction on the canvas: its question, How do you feel?, in a box on the purple tale, and the Reaction tile in the Interactive group of the palette greyed, since a tale holds one." /></p>
+<p><img class="guide-img" src="/images/studio-shot-reaction-inspector.png" width="296" height="509" alt="The inspector of a reaction: the question How do you feel?, the title Your reaction, the theme Light, and the start of the Emoji list: a red heart and a face with tears of joy, each with a Choose emoji button." /></p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Reaction props"><table>
+<caption>Reaction props</caption>
+<thead>
+<tr>
+<th scope="col">Prop</th>
+<th scope="col">Type</th>
+<th scope="col">Required</th>
+<th scope="col">Limits</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>question</code></td>
+<td>Text</td>
+<td>Yes</td>
+<td>1 to 200 characters, on one line. The question visitors answer, and the name of the row for assistive technology.</td>
+</tr>
+<tr>
+<td><code>emojis</code></td>
+<td>List of emoji</td>
+<td>Yes</td>
+<td>2 to 6 emoji, all different, each one emoji such as <code>❤️</code> or <code>😂</code>. They show in this order. A tap is counted by its emoji, so an emoji that is kept keeps its count; one that is replaced drops it.</td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td>Text</td>
+<td>No</td>
+<td>1 to 80 characters, on one line. A heading above the question.</td>
+</tr>
+<tr>
+<td><code>theme</code></td>
+<td><code>light</code> or <code>dark</code></td>
+<td>No</td>
+<td>Light (dark text on a light card) when left out.</td>
+</tr>
+</tbody>
+</table></div>
+<p>
+  The SDK's texts for the reaction: <code>reaction.count</code> (Reactions: &#123;count&#125;), which names each emoji's count for
+  assistive technology, and <code>reaction.failed</code> (Your reaction could not be sent. Try again.), shown when a tap is not
+  sent. Change them with <code>strings</code>, as described in the <a routerLink="/reference/web-sdk">Web SDK reference</a>.
+</p>
+<p>
+  An accepted tap reports a component event, <code>selected</code>, with the emoji as its value. See
+  <a routerLink="/guides/web">Listen for component events</a> in the Web guide.
+</p>
+
 <h2 id="results">Results</h2>
 <p>Read the answers through the Management API: <code>GET /tales/&#123;id&#125;/responses</code>. The SDK sends a visitor's answer to <code>POST /delivery/v1/responses</code>.</p>
+<p>
+  In Tale Studio, the inspector of a poll, quiz, rating or reaction has a <strong>Responses</strong> panel. Press
+  <strong>Refresh</strong> to read the counts: for a reaction, each emoji with its taps and the total.
+</p>
+<p><img class="guide-img" src="/images/studio-shot-reaction-responses.png" width="271" height="260" alt="The Responses panel of a reaction after Refresh: a red heart with 14, a face with tears of joy with 6 and a surprised face with 2, and 22 reactions in total." /></p>
 <p>Counts are kept per visitor id (a random id in the browser's local storage), so they are indicative only. The same person on two devices counts twice, and clearing storage resets the count.</p>
 <h2 id="not-in-the-current-source">Not in the current source</h2>
 <p>A dashboard page with charts for answers, and a per-tale analytics view, were not found in the current source.</p>

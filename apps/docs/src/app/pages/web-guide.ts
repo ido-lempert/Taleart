@@ -65,6 +65,17 @@ const COMPONENT_DOM_SAMPLE = `document.querySelector('taleart-view').addEventLis
   console.log(e.detail.component, e.detail.action, e.detail.value);
 });`;
 
+const REACTION_SAMPLE = `import { init } from '${EXAMPLE_INSTALL.sdkUrl}';
+
+init({
+  hooks: {
+    onComponentEvent: (e) => {
+      // A visitor tapped an emoji of a reaction: e.value is the emoji.
+      if (e.component === 'reaction' && e.action === 'selected') analytics.track('reaction', { emoji: e.value, group: e.groupId });
+    },
+  },
+});`;
+
 const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
 <!-- Give the element its height before it renders, so the page does not shift: -->
@@ -80,7 +91,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
     <h1 tabindex="-1">Web guide</h1>
     <p class="lede">
       This guide puts a TaleArt zone on a web page, step by step: the zone key, the script, the element, the options, the
-      hooks, a check on the test page, and four optional steps: a placeholder for a zone that cannot load, a limit on how often a group shows, countdown and promo-code elements, and component events. The full list of attributes, options, strings, hooks and events is in the
+      hooks, a check on the test page, and five optional steps: a placeholder for a zone that cannot load, a limit on how often a group shows, countdown and promo-code elements, component events, and a reaction. The full list of attributes, options, strings, hooks and events is in the
       <a routerLink="/reference/web-sdk">Web SDK reference</a>.
     </p>
 
@@ -339,8 +350,8 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       <li>
         <strong>Listen for component events.</strong> A countdown that ends and a promo code that is copied report a
         component event: the component's type, the action and, for a copy, the code. Set the hook for every element with
-        <code>init</code>, or use the DOM event on one element. Poll, quiz and rating answers report one too, as
-        <code>selected</code>, alongside <code>onUserInteracted</code>.
+        <code>init</code>, or use the DOM event on one element. Poll, quiz, rating and reaction answers report one too, as
+        <code>selected</code>, alongside <code>onUserInteracted</code>; for a reaction, the value is the emoji tapped.
         <pre tabindex="0" role="region" aria-label="Component event hook"><code>{{ componentSample }}</code></pre>
         <pre tabindex="0" role="region" aria-label="Component event DOM event"><code>{{ componentDomSample }}</code></pre>
         <figure>
@@ -352,6 +363,52 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
           />
           <figcaption>
             After Copy, a real screenshot of the SDK: the status reads Copied, and the hook has fired with the code.
+          </figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <strong>Add a reaction.</strong> A reaction asks one question and offers two to six emoji. A visitor taps one, the
+        tap is counted, and then every emoji shows its count. A tale holds one reaction, and every visitor sees the counts.
+        <ol class="substeps">
+          <li>
+            In the tale's studio, add <em>Reaction</em> from the Interactive group of the palette. In the inspector, type
+            the question and an optional title, and choose the emoji: two to six, each different. Every field and its limit
+            is in the <a routerLink="/interactive-components">Interactive components</a> page.
+          </li>
+          <li>
+            Check it in the viewer: after a tap, each emoji shows its count and the tapped one is pressed. A visitor can tap
+            once, and the tap is kept on that device, so a reload shows the same counts.
+          </li>
+          <li>
+            Count the taps: the inspector's <em>Responses</em> panel lists each emoji with its taps (press Refresh), or read
+            them from the Management API, <code>GET /tales/&#123;id&#125;/responses</code>.
+          </li>
+          <li>
+            Listen for a tap: the component event's <code>component</code> is <code>reaction</code>, its action is
+            <code>selected</code>, and its <code>value</code> is the emoji.
+          </li>
+        </ol>
+        <pre tabindex="0" role="region" aria-label="Reaction event hook"><code>{{ reactionSample }}</code></pre>
+        <figure>
+          <img
+            src="/images/web-shot-reaction.png"
+            alt="The viewer at phone size on the Tonight group: a fireworks picture, and a white card with the title Your reaction, the question How do you feel? and three emoji buttons, a red heart, a face with tears of joy and a surprised face, with no counts yet."
+            width="780"
+            height="1400"
+          />
+          <figcaption>A reaction in the viewer before a tap, a real screenshot of the SDK with a sample tale.</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="/images/web-shot-reaction-answered.png"
+            alt="The same card after a tap on the red heart: each emoji shows its count, 129, 41 and 17, and the heart is pressed, marked by a thicker border and a grey background."
+            width="780"
+            height="1400"
+          />
+          <figcaption>
+            After a tap, a real screenshot of the SDK: each emoji shows its count and the tapped heart is pressed. The counts
+            are the sample's.
           </figcaption>
         </figure>
       </li>
@@ -378,4 +435,5 @@ export class WebGuidePage {
   protected readonly frequencySample = FREQUENCY_SAMPLE;
   protected readonly componentSample = COMPONENT_SAMPLE;
   protected readonly componentDomSample = COMPONENT_DOM_SAMPLE;
+  protected readonly reactionSample = REACTION_SAMPLE;
 }

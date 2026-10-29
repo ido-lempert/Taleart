@@ -98,7 +98,7 @@ export interface UserInteractedEvent extends EventBase {
 
 /**
  * What an element of a tale did (components, 2026-10-29): a countdown `ended`, a promo code was `copied`,
- * and a visitor's answer was `selected` (a poll's option, a quiz's answer or a Rating's number).
+ * and a visitor's answer was `selected` (a poll's option, a quiz's answer, a Rating's number or a Reaction's emoji).
  */
 export type ComponentAction = 'ended' | 'copied' | 'selected';
 

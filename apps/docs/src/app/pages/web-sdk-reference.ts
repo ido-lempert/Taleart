@@ -125,7 +125,7 @@ import { RouterLink } from '@angular/router';
     </p>
 
     <p>
-      The props of a tale's elements, such as a countdown's <code>endsAt</code> or a promo code's <code>code</code>, are
+      The props of a tale's elements, such as a countdown's <code>endsAt</code>, a promo code's <code>code</code> or a reaction's <code>emojis</code>, are
       set in Tale Studio, not on this element. Their types and limits are on the
       <a routerLink="/interactive-components">Interactive components</a> page.
     </p>
