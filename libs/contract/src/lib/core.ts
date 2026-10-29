@@ -143,6 +143,7 @@ export * from './targeting';
 export * from './audience';
 export * from './user-lists';
 export * from './external-user-id';
+export * from './analytics';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;

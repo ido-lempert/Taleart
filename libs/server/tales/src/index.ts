@@ -9,6 +9,7 @@ import { clearPublicFontCache } from './lib/project-fonts';
 import * as tales from './lib/tales';
 
 export { migrateTales, migrateShownStatus } from './lib/migration';
+export { zoneTaleTargets, taleTitlesById, type ZoneTaleTargets } from './lib/analytics-targets';
 export {
   listTaleGroups,
   getTaleGroup,

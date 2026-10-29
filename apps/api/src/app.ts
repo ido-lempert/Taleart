@@ -25,6 +25,7 @@ import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import { zoneKeysRouter } from './http/zone-keys.router';
 import { taleResponsesRouter } from './http/responses.router';
+import { zoneAnalyticsRouter } from './http/analytics.router';
 import type { RateLimitOptions } from './http/rate-limit';
 import {
   defaultSdkFiles,
@@ -64,6 +65,8 @@ export interface AppDelivery {
   rateLimit?: RateLimitOptions | null;
   /** The stricter per-visitor limit of `POST /delivery/v1/responses`; its default when left out, off when null. */
   responseRateLimit?: RateLimitOptions | null;
+  /** The stricter per-visitor limit of `POST /delivery/v1/events` (analytics); its default when left out, off when null. */
+  eventRateLimit?: RateLimitOptions | null;
 }
 
 /** Where the API is reached from outside. */
@@ -171,6 +174,7 @@ export function createApp(
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));
   v1.use('/zones', zoneKeysRouter(pool));
+  v1.use('/zones', zoneAnalyticsRouter(pool));
   v1.use('/tale-groups', taleGroupsRouter(pool));
   v1.use('/tale-groups', coversRouter(pool, storage));
   v1.use('/tales', talesRouter(pool, storage));
@@ -184,6 +188,7 @@ export function createApp(
       frameTypes,
       rateLimit: delivery.rateLimit,
       responseRateLimit: delivery.responseRateLimit,
+      eventRateLimit: delivery.eventRateLimit,
     }));
 
   // Published media is public at unguessable URLs (AD-11): no session, no zone or site key.

@@ -77,6 +77,7 @@ import {
   loadFrameTypeRegistry,
   type FrameTypeRegistry,
 } from '@taleart/server-zones';
+import { purgeAnalyticsEvents, visitorHash } from '@taleart/server-analytics';
 import type { Pool, PoolClient } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig, type ProjectMediaOptions, type UserListOptions } from './app';
@@ -386,7 +387,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -15729,6 +15730,435 @@ describe('Management API v1: projects and zones', () => {
     );
   });
 
+  describe('analytics (epic analytics): events and the zone analytics', () => {
+    const VISITOR_A = '11111111-1111-4111-8111-111111111111';
+    const VISITOR_B = '22222222-2222-4222-8222-222222222222';
+    const VISITOR_C = '33333333-3333-4333-8333-333333333333';
+    const VISITOR_D = '44444444-4444-4444-8444-444444444444';
+    const DAY = 24 * 60 * 60 * 1000;
+    const HOUR = 60 * 60 * 1000;
+    const UNAUTHORIZED_BODY = { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } };
+
+    // A zone with a tale group placed in it and a tale in that group, and the zone's key.
+    async function zoneWithTale(name = 'Summer') {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      const key = (await (await post(`/zones/${zone.id}/key`, {})).json()).key as string;
+      return { zone, group, tale, key };
+    }
+
+    // Posts a request to the Delivery API's events, with the zone key as the bearer, the visitor
+    // header and a JSON body (or a beacon's text body when `headers` says so).
+    function sendEvents(key: string | null, body: unknown, visitor: string | null = VISITOR_A, headers: Record<string, string> = {}) {
+      const all: Record<string, string> = { 'Content-Type': 'application/json', ...headers };
+      if (key !== null) all['Authorization'] = `Bearer ${key}`;
+      if (visitor !== null) all['X-TaleArt-Visitor'] = visitor;
+      return globalThis.fetch(`${origin}/delivery/v1/events`, {
+        method: 'POST',
+        headers: all,
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+    }
+
+    // Midnight UTC of today plus `days` and `hour` hours.
+    function utcAt(days: number, hour = 10): string {
+      const now = new Date();
+      const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      return new Date(today + days * DAY + hour * HOUR).toISOString();
+    }
+
+    // Stores events straight in the table, for the metrics: the visitor's hash of the project, as the API stores it.
+    async function seed(
+      projectId: string,
+      zoneId: string,
+      events: { type: string; groupId: string; taleId?: string; visitor: string; at: string }[],
+    ): Promise<void> {
+      for (const event of events) {
+        await pool.query(
+          `INSERT INTO analytics_events (project_id, zone_id, group_id, tale_id, type, visitor_hash, at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [projectId, zoneId, event.groupId, event.taleId ?? null, event.type, visitorHash(projectId, event.visitor), event.at],
+        );
+      }
+    }
+
+    function analytics(zoneId: string, period?: string): Promise<Response> {
+      return fetch(`${base}/zones/${zoneId}/analytics${period === undefined ? '' : `?period=${period}`}`);
+    }
+
+    describe('POST /delivery/v1/events: ingest', () => {
+      it('keeps the valid events of a request and drops the others, answering 202 with both counts', async () => {
+        const { group, tale, key } = await zoneWithTale();
+        const minutesAgo = new Date(Date.now() - 60_000).toISOString();
+        const res = await sendEvents(key, {
+          events: [
+            { type: 'impression', groupId: group.id, at: minutesAgo },
+            { type: 'open', groupId: group.id, at: minutesAgo },
+            { type: 'view', groupId: group.id, taleId: tale.id, at: minutesAgo },
+            { type: 'click', groupId: group.id, taleId: tale.id, at: minutesAgo },
+            // Dropped: an answer is not an event, too old, too far ahead, a view without a tale, a tale on an
+            // impression, a time with an offset instead of Z, and a field the spec does not name.
+            { type: 'answer', groupId: group.id, at: minutesAgo },
+            { type: 'impression', groupId: group.id, at: new Date(Date.now() - 8 * DAY).toISOString() },
+            { type: 'impression', groupId: group.id, at: new Date(Date.now() + 2 * HOUR).toISOString() },
+            { type: 'view', groupId: group.id, at: minutesAgo },
+            { type: 'impression', groupId: group.id, taleId: tale.id, at: minutesAgo },
+            { type: 'impression', groupId: group.id, at: '2026-10-29T10:00:00+02:00' },
+            { type: 'impression', groupId: group.id, at: minutesAgo, ip: '203.0.113.7' },
+          ],
+        });
+        expect(res.status).toBe(202);
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        expect(await res.json()).toEqual({ accepted: 4, dropped: 7 });
+        const stored = await pool.query<{ type: string }>('SELECT type FROM analytics_events ORDER BY id');
+        expect(stored.rows.map((row) => row.type)).toEqual(['impression', 'open', 'view', 'click']);
+      });
+
+      it('accepts up to 50 events a request and refuses more with 400', async () => {
+        const { group, key } = await zoneWithTale();
+        const at = new Date(Date.now() - 1000).toISOString();
+        const event = { type: 'impression', groupId: group.id, at };
+        expect((await (await sendEvents(key, { events: Array(50).fill(event) })).json()).accepted).toBe(50);
+        const tooMany = await sendEvents(key, { events: Array(51).fill(event) });
+        expect(tooMany.status).toBe(400);
+        expect((await tooMany.json()).error.code).toBe('validation_failed');
+      });
+
+      it('refuses a body that is not an object with an events list, or has a field the spec does not name', async () => {
+        const { key } = await zoneWithTale();
+        for (const body of [[], {}, { events: 'impression' }, { events: [], extra: 1 }]) {
+          const res = await sendEvents(key, body);
+          expect(res.status).toBe(400);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+      });
+
+      it('answers 400 visitor_id_required without a valid visitor id', async () => {
+        const { group, key } = await zoneWithTale();
+        const body = { events: [{ type: 'impression', groupId: group.id, at: utcAt(0, 0) }] };
+        for (const visitor of [null, 'not-a-uuid', '11111111-1111-4111-8111-11111111111G']) {
+          const res = await sendEvents(key, body, visitor);
+          expect(res.status).toBe(400);
+          expect((await res.json()).error.code).toBe('visitor_id_required');
+        }
+      });
+
+      it('drops events naming a group or tale the key\'s zone does not hold, and keeps the others', async () => {
+        const { zone, group, key } = await zoneWithTale();
+        // Another zone of the same project, with its own group and tale.
+        const second = await (await post('/zones', { name: 'Second', projectId: zone.projectId })).json();
+        const otherGroup = await (await post(`/zones/${second.id}/tale-groups`, { name: 'Other' })).json();
+        const otherTale = await (await post(`/tale-groups/${otherGroup.id}/tales`, { title: 'Elsewhere' })).json();
+        // A group and tale of another project.
+        const foreign = await zoneWithTale('Foreign');
+        const at = new Date(Date.now() - 1000).toISOString();
+        const res = await sendEvents(key, {
+          events: [
+            { type: 'impression', groupId: otherGroup.id, at },
+            { type: 'view', groupId: otherGroup.id, taleId: otherTale.id, at },
+            { type: 'view', groupId: group.id, taleId: otherTale.id, at },
+            { type: 'impression', groupId: foreign.group.id, at },
+            { type: 'click', groupId: foreign.group.id, taleId: foreign.tale.id, at },
+            { type: 'impression', groupId: group.id, at },
+          ],
+        });
+        expect(await res.json()).toEqual({ accepted: 1, dropped: 5 });
+      });
+
+      it('accepts the zone key in the body for a beacon, with the visitor id in the body, as text', async () => {
+        const { group, key } = await zoneWithTale();
+        const body = JSON.stringify({ key, visitor: VISITOR_A, events: [{ type: 'impression', groupId: group.id, at: utcAt(0, 0) }] });
+        const res = await sendEvents(null, body, null, { 'Content-Type': 'text/plain;charset=UTF-8' });
+        expect(res.status).toBe(202);
+        expect(await res.json()).toEqual({ accepted: 1, dropped: 0 });
+        expect((await pool.query('SELECT count(*)::int AS n FROM analytics_events')).rows[0].n).toBe(1);
+      });
+
+      it('refuses a site key on this endpoint, in the header or the body, with the same 401 as every refusal', async () => {
+        const { zone, group } = await zoneWithTale();
+        const siteKey = (await (await post(`/projects/${zone.projectId}/site-key`, {})).json()).key as string;
+        const event = { type: 'impression', groupId: group.id, at: utcAt(0, 0) };
+        const header = await sendEvents(siteKey, { events: [event] });
+        expect(header.status).toBe(401);
+        expect(await header.json()).toEqual(UNAUTHORIZED_BODY);
+        const beacon = await sendEvents(null, { key: siteKey, visitor: VISITOR_A, events: [event] }, null, { 'Content-Type': 'text/plain' });
+        expect(beacon.status).toBe(401);
+        expect(await beacon.json()).toEqual(UNAUTHORIZED_BODY);
+      });
+
+      it('answers a revoked, unknown or missing key with the same 401 body, never kept, and never echoing the key', async () => {
+        const { zone, group, key } = await zoneWithTale();
+        const event = { type: 'impression', groupId: group.id, at: utcAt(0, 0) };
+        const unknown = await sendEvents('tak_not-a-key-at-all', { events: [event] });
+        const missing = await sendEvents(null, { events: [event] });
+        expect(missing.status).toBe(401);
+        expect(unknown.status).toBe(401);
+        expect(unknown.headers.get('www-authenticate')).toBe('Bearer');
+        expect(unknown.headers.get('cache-control')).toBe('no-store');
+        expect(await unknown.json()).toEqual(UNAUTHORIZED_BODY);
+        expect(await missing.json()).toEqual(UNAUTHORIZED_BODY);
+        expect((await fetch(`${base}/zones/${zone.id}/key`, { method: 'DELETE' })).status).toBe(204);
+        const revoked = await sendEvents(key, { events: [event] });
+        expect(revoked.status).toBe(401);
+        const text = await revoked.text();
+        expect(JSON.parse(text)).toEqual(UNAUTHORIZED_BODY);
+        expect(text).not.toContain(key);
+        expect((await pool.query('SELECT count(*)::int AS n FROM analytics_events')).rows[0].n).toBe(0);
+      });
+
+      it('stores the visitor as the hash of the project, and the raw id nowhere', async () => {
+        const { zone, group, key } = await zoneWithTale();
+        const res = await sendEvents(key, { events: [{ type: 'impression', groupId: group.id, at: utcAt(0, 0) }] }, VISITOR_A);
+        expect(res.status).toBe(202);
+        const { rows } = await pool.query('SELECT * FROM analytics_events');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].visitor_hash).toBe(createHash('sha256').update(`${zone.projectId}:${VISITOR_A}`).digest('hex'));
+        expect(JSON.stringify(rows)).not.toContain(VISITOR_A);
+        const columns = (
+          await pool.query<{ column_name: string }>(
+            `SELECT column_name FROM information_schema.columns WHERE table_name = 'analytics_events' ORDER BY column_name`,
+          )
+        ).rows.map((row) => row.column_name);
+        expect(columns).toEqual(['at', 'group_id', 'id', 'project_id', 'received_at', 'tale_id', 'type', 'visitor_hash', 'zone_id']);
+      });
+
+      it('limits events per visitor more strictly than reads, and gives each visitor its own allowance', async () => {
+        const limited = createApp(
+          pool,
+          loadFrameTypeRegistry(frameTypesDir),
+          new LocalDiskStorage(mediaDir),
+          { verifier: fakeVerifier },
+          { publicApiUrl },
+          undefined,
+          undefined,
+          { rateLimit: { burst: 100, perSecond: 1 }, eventRateLimit: { burst: 2, perSecond: 0.01 } },
+        ).listen(0);
+        await new Promise<void>((resolve) => limited.once('listening', () => resolve()));
+        try {
+          const { group, key } = await zoneWithTale();
+          const url = `http://127.0.0.1:${(limited.address() as AddressInfo).port}`;
+          const event = { type: 'impression', groupId: group.id, at: utcAt(0, 0) };
+          const send = (visitor: string) =>
+            globalThis.fetch(`${url}/delivery/v1/events`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-TaleArt-Visitor': visitor },
+              body: JSON.stringify({ events: [event] }),
+            });
+          expect((await send(VISITOR_A)).status).toBe(202);
+          expect((await send(VISITOR_A)).status).toBe(202);
+          const third = await send(VISITOR_A);
+          expect(third.status).toBe(429);
+          expect((await third.json()).error.code).toBe('rate_limited');
+          expect(third.headers.get('retry-after')).toMatch(/^\d+$/);
+          expect((await send(VISITOR_B)).status).toBe(202);
+          const zone = await globalThis.fetch(`${url}/delivery/v1/zone`, {
+            headers: { Authorization: `Bearer ${key}`, 'X-TaleArt-Visitor': VISITOR_A },
+          });
+          expect(zone.status).toBe(200);
+        } finally {
+          await new Promise<void>((resolve) => limited.close(() => resolve()));
+        }
+      });
+
+      it('answers the Delivery preflight with POST and the visitor header', async () => {
+        const res = await globalThis.fetch(`${origin}/delivery/v1/events`, {
+          method: 'OPTIONS',
+          headers: { Origin: 'https://shop.example', 'Access-Control-Request-Method': 'POST' },
+        });
+        expect(res.status).toBe(204);
+        expect(res.headers.get('access-control-allow-methods')).toContain('POST');
+        expect(res.headers.get('access-control-allow-headers')).toContain('X-TaleArt-Visitor');
+      });
+    });
+
+    describe('GET /api/v1/zones/{zoneId}/analytics', () => {
+      // Seeds the metrics dataset: two groups (Summer, Winter) placed in one zone, with a tale each.
+      async function seeded() {
+        const { zone, group: summer, tale: beach } = await zoneWithTale('Summer');
+        const winter = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Winter' })).json();
+        const snow = await (await post(`/tale-groups/${winter.id}/tales`, { title: 'Snow' })).json();
+        await seed(zone.projectId, zone.id, [
+          { type: 'impression', groupId: summer.id, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          { type: 'impression', groupId: summer.id, visitor: VISITOR_B, at: utcAt(-1, 9) },
+          { type: 'open', groupId: summer.id, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          { type: 'view', groupId: summer.id, taleId: beach.id, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          { type: 'view', groupId: summer.id, taleId: beach.id, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          { type: 'click', groupId: summer.id, taleId: beach.id, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          { type: 'impression', groupId: winter.id, visitor: VISITOR_A, at: utcAt(0, 0) },
+          { type: 'impression', groupId: winter.id, visitor: VISITOR_C, at: utcAt(0, 0) },
+          { type: 'open', groupId: winter.id, visitor: VISITOR_C, at: utcAt(0, 0) },
+          { type: 'view', groupId: winter.id, taleId: snow.id, visitor: VISITOR_B, at: utcAt(0, 0) },
+        ]);
+        return { zone, summer, winter, beach, snow };
+      }
+
+      it('computes the totals, reach distinct per row, the rates and the rows of the published definitions', async () => {
+        const { zone, summer, winter, beach, snow } = await seeded();
+        const body = await (await analytics(zone.id, '7d')).json();
+        expect(body.period).toBe('7d');
+        expect(body.totals).toEqual({
+          impressions: 4,
+          // Visitors A, B and C.
+          reach: 3,
+          opens: 2,
+          taleViews: 3,
+          clicks: 1,
+          // Visitors A and C had an impression and an open (2 of 3 reached): 66.7 percent. One click of 3 views: 33.3 percent.
+          engagementRate: 66.7,
+          ctr: 33.3,
+        });
+        expect(body.groups).toEqual([
+          {
+            groupId: summer.id,
+            name: 'Summer',
+            impressions: 2,
+            reach: 2,
+            opens: 1,
+            taleViews: 2,
+            clicks: 1,
+            engagementRate: 50,
+            ctr: 50,
+          },
+          {
+            groupId: winter.id,
+            name: 'Winter',
+            impressions: 2,
+            reach: 2,
+            opens: 1,
+            taleViews: 1,
+            clicks: 0,
+            engagementRate: 50,
+            ctr: 0,
+          },
+        ]);
+        // Reach is not summed: the two groups reach 2 each (4), the zone 3 distinct visitors.
+        expect(body.groups.reduce((sum: number, row: { reach: number }) => sum + row.reach, 0)).toBe(4);
+        expect(body.tales).toEqual([
+          {
+            taleId: beach.id,
+            name: 'Beach',
+            groupId: summer.id,
+            impressions: null,
+            reach: null,
+            opens: null,
+            taleViews: 2,
+            clicks: 1,
+            engagementRate: null,
+            ctr: 50,
+          },
+          {
+            taleId: snow.id,
+            name: 'Snow',
+            groupId: winter.id,
+            impressions: null,
+            reach: null,
+            opens: null,
+            taleViews: 1,
+            clicks: 0,
+            engagementRate: null,
+            ctr: 0,
+          },
+        ]);
+        expect(body.daily).toHaveLength(7);
+        expect(body.daily[5]).toEqual({ date: utcAt(-1).slice(0, 10), impressions: 2, clicks: 1, opens: 1, taleViews: 2 });
+        expect(body.daily[6]).toEqual({ date: utcAt(0).slice(0, 10), impressions: 2, clicks: 0, opens: 1, taleViews: 1 });
+        expect(body.daily[0]).toEqual({ date: body.daily[0].date, impressions: 0, clicks: 0, opens: 0, taleViews: 0 });
+        expect((await analytics(zone.id, '7d')).headers.get('cache-control')).toBe('no-store');
+      });
+
+      it('counts only the period: 7 days leaves out an older event, 30 days takes it, 90 days leaves out the oldest', async () => {
+        const { zone, summer } = await seeded();
+        await seed(zone.projectId, zone.id, [
+          { type: 'impression', groupId: summer.id, visitor: VISITOR_D, at: utcAt(-10, 9) },
+          { type: 'impression', groupId: summer.id, visitor: VISITOR_D, at: utcAt(-95, 9) },
+        ]);
+        expect((await (await analytics(zone.id, '7d')).json()).totals.impressions).toBe(4);
+        const thirty = await (await analytics(zone.id, '30d')).json();
+        expect(thirty.totals.impressions).toBe(5);
+        expect(thirty.totals.reach).toBe(4);
+        expect(thirty.daily).toHaveLength(30);
+        const ninety = await (await analytics(zone.id, '90d')).json();
+        expect(ninety.totals.impressions).toBe(5);
+        expect(ninety.daily).toHaveLength(90);
+      });
+
+      it('answers 0 for a zero denominator: no reach, no views, and no events at all', async () => {
+        const opensOnly = await createZone();
+        await seed(opensOnly.projectId, opensOnly.id, [
+          { type: 'open', groupId: '00000000-0000-4000-8000-0000000000c1', visitor: VISITOR_A, at: utcAt(0, 0) },
+        ]);
+        const opened = await (await analytics(opensOnly.id)).json();
+        expect(opened.totals).toEqual({ impressions: 0, reach: 0, opens: 1, taleViews: 0, clicks: 0, engagementRate: 0, ctr: 0 });
+        // No period named: the 30-day default.
+        expect(opened.period).toBe('30d');
+        const fresh = await createZone();
+        const none = await (await analytics(fresh.id, '7d')).json();
+        expect(none.totals).toEqual({ impressions: 0, reach: 0, opens: 0, taleViews: 0, clicks: 0, engagementRate: 0, ctr: 0 });
+        expect(none.groups).toEqual([]);
+        expect(none.tales).toEqual([]);
+      });
+
+      it('counts an engaged visitor only with an impression and an open, so the rate never passes 100', async () => {
+        const group = '00000000-0000-4000-8000-0000000000d1';
+        const reached = await createZone();
+        await seed(reached.projectId, reached.id, [
+          { type: 'impression', groupId: group, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          { type: 'open', groupId: group, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          // Opened without an impression in the period: an open, but not engaged.
+          { type: 'open', groupId: group, visitor: VISITOR_B, at: utcAt(0, 9) },
+          { type: 'open', groupId: group, visitor: VISITOR_C, at: utcAt(0, 9) },
+        ]);
+        const body = await (await analytics(reached.id, '7d')).json();
+        expect(body.totals.reach).toBe(1);
+        expect(body.totals.opens).toBe(3);
+        expect(body.totals.engagementRate).toBe(100);
+        expect(body.totals.engagementRate).toBeLessThanOrEqual(100);
+        expect(body.groups[0]).toMatchObject({ reach: 1, engagementRate: 100 });
+
+        // Reached but never opened in the period: 0, whatever opened on other visitors' days.
+        const idle = await createZone();
+        await seed(idle.projectId, idle.id, [
+          { type: 'impression', groupId: group, visitor: VISITOR_A, at: utcAt(-1, 9) },
+          { type: 'open', groupId: group, visitor: VISITOR_B, at: utcAt(0, 9) },
+        ]);
+        const quiet = await (await analytics(idle.id, '7d')).json();
+        expect(quiet.totals).toMatchObject({ reach: 1, opens: 1, engagementRate: 0 });
+      });
+
+      it('answers 400 for another period, 404 for an unknown zone and for a zone of a project the caller cannot access', async () => {
+        const { zone } = await seeded();
+        const badPeriod = await analytics(zone.id, '365d');
+        expect(badPeriod.status).toBe(400);
+        expect((await badPeriod.json()).error.code).toBe('validation_failed');
+        expect((await analytics('00000000-0000-4000-8000-000000000000')).status).toBe(404);
+        const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+        const other = sessionCookie;
+        sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+        const res = await analytics(zone.id);
+        expect(res.status).toBe(404);
+        expect((await res.json()).error.code).toBe('zone_not_found');
+        sessionCookie = other;
+      });
+
+      it('needs a session', async () => {
+        const { zone } = await seeded();
+        const res = await globalThis.fetch(`${base}/zones/${zone.id}/analytics`);
+        expect(res.status).toBe(401);
+      });
+
+      it('deletes raw events older than 400 days, and keeps newer ones', async () => {
+        const { zone, summer } = await seeded();
+        await seed(zone.projectId, zone.id, [
+          { type: 'impression', groupId: summer.id, visitor: VISITOR_D, at: new Date(Date.now() - 401 * DAY).toISOString() },
+          { type: 'impression', groupId: summer.id, visitor: VISITOR_D, at: new Date(Date.now() - 399 * DAY).toISOString() },
+        ]);
+        expect(await purgeAnalyticsEvents(pool)).toBe(1);
+        expect((await pool.query('SELECT count(*)::int AS n FROM analytics_events')).rows[0].n).toBe(11);
+      });
+    });
+  });
+
   describe('auth', () => {
     // A minimal cookie jar: the cookies the API set, sent back as the browser would.
     let jar: Record<string, string>;
@@ -15790,7 +16220,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, zone_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, users',
+        'TRUNCATE analytics_events, import_records, import_media, import_links, import_jobs, site_keys, zone_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, users',
       );
     });
 

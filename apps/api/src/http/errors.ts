@@ -77,6 +77,20 @@ export function errorBody(code: ErrorCode, message: string, pointer?: string): E
   return { error: pointer === undefined ? { code, message } : { code, message, pointer } };
 }
 
+// One message for every refusal of a Delivery API key (epic UX rework R3): a missing, unknown or
+// revoked key and a missing or unknown slug answer alike, so a caller cannot tell a slug from a key.
+export const INVALID_SITE_KEY_MESSAGE = 'A valid site key and zone are required';
+
+/**
+ * Answers the 401 of a refused Delivery API key: the same body for every refusal, never kept by a
+ * browser or a shared cache.
+ */
+export function refuseInvalidSiteKey(res: express.Response): void {
+  res.setHeader('WWW-Authenticate', 'Bearer');
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(401).json(errorBody(ErrorCodes.invalidSiteKey, INVALID_SITE_KEY_MESSAGE));
+}
+
 /** Responds 404 with the standard body for any route nothing else handled. */
 export const notFoundHandler: express.RequestHandler = (req, res) => {
   res.status(404).json(errorBody(ErrorCodes.notFound, `No route for ${req.method} ${req.path}`));

@@ -9,6 +9,8 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
+import { purgeAnalyticsEvents } from '@taleart/server-analytics';
+import { ANALYTICS_RETENTION_DAYS } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import {
   continueTaleMediaMigration,
@@ -186,6 +188,17 @@ async function start(): Promise<void> {
   continueTaleMediaMigration(pool, { signal: continuation.signal, log, poolMax: databasePoolMax() }).catch((err) =>
     log('error', 'tale media migration failed', err),
   );
+
+  // Raw analytics events older than ANALYTICS_RETENTION_DAYS (400) are deleted at start and then
+  // once a day (analytics spec, retention). A missed run only keeps events a little longer.
+  const purgeAnalytics = () =>
+    purgeAnalyticsEvents(pool, ANALYTICS_RETENTION_DAYS)
+      .then((deleted) => {
+        if (deleted > 0) log('info', `Deleted ${deleted} analytics event(s) older than ${ANALYTICS_RETENTION_DAYS} days`);
+      })
+      .catch((err) => log('error', 'analytics retention failed', err));
+  void purgeAnalytics();
+  setInterval(purgeAnalytics, 24 * 60 * 60 * 1000).unref();
 
   // On shutdown the API stops taking requests first, then the worker gets up
   // to SHUTDOWN_DEADLINE_MS to finish the job in progress. A job cut off by the

@@ -1851,6 +1851,60 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /zones/{zoneId}/analytics:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - Zones
+      operationId: getZoneAnalytics
+      summary: A zone's analytics (totals, a daily series, rows per tale group and per tale).
+      description: >-
+        The published metric definitions (the docs' `/reference/analytics`
+        page says the same). Periods are the last 7, 30 or 90 UTC days, today
+        included: the series has one entry per day of the period, and
+        days without events are zero. Impressions: the number of `impression`
+        events. Reach: the distinct anonymous visitors with at least one
+        impression in the period. Opens: the number of `open` events. Tale
+        views: the number of `view` events. Clicks: the number of `click`
+        events. Engagement rate: the engaged visitors, those with at least one
+        impression and at least one open in the period, as a percentage of
+        Reach, one decimal; 0 when Reach is 0. Engaged visitors are part of
+        Reach, so the rate never exceeds 100 percent. CTR: Clicks as a
+        percentage of Tale views, one decimal; 0 when there are no views.
+        Reach is counted distinct per row (per total, per group, per tale), so
+        the Reach of a total is not the sum of its rows. Tale rows carry the
+        tale views and clicks only: impressions and opens name a group, not a
+        tale, so their tale fields are null. Only events of the zone count.
+        Any member with access to the zone's project may read it. A zone of a
+        project the caller cannot access answers 404 `zone_not_found`, as does
+        an unknown zone. Answers are `Cache-Control: no-store`.
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: 'The period: last 7, 30 or 90 days. Defaults to 30d.'
+          schema:
+            $ref: '#/components/schemas/AnalyticsPeriod'
+      responses:
+        '200':
+          description: The zone's analytics for the period.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneAnalytics'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /zone:
     servers:
       - url: /delivery/v1
@@ -3278,6 +3332,70 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
         '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /events:
+    servers:
+      - url: /delivery/v1
+        description: Delivery API, for SDKs. Accepts zone keys only.
+    post:
+      tags:
+        - Delivery
+      operationId: postDeliveryEvents
+      summary: Record the analytics events of a zone's viewers (Delivery API).
+      description: >-
+        Served under `/delivery/v1`. Accepts only a zone key (`tak_...`), in
+        `Authorization: Bearer <key>`, or, for `navigator.sendBeacon` (which
+        cannot set headers), in the `key` field of the JSON body; a site key
+        is refused. A refused key, revoked or unknown, answers the same 401
+        `invalid_site_key` as every Delivery request. The visitor id is the
+        `X-TaleArt-Visitor` header; a beacon, which cannot set it, sends it
+        in the `visitor` field of the body. A missing or invalid visitor id
+        answers 400 `visitor_id_required`. Each request carries at most 50
+        events (more answers 400 `validation_failed`). An event is kept when
+        its type is one of `impression`, `open`, `view` and `click`, its
+        `groupId` (and, for `view` and `click`, its `taleId`, which the other
+        types must not carry) names a tale group placed in the key's zone (and
+        a tale of that group), and its `at` is an ISO 8601 UTC time (ending in
+        `Z`) not older than 7 days nor more than 1 hour ahead. Any other event
+        is dropped and counted. Only the visitor's id as a hash, the zone and
+        the ids, the type and the time are stored; no IP address, user agent
+        or external user ID. Answers 202 with the counts. Rate limited per
+        visitor, more strictly than reads (by default 30 at once and 0.5 per
+        second), with the same 429 `rate_limited`.
+      security:
+        - zoneKey: []
+      parameters:
+        - name: X-TaleArt-Visitor
+          in: header
+          required: false
+          description: >-
+            The visitor id: a random UUID v4 the SDK keeps on the device, all in
+            lowercase or all in uppercase. Required unless the body carries `visitor`.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyticsEventsRequest'
+      responses:
+        '202':
+          description: The events were handled; the counts of kept and dropped events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsAccepted'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '413':
           $ref: '#/components/responses/Error'
         '429':
           $ref: '#/components/responses/Error'
@@ -4817,6 +4935,190 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ElementResponseCounts'
+    AnalyticsPeriod:
+      type: string
+      enum: ['7d', '30d', '90d']
+    AnalyticsEventType:
+      type: string
+      enum: [impression, open, view, click]
+    AnalyticsEventsRequest:
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/AnalyticsEvent'
+        key:
+          type: string
+          description: The zone key, for a beacon that cannot send the Authorization header. Accepted only here.
+        visitor:
+          type: string
+          format: uuid
+          description: The visitor id, for a beacon that cannot send the X-TaleArt-Visitor header.
+    AnalyticsEvent:
+      type: object
+      required: [type, groupId, at]
+      properties:
+        type:
+          $ref: '#/components/schemas/AnalyticsEventType'
+        groupId:
+          type: string
+          format: uuid
+        taleId:
+          type: string
+          format: uuid
+          description: Required for `view` and `click`; not sent with `impression` or `open`.
+        at:
+          type: string
+          format: date-time
+          description: When the event happened, an ISO 8601 UTC time ending in `Z`.
+    AnalyticsAccepted:
+      type: object
+      required: [accepted, dropped]
+      properties:
+        accepted:
+          type: integer
+          minimum: 0
+        dropped:
+          type: integer
+          minimum: 0
+    AnalyticsTotals:
+      type: object
+      required: [impressions, reach, opens, taleViews, clicks, engagementRate, ctr]
+      properties:
+        impressions:
+          type: integer
+          minimum: 0
+        reach:
+          type: integer
+          minimum: 0
+          description: Distinct visitors with at least one impression, counted per row.
+        opens:
+          type: integer
+          minimum: 0
+        taleViews:
+          type: integer
+          minimum: 0
+        clicks:
+          type: integer
+          minimum: 0
+        engagementRate:
+          type: number
+          minimum: 0
+          description: Visitors with at least one impression and at least one open, as a percentage of Reach, one decimal; 0 when Reach is 0. Never above 100.
+        ctr:
+          type: number
+          minimum: 0
+          description: Clicks as a percentage of tale views, one decimal; 0 when there are no views.
+    AnalyticsDay:
+      type: object
+      required: [date, impressions, clicks, opens, taleViews]
+      properties:
+        date:
+          type: string
+          format: date
+          description: A UTC day.
+        impressions:
+          type: integer
+          minimum: 0
+        clicks:
+          type: integer
+          minimum: 0
+        opens:
+          type: integer
+          minimum: 0
+        taleViews:
+          type: integer
+          minimum: 0
+    AnalyticsGroupRow:
+      type: object
+      description: A tale group's metrics, the totals' definitions per group.
+      required: [groupId, name, impressions, reach, opens, taleViews, clicks, engagementRate, ctr]
+      properties:
+        groupId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        impressions:
+          type: integer
+          minimum: 0
+        reach:
+          type: integer
+          minimum: 0
+        opens:
+          type: integer
+          minimum: 0
+        taleViews:
+          type: integer
+          minimum: 0
+        clicks:
+          type: integer
+          minimum: 0
+        engagementRate:
+          type: number
+          minimum: 0
+        ctr:
+          type: number
+          minimum: 0
+    AnalyticsTaleRow:
+      type: object
+      description: >-
+        A tale's metrics. Impressions, reach, opens and the engagement rate
+        name a group, not a tale, so they are null here.
+      required: [taleId, name, groupId, impressions, reach, opens, taleViews, clicks, engagementRate, ctr]
+      properties:
+        taleId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        groupId:
+          type: string
+          format: uuid
+        impressions:
+          type: 'null'
+        reach:
+          type: 'null'
+        opens:
+          type: 'null'
+        taleViews:
+          type: integer
+          minimum: 0
+        clicks:
+          type: integer
+          minimum: 0
+        engagementRate:
+          type: 'null'
+        ctr:
+          type: number
+          minimum: 0
+    ZoneAnalytics:
+      type: object
+      required: [period, totals, daily, groups, tales]
+      properties:
+        period:
+          $ref: '#/components/schemas/AnalyticsPeriod'
+        totals:
+          $ref: '#/components/schemas/AnalyticsTotals'
+        daily:
+          type: array
+          description: One entry per UTC day of the period, oldest first.
+          items:
+            $ref: '#/components/schemas/AnalyticsDay'
+        groups:
+          type: array
+          description: The tale groups with events in the period, most impressions first.
+          items:
+            $ref: '#/components/schemas/AnalyticsGroupRow'
+        tales:
+          type: array
+          description: The tales with views or clicks in the period, most views first.
+          items:
+            $ref: '#/components/schemas/AnalyticsTaleRow'
     MediaBackground:
       $ref: '../tale-document/v1.schema.json#/$defs/MediaBackground'
     ColorBackground:

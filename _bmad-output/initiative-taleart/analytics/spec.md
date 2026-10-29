@@ -23,12 +23,13 @@ Source of truth for the analytics build. Decisions by the main agent, from the o
 - **Opens**: number of `open` events.
 - **Tale views**: number of `view` events.
 - **Clicks**: number of `click` events.
-- **Engagement rate**: visitors with at least one `open` ÷ Reach, as a percentage, one decimal. 0 when Reach is 0.
+- **Engagement rate**: engaged visitors ÷ Reach, as a percentage, one decimal, where engaged visitors are the distinct visitors with at least one `impression` AND at least one `open` in the period (the same group, for a group's row). Engaged visitors are part of Reach, so the rate never exceeds 100. 0 when Reach is 0.
 - **CTR (click-through rate)**: Clicks ÷ Tale views, as a percentage, one decimal. 0 when there are no views.
 - Periods: last 7, 30, 90 days (UTC days). Breakdown by day, by zone, by tale group, by tale. Reach is distinct per row, so Reach of a total is not the sum of its rows (docs say so).
 
 ## Delivery API
-`POST /delivery/v1/events`, zone-key bearer, body `{ "events": [ { "type", "groupId", "taleId?", "at" (ISO UTC) } ] }`, max 50 events per request, 202 with `{ accepted, dropped }`. Rate-limited per visitor like responses (stricter than reads). The visitor id comes from the existing header. Unknown group/tale ids (not in the key's zone) count as dropped.
+`POST /delivery/v1/events`, zone-key bearer, body `{ "events": [ { "type", "groupId", "taleId?", "at" (ISO UTC) } ] }`, max 50 events per request, 202 with `{ accepted, dropped }`.
+- Beacon decisions (2026-10-29): `navigator.sendBeacon` cannot set headers, so a beacon sends the zone key as a `key` field and its visitor id as a `visitor` field of the body. Both fields are accepted only on this endpoint; the header `X-TaleArt-Visitor` stays the normal way to send the visitor id. A beacon's body is accepted as `text/plain` as well as `application/json`, the type a string body is sent as (no CORS preflight). Rate-limited per visitor like responses (stricter than reads). The visitor id comes from the existing header. Unknown group/tale ids (not in the key's zone) count as dropped.
 
 ## Management API
 `GET /zones/{zoneId}/analytics?period=7d|30d|90d` → totals + per-day series + per-group rows + per-tale rows (all the metrics above). Auth like other management reads (project member). `GET /tale-groups/{id}/analytics` is NOT in this batch.

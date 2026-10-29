@@ -1,4 +1,5 @@
 import { migrateAccess, migrateZoneKeys, withClient } from '@taleart/server-access';
+import { migrateAnalytics } from '@taleart/server-analytics';
 import { migrateImporter } from '@taleart/server-importer';
 import { migrateInteractive } from '@taleart/server-interactive';
 import { copyZonePlacements, migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
@@ -49,7 +50,7 @@ export function createPool(connectionString?: string, max = databasePoolMax()): 
 // and extra frames into zones (AD-17) runs after tales, because each new zone
 // gets copies of its original zone's placements through the tales module
 // (AD-14). The interactive module's responses reference tales (and are deleted
-// with them). The importer runs last: its jobs and links reference projects and
+// with them). The analytics events reference projects only. The importer runs last: its jobs and links reference projects and
 // the records it imports.
 const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Promise<void> }> = [
   { module: 'access', run: migrateAccess },
@@ -64,6 +65,7 @@ const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Pro
   },
   { module: 'targeting', run: migrateTargeting },
   { module: 'interactive', run: migrateInteractive },
+  { module: 'analytics', run: migrateAnalytics },
   { module: 'importer', run: migrateImporter },
 ];
 

@@ -903,6 +903,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/zones/{zoneId}/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * A zone's analytics (totals, a daily series, rows per tale group and per tale).
+         * @description The published metric definitions (the docs' `/reference/analytics` page says the same). Periods are the last 7, 30 or 90 UTC days, today included: the series has one entry per day of the period, and days without events are zero. Impressions: the number of `impression` events. Reach: the distinct anonymous visitors with at least one impression in the period. Opens: the number of `open` events. Tale views: the number of `view` events. Clicks: the number of `click` events. Engagement rate: the engaged visitors, those with at least one impression and at least one open in the period, as a percentage of Reach, one decimal; 0 when Reach is 0. Engaged visitors are part of Reach, so the rate never exceeds 100 percent. CTR: Clicks as a percentage of Tale views, one decimal; 0 when there are no views. Reach is counted distinct per row (per total, per group, per tale), so the Reach of a total is not the sum of its rows. Tale rows carry the tale views and clicks only: impressions and opens name a group, not a tale, so their tale fields are null. Only events of the zone count. Any member with access to the zone's project may read it. A zone of a project the caller cannot access answers 404 `zone_not_found`, as does an unknown zone. Answers are `Cache-Control: no-store`.
+         */
+        get: operations["getZoneAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zone": {
         parameters: {
             query?: never;
@@ -1474,6 +1496,26 @@ export interface paths {
          * @description Served under `/delivery/v1`. Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a quiz's answer id; a Rating's whole number from 0 to 100, written plainly, such as `80`; a Reaction's emoji, one of its `emojis`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's or a quiz's counts and percentages per option or answer, a Rating's count and average, a Reaction's count per emoji). A quiz's correct answer is not in the answer: it is in the published document (C10). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times; no user data. Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
          */
         post: operations["postDeliveryResponse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the analytics events of a zone's viewers (Delivery API).
+         * @description Served under `/delivery/v1`. Accepts only a zone key (`tak_...`), in `Authorization: Bearer <key>`, or, for `navigator.sendBeacon` (which cannot set headers), in the `key` field of the JSON body; a site key is refused. A refused key, revoked or unknown, answers the same 401 `invalid_site_key` as every Delivery request. The visitor id is the `X-TaleArt-Visitor` header; a beacon, which cannot set it, sends it in the `visitor` field of the body. A missing or invalid visitor id answers 400 `visitor_id_required`. Each request carries at most 50 events (more answers 400 `validation_failed`). An event is kept when its type is one of `impression`, `open`, `view` and `click`, its `groupId` (and, for `view` and `click`, its `taleId`, which the other types must not carry) names a tale group placed in the key's zone (and a tale of that group), and its `at` is an ISO 8601 UTC time (ending in `Z`) not older than 7 days nor more than 1 hour ahead. Any other event is dropped and counted. Only the visitor's id as a hash, the zone and the ids, the type and the time are stored; no IP address, user agent or external user ID. Answers 202 with the counts. Rate limited per visitor, more strictly than reads (by default 30 at once and 0.5 per second), with the same 429 `rate_limited`.
+         */
+        post: operations["postDeliveryEvents"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2189,6 +2231,100 @@ export interface components {
         };
         TaleResponses: {
             elements: components["schemas"]["ElementResponseCounts"][];
+        };
+        /** @enum {string} */
+        AnalyticsPeriod: "7d" | "30d" | "90d";
+        /** @enum {string} */
+        AnalyticsEventType: "impression" | "open" | "view" | "click";
+        AnalyticsEventsRequest: {
+            events: components["schemas"]["AnalyticsEvent"][];
+            /** @description The zone key, for a beacon that cannot send the Authorization header. Accepted only here. */
+            key?: string;
+            /**
+             * Format: uuid
+             * @description The visitor id, for a beacon that cannot send the X-TaleArt-Visitor header.
+             */
+            visitor?: string;
+        };
+        AnalyticsEvent: {
+            type: components["schemas"]["AnalyticsEventType"];
+            /** Format: uuid */
+            groupId: string;
+            /**
+             * Format: uuid
+             * @description Required for `view` and `click`; not sent with `impression` or `open`.
+             */
+            taleId?: string;
+            /**
+             * Format: date-time
+             * @description When the event happened, an ISO 8601 UTC time ending in `Z`.
+             */
+            at: string;
+        };
+        AnalyticsAccepted: {
+            accepted: number;
+            dropped: number;
+        };
+        AnalyticsTotals: {
+            impressions: number;
+            /** @description Distinct visitors with at least one impression, counted per row. */
+            reach: number;
+            opens: number;
+            taleViews: number;
+            clicks: number;
+            /** @description Visitors with at least one impression and at least one open, as a percentage of Reach, one decimal; 0 when Reach is 0. Never above 100. */
+            engagementRate: number;
+            /** @description Clicks as a percentage of tale views, one decimal; 0 when there are no views. */
+            ctr: number;
+        };
+        AnalyticsDay: {
+            /**
+             * Format: date
+             * @description A UTC day.
+             */
+            date: string;
+            impressions: number;
+            clicks: number;
+            opens: number;
+            taleViews: number;
+        };
+        /** @description A tale group's metrics, the totals' definitions per group. */
+        AnalyticsGroupRow: {
+            /** Format: uuid */
+            groupId: string;
+            name: string;
+            impressions: number;
+            reach: number;
+            opens: number;
+            taleViews: number;
+            clicks: number;
+            engagementRate: number;
+            ctr: number;
+        };
+        /** @description A tale's metrics. Impressions, reach, opens and the engagement rate name a group, not a tale, so they are null here. */
+        AnalyticsTaleRow: {
+            /** Format: uuid */
+            taleId: string;
+            name: string;
+            /** Format: uuid */
+            groupId: string;
+            impressions: null;
+            reach: null;
+            opens: null;
+            taleViews: number;
+            clicks: number;
+            engagementRate: null;
+            ctr: number;
+        };
+        ZoneAnalytics: {
+            period: components["schemas"]["AnalyticsPeriod"];
+            totals: components["schemas"]["AnalyticsTotals"];
+            /** @description One entry per UTC day of the period, oldest first. */
+            daily: components["schemas"]["AnalyticsDay"][];
+            /** @description The tale groups with events in the period, most impressions first. */
+            groups: components["schemas"]["AnalyticsGroupRow"][];
+            /** @description The tales with views or clicks in the period, most views first. */
+            tales: components["schemas"]["AnalyticsTaleRow"][];
         };
         /** @description An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
         MediaBackground: {
@@ -4554,6 +4690,35 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getZoneAnalytics: {
+        parameters: {
+            query?: {
+                /** @description The period: last 7, 30 or 90 days. Defaults to 30d. */
+                period?: components["schemas"]["AnalyticsPeriod"];
+            };
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The zone's analytics for the period. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ZoneAnalytics"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getDeliveryZone: {
         parameters: {
             query?: {
@@ -5584,6 +5749,38 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    postDeliveryEvents: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The visitor id: a random UUID v4 the SDK keeps on the device, all in lowercase or all in uppercase. Required unless the body carries `visitor`. */
+                "X-TaleArt-Visitor"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalyticsEventsRequest"];
+            };
+        };
+        responses: {
+            /** @description The events were handled; the counts of kept and dropped events. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsAccepted"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
 }
 type FlattenedDeepRequired<T> = {
     [K in keyof T]-?: FlattenedDeepRequired<T[K] extends unknown[] | undefined | null ? Extract<T[K], unknown[]>[number] : T[K]>;
@@ -5608,6 +5805,8 @@ export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["s
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const ringStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["RingStyle"]> = ["gradient", "solid", "none"];
 export const deliveryFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryFont"]["style"]> = ["normal", "italic"];
+export const analyticsPeriodValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AnalyticsPeriod"]> = ["7d", "30d", "90d"];
+export const analyticsEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AnalyticsEventType"]> = ["impression", "open", "view", "click"];
 export const mediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const deliveryMediaBackgroundTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryMediaBackground"]["type"]> = ["media"];
 export const deliveryMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryMediaBackground"]["fit"]> = ["cover", "contain"];

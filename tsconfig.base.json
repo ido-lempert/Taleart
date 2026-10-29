@@ -26,6 +26,7 @@
       "@taleart/contract/theme": ["./libs/contract/src/lib/theme.ts"],
       "@taleart/agent-skill/*": ["./skills/taleart/*"],
       "@taleart/server-access": ["./libs/server/access/src/index.ts"],
+      "@taleart/server-analytics": ["./libs/server/analytics/src/index.ts"],
       "@taleart/server-importer": ["./libs/server/importer/src/index.ts"],
       "@taleart/server-interactive": ["./libs/server/interactive/src/index.ts"],
       "@taleart/server-storage": ["./libs/server/storage/src/index.ts"],

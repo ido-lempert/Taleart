@@ -1,7 +1,6 @@
 import {
   decodeExternalUserIdHeader,
   DEFAULT_TAG_MATCH,
-  ErrorCodes,
   EXTERNAL_USER_ID_HEADER,
   isZoneSlug,
   ZONE_KEY_PREFIX,
@@ -17,18 +16,15 @@ import { passesUserLists, tagRulesForTaleGroups, userListAudiences } from '@tale
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
 import express, { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
-import { errorBody } from './errors';
+import { refuseInvalidSiteKey } from './errors';
 import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, VISITOR_HEADER, type RateLimitOptions } from './rate-limit';
+import { DEFAULT_EVENT_RATE_LIMIT, deliveryEventsRouter, eventRateLimit } from './analytics.router';
 import {
   DEFAULT_RESPONSE_RATE_LIMIT,
   DELIVERY_BODY_LIMIT_BYTES,
   deliveryResponsesRouter,
   responseRateLimit,
 } from './responses.router';
-
-// One message for every refusal (epic UX rework R3): a missing, unknown or revoked site key and a
-// missing or unknown slug answer alike, so a caller cannot tell a slug from a key.
-const INVALID_SITE_KEY_MESSAGE = 'A valid site key and zone are required';
 
 /** The zone the request reads, set by the key middleware. */
 function requestZoneId(res: Response): string {
@@ -48,14 +44,6 @@ function slugParam(value: unknown): string {
   return isZoneSlug(value) ? value : '';
 }
 
-/** Answers the 401 of a refused request; every refusal has the same body. */
-function refuse(res: Response): void {
-  res.setHeader('WWW-Authenticate', 'Bearer');
-  // A refusal is never kept by a browser or a shared cache.
-  res.setHeader('Cache-Control', 'no-store');
-  res.status(401).json(errorBody(ErrorCodes.invalidSiteKey, INVALID_SITE_KEY_MESSAGE));
-}
-
 /**
  * Accepts a zone key (`tak_...`), which names its zone alone (the `zone` parameter is ignored), or
  * the project's site key with `?zone=<slug>` (AD-2, epic UX rework R3), never a session cookie. A
@@ -69,7 +57,7 @@ function requireDeliveryKey(pool: Pool): RequestHandler {
       if (key?.startsWith(ZONE_KEY_PREFIX)) {
         const zone = await zoneForKey(pool, key);
         if (zone === null) {
-          refuse(res);
+          refuseInvalidSiteKey(res);
           return;
         }
         res.locals['requestZoneId'] = zone.zoneId;
@@ -80,7 +68,7 @@ function requireDeliveryKey(pool: Pool): RequestHandler {
       const projectId = await projectForSiteKey(pool, key);
       const zoneId = await zoneIdBySlug(pool, projectId, slug);
       if (projectId === null || zoneId === null) {
-        refuse(res);
+        refuseInvalidSiteKey(res);
         return;
       }
       res.locals['requestZoneId'] = zoneId;
@@ -109,6 +97,11 @@ export interface DeliveryOptions {
    * off), and null turns it off.
    */
   responseRateLimit?: RateLimitOptions | null;
+  /**
+   * The stricter per-visitor limit of `POST /events` (analytics), on top of the one above: the
+   * default when left out (off while the Delivery limit is off), and null turns it off.
+   */
+  eventRateLimit?: RateLimitOptions | null;
 }
 
 /**
@@ -144,6 +137,11 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
   const responseLimit =
     options.responseRateLimit === undefined ? (limit ? DEFAULT_RESPONSE_RATE_LIMIT : null) : options.responseRateLimit;
   router.use('/responses', responseRateLimit(responseLimit));
+  const eventLimit = options.eventRateLimit === undefined ? (limit ? DEFAULT_EVENT_RATE_LIMIT : null) : options.eventRateLimit;
+  router.use('/events', eventRateLimit(eventLimit));
+  // Before the small-body parser and the key middleware below: the events route reads its own
+  // larger body and takes only zone keys, a beacon's key included (analytics).
+  router.use(deliveryEventsRouter(pool));
   // A small JSON body, parsed here (not by the app's parser) so its refusals carry the CORS headers above.
   router.use(express.json({ limit: DELIVERY_BODY_LIMIT_BYTES }));
   router.use(requireDeliveryKey(pool));
@@ -158,7 +156,7 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
       const zone = await findZone(pool, zoneId);
       if (!zone) {
         // The slug named an existing zone; treat one that vanished since like a bad key.
-        refuse(res);
+        refuseInvalidSiteKey(res);
         return;
       }
       // A zone without a display delivers no tale group (epic UX rework R7): its setup is part of
