@@ -3,6 +3,9 @@ import { RouterLink } from '@angular/router';
 import {
   NATIVE_STYLES,
   NOT_YET_NATIVE,
+  SWIFT_ANALYTICS,
+  SWIFT_FALLBACK,
+  SWIFT_FREQUENCY,
   SWIFT_HOOKS,
   SWIFT_INIT,
   SWIFT_LOCALE,
@@ -20,7 +23,8 @@ import {
     <h1 tabindex="-1">iOS guide</h1>
     <p class="lede">
       Show a TaleArt zone in an iOS app with the iOS SDK: a view controller for UIKit, or a SwiftUI view made from it.
-      You need the zone key from the dashboard, the same key the Web SDK uses. The iOS SDK does not send analytics events yet, so the zone's Analytics tab counts the web only.
+      You need the zone key from the dashboard, the same key the Web SDK uses. The iOS SDK sends analytics events too (see
+      Analytics below), so the zone's Analytics tab counts the app along with the web.
     </p>
 
     <h2 id="before">Before you start</h2>
@@ -140,7 +144,8 @@ import {
         <pre tabindex="0" role="region" aria-label="Listener subclass and link override"><code>{{ swiftHooks }}</code></pre>
         <p>
           The methods, their payloads and the events are in the <a routerLink="/reference/ios-sdk">iOS SDK reference</a>.
-          <code>onGroupImpression</code> and <code>onUserInteracted</code> are not called by the native SDK yet.
+          <code>onGroupImpression</code> fires on native too, once per group per load. <code>onUserInteracted</code> is not
+          called by the native SDK yet.
         </p>
         <figure class="native-figure">
           <img
@@ -203,6 +208,33 @@ import {
       </li>
     </ol>
 
+    <h2 id="fallback">Show a message when a zone fails</h2>
+    <p>
+      By default a zone that cannot be read shows nothing. Set <code>fallback: FallbackMode.message</code> in
+      <code>TaleartConfig</code> to show the translated "Stories could not be loaded." text with a "Try again" button,
+      which reads the zone again. A zone can show your own view controller instead with
+      <code>fallbackViewController</code>, at <code>fallbackHeight</code> points (120 by default); it wins over the message.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Fallback placeholder for one zone"><code>{{ swiftFallback }}</code></pre>
+
+    <h2 id="frequency">Cap how often a viewer sees a group</h2>
+    <p>
+      <code>frequency</code> hides a tale group after the viewer has seen enough of it. A view is one opening of the
+      viewer on the group. The count stays on this device and is never sent to TaleArt. Groups over the cap leave the
+      display, and when none are left nothing shows. The default is no cap: pass <code>nil</code>.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Frequency cap in the configuration"><code>{{ swiftFrequency }}</code></pre>
+
+    <h2 id="analytics">Analytics events</h2>
+    <p>
+      The SDK sends impression, open, view and click events for each zone, in batches and in the background, so the app
+      never waits on them. Turn them off for the whole app with <code>analytics: false</code> in the configuration, or
+      for one zone with <code>zone.analytics</code>; a zone's setting wins, and <code>nil</code> follows the configuration.
+      On native, an impression is a group's bar item first rendered, or a banner slide first shown: the SDK does not
+      measure whether it is on screen.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Analytics for one zone"><code>{{ swiftAnalytics }}</code></pre>
+
     <h2 id="backups">Backups and the visitor id</h2>
     <p>
       The SDK makes a visitor id once and keeps it in its own store on the device: the <code>taleart-sdk</code>
@@ -232,5 +264,8 @@ export class IosGuidePage {
   protected readonly swiftInit = SWIFT_INIT;
   protected readonly swiftHooks = SWIFT_HOOKS;
   protected readonly swiftLocale = SWIFT_LOCALE;
+  protected readonly swiftFallback = SWIFT_FALLBACK;
+  protected readonly swiftFrequency = SWIFT_FREQUENCY;
+  protected readonly swiftAnalytics = SWIFT_ANALYTICS;
   protected readonly notYet = NOT_YET_NATIVE;
 }

@@ -47,6 +47,8 @@ kotlin {
             implementation(libs.media3.exoplayer)
             implementation(libs.media3.ui)
             implementation(libs.androidx.core.ktx)
+            // The analytics queue is sent when the process goes to the background (ProcessLifecycleOwner).
+            implementation(libs.androidx.lifecycle.process)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)

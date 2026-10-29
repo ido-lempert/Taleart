@@ -13,10 +13,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import site.lempert.taleart.sdk.FallbackMode
 import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.TaleartSdk
+import site.lempert.taleart.sdk.analytics.AnalyticsEventType
 import site.lempert.taleart.sdk.deliver
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
@@ -54,6 +72,8 @@ fun TaleartZone(
     locale: String? = null,
     strings: Map<String, StringOverrides>? = null,
     listener: TaleartListener? = null,
+    analytics: Boolean? = null,
+    fallback: (@Composable () -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val controller = remember { TaleartZoneController(client ?: TaleartSdk.sharedClient, scope) }
@@ -64,6 +84,7 @@ fun TaleartZone(
         controller.locale = locale
         controller.strings = strings
         controller.listener = listener
+        controller.analytics = analytics
     }
     DisposableEffect(controller) { onDispose { controller.close() } }
     LaunchedEffect(apiUrl, zoneKey) { controller.configure(apiUrl, zoneKey) }
@@ -78,13 +99,23 @@ fun TaleartZone(
             controller.reload()
         }
     }
-    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, locale ?: controller.locale, strings ?: controller.strings, listener ?: controller.listener)
+    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, locale ?: controller.locale, strings ?: controller.strings, listener ?: controller.listener, controller.tracker)
     CompositionLocalProvider(LocalTaleartContext provides context) {
-        controller.zone?.let { ZoneDisplay(it, modifier, onGroupClick, seenGroups, titleStyle, opensViewer) }
+        val zone = controller.zone
+        if (zone != null) {
+            ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+        } else if (controller.failure != null) {
+            FailurePlaceholder(fallback, onRetry = { controller.reload() })
+        }
     }
 }
 
-/** The zone a [TaleartZoneController] holds: nothing until it has one, then as [TaleartZone] with a [DeliveryZone]. */
+/**
+ * The zone a [TaleartZoneController] holds: nothing until it has one, then as [TaleartZone] with a [DeliveryZone].
+ * When the read failed, [fallback] is shown if given (the host's own placeholder); else, with
+ * `TaleartConfig.fallback` [FallbackMode.Message], the translated `load.failed` text and a
+ * `load.retry` button that reads the zone again. Otherwise nothing.
+ */
 @Composable
 fun TaleartZone(
     controller: TaleartZoneController,
@@ -93,15 +124,53 @@ fun TaleartZone(
     seenGroups: SeenGroups = rememberSeenGroups(),
     titleStyle: TextStyle = TextStyle.Default,
     opensViewer: Boolean = true,
+    fallback: (@Composable () -> Unit)? = null,
 ) {
     val sdkApiUrl = TaleartSdk.config.apiUrl
     LaunchedEffect(sdkApiUrl) { controller.refreshApi() }
-    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, controller.locale, controller.strings, controller.listener)
-    val zone = controller.zone ?: return
+    val context = rememberTaleartContext(controller.zoneKey, controller.zoneSlug, controller.locale, controller.strings, controller.listener, controller.tracker)
     CompositionLocalProvider(LocalTaleartContext provides context) {
-        ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+        val zone = controller.zone
+        if (zone != null) {
+            ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+        } else if (controller.failure != null) {
+            FailurePlaceholder(fallback, onRetry = { controller.reload() })
+        }
     }
 }
+
+/**
+ * What a zone that failed to load shows: the host's [fallback] when given; else, with
+ * `TaleartConfig.fallback` = [FallbackMode.Message], the translated `load.failed` text and a
+ * `load.retry` button calling [onRetry]; else nothing (the Web SDK's `fallback="none"`).
+ */
+@Composable
+private fun FailurePlaceholder(fallback: (@Composable () -> Unit)?, onRetry: () -> Unit) {
+    if (fallback != null) {
+        fallback()
+        return
+    }
+    if (TaleartSdk.config.fallback != FallbackMode.Message) return
+    val translate = LocalTaleartContext.current.translate
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(16.dp).testTag(FAILED_TAG),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText(translate("load.failed"), style = TextStyle(textAlign = TextAlign.Center))
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .border(1.dp, Color.Gray, RoundedCornerShape(50))
+                .clickable(role = Role.Button, onClick = onRetry)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+        ) {
+            BasicText(translate("load.retry"))
+        }
+    }
+}
+
+internal const val FAILED_TAG = "taleart.failed"
 
 /**
  * An already-loaded zone: its display when the SDK knows its type (AD-5), the bar ([TaleartBar]) or
@@ -164,8 +233,10 @@ private fun ZoneDisplay(
         onGroupClick(group)
         if (opensViewer && group.tales.isNotEmpty()) {
             open = ViewerRequest(++requests, group.id, zone.taleGroups, theme)
-            val event = context.event("presented", group = groupRef(zone.taleGroups, group))
+            val ref = groupRef(zone.taleGroups, group)
+            val event = context.event("presented", group = ref)
             deliver(context.listener, event) { it.onPresented(event) }
+            context.track(AnalyticsEventType.Open, ref)
         }
     }
     when (frame?.type) {

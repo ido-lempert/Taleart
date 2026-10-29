@@ -214,6 +214,13 @@ private fun Banner(
     val open by rememberUpdatedState(onGroupClick)
 
     var index by remember { mutableIntStateOf(0) }
+    // The shown slide is an impression once per render, the first time it is shown.
+    val impressContext = LocalTaleartContext.current
+    val impressed = remember(slides) { mutableSetOf<String>() }
+    LaunchedEffect(index, slides) {
+        val group = slides.getOrNull(index) ?: return@LaunchedEffect
+        if (impressed.add(group.id)) impressContext.impression(groupRef(slides, group))
+    }
     // Set by the person's interaction or by reaching the last slide without loop; only the rotation button clears it.
     var stopped by remember { mutableStateOf(false) }
     // True while the SDK moves focus itself, which is not the person's interaction (not state: read in callbacks only).

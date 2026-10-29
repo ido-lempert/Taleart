@@ -1,5 +1,6 @@
 package site.lempert.taleart.sdk.ui
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,7 +96,10 @@ fun TaleartBar(
     modifier: Modifier = Modifier,
     titleStyle: TextStyle = TextStyle.Default,
 ) {
-    val translate = LocalTaleartContext.current.translate
+    val context = LocalTaleartContext.current
+    val translate = context.translate
+    // Each group is an impression once per render (the groups list is the render's), when its item is first composed.
+    val impressed = remember(groups) { mutableSetOf<String>() }
     val edge = settings.size.edgeDp
     val none = theme.ringStyle == RingStyle.None
     val ringWidth = if (none) 0 else theme.ringWidth
@@ -140,6 +144,9 @@ fun TaleartBar(
             horizontalArrangement = arrangement,
         ) {
             for (group in groups) {
+                LaunchedEffect(group.id) {
+                    if (impressed.add(group.id)) context.impression(groupRef(groups, group))
+                }
                 val isSeen = group.id in seen
                 Column(
                     modifier = Modifier

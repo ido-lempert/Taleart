@@ -1,7 +1,11 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
+  ANDROID_ANALYTICS,
+  ANDROID_ANALYTICS_XML,
   ANDROID_COORDINATES,
+  ANDROID_FALLBACK,
+  ANDROID_FREQUENCY,
   APPLICATION_INIT,
   ANDROID_HOOKS,
   ANDROID_LOCALE,
@@ -26,7 +30,8 @@ import {
     <h1 tabindex="-1">Android guide</h1>
     <p class="lede">
       Show a TaleArt zone in an Android app with the Android SDK: a view for XML layouts, or a composable for Jetpack
-      Compose. You need the zone key from the dashboard, the same key the Web SDK uses. The Android SDK does not send analytics events yet, so the zone's Analytics tab counts the web only.
+      Compose. You need the zone key from the dashboard, the same key the Web SDK uses. The Android SDK sends analytics
+      events too (see Analytics below), so the zone's Analytics tab counts the app along with the web.
     </p>
 
     <h2 id="before">Before you start</h2>
@@ -151,8 +156,8 @@ import {
         <pre tabindex="0" role="region" aria-label="Listener and link override"><code>{{ androidHooks }}</code></pre>
         <p>
           The methods, their payloads and the events are in the <a routerLink="/reference/android-sdk">Android SDK
-          reference</a>. <code>onGroupImpression</code> and <code>onUserInteracted</code> are not called by the native
-          SDK yet.
+          reference</a>. <code>onGroupImpression</code> fires on native too, once per group per load. <code>onUserInteracted</code>
+          is not called by the native SDK yet.
         </p>
         <figure class="native-figure">
           <img
@@ -235,6 +240,33 @@ import {
       </li>
     </ol>
 
+    <h2 id="fallback">Show a message when a zone fails</h2>
+    <p>
+      By default a view that cannot read its zone shows nothing. Set <code>fallback = FallbackMode.Message</code> in
+      <code>TaleartConfig</code> to show the translated "Stories could not be loaded." text with a "Try again" button,
+      which reads the zone again. A view can show its own placeholder instead with <code>fallbackView</code>, and that
+      wins over the message.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Fallback message and placeholder"><code>{{ androidFallback }}</code></pre>
+
+    <h2 id="frequency">Cap how often a viewer sees a group</h2>
+    <p>
+      <code>frequency</code> hides a tale group after the viewer has seen enough of it. A view is one opening of the
+      viewer on the group. The count stays on this device and is never sent to TaleArt. Groups over the cap leave the
+      display, and when none are left nothing shows. The default is no cap.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Frequency cap"><code>{{ androidFrequency }}</code></pre>
+
+    <h2 id="analytics">Analytics events</h2>
+    <p>
+      The SDK sends impression, open, view and click events for each zone, in batches and in the background, so the app
+      never waits on them. Turn them off for every view with <code>analytics = false</code>, or for one view with
+      <code>app:taleartAnalytics="false"</code>; a view's setting wins. On native, an impression is a group's bar item
+      first drawn, or a banner slide first shown: the SDK does not measure whether it is on screen.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Analytics for every view"><code>{{ androidAnalytics }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Analytics for one XML view"><code>{{ androidAnalyticsXml }}</code></pre>
+
     <h2 id="backups">Backups and the visitor id</h2>
     <p>
       The SDK makes a visitor id once and keeps it in its own store on the device: the <code>taleart-sdk</code>
@@ -271,6 +303,10 @@ export class AndroidGuidePage {
   protected readonly manifestApplication = MANIFEST_APPLICATION;
   protected readonly androidHooks = ANDROID_HOOKS;
   protected readonly androidLocale = ANDROID_LOCALE;
+  protected readonly androidFallback = ANDROID_FALLBACK;
+  protected readonly androidFrequency = ANDROID_FREQUENCY;
+  protected readonly androidAnalytics = ANDROID_ANALYTICS;
+  protected readonly androidAnalyticsXml = ANDROID_ANALYTICS_XML;
   protected readonly backupOld = BACKUP_RULES_OLD;
   protected readonly backupNew = BACKUP_RULES_NEW;
   protected readonly coordinates = ANDROID_COORDINATES;

@@ -3,8 +3,12 @@ package site.lempert.taleart.sdk.delivery
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -102,6 +106,29 @@ class DeliveryClient(
                 res.cause,
             )
             is RawResponse.Answered -> interpret(res)
+        }
+    }
+
+    /**
+     * Posts one batch of analytics events to `<apiUrl>/delivery/v1/events` (the body is built by
+     * `analyticsBody`), with the zone key as the bearer token and the visitor id header. True when the
+     * API accepted it; a refusal, a network failure or a closed client is false, and never thrown.
+     */
+    internal suspend fun postAnalytics(apiUrl: String, key: String, body: String): Boolean {
+        if (!scope.isActive) return false
+        val visitorId = lock.withLock { visitor.current() }
+        return try {
+            val response = httpClient.post("${apiUrl.trimEnd('/')}$DELIVERY_PATH/events") {
+                header(HttpHeaders.Authorization, "Bearer $key")
+                header(VISITOR_HEADER, visitorId)
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+            response.status.value in 200..299
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            false
         }
     }
 

@@ -9,15 +9,28 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import site.lempert.taleart.sdk.FrequencyRule
+import site.lempert.taleart.sdk.GroupRef
+import site.lempert.taleart.sdk.TaleRef
 import site.lempert.taleart.sdk.TaleartEvent
 import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.TaleartSdk
+import site.lempert.taleart.sdk.analytics.AnalyticsEvent
+import site.lempert.taleart.sdk.analytics.AnalyticsEventType
+import site.lempert.taleart.sdk.analytics.AnalyticsHub
+import site.lempert.taleart.sdk.analytics.AnalyticsTarget
+import site.lempert.taleart.sdk.analytics.analyticsEnabled
+import site.lempert.taleart.sdk.analytics.analyticsTime
+import site.lempert.taleart.sdk.analytics.sharedAnalytics
+import site.lempert.taleart.sdk.cappedGroupIds
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.delivery.ZoneRequest
 import site.lempert.taleart.sdk.delivery.ZoneResult
 import site.lempert.taleart.sdk.deliver
 import site.lempert.taleart.sdk.keyPrefix
+import site.lempert.taleart.sdk.storage.KeyValueStore
+import site.lempert.taleart.sdk.storage.deviceKeyValueStoreOrNull
 
 /**
  * A zone named by its zone key, and the last zone read for it, kept outside composition: the Android
@@ -31,6 +44,11 @@ import site.lempert.taleart.sdk.keyPrefix
  * the new one arrives; a change of input clears it first, since it names another zone. A failed read
  * clears it, as the web element renders nothing then, and is logged once, passed to [onError] and
  * reported to the listener's `onLoadFailed`; a read that works reports `onLoaded`.
+ *
+ * A read that works is also checked against the frequency cap (`TaleartConfig.frequency`): groups
+ * the viewer has seen enough are left out of the zone, each reported to `onGroupCapped`. Once the zone
+ * is read, its impressions, opens, views and clicks are queued for the analytics (see
+ * `analytics/Analytics.kt`), unless [analytics] or the SDK's option turns them off.
  *
  * [client] is the process's [TaleartSdk.sharedClient] unless one is given; a client passed in
  * belongs to the caller, who closes it. [scope] runs the reads, by default on the main thread;
@@ -75,6 +93,18 @@ class TaleartZoneController(
     /** The view's listener: told of this view's events before the SDK's global listener. */
     var listener: TaleartListener? by mutableStateOf(null)
 
+    /** The view's analytics setting, or null to use the SDK's `analytics` option (`taleartAnalytics` on Android). */
+    var analytics: Boolean? by mutableStateOf(null)
+
+    /** Where this view's events go: the zone last read successfully, or null while none is shown. */
+    private var analyticsTarget: AnalyticsTarget? = null
+
+    /** The device store the frequency cap reads and writes; the SDK's own by default. */
+    internal var frequencyStore: () -> KeyValueStore? = ::deviceKeyValueStoreOrNull
+
+    /** The hub the analytics events are queued in; the SDK's own by default (tests set their own). */
+    internal var analyticsHub: AnalyticsHub? = null
+
     /** Called with each failed read. */
     var onError: ((ZoneResult.Failure) -> Unit)? = null
 
@@ -116,23 +146,27 @@ class TaleartZoneController(
         if (!isComplete) {
             zone = null
             failure = null
+            analyticsTarget = null
             readApiUrl = null
             return
         }
         val api = effectiveApiUrl
         val key = zoneKey
         readApiUrl = api
+        // A new read clears the placeholder of a failed one: it shows again only if this read fails too.
+        failure = null
         load = scope.launch {
             when (val result = client.fetchZone(api, ZoneRequest(key = key))) {
                 is ZoneResult.Success -> {
-                    zone = result.zone
-                    failure = null
+                    analyticsTarget = AnalyticsTarget(api, key)
                     val event = TaleartEvent(name = "loaded", zoneKeyPrefix = keyPrefix(key), zoneSlug = result.zone.slug)
                     deliver(listener, event) { it.onLoaded(event) }
+                    zone = withinFrequency(result.zone, key)
                 }
                 is ZoneResult.Failure -> {
                     zone = null
                     failure = result
+                    analyticsTarget = null
                     println("TaleArt: ${result.message}")
                     onError?.invoke(result)
                     val event = TaleartEvent(name = "loadFailed", zoneKeyPrefix = keyPrefix(key), error = result.message)
@@ -140,5 +174,42 @@ class TaleartZoneController(
                 }
             }
         }
+    }
+
+    /**
+     * The zone without the groups the frequency cap has reached, each reported to `onGroupCapped`
+     * (once per group per load). Null when every group is capped: the display then shows nothing.
+     */
+    private fun withinFrequency(zone: DeliveryZone, key: String): DeliveryZone? {
+        val rule: FrequencyRule = TaleartSdk.config.frequency ?: return zone
+        val capped = cappedGroupIds(frequencyStore(), zone.taleGroups.map { it.id }, rule)
+        if (capped.isEmpty()) return zone
+        for (group in zone.taleGroups) {
+            if (group.id !in capped) continue
+            val event = TaleartEvent(
+                name = "groupCapped",
+                zoneKeyPrefix = keyPrefix(key),
+                zoneSlug = zone.slug,
+                group = groupRef(zone.taleGroups, group),
+                rule = rule,
+            )
+            deliver(listener, event) { it.onGroupCapped(event) }
+        }
+        val rest = zone.taleGroups.filter { it.id !in capped }
+        if (rest.isEmpty()) return null
+        return zone.copy(taleGroups = rest)
+    }
+
+    /** Where the zone's content reports its analytics events (see [TaleartTracker]). */
+    internal val tracker: TaleartTracker = TaleartTracker { type, group, tale -> trackEvent(type, group, tale) }
+
+    /** Queues one analytics event of the zone on screen, unless analytics are off for this view or the SDK. */
+    internal fun trackEvent(type: AnalyticsEventType, group: GroupRef, tale: TaleRef? = null) {
+        val target = analyticsTarget ?: return
+        if (!analyticsEnabled(analytics, TaleartSdk.config.analytics)) return
+        (analyticsHub ?: sharedAnalytics).record(
+            target,
+            AnalyticsEvent(type = type, groupId = group.id, taleId = if (type.namesTale) tale?.id else null, at = analyticsTime()),
+        )
     }
 }

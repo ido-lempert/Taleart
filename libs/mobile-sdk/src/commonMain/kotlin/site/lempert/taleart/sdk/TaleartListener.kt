@@ -24,11 +24,11 @@ data class ComponentRef(
 /**
  * What a [TaleartListener] hook receives, the same for every hook as the Web SDK's event
  * (libs/web-sdk/src/lib/hooks.ts): [name] is the hook's name without `on` in lower camel case
- * (`loaded`, `loadFailed`, `groupImpression`, `presented`, `dismissed`, `taleShown`,
+ * (`loaded`, `loadFailed`, `groupImpression`, `groupCapped`, `presented`, `dismissed`, `taleShown`,
  * `actionClicked`, `userInteracted`). The zone is named by [zoneKeyPrefix], the first 8
  * characters of its key (never the whole key) and [zoneSlug] (empty when the read failed before
  * the zone came). Each event fills what applies: [group], [tale], [component], [url] and [newTab]
- * for an action, [error] for a failed load.
+ * for an action, [error] for a failed load, [rule] for a capped group.
  */
 data class TaleartEvent(
     val name: String,
@@ -43,6 +43,8 @@ data class TaleartEvent(
     val newTab: Boolean = false,
     /** The message of a failed load. */
     val error: String? = null,
+    /** The frequency cap a group reached (`groupCapped`): the rule the group is hidden by. */
+    val rule: FrequencyRule? = null,
 )
 
 /**
@@ -66,6 +68,12 @@ interface TaleartListener {
 
     /** A group's bar item or banner slide was seen (once per group per load). */
     fun onGroupImpression(event: TaleartEvent) {}
+
+    /**
+     * A group was hidden by the frequency cap (`TaleartConfig.frequency`) on a load: `event.group` is
+     * the group and `event.rule` the rule it reached. Once per group per load.
+     */
+    fun onGroupCapped(event: TaleartEvent) {}
 
     /** The full-screen viewer opened on a group. */
     fun onPresented(event: TaleartEvent) {}
@@ -97,6 +105,7 @@ open class TaleartListenerBase : TaleartListener {
     override fun onLoaded(event: TaleartEvent) {}
     override fun onLoadFailed(event: TaleartEvent) {}
     override fun onGroupImpression(event: TaleartEvent) {}
+    override fun onGroupCapped(event: TaleartEvent) {}
     override fun onPresented(event: TaleartEvent) {}
     override fun onDismissed(event: TaleartEvent) {}
     override fun onTaleShown(event: TaleartEvent) {}

@@ -10,6 +10,8 @@ import site.lempert.taleart.sdk.TaleRef
 import site.lempert.taleart.sdk.TaleartEvent
 import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.TaleartSdk
+import site.lempert.taleart.sdk.analytics.AnalyticsEventType
+import site.lempert.taleart.sdk.deliver
 import site.lempert.taleart.sdk.delivery.DeliveryTale
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 import site.lempert.taleart.sdk.i18n.StringOverrides
@@ -28,7 +30,23 @@ internal class TaleartContext(
     val listener: TaleartListener?,
     val zoneKeyPrefix: String,
     val zoneSlug: String,
+    private val tracker: TaleartTracker? = null,
 ) {
+    /** Queues an analytics event of this zone (none without a tracker, as for a zone the host passed in). */
+    fun track(type: AnalyticsEventType, group: GroupRef, tale: TaleRef? = null) {
+        tracker?.track(type, group, tale)
+    }
+
+    /**
+     * A group's bar item or banner slide was shown for the first time in a render: `groupImpression`
+     * to the listeners, and an impression event.
+     */
+    fun impression(group: GroupRef) {
+        track(AnalyticsEventType.Impression, group)
+        val event = event("groupImpression", group = group)
+        deliver(listener, event) { it.onGroupImpression(event) }
+    }
+
     /** An event of this zone, named the way the listeners expect it. */
     fun event(
         name: String,
@@ -53,6 +71,11 @@ internal class TaleartContext(
  */
 internal val LocalTaleartContext = compositionLocalOf {
     TaleartContext(TaleartSdk.translate, null, "", "")
+}
+
+/** Where a zone's analytics events are queued: implemented by [TaleartZoneController] for a zone it reads. */
+internal fun interface TaleartTracker {
+    fun track(type: AnalyticsEventType, group: GroupRef, tale: TaleRef?)
 }
 
 /**
@@ -89,10 +112,11 @@ internal fun rememberTaleartContext(
     locale: String?,
     strings: Map<String, StringOverrides>?,
     listener: TaleartListener?,
+    tracker: TaleartTracker? = null,
 ): TaleartContext {
     val config = TaleartSdk.config
-    return remember(config, locale, strings, listener, zoneKey, zoneSlug) {
-        TaleartContext(viewTranslate(locale, strings), listener, keyPrefix(zoneKey), zoneSlug)
+    return remember(config, locale, strings, listener, zoneKey, zoneSlug, tracker) {
+        TaleartContext(viewTranslate(locale, strings), listener, keyPrefix(zoneKey), zoneSlug, tracker)
     }
 }
 

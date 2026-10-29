@@ -1773,6 +1773,17 @@ describe('TaleartElement: fallback, retry and frequency cap (QW1, QW3)', () => {
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
+    it('counts one view per group entered, not one per tale stepped through', async () => {
+      const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: '3' });
+      items(el)[0].click();
+      const dialog = el.shadowRoot?.querySelector('dialog.viewer') as HTMLElement;
+      for (let step = 0; step < 4; step++) dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const views = JSON.parse(localStorage.getItem('taleart.views') ?? '{}') as Record<string, number[]>;
+      expect(views['ga']).toHaveLength(1);
+      for (const times of Object.values(views)) expect(times).toHaveLength(1);
+    });
+
     it('counts a view when the viewer opens a group, and the group is then capped', async () => {
       const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'once' });
       expect(items(el)).toHaveLength(3);

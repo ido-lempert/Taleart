@@ -4,5 +4,7 @@
     <declare-styleable name="TaleartView">
         <attr name="taleartApiUrl" format="string" />
         <attr name="taleartZoneKey" format="string" />
+        <!-- false turns this view's analytics events off, whatever the SDK's `analytics` option says. -->
+        <attr name="taleartAnalytics" format="boolean" />
     </declare-styleable>
 </resources>

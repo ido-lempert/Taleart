@@ -257,6 +257,8 @@ export class TaleartElement extends ElementBase {
   private renderedKey: string | null = null;
   // True while new viewer tags wait for the open viewer to close: its group still matches them.
   private retargetOnClose = false;
+  // The group whose view the frequency cap counted since the viewer opened: one view per group entered, not per tale.
+  private viewCounted: string | null = null;
   // This element's hooks (`hooks` property), checked and copied; null for none.
   private ownHooks: TaleartHooks | null = null;
   // The first 8 characters of the zone key of the last load: what hook events name of it.
@@ -723,7 +725,10 @@ export class TaleartElement extends ElementBase {
     const viewer = new TaleViewer(themed, zone.taleGroups, {
       onGroupShown: (groupId) => {
         markGroupSeen(groupId);
-        recordView(groupId);
+        if (this.viewCounted !== groupId) {
+          this.viewCounted = groupId;
+          recordView(groupId);
+        }
         const item = barItems?.get(groupId);
         if (item) setItemSeen(item, names.get(groupId) ?? '', true, t);
       },
@@ -766,6 +771,7 @@ export class TaleartElement extends ElementBase {
         return proceed;
       },
       onClose: (groupId) => {
+        this.viewCounted = null;
         emit(this, 'dismissed', { ...base, group: groupRef(zone, groupId) });
         // New viewer tags arrived while it was open: show the matching groups now, focus on this one.
         if (this.retargetOnClose && this.viewer === viewer) {

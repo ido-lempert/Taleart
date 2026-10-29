@@ -1,5 +1,8 @@
 package site.lempert.taleart.sdk.ui
 
+import site.lempert.taleart.sdk.storage.deviceKeyValueStoreOrNull
+import site.lempert.taleart.sdk.recordFrequencyView
+import site.lempert.taleart.sdk.analytics.AnalyticsEventType
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
@@ -267,6 +270,8 @@ internal fun ViewerContent(
     val context = LocalTaleartContext.current
     val uri = LocalUriHandler.current
     // A call to action of the tale: the listeners hear it first; the URL opens unless one of them handled it.
+    // The groups this opening of the viewer has counted as viewed (see the frequency cap).
+    val counted = remember(state) { mutableSetOf<String>() }
     val opener = remember(state, context, uri) {
         LinkOpener { component, url ->
             val tale = state.group.tales.getOrNull(state.taleIndex)
@@ -277,6 +282,7 @@ internal fun ViewerContent(
                 component = component,
                 url = url,
             )
+            context.track(AnalyticsEventType.Click, groupRef(state.groups, state.group), tale?.let { taleRef(it, state.taleIndex) })
             if (!deliverAction(context.listener, event)) runCatching { uri.openUri(url) }
         }
     }
@@ -340,10 +346,13 @@ internal fun ViewerContent(
     DisposableEffect(state.shows) {
         if (state.isOpen) {
             seenGroups.markSeen(state.group.id)
+            // A view is one opening of the viewer on a group: counted once, however many tales it shows.
+            if (counted.add(state.group.id)) recordFrequencyView(deviceKeyValueStoreOrNull(), state.group.id)
             shown(state.group.id)
             state.group.tales.getOrNull(state.taleIndex)?.let { tale ->
                 val event = context.event("taleShown", group = groupRef(state.groups, state.group), tale = taleRef(tale, state.taleIndex))
                 deliver(context.listener, event) { it.onTaleShown(event) }
+                context.track(AnalyticsEventType.View, groupRef(state.groups, state.group), taleRef(tale, state.taleIndex))
             }
             announceForAccessibility(state.announcement)
         }

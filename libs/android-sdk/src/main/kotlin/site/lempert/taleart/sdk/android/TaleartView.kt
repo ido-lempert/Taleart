@@ -3,12 +3,15 @@ package site.lempert.taleart.sdk.android
 import android.content.Context
 import android.util.AttributeSet
 import android.util.Log
+import android.view.View
 import android.widget.FrameLayout
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.delivery.DeliveryClient
@@ -35,6 +38,10 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  * A tap on a group (a bar item or a banner slide) opens the full-screen tale viewer in a dialog
  * window over the activity, whatever layout the view sits in; Back or the viewer's Close returns to
  * the display. Set [opensViewer] to false to handle taps yourself.
+ *
+ * When the zone fails to load the view shows [fallbackView] if the host set one, else the SDK's
+ * `load.failed` text with a retry button when `TaleartConfig.fallback` is `Message`, else nothing.
+ * [analytics] (`app:taleartAnalytics`) turns this view's events off with false; null follows the SDK.
  *
  * It needs a ViewTreeLifecycleOwner, as every ComposeView does: an AppCompatActivity,
  * ComponentActivity or Fragment gives one. In a window without one (a plain `android.app.Activity`,
@@ -77,6 +84,17 @@ class TaleartView @JvmOverloads constructor(
         get() = controller.listener
         set(value) { controller.listener = value }
 
+    /**
+     * The host's own placeholder, shown instead of the zone when its read fails (see the class doc).
+     * Set null for none. The view is placed in the view's composition, so it must not be attached elsewhere.
+     */
+    var fallbackView: View? by mutableStateOf(null)
+
+    /** Whether this view sends analytics events: false turns them off, null (the default) follows `TaleartConfig.analytics`. */
+    var analytics: Boolean?
+        get() = controller.analytics
+        set(value) { controller.analytics = value }
+
     /** This view's texts per locale, over the SDK's (`TaleartSdk.init`); null for none. */
     var strings: Map<String, Map<String, String>>?
         get() = controller.strings
@@ -111,6 +129,7 @@ class TaleartView @JvmOverloads constructor(
             try {
                 getString(R.styleable.TaleartView_taleartApiUrl)?.let { apiUrl = it }
                 getString(R.styleable.TaleartView_taleartZoneKey)?.let { zoneKey = it }
+                if (hasValue(R.styleable.TaleartView_taleartAnalytics)) analytics = getBoolean(R.styleable.TaleartView_taleartAnalytics, true)
             } finally {
                 recycle()
             }
@@ -148,7 +167,16 @@ class TaleartView @JvmOverloads constructor(
         val view = ComposeView(context).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                TaleartZone(controller, onGroupClick = { group -> onGroupClickListener?.invoke(group) }, opensViewer = opensViewer && inWindow)
+                val hostView = fallbackView
+                val placeholder: (@Composable () -> Unit)? = if (hostView == null) null else {
+                    @Composable { AndroidView(factory = { hostView }) }
+                }
+                TaleartZone(
+                    controller,
+                    onGroupClick = { group -> onGroupClickListener?.invoke(group) },
+                    opensViewer = opensViewer && inWindow,
+                    fallback = placeholder,
+                )
             }
         }
         composeView = view

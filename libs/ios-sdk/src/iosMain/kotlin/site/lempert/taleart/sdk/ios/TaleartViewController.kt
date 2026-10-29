@@ -1,5 +1,6 @@
 package site.lempert.taleart.sdk.ios
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,7 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeUIViewController
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.viewinterop.UIKitView
 import platform.UIKit.UIViewController
 import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.delivery.DeliveryClient
@@ -46,7 +50,13 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  * [opensViewer] to false to handle taps yourself.
  *
  * [listener] hears this view's events (see [TaleartListener]); subclass [TaleartListenerBase] in
- * Swift. [locale] and [strings] are this view's texts, over the SDK's.
+ * Swift. [locale] and [strings] are this view's texts, over the SDK's. [analytics] set to false turns
+ * this view's events off, whatever the SDK's `analytics` option says (null, the default, follows it).
+ *
+ * When the zone fails to load, [fallbackViewController]'s view is shown in place of the zone, [fallbackHeight]
+ * points high, when one is set; else, with `TaleartConfig.fallback` = `Message`, the SDK's `load.failed`
+ * text and a `load.retry` button; else nothing. Its view is placed in the zone's view, so do not add it
+ * to another container.
  *
  * From Swift: `let zone = TaleartZoneView(apiUrl: url, zoneKey: key)`, then `zone.viewController`.
  */
@@ -82,6 +92,17 @@ class TaleartZoneView(apiUrl: String?, zoneKey: String) {
     var locale: String?
         get() = controller.locale
         set(value) { controller.locale = value }
+
+    /** The view controller shown instead of the zone when its read fails (the host's placeholder); null for none. */
+    var fallbackViewController: UIViewController? by mutableStateOf(null)
+
+    /** The height in points of [fallbackViewController]'s view. */
+    var fallbackHeight: Double by mutableStateOf(120.0)
+
+    /** Whether this view sends analytics events: false turns them off, null (the default) follows `TaleartConfig.analytics`. */
+    var analytics: Boolean?
+        get() = controller.analytics
+        set(value) { controller.analytics = value }
 
     /** Called with the display's new height in points (bar or banner). */
     var onHeightChange: ((Double) -> Unit)? = null
@@ -135,10 +156,20 @@ class TaleartZoneView(apiUrl: String?, zoneKey: String) {
                     .wrapContentHeight(Alignment.Top, unbounded = true)
                     .onSizeChanged { size -> reportHeight(with(density) { size.height.toDp().value.toDouble() }) },
             ) {
+                val hostController = fallbackViewController
+                val placeholder: (@Composable () -> Unit)? = if (hostController == null) null else {
+                    @Composable {
+                        UIKitView(
+                            factory = { hostController.view },
+                            modifier = Modifier.fillMaxWidth().height(fallbackHeight.dp),
+                        )
+                    }
+                }
                 TaleartZone(
                     controller,
                     onGroupClick = { group -> onGroupClick?.invoke(group) },
                     opensViewer = opensViewer,
+                    fallback = placeholder,
                 )
             }
         }

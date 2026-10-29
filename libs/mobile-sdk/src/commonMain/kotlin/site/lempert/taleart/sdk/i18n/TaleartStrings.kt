@@ -29,6 +29,9 @@ object TaleartStrings {
 
         "bar.seen" to "{name}, seen",
 
+        "load.failed" to "Stories could not be loaded.",
+        "load.retry" to "Try again",
+
         // Native only: a link leaves the app for the browser (the Web SDK says the same with `links.newTab`).
         "links.open" to "Open in browser",
     )

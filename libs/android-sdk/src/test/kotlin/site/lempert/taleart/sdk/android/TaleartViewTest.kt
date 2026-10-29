@@ -2,7 +2,10 @@ package site.lempert.taleart.sdk.android
 
 import android.app.Activity
 import android.os.Looper
+import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -150,4 +153,32 @@ class TaleartViewTest {
         assertFalse(view.hostsComposition)
         assertEquals(0, view.childCount)
     }
+
+    @Test
+    fun takesTheAnalyticsSettingFromXmlAndFollowsTheSdkWhenAbsent() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val off = Robolectric.buildAttributeSet().addAttribute(R.attr.taleartAnalytics, "false").build()
+        assertEquals(false, TaleartView(activity, off).analytics)
+        assertNull(TaleartView(activity).analytics)
+    }
+
+    @Test
+    fun aHostsFallbackViewIsShownInPlaceOfTheZoneWhenTheReadFails() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val errors = mutableListOf<ZoneResult.Failure>()
+        val host = TextView(activity).apply { text = "Host placeholder" }
+        val view = TaleartView(activity).apply {
+            onErrorListener = { errors += it }
+            client = client { json("""{"error":{"code":"invalid_site_key","message":"Refused"}}""", HttpStatusCode.Unauthorized) }
+            fallbackView = host
+            configure("http://api.test", "tak_key")
+        }
+        activity.setContentView(view)
+
+        waitFor("the error") { errors.isNotEmpty() }
+        waitFor("the host placeholder") { contains(view, host) }
+    }
+
+    private fun contains(root: View, target: View): Boolean =
+        root === target || (root is ViewGroup && (0 until root.childCount).any { contains(root.getChildAt(it), target) })
 }

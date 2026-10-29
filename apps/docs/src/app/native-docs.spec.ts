@@ -134,14 +134,14 @@ describe('native docs: the reference rows match the SDK sources', () => {
   });
 
   it('lists every public TaleartListener method, with its payload and whether the native SDK fires it', () => {
-    expect(listenerMethods().length).toBe(9);
+    expect(listenerMethods().length).toBe(10);
     expect(sorted(LISTENER_HOOKS.map((h) => h.name))).toEqual(sorted(listenerMethods()));
     const notFiring = LISTENER_HOOKS.filter((h) => !h.native).map((h) => h.name);
-    expect(sorted(notFiring)).toEqual(['onGroupImpression', 'onUserInteracted']);
+    expect(sorted(notFiring)).toEqual(['onUserInteracted']);
   });
 
   it('lists every TaleartConfig field', () => {
-    expect(configFields().length).toBe(7);
+    expect(configFields().length).toBe(10);
     expect(sorted(CONFIG_FIELDS.map((f) => f.name))).toEqual(sorted(configFields()));
   });
 
