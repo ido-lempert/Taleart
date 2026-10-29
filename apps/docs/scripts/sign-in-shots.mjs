@@ -263,7 +263,9 @@ async function main() {
     };
     const project = await call('post', '/projects', { name: 'Shop' });
 
+    // SHOTS=07 (an image name prefix) writes only the matching images; the other steps still run.
     const shot = async (name, take) => {
+      if (process.env.SHOTS && !name.startsWith(process.env.SHOTS)) return;
       const path = join(imagesDir, `signin-shot-${name}.png`);
       await take(path);
       written.push(`signin-shot-${name}.png`);
@@ -335,8 +337,15 @@ async function main() {
     await outside.getByText('Continue with Company SSO', { exact: true }).waitFor({ timeout: 60_000 });
     await shot('06-sign-in', (path) => outside.screenshot({ path }));
 
-    // Step 7 has no screenshot yet: a fresh /invite/:token page offers only the passkey, because nothing loads the
-    // sign-in methods on that route (apps/dashboard/src/app/app.routes.ts has no guard that calls auth.ensure()).
+    // Step 7: the invitation page, opened by a fresh visitor (signed out). The page shows the passkey, the password and the
+    // provider once the sign-in methods have loaded. The link is not in the picture: the page has no token of its own.
+    const invitation = await call('post', `/projects/${project.id}/invitations`);
+    const token = new URL(invitation.url).pathname.split('/').pop();
+    await outside.goto(`${dashboardOrigin}/invite/${token}`);
+    await outside.getByRole('heading', { name: 'Join Shop on TaleArt' }).waitFor({ timeout: 60_000 });
+    await outside.getByRole('button', { name: 'Join with a password' }).waitFor({ timeout: 60_000 });
+    await outside.getByText('Continue with Company SSO', { exact: true }).waitFor({ timeout: 60_000 });
+    await shot('07-invitation', (path) => outside.screenshot({ path, fullPage: true }));
     await signedOut.close();
 
     // Step 8: the signed-in admin's own methods.

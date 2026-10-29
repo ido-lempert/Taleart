@@ -76,16 +76,10 @@ describe('the Sign-in methods guide', () => {
     for (const href of internal) expect(paths.has(href.split('#')[0]), href).toBe(true);
   });
 
-  it('gives each step a real screenshot, with alt text and a caption, except step 7, which has none yet', () => {
-    // Step 7 (the invitation page) has no screenshot: a fresh /invite/:token page offers only the passkey, so a picture of it would
-    // contradict the step. Add its figure when that page loads the sign-in methods.
+  it('gives each step a real screenshot, with alt text and a caption', () => {
     const steps = [...page.querySelectorAll('ol.steps > li')];
-    steps.forEach((step, index) => {
+    steps.forEach((step) => {
       const figures = [...step.querySelectorAll('figure')];
-      if (index === 6) {
-        expect(figures.length).toBe(0);
-        return;
-      }
       expect(figures.length, step.querySelector('strong')?.textContent ?? '').toBe(1);
       const img = figures[0].querySelector('img');
       const src = img?.getAttribute('src') ?? '';

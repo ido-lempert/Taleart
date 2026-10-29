@@ -155,6 +155,15 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         Otherwise the join is refused with <code>email_mismatch</code>, or with <code>email_not_verified</code> when the provider
         did not verify the address. A provider never creates an account by
         itself: it can only join an invitation or be linked by a user who is signed in.
+        <figure>
+          <img
+            src="/images/signin-shot-07-invitation.png"
+            alt="The invitation page Join Shop on TaleArt, opened by a signed-out visitor. It has Name and Email fields, Create passkey, a username and password form with Join with a password, and a Continue with Company SSO button for the provider."
+            width="1000"
+            height="1038"
+          />
+          <figcaption>The invitation page for a fresh visitor, a real full-page screenshot of the dashboard. The link itself is not shown.</figcaption>
+        </figure>
       </li>
 
       <li>
