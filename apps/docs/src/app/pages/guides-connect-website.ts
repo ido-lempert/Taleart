@@ -9,7 +9,7 @@ import { RouterLink } from '@angular/router';
 <h1 tabindex="-1">Connect a website</h1>
 <h2 id="issue-the-zone-key">Issue the zone key</h2>
 <p>Open the zone, then the <strong>Install</strong> tab, then <strong>Issue zone key</strong>. The key (<code>tak_...</code>) is shown once. It opens only that zone and sits in page HTML, so it is not a secret. If you lose it, rotate it.</p>
-<p><img class="guide-img" alt="Install tab with the key and snippet" src="guides/images/05-install-tab.png" width="1000" height="703" /></p>
+<p><img class="guide-img" alt="Install tab with the key and snippet" src="guides/images/05-install-tab.png" width="1280" height="800" /></p>
 <h2 id="paste-the-snippet">Paste the snippet</h2>
 <pre><code class="language-html">&lt;script type=&quot;module&quot; src=&quot;http://localhost:3333/sdk/v1/taleart.js&quot;&gt;&lt;/script&gt;
 &lt;taleart-view zone-key=&quot;YOUR_ZONE_KEY&quot;&gt;&lt;/taleart-view&gt;

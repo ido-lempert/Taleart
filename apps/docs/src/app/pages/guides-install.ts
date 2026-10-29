@@ -27,9 +27,9 @@ npx nx serve dashboard   # documented, not executed for this guide
 </ul>
 <h2 id="first-run-setup">First-run setup</h2>
 <p>The first screen creates the admin and your first project. You give a name, an email and a project name, then create a passkey (stored on your device or in your password manager), or a username and password if your server has TALEART_SETUP_PASSWORD=true.</p>
-<p><img class="guide-img" alt="First-run setup screen" src="guides/images/01-setup.png" width="1000" height="625" /></p>
+<p><img class="guide-img" alt="First-run setup screen" src="guides/images/01-setup.png" width="1280" height="800" /></p>
 <p>After setup you land on the Zones page of your new project.</p>
-<p><img class="guide-img" alt="Dashboard after setup, no zones yet" src="guides/images/02-dashboard.png" width="1000" height="625" /></p>
+<p><img class="guide-img" alt="Dashboard after setup, no zones yet" src="guides/images/02-dashboard.png" width="1280" height="800" /></p>
   `,
 })
 export class GuidesInstallPage {}

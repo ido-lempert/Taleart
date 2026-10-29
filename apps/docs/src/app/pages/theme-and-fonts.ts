@@ -60,7 +60,7 @@ import { RouterLink } from '@angular/router';
 <p>A value is read from the most specific place that sets it: the element's <code>theme</code> attribute, then <code>configureZone</code> in the page's script, then the project theme, then the default. Examples are on <a routerLink="/install">Install a zone</a>.</p>
 <h2 id="project-fonts">Project fonts</h2>
 <p><strong>Projects</strong>, then <strong>Fonts</strong>. Upload a WOFF2 file (at most 500 KB), give it a family name, weight and style, and confirm you may use and distribute it. Tale Studio and the SDK can then use the family. Text shows in the fallback font until the font has loaded.</p>
-<p><img class="guide-img" alt="Fonts" src="guides/images/19-fonts.png" width="1280" height="800" /></p>
+<p><img class="guide-img" alt="Fonts page with the Inter font uploaded" src="guides/images/19-fonts.png" width="1280" height="1100" /></p>
   `,
 })
 export class ThemeAndFontsPage {}

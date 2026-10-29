@@ -16,12 +16,12 @@ import { RouterLink } from '@angular/router';
 <li><strong>Blank</strong> - a zone with no display yet. Choose one later on the Display tab.</li>
 </ul>
 <p>A template sets the display once, when the zone is created. After that you change the display on the zone's <strong>Display</strong> tab.</p>
-<p><img class="guide-img" alt="A new zone that is not visible yet" src="guides/images/03-zone-new.png" width="1000" height="625" /></p>
+<p><img class="guide-img" alt="A new zone that is not visible yet" src="guides/images/03-zone-new.png" width="1280" height="800" /></p>
 <h2 id="the-zone-list">The zone list</h2>
 <p>Each zone card shows its slug, whether it is <strong>Visible on site</strong>, how many tale groups it holds and whether the install snippet was used.</p>
 <p><img class="guide-img" alt="The zone list" src="guides/images/15-zones.png" width="1280" height="800" /></p>
 <h2 id="display-tab">Display tab</h2>
-<p><img class="guide-img" alt="Display tab" src="guides/images/06-display-tab.png" width="1000" height="703" /></p>
+<p><img class="guide-img" alt="Display tab" src="guides/images/06-display-tab.png" width="1280" height="800" /></p>
 <h3 id="stories-bar">Stories bar</h3>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
 <thead>
