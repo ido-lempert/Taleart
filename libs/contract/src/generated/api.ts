@@ -662,6 +662,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the install's users with their sign-in methods (admins only).
+         * @description Admins only, with a session cookie: a content manager gets 403 `forbidden`, and any request with an `Authorization` header (an API token included) gets 403 `forbidden`. Each user shows whether they hold a passkey and a password, the external providers they link (their ids, once each) and how many projects they are a member of. Never a password hash, a secret or a username. Ordered by creation, then id, and at most 500 users: `truncated` is true when more exist.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{userId}/api-tokens": {
         parameters: {
             query?: never;
@@ -2357,6 +2377,30 @@ export interface components {
             /** @description True when the token reaches every project its user can access (`projectIds` is null). */
             allProjects: boolean;
             user: components["schemas"]["User"];
+        };
+        AdminUser: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            email: string;
+            role: components["schemas"]["UserRole"];
+            /** Format: date-time */
+            createdAt: string;
+            methods: {
+                /** @description True when the user has at least one passkey. */
+                passkey: boolean;
+                /** @description True when the user has a username and password. */
+                password: boolean;
+                /** @description The external providers the user links (`google`, `apple`, `oidc:<slug>`), each once. */
+                identities: string[];
+            };
+            /** @description How many projects the user is a member of. */
+            projects: number;
+        };
+        AdminUserList: {
+            users: components["schemas"]["AdminUser"][];
+            /** @description True when the install holds more than 500 users; only the first 500 are listed. */
+            truncated: boolean;
         };
         RevokedApiTokens: {
             /** @description How many active tokens were revoked. */
@@ -4625,6 +4669,29 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

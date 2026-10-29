@@ -106,6 +106,10 @@ export type CreateApiTokenRequest = Schemas['CreateApiTokenRequest'];
 /** A newly created API token, the only time the token itself is shown. */
 export type IssuedApiToken = Schemas['IssuedApiToken'];
 export type RevokedApiTokens = Schemas['RevokedApiTokens'];
+/** A user of the install as an admin sees it (Users page): the sign-in methods held, never a secret. */
+export type AdminUser = Schemas['AdminUser'];
+/** The install's users for an admin, ordered by creation; `truncated` when the list was cut short. */
+export type AdminUserList = Schemas['AdminUserList'];
 /** The API token making the request, with its user (epic developer experience 10.3): what `taleart whoami` shows. */
 export type CurrentApiToken = Schemas['CurrentApiToken'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];

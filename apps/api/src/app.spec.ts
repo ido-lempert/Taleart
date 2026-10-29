@@ -8,9 +8,11 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   addProjectMember,
+  createApiToken,
   createSession,
   createUser,
   decryptSecret,
+  hashPassword,
   PasskeyFailedError,
   type PasskeyVerifier,
   type TransactionalDb,
@@ -18401,4 +18403,201 @@ describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
   function adminPost(path: string): Promise<Response> {
     return globalThis.fetch(`${origin}${path}`, { method: 'POST', headers: { cookie: adminSession } });
   }
+});
+
+// The Users page's list (GET /users): admins only, with the session cookie alone, and only the sign-in
+// methods each user holds (never a hash, a secret or a username).
+describe('Management API v1: the users list for the Users page (admins only)', () => {
+  let pool: Pool;
+  let base = '';
+  const servers: Server[] = [];
+  let adminId = '';
+  let adminCookie = '';
+  let managerId = '';
+  let managerCookie = '';
+  let memberId = '';
+  const MANAGER_LOGIN = 'casey-login-7731';
+
+  async function useApp(): Promise<void> {
+    const s = createApp(
+      pool,
+      loadFrameTypeRegistry(frameTypesDir),
+      new LocalDiskStorage(mediaDir),
+      { verifier: fakeVerifier, secretKey: randomBytes(32), passwordAddressLimit: null },
+      { publicApiUrl },
+      undefined,
+      undefined,
+      { rateLimit: null },
+    ).listen(0);
+    await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+    servers.push(s);
+    base = `http://127.0.0.1:${(s.address() as AddressInfo).port}/api/v1`;
+  }
+
+  // A request. The admin's session unless `cookie` says otherwise ('' sends none).
+  function send(opts: { cookie?: string; authorization?: string } = {}): Promise<Response> {
+    const headers: Record<string, string> = {};
+    const cookie = opts.cookie ?? adminCookie;
+    if (cookie) headers['Cookie'] = cookie;
+    if (opts.authorization) headers['Authorization'] = opts.authorization;
+    return globalThis.fetch(`${base}/users`, { method: 'GET', headers });
+  }
+
+  async function cookieFor(userId: string): Promise<string> {
+    return `taleart_session=${(await createSession(pool, userId)).token}`;
+  }
+
+  async function setCreatedAt(userId: string, createdAt: string): Promise<void> {
+    await pool.query('UPDATE users SET created_at = $2 WHERE id = $1', [userId, createdAt]);
+  }
+
+  beforeAll(async () => {
+    pool = createPool(testDatabaseUrl);
+    await migrate(pool);
+  });
+
+  beforeEach(async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await pool.query('TRUNCATE users, projects CASCADE');
+    // The admin signs in with a passkey; the manager has a password only; the member holds both,
+    // links two providers (one of them an OpenID Connect provider) and belongs to one project.
+    const admin = await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+    adminId = admin.id;
+    await pool.query(
+      `INSERT INTO passkeys (user_id, credential_id, public_key, counter, transports)
+       VALUES ($1, $2, $3, 0, '{internal}')`,
+      [adminId, `cred-${randomUUID()}`, Buffer.from([1, 2, 3])],
+    );
+    adminCookie = await cookieFor(adminId);
+    const manager = await createUser(pool, { name: 'Casey Content', email: 'casey@example.com', role: 'content_manager' });
+    managerId = manager.id;
+    managerCookie = await cookieFor(managerId);
+    await pool.query('INSERT INTO user_passwords (user_id, username, password_hash) VALUES ($1, $2, $3)', [
+      managerId,
+      MANAGER_LOGIN,
+      await hashPassword('a-long-passphrase-2026'),
+    ]);
+    const member = await createUser(pool, { name: 'Morgan Member', email: 'morgan@example.com', role: 'content_manager' });
+    memberId = member.id;
+    await pool.query('INSERT INTO passkeys (user_id, credential_id, public_key, counter, transports) VALUES ($1, $2, $3, 0, \'{internal}\')', [
+      memberId,
+      `cred-${randomUUID()}`,
+      Buffer.from([4, 5, 6]),
+    ]);
+    await pool.query('INSERT INTO user_passwords (user_id, username, password_hash) VALUES ($1, $2, $3)', [
+      memberId,
+      'morgan-login',
+      await hashPassword('another-long-passphrase-2026'),
+    ]);
+    await pool.query(
+      `INSERT INTO user_identities (user_id, provider, subject) VALUES ($1, 'google', 'g-1'), ($1, 'google', 'g-2'), ($1, 'oidc:acme', 'o-1')`,
+      [memberId],
+    );
+    const projectA = await createProject(pool, { name: 'Acme' });
+    await addProjectMember(pool, projectA.id, memberId);
+    await useApp();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(servers.splice(0).map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+  });
+
+  afterAll(async () => {
+    await pool.query('TRUNCATE users, projects CASCADE');
+    await pool.end();
+  });
+
+  it('lists every user with the sign-in methods each holds, in creation order', async () => {
+    await setCreatedAt(managerId, '2026-01-01T00:00:00Z');
+    await setCreatedAt(adminId, '2026-01-02T00:00:00Z');
+    await setCreatedAt(memberId, '2026-01-03T00:00:00Z');
+
+    const res = await send();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({
+      users: [
+        {
+          id: managerId,
+          name: 'Casey Content',
+          email: 'casey@example.com',
+          role: 'content_manager',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          methods: { passkey: false, password: true, identities: [] },
+          projects: 0,
+        },
+        {
+          id: adminId,
+          name: 'Ada Admin',
+          email: 'ada@example.com',
+          role: 'admin',
+          createdAt: '2026-01-02T00:00:00.000Z',
+          methods: { passkey: true, password: false, identities: [] },
+          projects: 0,
+        },
+        {
+          id: memberId,
+          name: 'Morgan Member',
+          email: 'morgan@example.com',
+          role: 'content_manager',
+          createdAt: '2026-01-03T00:00:00.000Z',
+          methods: { passkey: true, password: true, identities: ['google', 'oidc:acme'] },
+          projects: 1,
+        },
+      ],
+      truncated: false,
+    });
+  });
+
+  it('never returns a password hash, a username or a secret', async () => {
+    const text = await (await send()).text();
+    expect(text).not.toContain('scrypt');
+    expect(text).not.toContain('password_hash');
+    expect(text).not.toContain(MANAGER_LOGIN);
+    expect(text).not.toContain('morgan-login');
+    expect(text).not.toContain('username');
+    expect(text).not.toContain('secret');
+  });
+
+  it('keeps one order when creation times tie: by id, the same on every call', async () => {
+    await pool.query("UPDATE users SET created_at = '2026-02-01T00:00:00Z'");
+    const first = (await (await send()).json()).users.map((u: { id: string }) => u.id);
+    const second = (await (await send()).json()).users.map((u: { id: string }) => u.id);
+    expect(second).toEqual(first);
+    expect(first).toEqual([adminId, managerId, memberId].sort());
+  });
+
+  it('answers 403 to a content manager, 401 to a stranger, and refuses API tokens and any Authorization header', async () => {
+    const manager = await send({ cookie: managerCookie });
+    expect(manager.status).toBe(403);
+    expect((await manager.json()).error.code).toBe('forbidden');
+
+    const stranger = await send({ cookie: '' });
+    expect(stranger.status).toBe(401);
+    expect((await stranger.json()).error.code).toBe('unauthenticated');
+
+    // A valid token of the admin, a bogus one, and a valid session with a header: all refused.
+    const issued = await createApiToken(pool, { userId: adminId, name: 'laptop', projectIds: null, readOnly: false, expiresAt: null });
+    for (const authorization of [`Bearer ${issued.token}`, 'Bearer tat_not-a-real-token', 'Basic abc']) {
+      const refused = await send({ authorization });
+      expect(refused.status, authorization.slice(0, 12)).toBe(403);
+      expect((await refused.json()).error.code).toBe('forbidden');
+    }
+    const sessionWithHeader = await send({ authorization: `Bearer ${issued.token}` });
+    expect(sessionWithHeader.status).toBe(403);
+  });
+
+  it('caps the list at 500 users and says when it was cut short', async () => {
+    await pool.query(
+      `INSERT INTO users (name, email, role, webauthn_user_id, created_at)
+       SELECT 'Extra ' || n, 'extra' || n || '@example.com', 'content_manager', 'wa-extra-' || n, now() + (n || ' seconds')::interval
+         FROM generate_series(1, 500) AS n`,
+    );
+    const body = await (await send()).json();
+    expect(body.users).toHaveLength(500);
+    expect(body.truncated).toBe(true);
+  });
 });

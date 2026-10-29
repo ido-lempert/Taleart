@@ -68,6 +68,10 @@
       "description": "Passkey setup, sign-in, sign-out, username and password sign-in and invitations, and the signed-in user's own sign-in methods. Cookies only; any request with an `Authorization` header is refused."
     },
     {
+      "name": "Users",
+      "description": "The install's users for admins (the Users page). A passkey session only; any request with an `Authorization` header is refused."
+    },
+    {
       "name": "Sign-in methods",
       "description": "Which sign-in methods are on, the external identity providers, and admin-issued password reset links. Admins only, with a session cookie; any request with an `Authorization` header is refused."
     }
@@ -1510,6 +1514,42 @@
             "$ref": "#/components/responses/Error"
           },
           "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "operationId": "listUsers",
+        "summary": "List the install's users with their sign-in methods (admins only).",
+        "description": "Admins only, with a session cookie: a content manager gets 403 `forbidden`, and any request with an `Authorization` header (an API token included) gets 403 `forbidden`. Each user shows whether they hold a passkey and a password, the external providers they link (their ids, once each) and how many projects they are a member of. Never a password hash, a secret or a username. Ordered by creation, then id, and at most 500 users: `truncated` is true when more exist.",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The users.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
             "$ref": "#/components/responses/Error"
           },
           "default": {
@@ -6851,6 +6891,87 @@
             }
           }
         ]
+      },
+      "AdminUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "createdAt",
+          "methods",
+          "projects"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "methods": {
+            "type": "object",
+            "required": [
+              "passkey",
+              "password",
+              "identities"
+            ],
+            "properties": {
+              "passkey": {
+                "type": "boolean",
+                "description": "True when the user has at least one passkey."
+              },
+              "password": {
+                "type": "boolean",
+                "description": "True when the user has a username and password."
+              },
+              "identities": {
+                "type": "array",
+                "description": "The external providers the user links (`google`, `apple`, `oidc:<slug>`), each once.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "projects": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many projects the user is a member of."
+          }
+        }
+      },
+      "AdminUserList": {
+        "type": "object",
+        "required": [
+          "users",
+          "truncated"
+        ],
+        "properties": {
+          "users": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/AdminUser"
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the install holds more than 500 users; only the first 500 are listed."
+          }
+        }
       },
       "RevokedApiTokens": {
         "type": "object",

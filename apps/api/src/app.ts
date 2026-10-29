@@ -9,6 +9,7 @@ import type { Pool } from 'pg';
 import { authRouter } from './http/auth.router';
 import { providerLoginRouter } from './http/provider-login.router';
 import { signInMethodsRouter } from './http/sign-in-methods.router';
+import { listUsersRoute } from './http/users.router';
 import { apiTokensRouter, userApiTokensRouter } from './http/api-tokens.router';
 import { refuseAuthorizationHeader, requireCaller } from './http/credentials';
 import { coversRouter } from './http/covers.router';
@@ -204,6 +205,9 @@ export function createApp(
       flowAddressLimit: auth.providerFlowLimit,
     }),
   );
+  // The users of the install for the Users page: an admin's session only. Ahead of the caller check, so a
+  // request with an Authorization header is refused as on /auth, before any token is read.
+  v1.get('/users', refuseAuthorizationHeader, ...listUsersRoute(pool));
   // Every other route, media included, needs a signed-in session or an API token acting as its user
   // (AD-9, epic developer experience 10.1), and each checks the caller's access to the project it
   // touches (AD-4), narrowed to the token's projects.
