@@ -54,8 +54,30 @@ const group = {
   position: 0,
   tags: [] as unknown[],
 };
-const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, status: 'live', storedStatus: 'live', startsAt: null as string | null, endsAt: null as string | null, media: null };
-const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, status: 'live', storedStatus: 'live', startsAt: null as string | null, endsAt: null as string | null, media: null };
+const taleA = {
+  id: 't1',
+  taleGroupId: 'g1',
+  projectId: 'p1',
+  title: 'A',
+  position: 0,
+  status: 'live',
+  storedStatus: 'live',
+  startsAt: null as string | null,
+  endsAt: null as string | null,
+  media: null,
+};
+const taleB = {
+  id: 't2',
+  taleGroupId: 'g1',
+  projectId: 'p1',
+  title: 'B',
+  position: 1,
+  status: 'live',
+  storedStatus: 'live',
+  startsAt: null as string | null,
+  endsAt: null as string | null,
+  media: null,
+};
 const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
 const mp4Media = { kind: 'video', contentType: 'video/mp4', url: '/api/v1/tales/t2/media' };
 const MEDIA_ORIGIN = API_ORIGIN;
@@ -70,7 +92,10 @@ const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', setting
  * counts, not its tales; `tales` Shown tales (or the counts of `fields.tales`), Off (`draft`) in no
  * zone and not visible by default.
  */
-function projectGroup(fields: Record<string, unknown> & { id: string; name: string }, tales = 0): Record<string, unknown> {
+function projectGroup(
+  fields: Record<string, unknown> & { id: string; name: string },
+  tales = 0,
+): Record<string, unknown> {
   const stored = (fields['storedStatus'] as string | undefined) ?? (fields['status'] as string | undefined) ?? 'draft';
   const { tales: given, ...own } = fields as { tales?: { storedStatus: string }[] };
   const total = given ? given.length : tales;
@@ -122,8 +147,7 @@ async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
  * rework R11), else the page's.
  */
 function announced(root: ParentNode): string | undefined {
-  const region =
-    root.querySelector('app-group-view [aria-live=polite]') ?? root.querySelector('[aria-live=polite]');
+  const region = root.querySelector('app-group-view [aria-live=polite]') ?? root.querySelector('[aria-live=polite]');
   return region?.textContent ?? undefined;
 }
 
@@ -138,7 +162,9 @@ function pickMenuItem(root: ParentNode, menu: string, item: string): void {
   const trigger = root.querySelector<HTMLButtonElement>(`button[aria-label="${menu}"]`);
   if (!trigger) throw new Error(`No ${menu} menu`);
   trigger.click();
-  const items = [...document.querySelectorAll<HTMLElement>(`#${trigger.getAttribute('aria-controls')} [role=menuitem]`)];
+  const items = [
+    ...document.querySelectorAll<HTMLElement>(`#${trigger.getAttribute('aria-controls')} [role=menuitem]`),
+  ];
   const found = items.find((i) => i.firstElementChild?.textContent?.trim() === item);
   if (!found) throw new Error(`No ${item} in ${menu}`);
   found.click();
@@ -149,19 +175,28 @@ function menuItems(root: ParentNode, menu: string): { label: string; reason: str
   const trigger = root.querySelector<HTMLButtonElement>(`button[aria-label="${menu}"]`);
   if (!trigger) throw new Error(`No ${menu} menu`);
   trigger.click();
-  const items = [...document.querySelectorAll<HTMLElement>(`#${trigger.getAttribute('aria-controls')} [role=menuitem]`)].map(
-    (item) => ({
-      label: item.firstElementChild?.textContent?.trim() ?? '',
-      reason: item.querySelector('.menu-button__reason')?.textContent?.trim() ?? '',
-      disabled: item.getAttribute('aria-disabled') === 'true',
-    }),
-  );
+  const items = [
+    ...document.querySelectorAll<HTMLElement>(`#${trigger.getAttribute('aria-controls')} [role=menuitem]`),
+  ].map((item) => ({
+    label: item.firstElementChild?.textContent?.trim() ?? '',
+    reason: item.querySelector('.menu-button__reason')?.textContent?.trim() ?? '',
+    disabled: item.getAttribute('aria-disabled') === 'true',
+  }));
   trigger.click();
   return items;
 }
 
 /** Every item of a group row's ⋯ menu, in order (epic UX rework R10). */
-const GROUP_MENU = ['Rename', 'Cover', 'Audience', 'Schedule', 'Show in another zone', 'Copy to zone', 'Remove from this zone', 'Archive'];
+const GROUP_MENU = [
+  'Rename',
+  'Cover',
+  'Audience',
+  'Schedule',
+  'Show in another zone',
+  'Copy to zone',
+  'Remove from this zone',
+  'Archive',
+];
 
 function type(input: HTMLInputElement | null, value: string): void {
   if (!input) throw new Error('No input');
@@ -184,7 +219,11 @@ function pick(input: HTMLInputElement | null, file: File): void {
 
 // The open drawer on top, leaving out the group view (epic UX rework R11) under it.
 function drawer(): HTMLElement | null {
-  return [...document.querySelectorAll<HTMLElement>('[role=dialog]')].filter((d) => !d.classList.contains('drawer--wide')).at(-1) ?? null;
+  return (
+    [...document.querySelectorAll<HTMLElement>('[role=dialog]')]
+      .filter((d) => !d.classList.contains('drawer--wide'))
+      .at(-1) ?? null
+  );
 }
 
 // The open group view (epic UX rework R11), or null.
@@ -234,9 +273,14 @@ describe('App', () => {
   // install URLs on its own.
   function flushSiteKeys(): void {
     for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/site-key'))) req.flush(null);
-    for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/key') && r.url.includes('/zones/'))) req.flush(null);
+    for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/key') && r.url.includes('/zones/')))
+      req.flush(null);
     for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/install'))) {
-      req.flush({ apiUrl: 'http://api.test', sdkUrl: 'http://api.test/sdk/v1/taleart.js', testPageUrl: 'http://api.test/sdk/v1/test-page' });
+      req.flush({
+        apiUrl: 'http://api.test',
+        sdkUrl: 'http://api.test/sdk/v1/taleart.js',
+        testPageUrl: 'http://api.test/sdk/v1/test-page',
+      });
     }
   }
 
@@ -256,14 +300,25 @@ describe('App', () => {
     for (const req of http.match((r) => r.method === 'GET' && /\/v1\/tale-groups\/[^/]+$/.test(r.url))) {
       const found = data.readGroups?.[req.request.url.split('/').at(-1) ?? ''];
       if (found) req.flush(found);
-      else req.flush({ error: { code: 'tale_group_not_found', message: 'No tale group' } }, { status: 404, statusText: 'Not Found' });
+      else
+        req.flush(
+          { error: { code: 'tale_group_not_found', message: 'No tale group' } },
+          { status: 404, statusText: 'Not Found' },
+        );
     }
   }
 
   // The Analytics tab reads its zone's analytics once shown (zone analytics panel); answers each read.
   function flushAnalytics(): void {
-    const empty = { period: '30d', totals: { impressions: 0, reach: 0, opens: 0, taleViews: 0, clicks: 0, engagementRate: 0, ctr: 0 }, daily: [], groups: [], tales: [] };
-    for (const req of http.match((r) => r.method === 'GET' && /\/zones\/[^/]+\/analytics$/.test(r.url))) req.flush(empty);
+    const empty = {
+      period: '30d',
+      totals: { impressions: 0, reach: 0, opens: 0, taleViews: 0, clicks: 0, engagementRate: 0, ctr: 0 },
+      daily: [],
+      groups: [],
+      tales: [],
+    };
+    for (const req of http.match((r) => r.method === 'GET' && /\/zones\/[^/]+\/analytics$/.test(r.url)))
+      req.flush(empty);
   }
 
   afterEach(() => {
@@ -278,7 +333,11 @@ describe('App', () => {
   // Answers one full refresh: projects, zones (each with its slug and display), frame types, each zone's tale
   // groups, each project's tags and tale groups, then the site key card's own request.
   // `projectsRead: false` when the test answered the projects read itself.
-  async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data, { projectsRead = true } = {}): Promise<void> {
+  async function flushRefresh(
+    fixture: ComponentFixture<unknown>,
+    data: Data,
+    { projectsRead = true } = {},
+  ): Promise<void> {
     lastData = data;
     const zones = data.zones ?? [];
     if (projectsRead) {
@@ -299,7 +358,8 @@ describe('App', () => {
       http.expectOne(`${API_BASE}/zones/${z.id}/tale-groups`).flush(data.groups?.[z.id] ?? []);
     }
     await settle(fixture);
-    for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
+    for (const p of data.projects ?? [])
+      http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
     for (const p of data.projects ?? []) {
       http.expectOne(`${API_BASE}/projects/${p.id}/user-lists`).flush(data.userLists?.[p.id] ?? []);
     }
@@ -512,7 +572,10 @@ describe('App', () => {
       await retryTick();
       http
         .expectOne(`${API_BASE}/projects`)
-        .flush({ error: { code: 'unauthenticated', message: 'Sign in to continue' } }, { status: 401, statusText: 'Unauthorized' });
+        .flush(
+          { error: { code: 'unauthenticated', message: 'Sign in to continue' } },
+          { status: 401, statusText: 'Unauthorized' },
+        );
       await settle(fixture);
       await settle(fixture);
 
@@ -894,9 +957,7 @@ describe('App', () => {
           expect(store.displayOf('z1')).toEqual({ ...frameBar, type, settings });
           expect(typeSelect(root)?.value).toBe(type);
           expect(buttonNamed(root, 'Change type').disabled).toBe(true);
-          expect(announced(root)).toContain(
-            `The display is now a ${label.toLowerCase()}, with its default settings.`,
-          );
+          expect(announced(root)).toContain(`The display is now a ${label.toLowerCase()}, with its default settings.`);
         }
         // The banner's schema here has no fields: no Settings button; the bar's has.
         expect(root.querySelector('.display-row button')).not.toBeNull();
@@ -910,7 +971,10 @@ describe('App', () => {
         await settle(fixture);
         http
           .expectOne(`${API_BASE}/zones/z1/frame`)
-          .flush({ error: { code: 'unknown_frame_type', message: '"banner" is not a frame type' } }, { status: 400, statusText: 'Bad Request' });
+          .flush(
+            { error: { code: 'unknown_frame_type', message: '"banner" is not a frame type' } },
+            { status: 400, statusText: 'Bad Request' },
+          );
         await settle(fixture);
         expect(root.querySelector('.display-type [role=alert]')?.textContent).toContain('is not a frame type');
         expect(root.querySelector('#display-type')?.textContent).toContain('Bar');
@@ -1111,10 +1175,16 @@ describe('App', () => {
       await settle(fixture);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await answerCreate(fixture, `${API_BASE}/zones/z1/tale-groups`, { name: 'Summer' }, { ...group, tales: [] }, {
-        ...oneZone,
-        groups: { z1: [{ ...group, tales: [] }] },
-      });
+      await answerCreate(
+        fixture,
+        `${API_BASE}/zones/z1/tale-groups`,
+        { name: 'Summer' },
+        { ...group, tales: [] },
+        {
+          ...oneZone,
+          groups: { z1: [{ ...group, tales: [] }] },
+        },
+      );
       expect(root.querySelector('[aria-label="Tale groups in Home bar"]')?.textContent).toContain('No tales yet');
       await expandGroups(fixture, root);
 
@@ -1159,14 +1229,26 @@ describe('App', () => {
         type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
         pickAll(input, files);
         buttonNamed(drawer() as HTMLElement, 'Create').click();
-        await answerCreate(fixture, `${API_BASE}/zones/z1/tale-groups`, { name: 'Summer' }, { ...group, tales: [] }, {
-          ...oneZone,
-          groups: { z1: [{ ...group, tales: [] }] },
-        });
+        await answerCreate(
+          fixture,
+          `${API_BASE}/zones/z1/tale-groups`,
+          { name: 'Summer' },
+          { ...group, tales: [] },
+          {
+            ...oneZone,
+            groups: { z1: [{ ...group, tales: [] }] },
+          },
+        );
         return { fixture, root };
       }
 
-      async function answerTale(fixture: ComponentFixture<unknown>, title: string, id: string, file: File, refused = false) {
+      async function answerTale(
+        fixture: ComponentFixture<unknown>,
+        title: string,
+        id: string,
+        file: File,
+        refused = false,
+      ) {
         const post = http.expectOne(`${API_BASE}/tale-groups/g1/tales`);
         expect(post.request.body).toEqual({ title });
         post.flush({ ...taleA, id, title });
@@ -1177,7 +1259,10 @@ describe('App', () => {
         // The checked type, from the extension when the file has none.
         expect(put.request.headers.get('Content-Type')).toBe(file.type || 'image/webp');
         if (refused) {
-          put.flush({ error: { code: 'media_too_large', message: 'The file is over 10 MB' } }, { status: 413, statusText: 'Too Large' });
+          put.flush(
+            { error: { code: 'media_too_large', message: 'The file is over 10 MB' } },
+            { status: 413, statusText: 'Too Large' },
+          );
           await settle(fixture);
           // A tale without its media is hidden, never shown empty.
           const hide = http.expectOne(`${API_BASE}/tales/${id}/status`);
@@ -1208,10 +1293,14 @@ describe('App', () => {
         const alert = drawer()?.querySelector('[role=alert]')?.textContent ?? '';
         expect(alert).toContain('The tale group was created with 0 of 2 tales.');
         expect(alert).toContain('The tale "beach day" was added hidden, without its media. The file is over 10 MB');
-        const buttons = [...(drawer()?.querySelectorAll('.drawer__footer button') ?? [])].map((b) => b.textContent?.trim());
+        const buttons = [...(drawer()?.querySelectorAll('.drawer__footer button') ?? [])].map((b) =>
+          b.textContent?.trim(),
+        );
         expect(buttons).toEqual(['Done']);
         // No second group, and no tale for the second file.
-        drawer()?.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+        drawer()
+          ?.querySelector('form')
+          ?.dispatchEvent(new Event('submit', { cancelable: true }));
         await settle(fixture);
         http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
         http.expectNone(`${API_BASE}/tale-groups/g1/tales`);
@@ -1228,14 +1317,18 @@ describe('App', () => {
         buttonNamed(drawer() as HTMLElement, 'Create').click();
         await settle(fixture);
         http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
-        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('"menu.pdf": Upload a JPEG, PNG, WebP or GIF image');
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+          '"menu.pdf": Upload a JPEG, PNG, WebP or GIF image',
+        );
         const huge = new File([new Uint8Array(1)], 'huge.png', { type: 'image/png' });
         Object.defineProperty(huge, 'size', { value: 11 * 1024 * 1024 });
         pickAll(input, [huge]);
         buttonNamed(drawer() as HTMLElement, 'Create').click();
         await settle(fixture);
         http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
-        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('"huge.png": The file is larger than 10 MB');
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+          '"huge.png": The file is larger than 10 MB',
+        );
       });
 
       it('sends a file without a type with the type of its extension', async () => {
@@ -1275,11 +1368,16 @@ describe('App', () => {
         buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
         await settle(fixture);
         type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
-        pickAll(drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null, Array.from({ length: 101 }, () => beach));
+        pickAll(
+          drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null,
+          Array.from({ length: 101 }, () => beach),
+        );
         buttonNamed(drawer() as HTMLElement, 'Create').click();
         await settle(fixture);
         http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
-        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('holds up to 100 tales. Choose fewer files.');
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+          'holds up to 100 tales. Choose fewer files.',
+        );
       });
     });
 
@@ -1302,7 +1400,9 @@ describe('App', () => {
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush(groupLimit(fullCreate), { status: 409, statusText: 'Conflict' });
+      http
+        .expectOne(`${API_BASE}/zones/z1/tale-groups`)
+        .flush(groupLimit(fullCreate), { status: 409, statusText: 'Conflict' });
       await settle(fixture);
 
       // The server's message, as it says it.
@@ -1317,7 +1417,12 @@ describe('App', () => {
       await settle(fixture);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'C');
       buttonNamed(drawer() as HTMLElement, 'Add').click();
-      await refuse(fixture, `${API_BASE}/tale-groups/g1/tales`, 'tale_group_full', 'A tale group holds at most 100 tales');
+      await refuse(
+        fixture,
+        `${API_BASE}/tale-groups/g1/tales`,
+        'tale_group_full',
+        'A tale group holds at most 100 tales',
+      );
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('A tale group holds at most 100 tales');
     });
@@ -1373,7 +1478,9 @@ describe('App', () => {
       expect(header.querySelector('h2')?.textContent).toContain('Home bar');
       expect(header.querySelector('.zone-slug')?.textContent).toContain('z1');
       expect(header.querySelector('app-visibility')?.textContent).toContain('Not visible');
-      const summary = [...header.querySelectorAll('[aria-label="Zone summary"] li')].map((li) => li.textContent?.trim());
+      const summary = [...header.querySelectorAll('[aria-label="Zone summary"] li')].map((li) =>
+        li.textContent?.trim(),
+      );
       expect(summary).toEqual(['Display: Bar', '1 tale group', 'Install: Installed']);
       expect(header.textContent).toContain('Created from template: Stories bar');
       expect(buttonNamed(header, 'Edit name and slug')).toBeTruthy();
@@ -1482,7 +1589,10 @@ describe('App', () => {
         ...group,
         status: 'scheduled',
         startsAt: at,
-        visibility: { visible: false, reasons: [{ code: 'starts-at', subject: 'group', at }, reason('zone-not-installed')] },
+        visibility: {
+          visible: false,
+          reasons: [{ code: 'starts-at', subject: 'group', at }, reason('zone-not-installed')],
+        },
         tales: [taleA],
       };
       const { fixture, root } = await open('/zones/z1', {
@@ -1613,7 +1723,13 @@ describe('App', () => {
     it('opens a group that is On with every tale Hidden at its first Hidden tale switch for the group step', async () => {
       const hiddenA = { ...taleA, status: 'paused', storedStatus: 'paused' };
       const hiddenB = { ...taleB, status: 'paused', storedStatus: 'paused' };
-      const shownWinter = { ...group, id: 'g2', name: 'Winter', position: 0, tales: [{ ...taleA, id: 't9', taleGroupId: 'g2' }] };
+      const shownWinter = {
+        ...group,
+        id: 'g2',
+        name: 'Winter',
+        position: 0,
+        tales: [{ ...taleA, id: 't9', taleGroupId: 'g2' }],
+      };
       const allHidden = { ...group, position: 1, tales: [hiddenA, hiddenB] };
       const { fixture, root } = await open(
         '/zones/z1?tab=display',
@@ -1688,7 +1804,9 @@ describe('App', () => {
       void TestBed.inject(DashboardStore).refresh();
       await flushRefresh(fixture, {
         projects: [acme],
-        zones: [{ ...newZone, visibility: notVisible('no-visible-groups'), firstVisibleAt: '2026-10-22T10:00:00.000Z' }],
+        zones: [
+          { ...newZone, visibility: notVisible('no-visible-groups'), firstVisibleAt: '2026-10-22T10:00:00.000Z' },
+        ],
         displays: { z1: frameBar },
         groups: { z1: [offGroup] },
       });
@@ -1740,8 +1858,14 @@ describe('App', () => {
         ['blank', false],
       ]);
       // Each radio is named by its label and described by its one-line description.
-      expect(radios().map((r) => r.closest('label')?.textContent?.trim())).toEqual(['Stories bar', 'Promo banner', 'Blank']);
-      const described = radios().map((r) => drawer()?.querySelector(`#${r.getAttribute('aria-describedby')}`)?.textContent);
+      expect(radios().map((r) => r.closest('label')?.textContent?.trim())).toEqual([
+        'Stories bar',
+        'Promo banner',
+        'Blank',
+      ]);
+      const described = radios().map(
+        (r) => drawer()?.querySelector(`#${r.getAttribute('aria-describedby')}`)?.textContent,
+      );
       expect(described[0]).toContain('row of circles');
       expect(described[1]).toContain('wide banner');
       expect(described[2]).toContain('No display yet');
@@ -1799,7 +1923,11 @@ describe('App', () => {
       const { fixture, root } = await open('/zones', { projects: [acme, globex] });
       await openNewZone(fixture, root);
       const picker = drawer()?.querySelector<HTMLSelectElement>('#create-project');
-      expect([...(picker?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Choose a project', 'Acme', 'Globex']);
+      expect([...(picker?.options ?? [])].map((o) => o.textContent?.trim())).toEqual([
+        'Choose a project',
+        'Acme',
+        'Globex',
+      ]);
       expect(drawer()?.textContent).not.toContain('In project');
     });
 
@@ -1817,7 +1945,11 @@ describe('App', () => {
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Shop');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
-      expect(http.expectOne(`${API_BASE}/zones`).request.body).toEqual({ name: 'Shop', projectId: 'p2', template: 'stories-bar' });
+      expect(http.expectOne(`${API_BASE}/zones`).request.body).toEqual({
+        name: 'Shop',
+        projectId: 'p2',
+        template: 'stories-bar',
+      });
     });
 
     it('hides the picker and uses the remaining project when two projects become one', async () => {
@@ -1839,8 +1971,15 @@ describe('App', () => {
       await openNewZone(fixture, root);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Home');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await refuse(fixture, `${API_BASE}/zones`, 'unknown_template', 'template must be one of: stories-bar, promo-banner, blank');
-      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe('template-hint create-error');
+      await refuse(
+        fixture,
+        `${API_BASE}/zones`,
+        'unknown_template',
+        'template must be one of: stories-bar, promo-banner, blank',
+      );
+      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe(
+        'template-hint create-error',
+      );
       expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBeNull();
       expect(drawer()?.querySelector('#create-slug')?.getAttribute('aria-invalid')).toBeNull();
     });
@@ -1857,7 +1996,9 @@ describe('App', () => {
       expect(picker?.getAttribute('aria-invalid')).toBe('true');
       expect(picker?.getAttribute('aria-describedby')).toBe('create-error');
       expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBeNull();
-      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe('template-hint');
+      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe(
+        'template-hint',
+      );
     });
 
     it('does not ask to choose a project when there is only one', async () => {
@@ -1888,7 +2029,9 @@ describe('App', () => {
         zones: [{ ...zone, createdFromTemplate: 'stories-bar' }],
         displays: { z1: frameBar },
       });
-      expect(root.querySelector('.page-header .zone-template')?.textContent?.trim()).toBe('Created from template: Stories bar');
+      expect(root.querySelector('.page-header .zone-template')?.textContent?.trim()).toBe(
+        'Created from template: Stories bar',
+      );
     });
   });
 
@@ -2043,7 +2186,12 @@ describe('App', () => {
     it('reorders tale groups by drag and by their move buttons', async () => {
       const { fixture, root } = await open('/zones/z1', {
         ...oneZone,
-        groups: { z1: [{ ...group, tales: [] }, { ...groupB, tales: [] }] },
+        groups: {
+          z1: [
+            { ...group, tales: [] },
+            { ...groupB, tales: [] },
+          ],
+        },
       });
       expect(groupNames(root)).toEqual(['Summer', 'Winter']);
 
@@ -2071,9 +2219,14 @@ describe('App', () => {
     for (const outcome of ['saved', 'refused'] as const) {
       it(`keeps a switch turned while a group reorder is pending once the order is ${outcome}`, async () => {
         const winter = { ...groupB, status: 'live', storedStatus: 'live', startsAt: null, endsAt: null, tales: [] };
-        const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }, winter] } });
+        const { fixture, root } = await open('/zones/z1', {
+          ...oneZone,
+          groups: { z1: [{ ...group, tales: [] }, winter] },
+        });
         const summerSwitch = () =>
-          root.querySelector<HTMLButtonElement>('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked');
+          root
+            .querySelector<HTMLButtonElement>('[role=switch][aria-label="Summer on site"]')
+            ?.getAttribute('aria-checked');
 
         drop(fixture, 'Tale groups in Home bar', 1, 0);
         await settle(fixture);
@@ -2103,7 +2256,13 @@ describe('App', () => {
         expect(summerSwitch()).toBe('false');
 
         const paused = { ...group, status: 'paused', storedStatus: 'paused', tales: [] };
-        const groups = outcome === 'saved' ? [{ ...winter, position: 0 }, { ...paused, position: 1 }] : [paused, winter];
+        const groups =
+          outcome === 'saved'
+            ? [
+                { ...winter, position: 0 },
+                { ...paused, position: 1 },
+              ]
+            : [paused, winter];
         await flushRefresh(fixture, { ...oneZone, groups: { z1: groups } });
         await settle(fixture);
         expect(summerSwitch()).toBe('false');
@@ -2117,14 +2276,19 @@ describe('App', () => {
     const twoZones: Data = { projects: [acme, globex], zones: [zone, productZone, otherZone] };
 
     function groupRow(root: HTMLElement, name: string): HTMLElement {
-      const row = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => li.querySelector('h4')?.textContent?.trim() === name);
+      const row = [...root.querySelectorAll<HTMLElement>('.group')].find(
+        (li) => li.querySelector('h4')?.textContent?.trim() === name,
+      );
       if (!row) throw new Error(`No ${name} row`);
       return row;
     }
 
     it('says where else a group shows, with links to those zones', async () => {
       const winter = { id: 'g2', zoneIds: ['z1'], projectId: 'p1', name: 'Winter', position: 1, tags: [], tales: [] };
-      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared, winter], z3: [{ ...shared, position: 0 }] } });
+      const { fixture, root } = await open('/zones/z1', {
+        ...twoZones,
+        groups: { z1: [shared, winter], z3: [{ ...shared, position: 0 }] },
+      });
 
       // "Also in" is in the group's view (epic UX rework R11), which `open` opened for Summer.
       const alsoIn = groupView()?.querySelector('.group__zones');
@@ -2198,7 +2362,12 @@ describe('App', () => {
       http
         .expectOne(`${API_BASE}/zones/z3/tale-groups/g1`)
         .flush(
-          { error: { code: 'tale_group_not_found', message: "taleGroupId does not match a tale group of the zone's project" } },
+          {
+            error: {
+              code: 'tale_group_not_found',
+              message: "taleGroupId does not match a tale group of the zone's project",
+            },
+          },
           { status: 400, statusText: 'Bad Request' },
         );
       await settle(fixture);
@@ -2207,7 +2376,10 @@ describe('App', () => {
     });
 
     it('removes a group from this zone after confirming that it stays in the project', async () => {
-      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared], z3: [{ ...shared, position: 0 }] } });
+      const { fixture, root } = await open('/zones/z1', {
+        ...twoZones,
+        groups: { z1: [shared], z3: [{ ...shared, position: 0 }] },
+      });
 
       pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Remove from this zone');
       await settle(fixture);
@@ -2232,7 +2404,10 @@ describe('App', () => {
 
     it('renames a group from the drawer; the new name shows in this zone and its other zone', async () => {
       const store = TestBed.inject(DashboardStore);
-      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared], z3: [{ ...shared, position: 0 }] } });
+      const { fixture, root } = await open('/zones/z1', {
+        ...twoZones,
+        groups: { z1: [shared], z3: [{ ...shared, position: 0 }] },
+      });
 
       pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Rename');
       await settle(fixture);
@@ -2308,8 +2483,13 @@ describe('App', () => {
       expect(rows.map((r) => r.querySelector('h3')?.textContent?.trim())).toEqual(['Autumn', 'Summer']);
       expect(rows[0].textContent).toContain('3 of 3 shown · max 100');
       expect(rows[0].querySelector('.group-row__zones')?.textContent?.trim()).toBe('Not in a zone');
-      expect(rows[1].querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar, Product page');
-      expect([...rows[1].querySelectorAll('.group-row__zones a')].map((a) => a.getAttribute('href'))).toEqual(['/zones/z1', '/zones/z3']);
+      expect(rows[1].querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'In: Home bar, Product page',
+      );
+      expect([...rows[1].querySelectorAll('.group-row__zones a')].map((a) => a.getAttribute('href'))).toEqual([
+        '/zones/z1',
+        '/zones/z3',
+      ]);
       expect(menuItems(rows[1], 'More for Summer').find((i) => i.label === 'Show in another zone')).toEqual({
         label: 'Show in another zone',
         reason: 'Already in every zone',
@@ -2326,7 +2506,10 @@ describe('App', () => {
       await settle(fixture);
       http
         .expectOne(`${API_BASE}/zones/z3/tale-groups/g9`)
-        .flush({ id: 'g9', projectId: 'p1', name: 'Autumn', position: 1, zoneIds: ['z3'], tales: [], tags: [] }, { status: 201, statusText: 'Created' });
+        .flush(
+          { id: 'g9', projectId: 'p1', name: 'Autumn', position: 1, zoneIds: ['z3'], tales: [], tags: [] },
+          { status: 201, statusText: 'Created' },
+        );
       await settle(fixture);
       await flushRefresh(fixture, {
         ...twoZones,
@@ -2355,7 +2538,16 @@ describe('App', () => {
       await settle(fixture);
       buttonNamed(drawer() as HTMLElement, 'Copy').click();
       await settle(fixture);
-      const copy = { id: 'g7', projectId: 'p2', name: 'Summer', position: 0, zoneIds: ['z2'], tales: [], tags: [], userLists: [] };
+      const copy = {
+        id: 'g7',
+        projectId: 'p2',
+        name: 'Summer',
+        position: 0,
+        zoneIds: ['z2'],
+        tales: [],
+        tags: [],
+        userLists: [],
+      };
       http.expectOne(`${API_BASE}/tale-groups/g1/copy`).flush(copy, { status: 201, statusText: 'Created' });
       await settle(fixture);
       await flushRefresh(fixture, { ...twoZones, groups: { z1: [listed], z2: [copy] } });
@@ -2378,7 +2570,17 @@ describe('App', () => {
       await settle(fixture);
       buttonNamed(drawer() as HTMLElement, 'Copy').click();
       await settle(fixture);
-      const copy = { id: 'g8', projectId: 'p1', name: 'Summer', position: 0, zoneIds: ['z3'], tales: [], tags: [], userLists: [], visibility: removed };
+      const copy = {
+        id: 'g8',
+        projectId: 'p1',
+        name: 'Summer',
+        position: 0,
+        zoneIds: ['z3'],
+        tales: [],
+        tags: [],
+        userLists: [],
+        visibility: removed,
+      };
       http.expectOne(`${API_BASE}/tale-groups/g1/copy`).flush(copy, { status: 201, statusText: 'Created' });
       await settle(fixture);
       await flushRefresh(fixture, { ...twoZones, groups: { z1: [heldGroup], z3: [copy] } });
@@ -2397,7 +2599,9 @@ describe('App', () => {
       expect(drawer()?.textContent).toContain('Tale group Summer');
       const projectSelect = drawer()?.querySelector<HTMLSelectElement>('select[name=copyProject]') ?? null;
       const zoneOptions = () =>
-        [...(drawer()?.querySelectorAll<HTMLOptionElement>('select[name=copyZone] option') ?? [])].map((o) => o.textContent?.trim());
+        [...(drawer()?.querySelectorAll<HTMLOptionElement>('select[name=copyZone] option') ?? [])].map((o) =>
+          o.textContent?.trim(),
+        );
       // Every project the user can access, the group's own first, and that project's zones.
       expect([...(projectSelect?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Acme', 'Globex']);
       expect(projectSelect?.value).toBe('p1');
@@ -2438,7 +2642,15 @@ describe('App', () => {
     });
 
     it("shows the API's message in the Copy to zone drawer, with the group's own project first", async () => {
-      const theirs = { id: 'g8', projectId: 'p2', name: 'Elsewhere', position: 0, zoneIds: ['z2'], tales: [], tags: [] };
+      const theirs = {
+        id: 'g8',
+        projectId: 'p2',
+        name: 'Elsewhere',
+        position: 0,
+        zoneIds: ['z2'],
+        tales: [],
+        tags: [],
+      };
       const { fixture, root } = await open('/zones/z2', { ...twoZones, groups: { z2: [theirs] } });
 
       pickMenuItem(groupRow(root, 'Elsewhere'), 'More for Elsewhere', 'Copy to zone');
@@ -2453,7 +2665,10 @@ describe('App', () => {
       await settle(fixture);
       http
         .expectOne(`${API_BASE}/tale-groups/g8/copy`)
-        .flush({ error: { code: 'forbidden', message: 'You do not have access to this project' } }, { status: 403, statusText: 'Forbidden' });
+        .flush(
+          { error: { code: 'forbidden', message: 'You do not have access to this project' } },
+          { status: 403, statusText: 'Forbidden' },
+        );
       await settle(fixture);
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('You do not have access to this project');
@@ -2461,7 +2676,15 @@ describe('App', () => {
     });
 
     it("shows the server's message when a copy is refused at the cap", async () => {
-      const theirs = { id: 'g8', projectId: 'p2', name: 'Elsewhere', position: 0, zoneIds: ['z2'], tales: [], tags: [] };
+      const theirs = {
+        id: 'g8',
+        projectId: 'p2',
+        name: 'Elsewhere',
+        position: 0,
+        zoneIds: ['z2'],
+        tales: [],
+        tags: [],
+      };
       const { fixture, root } = await open('/zones/z2', { ...twoZones, groups: { z2: [theirs] } });
 
       pickMenuItem(groupRow(root, 'Elsewhere'), 'More for Elsewhere', 'Copy to zone');
@@ -2472,7 +2695,9 @@ describe('App', () => {
       await settle(fixture);
       buttonNamed(drawer() as HTMLElement, 'Copy').click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/tale-groups/g8/copy`).flush(groupLimit(fullCopy), { status: 409, statusText: 'Conflict' });
+      http
+        .expectOne(`${API_BASE}/tale-groups/g8/copy`)
+        .flush(groupLimit(fullCopy), { status: 409, statusText: 'Conflict' });
       await settle(fixture);
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCopy);
@@ -2494,7 +2719,10 @@ describe('App', () => {
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tale-groups/g9/copy`);
       expect(req.request.body).toEqual({ zoneId: 'z1' });
-      req.flush({ id: 'g10', projectId: 'p1', name: 'Autumn', position: 0, zoneIds: ['z1'], tales: [], tags: [] }, { status: 201, statusText: 'Created' });
+      req.flush(
+        { id: 'g10', projectId: 'p1', name: 'Autumn', position: 0, zoneIds: ['z1'], tales: [], tags: [] },
+        { status: 201, statusText: 'Created' },
+      );
       await settle(fixture);
       await flushRefresh(fixture, twoZones);
       await settle(fixture);
@@ -2505,7 +2733,10 @@ describe('App', () => {
     it("shows the saved tale order in the group's other zone too", async () => {
       const store = TestBed.inject(DashboardStore);
       const withTales = { ...shared, tales: [taleA, taleB] };
-      const { fixture } = await open('/zones/z1', { ...twoZones, groups: { z1: [withTales], z3: [{ ...withTales, position: 0 }] } });
+      const { fixture } = await open('/zones/z1', {
+        ...twoZones,
+        groups: { z1: [withTales], z3: [{ ...withTales, position: 0 }] },
+      });
 
       const saving = store.orderTales('g1', ['t2', 't1']);
       await settle(fixture);
@@ -2547,7 +2778,9 @@ describe('App', () => {
     const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
     function row(root: HTMLElement, name: string): HTMLElement {
-      const found = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => text(li.querySelector('h4')) === name);
+      const found = [...root.querySelectorAll<HTMLElement>('.group')].find(
+        (li) => text(li.querySelector('h4')) === name,
+      );
       if (!found) throw new Error(`No ${name} row`);
       return found;
     }
@@ -2563,12 +2796,14 @@ describe('App', () => {
       expect(list?.children).toHaveLength(3);
       expect([...(list?.children ?? [])].every((li) => li.tagName === 'LI')).toBe(true);
       expect(text(row(root, 'Summer').querySelector('.group-row__count'))).toBe('1 of 2 shown · max 100');
-      expect(text(row(root, 'Winter sale for the whole family').querySelector('.group-row__count'))).toBe('No tales yet · max 100');
+      expect(text(row(root, 'Winter sale for the whole family').querySelector('.group-row__count'))).toBe(
+        'No tales yet · max 100',
+      );
       expect(text(row(root, 'Spring').querySelector('.group-row__count'))).toBe('1 of 1 shown · max 100');
       expect(text(row(root, 'Summer').querySelector('.group-row__status app-visibility'))).toBe('Visible on site');
-      expect(text(row(root, 'Winter sale for the whole family').querySelector('.group-row__status app-visibility button'))).toBe(
-        'Not visible: group is off',
-      );
+      expect(
+        text(row(root, 'Winter sale for the whole family').querySelector('.group-row__status app-visibility button')),
+      ).toBe('Not visible: group is off');
       // The switch is named per group, its state in aria-checked.
       const winterSwitch = row(root, 'Winter sale for the whole family').querySelector('[role=switch]');
       expect(winterSwitch?.getAttribute('aria-label')).toBe('Winter sale for the whole family on site');
@@ -2578,11 +2813,16 @@ describe('App', () => {
       expect(text(row(root, 'Spring').querySelector('.group-row .window-chip'))).toContain('Starts');
       expect(text(row(root, 'Summer').querySelector('.group-row'))).not.toContain('/ 100');
       for (const name of ['Summer', 'Spring']) {
-        expect(row(root, name).querySelector(`button[aria-label="More for ${name}"]`)?.getAttribute('aria-haspopup')).toBe('menu');
+        expect(
+          row(root, name).querySelector(`button[aria-label="More for ${name}"]`)?.getAttribute('aria-haspopup'),
+        ).toBe('menu');
       }
       // Below the list: New tale group and Add existing group.
       const actions = root.querySelector('#zone-panel-groups .groups-actions');
-      expect([...(actions?.querySelectorAll('button') ?? [])].map((b) => text(b))).toEqual(['New tale group', 'Add existing group']);
+      expect([...(actions?.querySelectorAll('button') ?? [])].map((b) => text(b))).toEqual([
+        'New tale group',
+        'Add existing group',
+      ]);
     });
 
     it('opens a group from its name or a click on the row, but not from its switch, ⋯ or move buttons', async () => {
@@ -2626,15 +2866,13 @@ describe('App', () => {
       await settle(fixture);
       http
         .expectOne(`${API_BASE}/zones/z1/tale-groups/order`)
-        .flush([
-          { ...winter, position: 0 },
-          { ...summer, position: 1 },
-          spring,
-        ]);
+        .flush([{ ...winter, position: 0 }, { ...summer, position: 1 }, spring]);
       await settle(fixture);
       row(root, 'Summer').querySelector<HTMLButtonElement>('[role=switch]')?.click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/tale-groups/g1/status`).flush({ ...summer, status: 'paused', storedStatus: 'paused' });
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1/status`)
+        .flush({ ...summer, status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
       await flushRefresh(fixture, three);
       await settle(fixture);
@@ -2658,7 +2896,11 @@ describe('App', () => {
 
       expect(row(root, 'Summer').querySelector('.group-row [role=switch]')).toBeNull();
       expect(text(row(root, 'Summer').querySelector('.group-row .status-badge'))).toBe('Status: Archived');
-      expect(menuItems(row(root, 'Summer'), 'More for Summer').map((item) => item.label).at(-1)).toBe('Restore');
+      expect(
+        menuItems(row(root, 'Summer'), 'More for Summer')
+          .map((item) => item.label)
+          .at(-1),
+      ).toBe('Restore');
       expect(announced(root)).toBe('Summer archived. Undo is above the list.');
     });
 
@@ -2666,7 +2908,11 @@ describe('App', () => {
       const autumn = { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: [], storedStatus: 'paused' };
       const old = { id: 'g8', projectId: 'p1', name: 'Old', taleCount: 1, zoneIds: [], storedStatus: 'archived' };
       const here = { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 2, zoneIds: ['z1'], storedStatus: 'live' };
-      const { fixture, root } = await open('/zones/z1', { ...three, projectGroups: { p1: [autumn, old, here] } }, false);
+      const { fixture, root } = await open(
+        '/zones/z1',
+        { ...three, projectGroups: { p1: [autumn, old, here] } },
+        false,
+      );
 
       const add = root.querySelector<HTMLButtonElement>('#add-existing-group') as HTMLButtonElement;
       expect(add.hasAttribute('aria-disabled')).toBe(false);
@@ -2684,7 +2930,15 @@ describe('App', () => {
       expect(req.request.method).toBe('PUT');
       req.flush({ id: 'g9', projectId: 'p1', name: 'Autumn', position: 3, zoneIds: ['z1'], tales: [], tags: [] });
       await settle(fixture);
-      const autumnGroup = { ...group, id: 'g9', name: 'Autumn', status: 'paused', storedStatus: 'paused', position: 3, tales: [] };
+      const autumnGroup = {
+        ...group,
+        id: 'g9',
+        name: 'Autumn',
+        status: 'paused',
+        storedStatus: 'paused',
+        position: 3,
+        tales: [],
+      };
       await flushRefresh(fixture, {
         ...three,
         groups: { z1: [summer, winter, spring, autumnGroup] },
@@ -2718,7 +2972,10 @@ describe('App', () => {
       await settle(fixture);
       http
         .expectOne(`${API_BASE}/zones/z1/tale-groups/g9`)
-        .flush({ error: { code: 'tale_group_not_found', message: 'taleGroupId does not match' } }, { status: 400, statusText: 'Bad Request' });
+        .flush(
+          { error: { code: 'tale_group_not_found', message: 'taleGroupId does not match' } },
+          { status: 400, statusText: 'Bad Request' },
+        );
       await settle(fixture);
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('taleGroupId does not match');
     });
@@ -2752,7 +3009,9 @@ describe('App', () => {
 
     it('moves a group by keyboard: focus stays on the move button, and the move is announced', async () => {
       const { fixture, root } = await open('/zones/z1', three, false);
-      const later = row(root, 'Summer').querySelector<HTMLButtonElement>('[aria-label="Move Summer later"]') as HTMLButtonElement;
+      const later = row(root, 'Summer').querySelector<HTMLButtonElement>(
+        '[aria-label="Move Summer later"]',
+      ) as HTMLButtonElement;
       later.focus();
       later.click();
       await settle(fixture);
@@ -2760,11 +3019,7 @@ describe('App', () => {
       expect(document.activeElement?.getAttribute('aria-label')).toBe('Move Summer later');
       http
         .expectOne(`${API_BASE}/zones/z1/tale-groups/order`)
-        .flush([
-          { ...winter, position: 0 },
-          { ...summer, position: 1 },
-          spring,
-        ]);
+        .flush([{ ...winter, position: 0 }, { ...summer, position: 1 }, spring]);
       await settle(fixture);
       expect([...root.querySelectorAll('.group-row__open')].map((b) => text(b))).toEqual([
         'Winter sale for the whole family',
@@ -2820,7 +3075,10 @@ describe('App', () => {
       expect(req.request.body).toEqual({ status: 'paused' });
       req.flush({ ...summer, status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...three, groups: { z1: [{ ...summer, status: 'paused', storedStatus: 'paused' }, winter, spring] } });
+      await flushRefresh(fixture, {
+        ...three,
+        groups: { z1: [{ ...summer, status: 'paused', storedStatus: 'paused' }, winter, spring] },
+      });
       await settle(fixture);
       req = http.expectOne(`${API_BASE}/tale-groups/g1/status`);
       expect(req.request.body).toEqual({ status: 'live' });
@@ -2891,7 +3149,9 @@ describe('App', () => {
     const url = () => TestBed.inject(Router).url;
 
     function nameButton(root: HTMLElement, name: string): HTMLButtonElement {
-      const found = [...root.querySelectorAll<HTMLButtonElement>('.group-row__open')].find((b) => b.textContent?.trim() === name);
+      const found = [...root.querySelectorAll<HTMLButtonElement>('.group-row__open')].find(
+        (b) => b.textContent?.trim() === name,
+      );
       if (!found) throw new Error(`No ${name} name`);
       return found;
     }
@@ -2921,10 +3181,14 @@ describe('App', () => {
       expect(name.getAttribute('aria-controls')).toBe(view.id);
 
       // The head: switch, indicator, the group's ⋯ menu with the row's items, and the count.
-      expect(view.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe('true');
+      expect(view.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe(
+        'true',
+      );
       expect(view.querySelector('.group-view__head app-visibility')?.textContent?.trim()).toBe('Visible on site');
       expect(menuItems(view, 'More for Summer').map((item) => item.label)).toEqual(GROUP_MENU);
-      expect(view.querySelector('.group-view__count')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('4 of 4 shown · max 100');
+      expect(view.querySelector('.group-view__count')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        '4 of 4 shown · max 100',
+      );
 
       // Escape closes it; focus is back on the name; the URL drops the group.
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -2939,7 +3203,9 @@ describe('App', () => {
     it('keeps Tab inside the view', async () => {
       const { fixture } = await open('/zones/z1', data);
       const view = groupView() as HTMLElement;
-      const focusables = [...view.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      const focusables = [
+        ...view.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      ];
       const last = focusables.at(-1) as HTMLElement;
       last.focus();
       last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
@@ -2953,7 +3219,9 @@ describe('App', () => {
       const view = groupView() as HTMLElement;
       const heading = view.querySelector<HTMLElement>('.drawer__title') as HTMLElement;
       expect(document.activeElement).toBe(heading);
-      const focusables = [...view.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      const focusables = [
+        ...view.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      ];
       const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
       heading.dispatchEvent(event);
       await settle(fixture);
@@ -3062,9 +3330,11 @@ describe('App', () => {
 
     it('hides a tale from its card in one action, saved at once, then shows it again; every card has a dot', async () => {
       const { fixture, root } = await open('/zones/z1', data);
-      expect([...(groupView()?.querySelectorAll('.tale-card') ?? [])].map((card) => card.querySelector('app-visibility button')?.getAttribute('aria-label'))).toEqual(
-        ['Visible on site', 'Visible on site', 'Visible on site', 'Visible on site'],
-      );
+      expect(
+        [...(groupView()?.querySelectorAll('.tale-card') ?? [])].map((card) =>
+          card.querySelector('app-visibility button')?.getAttribute('aria-label'),
+        ),
+      ).toEqual(['Visible on site', 'Visible on site', 'Visible on site', 'Visible on site']);
 
       // One press: the request goes at once, with no save button.
       const toggle = () => cardOf('B').querySelector<HTMLButtonElement>('[role=switch]') as HTMLButtonElement;
@@ -3078,12 +3348,17 @@ describe('App', () => {
       req.flush({ ...four[1], status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
       const hidden = { ...four[1], status: 'paused', storedStatus: 'paused', visibility: HIDDEN };
-      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [four[0], hidden, four[2], four[3]] }, winter] } });
+      await flushRefresh(fixture, {
+        ...data,
+        groups: { z1: [{ ...summer, tales: [four[0], hidden, four[2], four[3]] }, winter] },
+      });
       await settle(fixture);
 
       expect(toggle().getAttribute('aria-checked')).toBe('false');
       expect(cardOf('B').querySelector('.show-switch__state')?.textContent?.trim()).toBe('Hidden');
-      expect(cardOf('B').querySelector('app-visibility button')?.getAttribute('aria-label')).toBe('Not visible: tale is hidden');
+      expect(cardOf('B').querySelector('app-visibility button')?.getAttribute('aria-label')).toBe(
+        'Not visible: tale is hidden',
+      );
       expect(groupView()?.querySelector('.group-view__count')?.textContent).toContain('3 of 4 shown');
       // Said in the view's own live region, inside the dialog; the page's region stays quiet.
       expect(announced(root)).toBe('B is now hidden. Not visible: tale is hidden');
@@ -3108,14 +3383,17 @@ describe('App', () => {
       await settle(fixture);
       http
         .expectOne(`${API_BASE}/tales/t1/status`)
-        .flush({ error: { code: 'invalid_status_transition', message: 'A cannot be hidden' } }, { status: 409, statusText: 'Conflict' });
+        .flush(
+          { error: { code: 'invalid_status_transition', message: 'A cannot be hidden' } },
+          { status: 409, statusText: 'Conflict' },
+        );
       await settle(fixture);
       // Named by its tale, as the view shows many.
       expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('A: A cannot be hidden');
       expect(cardOf('A').querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('true');
     });
 
-    it("offers every tale ⋯ item: Edit in Tale Studio, Replace media, Schedule, Duplicate, Archive, Delete", async () => {
+    it('offers every tale ⋯ item: Edit in Tale Studio, Replace media, Schedule, Duplicate, Archive, Delete', async () => {
       const { fixture } = await open('/zones/z1', data);
       const view = () => groupView() as HTMLElement;
       expect(menuItems(view(), 'More for A').map((item) => item.label)).toEqual([
@@ -3170,7 +3448,10 @@ describe('App', () => {
       const archived = { ...four[0], status: 'archived', storedStatus: 'archived' };
       req.flush(archived);
       await settle(fixture);
-      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [archived, ...four.slice(1)] }, winter] } });
+      await flushRefresh(fixture, {
+        ...data,
+        groups: { z1: [{ ...summer, tales: [archived, ...four.slice(1)] }, winter] },
+      });
       await settle(fixture);
       expect(cardOf('A').querySelector('[role=switch]')).toBeNull();
       expect(cardOf('A').querySelector('.status-badge')?.textContent).toContain('Archived');
@@ -3189,8 +3470,12 @@ describe('App', () => {
         await settle(fixture);
         const dialog = confirmation() as HTMLElement;
         expect(dialog.getAttribute('aria-modal')).toBe('true');
-        expect(dialog.querySelector(`#${dialog.getAttribute('aria-labelledby')}`)?.textContent?.trim()).toBe('Delete tale');
-        const text = dialog.querySelector(`#${dialog.getAttribute('aria-describedby')}`)?.textContent?.replace(/\s+/g, ' ');
+        expect(dialog.querySelector(`#${dialog.getAttribute('aria-labelledby')}`)?.textContent?.trim()).toBe(
+          'Delete tale',
+        );
+        const text = dialog
+          .querySelector(`#${dialog.getAttribute('aria-describedby')}`)
+          ?.textContent?.replace(/\s+/g, ' ');
         expect(text).toContain('Delete B from Summer?');
         expect(text).toContain('This cannot be undone.');
         expect(document.activeElement?.id).toBe('delete-tale-cancel');
@@ -3217,14 +3502,18 @@ describe('App', () => {
         deleteRequest('t2').flush(null, { status: 204, statusText: 'No Content' });
         await settle(fixture);
         // Gone at once, the others closing up; the project list counts one fewer.
-        expect([...(groupView() as HTMLElement).querySelectorAll('.tale-card__name')].map((n) => n.textContent)).toEqual(['A', 'C', 'D']);
+        expect(
+          [...(groupView() as HTMLElement).querySelectorAll('.tale-card__name')].map((n) => n.textContent),
+        ).toEqual(['A', 'C', 'D']);
         expect(store.taleGroup('g1')?.tales.map((t) => t.position)).toEqual([0, 1, 2]);
         expect(store.projectTaleGroup('g1')).toMatchObject({ taleCount: 3, shownTaleCount: 3 });
         const rest = four.filter((t) => t.id !== 't2').map((t, position) => ({ ...t, position }));
         await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: rest }, winter] }, projectGroups });
         await settle(fixture);
         expect(confirmation()).toBeNull();
-        expect(groupView()?.querySelector('.group-view__count')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('3 of 3 shown · max 100');
+        expect(groupView()?.querySelector('.group-view__count')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+          '3 of 3 shown · max 100',
+        );
         expect(announced(groupView() as HTMLElement)).toBe('B deleted from Summer. 3 of 3 shown.');
         expect(document.activeElement?.getAttribute('aria-label')).toBe('More for C');
       });
@@ -3337,10 +3626,17 @@ describe('App', () => {
       expect(req.request.body).toEqual({ status: 'paused' });
       req.flush({ ...summer, status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
-      const off = { ...summer, status: 'paused', storedStatus: 'paused', visibility: { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] } };
+      const off = {
+        ...summer,
+        status: 'paused',
+        storedStatus: 'paused',
+        visibility: { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] },
+      };
       await flushRefresh(fixture, { ...data, groups: { z1: [off, winter] } });
       await settle(fixture);
-      expect(groupView()?.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe('false');
+      expect(
+        groupView()?.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked'),
+      ).toBe('false');
       expect(announced(root)).toBe('Summer is now off. Not visible: group is off');
 
       // Removed from this zone elsewhere: the view closes and the URL drops it; focus goes to the
@@ -3384,7 +3680,7 @@ describe('App', () => {
       expect(document.activeElement).toBe(nameButton(root, 'Summer'));
     });
 
-    it("closes an open indicator tip on Escape without closing the view", async () => {
+    it('closes an open indicator tip on Escape without closing the view', async () => {
       const { fixture } = await open('/zones/z1', data);
       const dot = cardOf('A').querySelector<HTMLButtonElement>('app-visibility button') as HTMLButtonElement;
       const tipOpen = () => !!dot.closest('app-visibility')?.classList.contains('visibility--open');
@@ -3409,7 +3705,10 @@ describe('App', () => {
       expect(names()).toEqual(['B', 'A', 'C', 'D']);
       http
         .expectOne(`${API_BASE}/tale-groups/g1/tales/order`)
-        .flush({ error: { code: 'order_mismatch', message: 'The order changed elsewhere' } }, { status: 409, statusText: 'Conflict' });
+        .flush(
+          { error: { code: 'order_mismatch', message: 'The order changed elsewhere' } },
+          { status: 409, statusText: 'Conflict' },
+        );
       await settle(fixture);
       expect(names()).toEqual(['A', 'B', 'C', 'D']);
       expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('The order changed elsewhere');
@@ -3476,7 +3775,9 @@ describe('App', () => {
       pickMenuItem(root, 'More for A', 'Duplicate');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Duplicate tale');
-      expect(drawer()?.textContent).toContain('A copy of A with its content and media. The copy is hidden until you show it.');
+      expect(drawer()?.textContent).toContain(
+        'A copy of A with its content and media. The copy is hidden until you show it.',
+      );
       // The tale's own group first and chosen, each with its room; a full group cannot be chosen.
       expect(options()).toEqual([
         { label: 'Summer (this group): 2 / 100', disabled: false, selected: true },
@@ -3490,7 +3791,15 @@ describe('App', () => {
 
       buttonNamed(drawer() as HTMLElement, 'Duplicate').click();
       await settle(fixture);
-      const copy = { ...taleA, id: 't9', taleGroupId: 'g9', title: 'A (copy)', position: 0, status: 'paused', storedStatus: 'paused' };
+      const copy = {
+        ...taleA,
+        id: 't9',
+        taleGroupId: 'g9',
+        title: 'A (copy)',
+        position: 0,
+        status: 'paused',
+        storedStatus: 'paused',
+      };
       const req = http.expectOne(`${API_BASE}/tales/t1/duplicate`);
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual({ taleGroupId: 'g9' });
@@ -3498,16 +3807,16 @@ describe('App', () => {
       await settle(fixture);
       // Closed and said at once, before the groups are read again.
       expect(drawer()).toBeNull();
-      expect(announced(root)).toBe(
-        'Duplicated as A (copy) in Autumn. The copy is hidden until you show it.',
-      );
+      expect(announced(root)).toBe('Duplicated as A (copy) in Autumn. The copy is hidden until you show it.');
       // Only the project's groups are read again, not everything.
       http.expectNone(`${API_BASE}/projects`);
-      http.expectOne(`${API_BASE}/projects/p1/tale-groups`).flush([
-        { ...projectGroups.p1[0], taleCount: 4 },
-        ...projectGroups.p1.slice(1),
+      http
+        .expectOne(`${API_BASE}/projects/p1/tale-groups`)
+        .flush([{ ...projectGroups.p1[0], taleCount: 4 }, ...projectGroups.p1.slice(1)]);
+      http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush([
+        { ...group, tales: [taleA, taleB] },
+        { ...autumn, tales: [copy] },
       ]);
-      http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush([{ ...group, tales: [taleA, taleB] }, { ...autumn, tales: [copy] }]);
       await settle(fixture);
 
       // The copy is in Autumn: its group view shows it.
@@ -3609,14 +3918,40 @@ describe('App', () => {
   });
 
   describe('statuses', () => {
-    const draft ={ ...group, id: 'g2', name: 'Draft one', status: 'draft', storedStatus: 'draft', position: 1, tales: [] };
-    const paused = { ...group, id: 'g3', name: 'Paused one', status: 'paused', storedStatus: 'paused', position: 2, tales: [] };
-    const archived = { ...group, id: 'g4', name: 'Archived one', status: 'archived', storedStatus: 'archived', position: 3, tales: [] };
+    const draft = {
+      ...group,
+      id: 'g2',
+      name: 'Draft one',
+      status: 'draft',
+      storedStatus: 'draft',
+      position: 1,
+      tales: [],
+    };
+    const paused = {
+      ...group,
+      id: 'g3',
+      name: 'Paused one',
+      status: 'paused',
+      storedStatus: 'paused',
+      position: 2,
+      tales: [],
+    };
+    const archived = {
+      ...group,
+      id: 'g4',
+      name: 'Archived one',
+      status: 'archived',
+      storedStatus: 'archived',
+      position: 3,
+      tales: [],
+    };
     const hiddenTale = { ...taleB, status: 'paused', storedStatus: 'paused' };
     const live = { ...group, tales: [taleA, hiddenTale] };
 
     function groupRow(root: HTMLElement, name: string): HTMLElement {
-      const row = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => li.querySelector('h4')?.textContent?.trim() === name);
+      const row = [...root.querySelectorAll<HTMLElement>('.group')].find(
+        (li) => li.querySelector('h4')?.textContent?.trim() === name,
+      );
       if (!row) throw new Error(`No ${name} row`);
       return row;
     }
@@ -3668,7 +4003,12 @@ describe('App', () => {
     });
 
     it('shows the tales of a group that is off as blocked by group, keeping their own switch', async () => {
-      const blocked = { ...live, status: 'paused', storedStatus: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }, hiddenTale] };
+      const blocked = {
+        ...live,
+        status: 'paused',
+        storedStatus: 'paused',
+        tales: [{ ...taleA, status: 'blocked-by-group' }, hiddenTale],
+      };
       await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
 
       const cards = [...(groupView() as HTMLElement).querySelectorAll('.tale-card')];
@@ -3703,7 +4043,10 @@ describe('App', () => {
       expect(req.request.body).toEqual({ status: 'paused' });
       req.flush({ ...live, status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...live, status: 'paused', storedStatus: 'paused' }] } });
+      await flushRefresh(fixture, {
+        ...oneZone,
+        groups: { z1: [{ ...live, status: 'paused', storedStatus: 'paused' }] },
+      });
       await settle(fixture);
 
       expect(switchState(groupRow(root, 'Summer'), 'Summer on site')).toEqual(['Off', 'false']);
@@ -3719,7 +4062,10 @@ describe('App', () => {
       expect(req.request.body).toEqual({ status: 'paused' });
       req.flush({ ...archived, status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...archived, status: 'paused', storedStatus: 'paused' }] } });
+      await flushRefresh(fixture, {
+        ...oneZone,
+        groups: { z1: [{ ...archived, status: 'paused', storedStatus: 'paused' }] },
+      });
       await settle(fixture);
 
       expect(switchState(groupRow(root, 'Archived one'), 'Archived one on site')).toEqual(['Off', 'false']);
@@ -3739,7 +4085,9 @@ describe('App', () => {
         );
       await settle(fixture);
 
-      expect(root.querySelector('[role=alert]')?.textContent).toContain('The status cannot change from archived to paused');
+      expect(root.querySelector('[role=alert]')?.textContent).toContain(
+        'The status cannot change from archived to paused',
+      );
       expect(switchState(groupRow(root, 'Summer'), 'Summer on site')).toEqual(['On', 'true']);
       expect(switchNamed(groupRow(root, 'Summer'), 'Summer on site').getAttribute('aria-disabled')).toBeNull();
     });
@@ -3878,7 +4226,12 @@ describe('App', () => {
     });
 
     it('says in the drawer that a shown tale of a group that is off does not show, and shows a refusal there', async () => {
-      const blocked = { ...live, status: 'paused', storedStatus: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }] };
+      const blocked = {
+        ...live,
+        status: 'paused',
+        storedStatus: 'paused',
+        tales: [{ ...taleA, status: 'blocked-by-group' }],
+      };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
 
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
@@ -3890,7 +4243,10 @@ describe('App', () => {
       await settle(fixture);
       http
         .expectOne(`${API_BASE}/tales/t1/status`)
-        .flush({ error: { code: 'tale_not_found', message: 'taleId does not match a tale' } }, { status: 404, statusText: 'Not Found' });
+        .flush(
+          { error: { code: 'tale_not_found', message: 'taleId does not match a tale' } },
+          { status: 404, statusText: 'Not Found' },
+        );
       await settle(fixture);
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('taleId does not match a tale');
@@ -3902,7 +4258,9 @@ describe('App', () => {
       switchNamed(groupRow(root, 'Summer'), 'Summer on site').click();
       switchNamed(groupRow(root, 'Draft one'), 'Draft one on site').click();
       await settle(fixture);
-      const [off, on] = [`${API_BASE}/tale-groups/g1/status`, `${API_BASE}/tale-groups/g2/status`].map((url) => http.expectOne(url));
+      const [off, on] = [`${API_BASE}/tale-groups/g1/status`, `${API_BASE}/tale-groups/g2/status`].map((url) =>
+        http.expectOne(url),
+      );
       off.flush(
         { error: { code: 'invalid_status_transition', message: 'Summer cannot be turned off' } },
         { status: 409, statusText: 'Conflict' },
@@ -3911,7 +4269,9 @@ describe('App', () => {
 
       expect(switchNamed(groupRow(root, 'Summer'), 'Summer on site').getAttribute('aria-disabled')).toBeNull();
       expect(switchNamed(groupRow(root, 'Draft one'), 'Draft one on site').getAttribute('aria-disabled')).toBe('true');
-      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain('Summer cannot be turned off');
+      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain(
+        'Summer cannot be turned off',
+      );
       expect(groupRow(root, 'Draft one').querySelector('[role=alert]')).toBeNull();
 
       on.flush(
@@ -3919,8 +4279,12 @@ describe('App', () => {
         { status: 409, statusText: 'Conflict' },
       );
       await settle(fixture);
-      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain('Summer cannot be turned off');
-      expect(groupRow(root, 'Draft one').querySelector('[role=alert]')?.textContent).toContain('Draft one cannot be turned on');
+      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain(
+        'Summer cannot be turned off',
+      );
+      expect(groupRow(root, 'Draft one').querySelector('[role=alert]')?.textContent).toContain(
+        'Draft one cannot be turned on',
+      );
       expect(switchNamed(groupRow(root, 'Draft one'), 'Draft one on site').getAttribute('aria-disabled')).toBeNull();
     });
 
@@ -3932,7 +4296,9 @@ describe('App', () => {
       await settle(fixture);
       switchNamed(drawer() as HTMLElement, 'Show B').click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/tales/t2/status`).flush({ ...taleB, status: 'blocked-by-group', storedStatus: 'live' });
+      http
+        .expectOne(`${API_BASE}/tales/t2/status`)
+        .flush({ ...taleB, status: 'blocked-by-group', storedStatus: 'live' });
       await settle(fixture);
       // The refresh still lists the old status.
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [offGroup] } });
@@ -3956,7 +4322,11 @@ describe('App', () => {
 
       // The zone page's row (R10): the switch says On or Off; no badge for a status the switch says.
       const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] > li')];
-      expect(rows.map((r) => r.querySelector('[role=switch]')?.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+      expect(rows.map((r) => r.querySelector('[role=switch]')?.getAttribute('aria-checked'))).toEqual([
+        'false',
+        'false',
+        'true',
+      ]);
       expect(rows.map((r) => r.querySelector('[role=switch]')?.getAttribute('aria-label'))).toEqual([
         'Autumn on site',
         'Winter on site',
@@ -3974,7 +4344,9 @@ describe('App', () => {
     const scheduled = { ...group, status: 'scheduled', startsAt: utc(localStart), endsAt: null, tales: [taleA] };
 
     function groupRow(root: HTMLElement, name: string): HTMLElement {
-      const row = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => li.querySelector('h4')?.textContent?.trim() === name);
+      const row = [...root.querySelectorAll<HTMLElement>('.group')].find(
+        (li) => li.querySelector('h4')?.textContent?.trim() === name,
+      );
       if (!row) throw new Error(`No ${name} row`);
       return row;
     }
@@ -4000,7 +4372,9 @@ describe('App', () => {
       expect(chip?.getAttribute('title')).toBe(
         `From ${new Date(utc(localStart)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
       );
-      expect(row.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe('true');
+      expect(row.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe(
+        'true',
+      );
       // Schedule is only in the ⋯ menu.
       expect(() => buttonNamed(row, 'Schedule')).toThrow();
       const more = row.querySelector('button[aria-label="More for Summer"]');
@@ -4048,7 +4422,9 @@ describe('App', () => {
       await settle(fixture);
 
       http.expectNone(`${API_BASE}/tale-groups/g1/schedule`);
-      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The end time must be later than the start time');
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+        'The end time must be later than the start time',
+      );
       expect(field('schedule-end').getAttribute('aria-invalid')).toBe('true');
     });
 
@@ -4067,7 +4443,9 @@ describe('App', () => {
         );
       await settle(fixture);
 
-      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The end time must be later than the start time');
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+        'The end time must be later than the start time',
+      );
     });
 
     it("shows an expired tale's badge and window in its drawer, and clears the window from there", async () => {
@@ -4128,7 +4506,10 @@ describe('App', () => {
 
     it('shows a tale card one bound of its window, and the tale drawer the whole window', async () => {
       const startsTale = { ...taleA, status: 'scheduled', startsAt: utc(localStart), endsAt: utc(localEnd) };
-      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [startsTale, taleB] }] } });
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [startsTale, taleB] }] },
+      });
 
       const cards = [...(groupView() as HTMLElement).querySelectorAll('.tale-card')];
       const chip = cards[0].querySelector('.window-chip');
@@ -4246,7 +4627,9 @@ describe('App', () => {
     const spring = { id: 'g3', zoneIds: ['z1'], projectId: 'p1', name: 'Spring', position: 2, tags: [] as unknown[] };
 
     function groupNames(root: HTMLElement): string[] {
-      return [...root.querySelectorAll('[aria-label="Tale groups in Home bar"] h4')].map((h) => h.textContent?.trim() ?? '');
+      return [...root.querySelectorAll('[aria-label="Tale groups in Home bar"] h4')].map(
+        (h) => h.textContent?.trim() ?? '',
+      );
     }
 
     function chip(root: HTMLElement, name: string): HTMLButtonElement {
@@ -4255,11 +4638,20 @@ describe('App', () => {
     }
 
     it('shows tag chips after the group name and a Tags button on every group', async () => {
-      const { root } = await open('/zones/z1', {
-        ...oneZone,
-        groups: { z1: [{ ...group, tales: [], tags: [ref(beach), ref(summer)] }, { ...winter, tales: [] }] },
-        tags: { p1: [beach, summer] },
-      }, false);
+      const { root } = await open(
+        '/zones/z1',
+        {
+          ...oneZone,
+          groups: {
+            z1: [
+              { ...group, tales: [], tags: [ref(beach), ref(summer)] },
+              { ...winter, tales: [] },
+            ],
+          },
+          tags: { p1: [beach, summer] },
+        },
+        false,
+      );
 
       const chips = [...root.querySelectorAll('[aria-label="Tags of Summer"] li')].map((li) => li.textContent?.trim());
       expect(chips).toEqual(['Beach', 'summer']);
@@ -4386,7 +4778,10 @@ describe('App', () => {
       lists.flush({ ...group, tales: [], tags: [], userLists: targeted });
       await settle(fixture);
       // The group's visibility can change with its lists (audience-empty): everything is read again.
-      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...group, tales: [], tags: [], userLists: targeted }] } });
+      await flushRefresh(fixture, {
+        ...data,
+        groups: { z1: [{ ...group, tales: [], tags: [], userLists: targeted }] },
+      });
       expect(drawer()).toBeNull();
 
       // Opened again, the drawer checks the saved lists; saving unchanged lists sends only the tags.
@@ -4406,7 +4801,15 @@ describe('App', () => {
     it('says who saving will show a held group to, and saving its Audience makes it visible, read again (story 5.4)', async () => {
       const removed = { visible: false, reasons: [{ code: 'audience-removed', subject: 'group' }] };
       const heldGroup = { ...group, tales: [], tags: [], userLists: [], visibility: removed };
-      const loyal = { id: 'l1', projectId: 'p1', name: 'Loyal', idCount: 2, taleGroups: [], createdAt: '2026-10-22T10:00:00.000Z', updatedAt: '2026-10-22T10:00:00.000Z' };
+      const loyal = {
+        id: 'l1',
+        projectId: 'p1',
+        name: 'Loyal',
+        idCount: 2,
+        taleGroups: [],
+        createdAt: '2026-10-22T10:00:00.000Z',
+        updatedAt: '2026-10-22T10:00:00.000Z',
+      };
       const data: Data = { ...oneZone, groups: { z1: [heldGroup] }, tags: { p1: [] }, userLists: { p1: [loyal] } };
       const { fixture, root } = await open('/zones/z1', data);
       pickMenuItem(root, 'More for Summer', 'Audience');
@@ -4437,11 +4840,17 @@ describe('App', () => {
       await flushRefresh(fixture, { ...data, groups: { z1: [shown] } });
       expect(drawer()).toBeNull();
       expect(root.textContent).not.toContain('its user lists were removed');
-      expect([...root.querySelectorAll('app-group-row app-visibility')].map((v) => v.textContent?.trim())).toContain('Visible on site');
+      expect([...root.querySelectorAll('app-group-row app-visibility')].map((v) => v.textContent?.trim())).toContain(
+        'Visible on site',
+      );
     });
 
     it('does not offer the held-group line for a group that is not held', async () => {
-      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [], tags: [] }] }, tags: { p1: [] } });
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [] }] },
+        tags: { p1: [] },
+      });
       pickMenuItem(root, 'More for Summer', 'Audience');
       await settle(fixture);
       expect((drawer() as HTMLElement).querySelector('#audience-held-note')).toBeNull();
@@ -4471,9 +4880,9 @@ describe('App', () => {
       expect(hint()).toBe('Shows to viewers tagged Beach or summer, and on pages that pass no tags.');
       const legend = panel.querySelector('input[name=tagMatch]')?.closest('fieldset')?.querySelector('legend');
       expect(legend?.textContent?.trim()).toBe('Show to viewers tagged with');
-      expect(panel.querySelector('input[type=checkbox]')?.closest('fieldset')?.querySelector('legend')?.textContent?.trim()).toBe(
-        'Targeting tags for Summer',
-      );
+      expect(
+        panel.querySelector('input[type=checkbox]')?.closest('fieldset')?.querySelector('legend')?.textContent?.trim(),
+      ).toBe('Targeting tags for Summer');
       // Changes to the hint are announced, and tag names are said to be public.
       expect(panel.querySelector('#tag-match-hint')?.getAttribute('aria-live')).toBe('polite');
       expect(panel.querySelector('#tag-public-note')?.textContent).toContain('visible to anyone who loads the zone');
@@ -4543,7 +4952,12 @@ describe('App', () => {
       expect(panel.querySelector('[role=alert]')?.textContent).toContain('already has a tag named');
 
       buttonNamed(panel, 'Save').click();
-      await refuse(fixture, `${API_BASE}/tale-groups/g1/tags`, 'tag_not_found', 'A tag id does not match a tag of this project');
+      await refuse(
+        fixture,
+        `${API_BASE}/tale-groups/g1/tags`,
+        'tag_not_found',
+        'A tag id does not match a tag of this project',
+      );
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('does not match a tag');
     });
 
@@ -4561,7 +4975,11 @@ describe('App', () => {
       });
 
       const filters = root.querySelector('[aria-label="Filter tale groups by tag"]') as HTMLElement;
-      expect([...filters.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['All', 'Beach', 'summer']);
+      expect([...filters.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
+        'All',
+        'Beach',
+        'summer',
+      ]);
       expect(chip(root, 'All').getAttribute('aria-pressed')).toBe('true');
 
       chip(root, 'summer').click();
@@ -4580,7 +4998,12 @@ describe('App', () => {
     it('drops the filter when no group carries its tag any more, and does not bring it back', async () => {
       const { fixture, root } = await open('/zones/z1', {
         ...oneZone,
-        groups: { z1: [{ ...group, tales: [], tags: [ref(summer)] }, { ...winter, tales: [] }] },
+        groups: {
+          z1: [
+            { ...group, tales: [], tags: [ref(summer)] },
+            { ...winter, tales: [] },
+          ],
+        },
         tags: { p1: [summer] },
       });
       chip(root, 'summer').click();
@@ -4589,7 +5012,12 @@ describe('App', () => {
 
       const store = TestBed.inject(DashboardStore);
       const setGroups = (tags: unknown[]) =>
-        store.taleGroups.set({ z1: [{ ...group, tales: [], tags }, { ...winter, tales: [] }] as never });
+        store.taleGroups.set({
+          z1: [
+            { ...group, tales: [], tags },
+            { ...winter, tales: [] },
+          ] as never,
+        });
       setGroups([]);
       await settle(fixture);
       expect(groupNames(root)).toEqual(['Summer', 'Winter']);
@@ -4664,7 +5092,17 @@ describe('App', () => {
     it('shows the image or a muted looping video on tale cards that have media', async () => {
       const { root } = await open('/zones/z1', {
         ...oneZone,
-        groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }, { ...taleB, media: mp4Media }] }] },
+        groups: {
+          z1: [
+            {
+              ...group,
+              tales: [
+                { ...taleA, media: pngMedia },
+                { ...taleB, media: mp4Media },
+              ],
+            },
+          ],
+        },
       });
 
       const [first, second] = [...root.querySelectorAll('[aria-label="Tales in Summer"] li')];
@@ -4769,7 +5207,10 @@ describe('App', () => {
       expect(() => buttonNamed(drawer() as HTMLElement, 'Cancel upload')).toThrow();
       req.flush({ ...taleA, media: pngMedia });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } });
+      await flushRefresh(fixture, {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] },
+      });
       await settle(fixture);
 
       // The drawer stays open on the new media, says so, and the card shows it.
@@ -4809,7 +5250,9 @@ describe('App', () => {
       expect(document.activeElement).toBe(replaceButton());
       // Nothing was saved, so nothing is read again.
       http.expectNone(`${API_BASE}/zones`);
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t1/media`);
+      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+      );
     });
 
     it('closes during an upload with Done or Escape, which cancels the upload', async () => {
@@ -4832,7 +5275,9 @@ describe('App', () => {
       await settle(fixture);
       expect(drawer()).toBeNull();
       expect(second.cancelled).toBe(true);
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t1/media`);
+      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+      );
     });
 
     it('shows an indeterminate bar when the upload has no known size', async () => {
@@ -4895,7 +5340,9 @@ describe('App', () => {
       http.expectNone(`${API_BASE}/tales/t1/media`);
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The file is larger than 10 MB');
       expect(replaceButton().getAttribute('aria-describedby')).toContain('create-error');
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t1/media`);
+      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+      );
     });
 
     it('sends a file the browser gave no type with the type its extension names', async () => {
@@ -4935,7 +5382,9 @@ describe('App', () => {
       expect(live()).toBe('');
       expect(replaceButton().getAttribute('aria-disabled')).toBeNull();
       expect(document.activeElement).toBe(replaceButton());
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t1/media`);
+      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+      );
       // The input was cleared, so picking the same file again sends it again.
       expect(fileInput()?.value).toBe('');
       pick(fileInput(), png);
@@ -4971,13 +5420,21 @@ describe('App', () => {
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Wait until the change is saved');
       status.flush({ ...taleA, status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, status: 'paused', storedStatus: 'paused', media: pngMedia }] }] } });
+      await flushRefresh(fixture, {
+        ...oneZone,
+        groups: {
+          z1: [{ ...group, tales: [{ ...taleA, status: 'paused', storedStatus: 'paused', media: pngMedia }] }],
+        },
+      });
       await settle(fixture);
     });
 
     it('clears the studio-draft warning once media is replaced', async () => {
       const hidden = { ...taleA, status: 'paused', storedStatus: 'paused', media: pngMedia };
-      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [hidden] }] } });
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [hidden] }] },
+      });
       await openTaleA(fixture, root);
       drawer()?.querySelector<HTMLButtonElement>('[role=switch][aria-label="Show A"]')?.click();
       await settle(fixture);
@@ -4985,10 +5442,10 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, withMedia());
       await settle(fixture);
-      expect(drawer()?.textContent).toContain("its studio draft has problems");
+      expect(drawer()?.textContent).toContain('its studio draft has problems');
       pick(fileInput(), png);
       await settle(fixture);
-      expect(drawer()?.textContent).not.toContain("its studio draft has problems");
+      expect(drawer()?.textContent).not.toContain('its studio draft has problems');
       http.expectOne(`${API_BASE}/tales/t1/media`).flush({ ...taleA, media: pngMedia });
       await settle(fixture);
       await flushRefresh(fixture, withMedia());
@@ -5014,9 +5471,16 @@ describe('App', () => {
 
       archive.click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/tales/t1/status`).flush({ ...taleA, media: pngMedia, status: 'archived', storedStatus: 'archived' });
+      http
+        .expectOne(`${API_BASE}/tales/t1/status`)
+        .flush({ ...taleA, media: pngMedia, status: 'archived', storedStatus: 'archived' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia, status: 'archived', storedStatus: 'archived' }] }] } });
+      await flushRefresh(fixture, {
+        ...oneZone,
+        groups: {
+          z1: [{ ...group, tales: [{ ...taleA, media: pngMedia, status: 'archived', storedStatus: 'archived' }] }],
+        },
+      });
       await settle(fixture);
       expect(document.activeElement?.textContent?.trim()).toBe('Restore');
     });
@@ -5044,7 +5508,10 @@ describe('App', () => {
       expect(upload.request.body).toBe(png);
       upload.flush({ ...taleA, media: pngMedia });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } });
+      await flushRefresh(fixture, {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] },
+      });
       await settle(fixture);
 
       expect(drawer()).toBeNull();
@@ -5082,7 +5549,12 @@ describe('App', () => {
 
   describe('tale group cover', () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'cover.png', { type: 'image/png' });
-    const stillCover = { kind: 'image', contentType: 'image/png', animated: false, url: '/api/v1/tale-groups/g1/cover' };
+    const stillCover = {
+      kind: 'image',
+      contentType: 'image/png',
+      animated: false,
+      url: '/api/v1/tale-groups/g1/cover',
+    };
     const videoTale = { ...taleB, media: mp4Media };
     const withVideo: Data = { ...oneZone, groups: { z1: [{ ...group, cover: null, tales: [taleA, videoTale] }] } };
 
@@ -5094,7 +5566,9 @@ describe('App', () => {
     }
 
     function radio(name: string): HTMLInputElement {
-      const label = [...(drawer()?.querySelectorAll('label.checkbox') ?? [])].find((l) => l.textContent?.trim() === name);
+      const label = [...(drawer()?.querySelectorAll('label.checkbox') ?? [])].find(
+        (l) => l.textContent?.trim() === name,
+      );
       const input = label?.querySelector<HTMLInputElement>('input[type=radio]');
       if (!input) throw new Error(`No ${name} option`);
       return input;
@@ -5161,7 +5635,9 @@ describe('App', () => {
         ...oneZone,
         groups: { z1: [{ ...group, cover: stillCover, tales: [] }] },
       });
-      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe('/api/v1/tale-groups/g1/cover');
+      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe(
+        '/api/v1/tale-groups/g1/cover',
+      );
 
       pickMenuItem(root, 'More for Summer', 'Cover');
       await settle(fixture);
@@ -5495,7 +5971,9 @@ describe('App', () => {
     const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
     function row(root: HTMLElement, name: string): HTMLElement {
-      const found = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => text(li.querySelector('h4')) === name);
+      const found = [...root.querySelectorAll<HTMLElement>('.group')].find(
+        (li) => text(li.querySelector('h4')) === name,
+      );
       if (!found) throw new Error(`No ${name} row`);
       return found;
     }
@@ -5546,9 +6024,7 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, { ...data, groups: { z1: [onGroup, on] } });
       await settle(fixture);
-      expect(announced(root)).toBe(
-        'Winter is now on. Not visible: zone has no display',
-      );
+      expect(announced(root)).toBe('Winter is now on. Not visible: zone has no display');
       expect(text(row(root, 'Winter').querySelector('.group-row__status app-visibility button'))).toBe(
         'Not visible: zone has no display',
       );
@@ -5581,7 +6057,15 @@ describe('App', () => {
     // One group in every state the filters tell apart; names in the API's order (by name).
     const states = [
       projectGroup(
-        { id: 'g1', name: 'Archived one', status: 'archived', zoneIds: ['z1'], startsAt: future, tags: [{ id: 't2', name: 'vip' }], visibility: why('archived') },
+        {
+          id: 'g1',
+          name: 'Archived one',
+          status: 'archived',
+          zoneIds: ['z1'],
+          startsAt: future,
+          tags: [{ id: 't2', name: 'vip' }],
+          visibility: why('archived'),
+        },
         1,
       ),
       projectGroup({ id: 'g2', name: 'Draft loose', status: 'draft', visibility: why('not-in-any-zone') }),
@@ -5601,18 +6085,44 @@ describe('App', () => {
         },
         2,
       ),
-      projectGroup({ id: 'g4', name: 'On, nothing shown', status: 'live', zoneIds: ['z1'], visibility: why('no-shown-tales') }),
+      projectGroup({
+        id: 'g4',
+        name: 'On, nothing shown',
+        status: 'live',
+        zoneIds: ['z1'],
+        visibility: why('no-shown-tales'),
+      }),
       projectGroup(
-        { id: 'g5', name: 'Paused here', status: 'paused', zoneIds: ['z1'], tags: [{ id: 't2', name: 'vip' }], tagMatch: 'all', visibility: why('group-off') },
+        {
+          id: 'g5',
+          name: 'Paused here',
+          status: 'paused',
+          zoneIds: ['z1'],
+          tags: [{ id: 't2', name: 'vip' }],
+          tagMatch: 'all',
+          visibility: why('group-off'),
+        },
         1,
       ),
       projectGroup(
-        { id: 'g6', name: 'Starts later', status: 'scheduled', storedStatus: 'live', zoneIds: ['z1'], startsAt: future, visibility: why('starts-at') },
+        {
+          id: 'g6',
+          name: 'Starts later',
+          status: 'scheduled',
+          storedStatus: 'live',
+          zoneIds: ['z1'],
+          startsAt: future,
+          visibility: why('starts-at'),
+        },
         1,
       ),
       projectGroup({ id: 'g7', name: 'Visible now', status: 'live', zoneIds: ['z1'], visibility: VISIBLE }, 3),
     ];
-    const data: Data = { projects: [acme], zones: [zone, { id: 'z3', name: 'Product page', projectId: 'p1' }], projectGroups: { p1: states } };
+    const data: Data = {
+      projects: [acme],
+      zones: [zone, { id: 'z3', name: 'Product page', projectId: 'p1' }],
+      projectGroups: { p1: states },
+    };
     const expected: Record<string, string[]> = {
       all: ['Draft loose', 'Ends later', 'On, nothing shown', 'Paused here', 'Starts later', 'Visible now'],
       visible: ['Ends later', 'Visible now'],
@@ -5629,12 +6139,17 @@ describe('App', () => {
       status,
       storedStatus: status,
       visibility,
-      tales: Array.from({ length: listed['taleCount'] as number }, (_, i) => ({ ...taleA, id: `${listed['id']}-t${i}` })),
+      tales: Array.from({ length: listed['taleCount'] as number }, (_, i) => ({
+        ...taleA,
+        id: `${listed['id']}-t${i}`,
+      })),
     });
     // The data with one group's status and visibility changed, as the refresh after a change reads it.
     const changed = (index: number, status: string, visibility: unknown): Data => ({
       ...data,
-      projectGroups: { p1: states.map((g, i) => (i === index ? { ...g, status, storedStatus: status, visibility } : g)) },
+      projectGroups: {
+        p1: states.map((g, i) => (i === index ? { ...g, status, storedStatus: status, visibility } : g)),
+      },
     });
     const names = (root: HTMLElement) =>
       [...root.querySelectorAll<HTMLElement>('.group-items > li h3')].map((h) => h.textContent?.trim());
@@ -5649,7 +6164,9 @@ describe('App', () => {
 
       const fieldset = root.querySelector('fieldset.group-filter');
       expect(fieldset?.querySelector('legend')?.textContent?.trim()).toBe('Show');
-      const labels = [...(fieldset?.querySelectorAll('label') ?? [])].map((l) => l.textContent?.replace(/\s+/g, ' ').trim());
+      const labels = [...(fieldset?.querySelectorAll('label') ?? [])].map((l) =>
+        l.textContent?.replace(/\s+/g, ' ').trim(),
+      );
       expect(labels).toEqual([
         'All , 6',
         'Visible , 2',
@@ -5704,7 +6221,10 @@ describe('App', () => {
     });
 
     it('says so when no group is targeted, under Targeted (epic targeting R7)', async () => {
-      const { root } = await open('/tale-groups?filter=targeted', { ...data, projectGroups: { p1: [states[1], states[3]] } });
+      const { root } = await open('/tale-groups?filter=targeted', {
+        ...data,
+        projectGroups: { p1: [states[1], states[3]] },
+      });
       expect(names(root)).toEqual([]);
       expect(root.querySelector('.empty__title')?.textContent).toContain('No tale groups match this filter');
       expect(root.querySelector('.empty__text')?.textContent?.trim()).toBe(
@@ -5715,7 +6235,12 @@ describe('App', () => {
     it('announces a group its last tag left out of Targeted, and moves focus to the row in its place', async () => {
       const { fixture, root } = await open('/tale-groups?filter=targeted', {
         ...data,
-        tags: { p1: [{ id: 't1', name: 'summer' }, { id: 't2', name: 'vip' }] },
+        tags: {
+          p1: [
+            { id: 't1', name: 'summer' },
+            { id: 't2', name: 'vip' },
+          ],
+        },
       });
       expect(names(root)).toEqual(['Ends later', 'Paused here']);
       pickMenuItem(root, 'More for Paused here', 'Audience');
@@ -5744,7 +6269,12 @@ describe('App', () => {
     it('says nothing when the Audience drawer is closed with the group still targeted', async () => {
       const { fixture, root } = await open('/tale-groups?filter=targeted', {
         ...data,
-        tags: { p1: [{ id: 't1', name: 'summer' }, { id: 't2', name: 'vip' }] },
+        tags: {
+          p1: [
+            { id: 't1', name: 'summer' },
+            { id: 't2', name: 'vip' },
+          ],
+        },
       });
       pickMenuItem(root, 'More for Paused here', 'Audience');
       await settle(fixture);
@@ -5758,14 +6288,18 @@ describe('App', () => {
     it("shows the zone page's row with the zones each group is in, and a menu without Remove from this zone", async () => {
       const { root } = await open('/tale-groups', data);
       const row = (name: string) =>
-        [...root.querySelectorAll<HTMLElement>('.group-items > li')].find((li) => li.querySelector('h3')?.textContent?.trim() === name) as HTMLElement;
+        [...root.querySelectorAll<HTMLElement>('.group-items > li')].find(
+          (li) => li.querySelector('h3')?.textContent?.trim() === name,
+        ) as HTMLElement;
 
       const visible = row('Visible now');
       expect(visible.querySelector('app-group-row')).not.toBeNull();
       expect(visible.querySelector('.group-row__count')?.textContent?.trim()).toBe('3 of 3 shown · max 100');
       expect(visible.querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar');
       expect(visible.querySelector('[role=switch]')?.getAttribute('aria-label')).toBe('Visible now on site');
-      expect(text(visible.querySelector('app-visibility .visibility__line'))).toBe('Visible on site in at least one zone');
+      expect(text(visible.querySelector('app-visibility .visibility__line'))).toBe(
+        'Visible on site in at least one zone',
+      );
       expect(visible.querySelector('.group-row__reorder')).toBeNull();
       expect(menuItems(visible, 'More for Visible now')).toEqual([
         { label: 'Rename', reason: '', disabled: false },
@@ -5783,7 +6317,9 @@ describe('App', () => {
       expect(text(targeted)).toBe('Visible on site in at least one zone · for viewers tagged summer or vip');
       expect(targeted?.getAttribute('aria-describedby')).toBeTruthy();
       expect(visible.querySelector('app-visibility button')).toBeNull();
-      expect(text(row('Paused here').querySelector('app-visibility .visibility__line'))).toBe('Not visible: group is off');
+      expect(text(row('Paused here').querySelector('app-visibility .visibility__line'))).toBe(
+        'Not visible: group is off',
+      );
       expect(row('Draft loose').querySelector('.group-row__count')?.textContent).toContain('No tales yet');
       // The name opens the group view on this page (story 8.19), placed in a zone or not.
       for (const name of ['Visible now', 'Draft loose']) {
@@ -5897,7 +6433,9 @@ describe('App', () => {
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
       // Without the server's message, the client's own wording.
-      http.expectOne(`${API_BASE}/projects/p1/tale-groups`).flush(groupLimit(''), { status: 409, statusText: 'Conflict' });
+      http
+        .expectOne(`${API_BASE}/projects/p1/tale-groups`)
+        .flush(groupLimit(''), { status: 409, statusText: 'Conflict' });
       await settle(fixture);
       expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCreate);
     });
@@ -5943,11 +6481,17 @@ describe('App', () => {
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
       const created = projectGroup({ id: 'g8', name: 'Placed', zoneIds: ['z3'] });
-      await answerCreate(fixture, `${API_BASE}/zones/z3/tale-groups`, { name: 'Placed' }, { ...created, position: 0 }, {
-        ...data,
-        groups: { z3: [{ ...created, position: 0 }] },
-        projectGroups: { p1: [...states, created] },
-      });
+      await answerCreate(
+        fixture,
+        `${API_BASE}/zones/z3/tale-groups`,
+        { name: 'Placed' },
+        { ...created, position: 0 },
+        {
+          ...data,
+          groups: { z3: [{ ...created, position: 0 }] },
+          projectGroups: { p1: [...states, created] },
+        },
+      );
       expect(names(root)).toContain('Placed');
       expect(live(root)).toBe('Placed created');
     });
@@ -5969,7 +6513,13 @@ describe('App', () => {
     });
 
     it('shows each zone card with its indicator, display type, tale group count and install state', async () => {
-      const notInstalled = { visible: false, reasons: [{ code: 'zone-not-installed', subject: 'zone' }, { code: 'no-tale-groups', subject: 'zone' }] };
+      const notInstalled = {
+        visible: false,
+        reasons: [
+          { code: 'zone-not-installed', subject: 'zone' },
+          { code: 'no-tale-groups', subject: 'zone' },
+        ],
+      };
       const { root } = await open('/zones', {
         projects: [acme],
         zones: [
@@ -5978,7 +6528,12 @@ describe('App', () => {
           { id: 'z4', name: 'Unknown yet', projectId: 'p1' },
         ],
         displays: { z1: frameBar, z3: { ...frameBar, id: 'f3', zoneId: 'z3', type: 'banner' } },
-        groups: { z1: [{ ...group, tales: [taleA] }, { ...group, id: 'g2', name: 'Two', tales: [] }] },
+        groups: {
+          z1: [
+            { ...group, tales: [taleA] },
+            { ...group, id: 'g2', name: 'Two', tales: [] },
+          ],
+        },
       });
       const cards = [...root.querySelectorAll<HTMLElement>('.zone-card')];
       const summary = (card: HTMLElement) =>
@@ -6033,7 +6588,9 @@ describe('App', () => {
     };
     const url = () => TestBed.inject(Router).url;
     const nameButton = (root: HTMLElement, name: string) =>
-      [...root.querySelectorAll<HTMLButtonElement>('.group-items .group-row__open')].find((b) => b.textContent?.trim() === name) as HTMLButtonElement;
+      [...root.querySelectorAll<HTMLButtonElement>('.group-items .group-row__open')].find(
+        (b) => b.textContent?.trim() === name,
+      ) as HTMLButtonElement;
     const cards = () => [...(groupView()?.querySelectorAll('.tale-card__name') ?? [])].map((n) => n.textContent);
     const cardOf = (title: string) =>
       groupView()?.querySelector(`[aria-label="More for ${title}"]`)?.closest<HTMLElement>('.tale-card') as HTMLElement;
@@ -6063,7 +6620,13 @@ describe('App', () => {
       );
       // The head's ⋯ is the Tale groups page's: no "Remove from this zone".
       expect(menuItems(view, 'More for Loose').map((item) => item.label)).toEqual([
-        'Rename', 'Cover', 'Audience', 'Schedule', 'Show in another zone', 'Copy to zone', 'Archive',
+        'Rename',
+        'Cover',
+        'Audience',
+        'Schedule',
+        'Show in another zone',
+        'Copy to zone',
+        'Archive',
       ]);
       expect(view.querySelector('.group-view__count')?.textContent).toContain('2 of 2 shown');
 
@@ -6085,7 +6648,9 @@ describe('App', () => {
       flushReadGroups(data);
       await settle(fixture);
       expect(url()).toBe('/tale-groups?group=g1');
-      expect(groupView()?.querySelector('.group__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar');
+      expect(groupView()?.querySelector('.group__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'In: Home bar',
+      );
       // The view holds the group's tales, read on their own.
       expect(cards()).toEqual(['A']);
     });
@@ -6137,7 +6702,9 @@ describe('App', () => {
 
     it('reorders the tales of a group in no zone through the group, and rolls a refusal back', async () => {
       const { fixture, root } = await openLoose();
-      const later = cardOf('Beach').querySelector<HTMLButtonElement>('[aria-label="Move Beach later"]') as HTMLButtonElement;
+      const later = cardOf('Beach').querySelector<HTMLButtonElement>(
+        '[aria-label="Move Beach later"]',
+      ) as HTMLButtonElement;
       later.focus();
       later.click();
       await settle(fixture);
@@ -6155,7 +6722,10 @@ describe('App', () => {
       expect(cards()).toEqual(['Beach', 'Pool']);
       http
         .expectOne(`${API_BASE}/tale-groups/g2/tales/order`)
-        .flush({ error: { code: 'order_mismatch', message: 'The order changed elsewhere' } }, { status: 409, statusText: 'Conflict' });
+        .flush(
+          { error: { code: 'order_mismatch', message: 'The order changed elsewhere' } },
+          { status: 409, statusText: 'Conflict' },
+        );
       await settle(fixture);
       expect(cards()).toEqual(['Pool', 'Beach']);
       expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('The order changed elsewhere');
@@ -6205,7 +6775,8 @@ describe('App', () => {
         req.flush({ error: { code: 'tale_not_found', message: 'gone' } }, { status: 404, statusText: 'Not Found' });
       }
       await settle(fixture);
-      for (const req of http.match((r) => r.method === 'GET' && /\/projects\/p1\/(theme|fonts)$/.test(r.url))) req.flush(null);
+      for (const req of http.match((r) => r.method === 'GET' && /\/projects\/p1\/(theme|fonts)$/.test(r.url)))
+        req.flush(null);
     });
 
     it('turns the group in no zone On from its view, which stays open', async () => {
@@ -6219,17 +6790,22 @@ describe('App', () => {
       const on = { ...loose, status: 'live', storedStatus: 'live' };
       await flushRefresh(fixture, {
         ...data,
-        projectGroups: { p1: [projectGroup({ ...on, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)] },
+        projectGroups: {
+          p1: [projectGroup({ ...on, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)],
+        },
         readGroups: { g2: on },
       });
       await settle(fixture);
-      expect(groupView()?.querySelector('[role=switch][aria-label="Loose on site"]')?.getAttribute('aria-checked')).toBe('true');
+      expect(
+        groupView()?.querySelector('[role=switch][aria-label="Loose on site"]')?.getAttribute('aria-checked'),
+      ).toBe('true');
       expect(announced(fixture.nativeElement as HTMLElement)).toContain('Loose is now');
     });
 
     // Review fixes (story 8.19).
     const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-    const pageLive = (root: HTMLElement) => root.querySelector('app-tale-groups-page .page > [aria-live=polite]')?.textContent ?? '';
+    const pageLive = (root: HTMLElement) =>
+      root.querySelector('app-tale-groups-page .page > [aria-live=polite]')?.textContent ?? '';
 
     // Answers a refresh up to its last stage (the project lists and the groups read on their own),
     // which the test answers itself.
@@ -6243,9 +6819,11 @@ describe('App', () => {
       await settle(fixture);
       http.expectOne(`${API_BASE}/frame-types`).flush(frameTypes);
       await settle(fixture);
-      for (const z of given.zones ?? []) http.expectOne(`${API_BASE}/zones/${z.id}/tale-groups`).flush(given.groups?.[z.id] ?? []);
+      for (const z of given.zones ?? [])
+        http.expectOne(`${API_BASE}/zones/${z.id}/tale-groups`).flush(given.groups?.[z.id] ?? []);
       await settle(fixture);
-      for (const p of given.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(given.tags?.[p.id] ?? []);
+      for (const p of given.projects ?? [])
+        http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(given.tags?.[p.id] ?? []);
       for (const p of given.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/user-lists`).flush([]);
       await settle(fixture);
     }
@@ -6313,7 +6891,10 @@ describe('App', () => {
         await settle(fixture);
         http
           .expectOne(`${API_BASE}/tale-groups/g2`)
-          .flush({ error: { code: status === 404 ? 'tale_group_not_found' : 'forbidden', message: 'No' } }, { status, statusText: 'No' });
+          .flush(
+            { error: { code: status === 404 ? 'tale_group_not_found' : 'forbidden', message: 'No' } },
+            { status, statusText: 'No' },
+          );
         for (let i = 0; i < 20 && url() !== '/tale-groups'; i++) await settle(fixture);
         expect(url()).toBe('/tale-groups');
         expect(text(root.querySelector('.group-opening[role=alert]'))).toBe(
@@ -6341,7 +6922,12 @@ describe('App', () => {
     it('orders tales through one queue per group, apart from the zone order; a refused zone order keeps the saved tale order', async () => {
       const twoGroups: Data = {
         ...data,
-        groups: { z1: [{ ...placed, tales: [taleA, taleB] }, { ...placed, id: 'g3', name: 'Other', position: 1, tales: [] }] },
+        groups: {
+          z1: [
+            { ...placed, tales: [taleA, taleB] },
+            { ...placed, id: 'g3', name: 'Other', position: 1, tales: [] },
+          ],
+        },
       };
       const { fixture } = await open('/tale-groups', twoGroups);
       const store = TestBed.inject(DashboardStore);
@@ -6352,22 +6938,42 @@ describe('App', () => {
       const groupsReq = http.expectOne(`${API_BASE}/zones/z1/tale-groups/order`);
       const talesReq = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
       expect(store.taleGroupsOf('z1')[1].tales.map((t) => t.id)).toEqual(['t2', 't1']);
-      talesReq.flush([{ ...taleB, position: 0 }, { ...taleA, position: 1 }]);
+      talesReq.flush([
+        { ...taleB, position: 0 },
+        { ...taleA, position: 1 },
+      ]);
       expect(await taleOrder).toBe('');
-      groupsReq.flush({ error: { code: 'order_mismatch', message: 'Changed elsewhere' } }, { status: 409, statusText: 'Conflict' });
+      groupsReq.flush(
+        { error: { code: 'order_mismatch', message: 'Changed elsewhere' } },
+        { status: 409, statusText: 'Conflict' },
+      );
       expect(await groupOrder).toBe('Changed elsewhere');
       await settle(fixture);
       expect(store.taleGroupsOf('z1').map((g) => g.id)).toEqual(['g1', 'g3']);
       expect(store.taleGroupsOf('z1')[0].tales.map((t) => t.id)).toEqual(['t2', 't1']);
       // Nothing pending: the group's tale order bookkeeping is gone.
-      const internals = store as unknown as { pendingOrders: Map<string, number>; confirmedTales: Map<string, unknown> };
+      const internals = store as unknown as {
+        pendingOrders: Map<string, number>;
+        confirmedTales: Map<string, unknown>;
+      };
       expect(internals.pendingOrders.has('tales:g1')).toBe(false);
       expect(internals.confirmedTales.size).toBe(0);
     });
 
-    it('shows a tale order from the Tale groups view in the zone lists too, and a hidden tale\'s visibility from the answer', async () => {
-      const placedRead = { ...placed, position: undefined, tales: [{ ...taleA, visibility: VISIBLE }, { ...taleB, visibility: VISIBLE }] };
-      const given: Data = { ...data, groups: { z1: [{ ...placed, tales: [taleA, taleB] }] }, readGroups: { ...data.readGroups, g1: placedRead } };
+    it("shows a tale order from the Tale groups view in the zone lists too, and a hidden tale's visibility from the answer", async () => {
+      const placedRead = {
+        ...placed,
+        position: undefined,
+        tales: [
+          { ...taleA, visibility: VISIBLE },
+          { ...taleB, visibility: VISIBLE },
+        ],
+      };
+      const given: Data = {
+        ...data,
+        groups: { z1: [{ ...placed, tales: [taleA, taleB] }] },
+        readGroups: { ...data.readGroups, g1: placedRead },
+      };
       const { fixture, root } = await open('/tale-groups', given);
       nameButton(root, 'Summer').click();
       await settle(fixture);
@@ -6377,14 +6983,19 @@ describe('App', () => {
       await settle(fixture);
       const store = TestBed.inject(DashboardStore);
       expect(store.taleGroupsOf('z1')[0].tales.map((t) => t.id)).toEqual(['t2', 't1']);
-      http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`).flush([{ ...taleB, position: 0 }, { ...taleA, position: 1 }]);
+      http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`).flush([
+        { ...taleB, position: 0 },
+        { ...taleA, position: 1 },
+      ]);
       await settle(fixture);
       expect(cards()).toEqual(['B', 'A']);
 
       cardOf('A').querySelector<HTMLButtonElement>('[role=switch]')?.click();
       await settle(fixture);
       const hiddenWhy = { visible: false, reasons: [{ code: 'tale-hidden', subject: 'tale' }] };
-      http.expectOne(`${API_BASE}/tales/t1/status`).flush({ ...taleA, status: 'paused', storedStatus: 'paused', visibility: hiddenWhy });
+      http
+        .expectOne(`${API_BASE}/tales/t1/status`)
+        .flush({ ...taleA, status: 'paused', storedStatus: 'paused', visibility: hiddenWhy });
       await settle(fixture);
       expect(store.readGroups()['g1'].tales.find((t) => t.id === 't1')?.visibility).toEqual(hiddenWhy);
       await flushRefresh(fixture, given);
@@ -6396,12 +7007,19 @@ describe('App', () => {
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tale-groups/g2/status`);
       expect(req.request.body).toEqual({ status: 'archived' });
-      const archived = { ...loose, status: 'archived', storedStatus: 'archived', visibility: { visible: false, reasons: [{ code: 'archived', subject: 'group' }] } };
+      const archived = {
+        ...loose,
+        status: 'archived',
+        storedStatus: 'archived',
+        visibility: { visible: false, reasons: [{ code: 'archived', subject: 'group' }] },
+      };
       req.flush(archived);
       await settle(fixture);
       const archivedData: Data = {
         ...data,
-        projectGroups: { p1: [projectGroup({ ...archived, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)] },
+        projectGroups: {
+          p1: [projectGroup({ ...archived, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)],
+        },
         readGroups: { g2: archived },
       };
       await flushRefresh(fixture, archivedData);
@@ -6422,7 +7040,9 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, {
         ...data,
-        projectGroups: { p1: [projectGroup({ ...paused, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)] },
+        projectGroups: {
+          p1: [projectGroup({ ...paused, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)],
+        },
       });
       await settle(fixture);
       expect(root.querySelector('.undo-bar')).toBeNull();
@@ -6454,8 +7074,10 @@ describe('App', () => {
     }
 
     const input = (root: HTMLElement, id: string) => root.querySelector<HTMLInputElement>(`#theme-${id}`);
-    const warning = (root: HTMLElement) => root.querySelector('.contrast:not(.contrast--note)')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-    const note = (root: HTMLElement) => root.querySelector('.contrast--note')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const warning = (root: HTMLElement) =>
+      root.querySelector('.contrast:not(.contrast--note)')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const note = (root: HTMLElement) =>
+      root.querySelector('.contrast--note')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
     function toggle(box: HTMLInputElement | null, checked: boolean): void {
       if (!box) throw new Error('No checkbox');
@@ -6475,7 +7097,11 @@ describe('App', () => {
     it('links each project card to its theme, for content managers too', async () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
-      await navigate(fixture, '/projects', { setupRequired: false, user: { ...admin, role: 'content_manager' }, methods: PASSKEY_ONLY });
+      await navigate(fixture, '/projects', {
+        setupRequired: false,
+        user: { ...admin, role: 'content_manager' },
+        methods: PASSKEY_ONLY,
+      });
       await flushRefresh(fixture, oneZone);
       const root = fixture.nativeElement as HTMLElement;
       const link = root.querySelector<HTMLAnchorElement>('a[aria-label="Theme of Acme"]');
@@ -6500,12 +7126,19 @@ describe('App', () => {
     });
 
     it('shows explicit values with their fields', async () => {
-      const { root } = await openTheme({ cornerRadius: 0, titleColor: '#000000', fontFamily: 'Georgia, serif', backgroundColor: '#fafafa' });
+      const { root } = await openTheme({
+        cornerRadius: 0,
+        titleColor: '#000000',
+        fontFamily: 'Georgia, serif',
+        backgroundColor: '#fafafa',
+      });
       expect(input(root, 'cornerRadius')?.value).toBe('0');
       expect(input(root, 'titleColor')?.value).toBe('#000000');
       expect(input(root, 'fontFamily')?.value).toBe('Georgia, serif');
       expect(input(root, 'backgroundColor')?.value).toBe('#fafafa');
-      expect(root.querySelector<HTMLInputElement>('input[type=color][aria-label="Title colour picker"]')?.value).toBe('#000000');
+      expect(root.querySelector<HTMLInputElement>('input[type=color][aria-label="Title colour picker"]')?.value).toBe(
+        '#000000',
+      );
       expect(note(root)).toBe('');
     });
 
@@ -6543,7 +7176,12 @@ describe('App', () => {
       await settle(fixture);
       expect(input(root, 'ringColors-0')?.value).toBe('#0055ff');
 
-      await expectSave(fixture, root, { ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0, fontFamily: 'Georgia, serif' });
+      await expectSave(fixture, root, {
+        ringStyle: 'solid',
+        ringColors: ['#0055ff'],
+        cornerRadius: 0,
+        fontFamily: 'Georgia, serif',
+      });
       expect(root.textContent).toContain('Theme saved.');
     });
 
@@ -6599,7 +7237,10 @@ describe('App', () => {
       buttonNamed(root, 'Save theme').click();
       http
         .expectOne(themeUrl)
-        .flush({ error: { code: 'invalid_theme', message: 'theme.ringWidth must be at most 4' } }, { status: 400, statusText: 'Bad Request' });
+        .flush(
+          { error: { code: 'invalid_theme', message: 'theme.ringWidth must be at most 4' } },
+          { status: 400, statusText: 'Bad Request' },
+        );
       await settle(fixture);
       expect(root.querySelector('[role=alert]')?.textContent).toContain('theme.ringWidth must be at most 4');
       expect(input(root, 'ringWidth')?.getAttribute('aria-invalid')).toBe('true');
@@ -6752,7 +7393,10 @@ describe('App', () => {
       const created = http.expectOne((r) => r.method === 'POST' && r.url === `${API_BASE}/projects`);
       // A blank name falls back to "My project".
       expect(created.request.body).toEqual({ name: 'My project' });
-      created.flush({ error: { code: 'validation_failed', message: 'name is too long' } }, { status: 400, statusText: 'Bad Request' });
+      created.flush(
+        { error: { code: 'validation_failed', message: 'name is too long' } },
+        { status: 400, statusText: 'Bad Request' },
+      );
       await signedInTick(fixture);
       await flushRefresh(fixture, { projects: [] });
       await settle(fixture);
@@ -6857,7 +7501,10 @@ describe('App', () => {
       await tick();
       http
         .expectOne(`${API_BASE}/zones`)
-        .flush({ error: { code: 'unauthenticated', message: 'Sign in to continue' } }, { status: 401, statusText: 'Unauthorized' });
+        .flush(
+          { error: { code: 'unauthenticated', message: 'Sign in to continue' } },
+          { status: 401, statusText: 'Unauthorized' },
+        );
       await settle(fixture);
 
       const root = fixture.nativeElement as HTMLElement;
@@ -6889,7 +7536,10 @@ describe('App', () => {
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       http
         .expectOne(`${API_BASE}/projects`)
-        .flush({ error: { code: 'unauthenticated', message: 'Sign in to continue' } }, { status: 401, statusText: 'Unauthorized' });
+        .flush(
+          { error: { code: 'unauthenticated', message: 'Sign in to continue' } },
+          { status: 401, statusText: 'Unauthorized' },
+        );
       await settle(fixture);
 
       expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fprojects');
@@ -6917,6 +7567,9 @@ describe('App', () => {
       await tick();
       await navigation;
       await tick();
+      // The invite page reads the sign-in methods with its invitation: answer that read first.
+      for (const req of http.match(`${API_BASE}/auth/state`))
+        req.flush({ setupRequired: false, user: null, methods: PASSKEY_ONLY });
       answer(http.expectOne(`${API_BASE}/auth/invitations/tok123`));
       await settle(fixture);
       return { fixture, root: fixture.nativeElement as HTMLElement };
@@ -6965,7 +7618,9 @@ describe('App', () => {
 
         buttonNamed(drawer() as HTMLElement, 'Share link').click();
         await settle(fixture);
-        expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: invitation.url, title: 'Join Acme on TaleArt' }));
+        expect(share).toHaveBeenCalledWith(
+          expect.objectContaining({ url: invitation.url, title: 'Join Acme on TaleArt' }),
+        );
         expect(drawer()?.querySelector('[role=status]')?.textContent).toContain('Link shared');
       } finally {
         delete (navigator as { share?: unknown }).share;
@@ -6991,7 +7646,10 @@ describe('App', () => {
       buttonNamed(drawer() as HTMLElement, 'Create link').click();
       http
         .expectOne(`${API_BASE}/projects/p1/invitations`)
-        .flush({ error: { code: 'forbidden', message: 'Only admins can do this' } }, { status: 403, statusText: 'Forbidden' });
+        .flush(
+          { error: { code: 'forbidden', message: 'Only admins can do this' } },
+          { status: 403, statusText: 'Forbidden' },
+        );
       await settle(fixture);
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Only admins can do this');
     });
@@ -7020,7 +7678,9 @@ describe('App', () => {
     });
 
     it('joins through an invitation link with a passkey and lands on Zones of that project', async () => {
-      const { fixture, root } = await openInvite((req) => req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }));
+      const { fixture, root } = await openInvite((req) =>
+        req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }),
+      );
       expect(root.querySelector('h1')?.textContent).toContain('Join Acme on TaleArt');
       expect(root.querySelector('nav[aria-label=Main]')).toBeNull();
 
@@ -7053,7 +7713,9 @@ describe('App', () => {
     });
 
     it('says the link is no longer valid when it was used while the passkey was being created', async () => {
-      const { fixture, root } = await openInvite((req) => req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }));
+      const { fixture, root } = await openInvite((req) =>
+        req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }),
+      );
       type(root.querySelector<HTMLInputElement>('#invite-name'), 'Cy');
       type(root.querySelector<HTMLInputElement>('#invite-email'), 'cy@example.com');
       buttonNamed(root, 'Create passkey').click();
@@ -7065,7 +7727,9 @@ describe('App', () => {
     });
 
     it("shows the API's message when the email is taken", async () => {
-      const { fixture, root } = await openInvite((req) => req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }));
+      const { fixture, root } = await openInvite((req) =>
+        req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }),
+      );
       type(root.querySelector<HTMLInputElement>('#invite-name'), 'Ada');
       type(root.querySelector<HTMLInputElement>('#invite-email'), 'ada@example.com');
       buttonNamed(root, 'Create passkey').click();
@@ -7127,7 +7791,9 @@ describe('App', () => {
       { id: 'z13', name: 'Checkout', projectId: 'p1' },
     ];
     const rows = (root: HTMLElement, label: string) =>
-      [...root.querySelectorAll(`[aria-label="${label}"] > li`)].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+      [...root.querySelectorAll(`[aria-label="${label}"] > li`)].map((li) =>
+        li.textContent?.replace(/\s+/g, ' ').trim(),
+      );
 
     // The status page polls without waiting, so the tests need not wait 2 s.
     beforeEach(async () => {
@@ -7283,10 +7949,18 @@ describe('App', () => {
       expect(root.querySelector('main [role=status]')?.textContent).toContain('Running');
       expect(root.textContent).toContain('From the app Demo shop');
       expect(root.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-20T12:00:01.000Z');
-      expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 1 written', 'Tale groups: 3 read / 0 written', 'Tales: 0 read / 0 written']);
+      expect(rows(root, 'Progress')).toEqual([
+        'Zones: 3 read / 1 written',
+        'Tale groups: 3 read / 0 written',
+        'Tales: 0 read / 0 written',
+      ]);
 
       await answerPoll(fixture, job('running', { progress: progress([3, 2], [5, 4], [11, 9]) }));
-      expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 2 written', 'Tale groups: 5 read / 4 written', 'Tales: 11 read / 9 written']);
+      expect(rows(root, 'Progress')).toEqual([
+        'Zones: 3 read / 2 written',
+        'Tale groups: 5 read / 4 written',
+        'Tales: 11 read / 9 written',
+      ]);
 
       await answerPoll(
         fixture,
@@ -7313,13 +7987,20 @@ describe('App', () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       await answerPoll(fixture, job('running', { progress: progress([3, 2], [4, 3], [8, 6]) }));
       expect(root.querySelector('main [role=status]')?.textContent).toContain('Running');
-      expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 2 written', 'Tale groups: 4 read / 3 written', 'Tales: 8 read / 6 written']);
+      expect(rows(root, 'Progress')).toEqual([
+        'Zones: 3 read / 2 written',
+        'Tale groups: 4 read / 3 written',
+        'Tales: 8 read / 6 written',
+      ]);
 
       // A failed read while it runs shows the message and tries again at the next poll.
       await answerPoll(fixture, { error: { code: 'internal', message: 'Something went wrong' } }, 500);
       expect(root.querySelector('[role=alert]')?.textContent).toContain('Something went wrong');
 
-      await answerPoll(fixture, job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }));
+      await answerPoll(
+        fixture,
+        job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }),
+      );
       expect(root.querySelector('[role=alert]')).toBeNull();
       expect(rows(root, 'Report')[0]).toBe('Zones: 3 source / 3 imported');
       await flushRefresh(fixture, { projects: [acme], zones: [zone, ...imported] });
@@ -7349,20 +8030,42 @@ describe('App', () => {
       kind: string,
       field: string | null,
       sourceField: string | null = null,
-    ) => ({ entity, record: { ...record, withinSourceId: record.withinSourceId ?? record.within }, kind, field, sourceField });
+    ) => ({
+      entity,
+      record: { ...record, withinSourceId: record.withinSourceId ?? record.within },
+      kind,
+      field,
+      sourceField,
+    });
 
     it('lists the differences by entity and record, and what is not imported by design', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       const deal = { sourceId: '4101', name: 'Deal of the day', within: 'Odd group', position: 1 };
       const odd = { sourceId: '4102', name: 'Odd order', within: 'Odd group', position: 2 };
       const differences = [
-        difference('zone', { sourceId: '2101', name: 'Odd home', within: null, position: 1 }, 'renamed', 'title', 'name'),
+        difference(
+          'zone',
+          { sourceId: '2101', name: 'Odd home', within: null, position: 1 },
+          'renamed',
+          'title',
+          'name',
+        ),
         difference('zone', { sourceId: null, name: null, within: null, position: 2 }, 'invalidRecord', null),
-        difference('taleGroup', { sourceId: '3102', name: null, within: 'Odd home', position: 2 }, 'wrongType', 'title'),
+        difference(
+          'taleGroup',
+          { sourceId: '3102', name: null, within: 'Odd home', position: 2 },
+          'wrongType',
+          'title',
+        ),
         difference('tale', deal, 'notHeld', 'deep_link'),
         difference('tale', deal, 'notHeld', 'button_text'),
         difference('tale', odd, 'unexpected', 'cta_macro'),
-        difference('tale', { ...deal, sourceId: '4105', name: 'No media', within: 'Untitled tale group' }, 'missing', 'media'),
+        difference(
+          'tale',
+          { ...deal, sourceId: '4105', name: 'No media', within: 'Untitled tale group' },
+          'missing',
+          'media',
+        ),
       ];
       await answerPoll(
         fixture,
@@ -7390,7 +8093,9 @@ describe('App', () => {
         '"Odd home" (id 2101) | title: came as "name"',
         'Record 2 | could not be read, so it was skipped',
       ]);
-      expect(records('Tale groups differences')).toEqual(['Record 2 (id 3102) in "Odd home" | title: empty or of the wrong type']);
+      expect(records('Tale groups differences')).toEqual([
+        'Record 2 (id 3102) in "Odd home" | title: empty or of the wrong type',
+      ]);
       expect(records('Tales differences')).toEqual([
         '"Deal of the day" (id 4101) in "Odd group" | deep_link: not held in TaleArt | button_text: not held in TaleArt',
         '"Odd order" (id 4102) in "Odd group" | cta_macro: unexpected field',
@@ -7589,7 +8294,10 @@ describe('App', () => {
       ];
       await answerPoll(
         fixture,
-        job('done', { report: { ...report, differences, unreadableLayers: 7 }, finishedAt: '2026-10-20T12:00:09.000Z' }),
+        job('done', {
+          report: { ...report, differences, unreadableLayers: 7 },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
       );
       expect(root.querySelector('.import-unreadable')?.textContent?.trim()).toBe(
         'Text, stickers and components of 7 tales: not readable through the API, so not imported.',
@@ -7627,11 +8335,19 @@ describe('App', () => {
     it('renders a closed group empty, and an open one 100 records at a time with "Show more"', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       const many = Array.from({ length: 250 }, (_, i) =>
-        difference('tale', { sourceId: String(5000 + i), name: `Tale ${i}`, within: 'Big group', position: i + 1 }, 'notHeld', 'outlink'),
+        difference(
+          'tale',
+          { sourceId: String(5000 + i), name: `Tale ${i}`, within: 'Big group', position: i + 1 },
+          'notHeld',
+          'outlink',
+        ),
       );
       await answerPoll(
         fixture,
-        job('done', { report: { ...report, differences: many, differencesOmitted: 3 }, finishedAt: '2026-10-20T12:00:09.000Z' }),
+        job('done', {
+          report: { ...report, differences: many, differencesOmitted: 3 },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
       );
       expect(root.querySelector('#import-differences-title')?.textContent?.trim()).toBe('Differences (253)');
       expect(root.textContent).toContain('3 more differences were found and are not listed.');
@@ -7665,14 +8381,39 @@ describe('App', () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       const differences = [
         // Two groups both called "Sale": the same story id under each is two records.
-        difference('tale', { sourceId: '7', name: 'A', within: 'Sale', withinSourceId: '31', position: 1 }, 'notHeld', 'outlink'),
-        difference('tale', { sourceId: '7', name: 'A', within: 'Sale', withinSourceId: '32', position: 1 }, 'notHeld', 'outlink'),
+        difference(
+          'tale',
+          { sourceId: '7', name: 'A', within: 'Sale', withinSourceId: '31', position: 1 },
+          'notHeld',
+          'outlink',
+        ),
+        difference(
+          'tale',
+          { sourceId: '7', name: 'A', within: 'Sale', withinSourceId: '32', position: 1 },
+          'notHeld',
+          'outlink',
+        ),
         // A record whose id reads "#3" and an unreadable record at place 3.
-        difference('tale', { sourceId: '#3', name: 'B', within: 'Sale', withinSourceId: '31', position: 2 }, 'unexpected', 'x'),
-        difference('tale', { sourceId: null, name: null, within: 'Sale', withinSourceId: '31', position: 3 }, 'invalidRecord', null),
+        difference(
+          'tale',
+          { sourceId: '#3', name: 'B', within: 'Sale', withinSourceId: '31', position: 2 },
+          'unexpected',
+          'x',
+        ),
+        difference(
+          'tale',
+          { sourceId: null, name: null, within: 'Sale', withinSourceId: '31', position: 3 },
+          'invalidRecord',
+          null,
+        ),
       ];
-      await answerPoll(fixture, job('done', { report: { ...report, differences }, finishedAt: '2026-10-20T12:00:09.000Z' }));
-      expect(root.querySelector('summary')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tales: 4 differences in 4 records');
+      await answerPoll(
+        fixture,
+        job('done', { report: { ...report, differences }, finishedAt: '2026-10-20T12:00:09.000Z' }),
+      );
+      expect(root.querySelector('summary')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Tales: 4 differences in 4 records',
+      );
       expect(root.querySelectorAll('.import-difference-records > li')).toHaveLength(4);
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
@@ -7681,10 +8422,17 @@ describe('App', () => {
       const { fixture, root } = await openForm();
       type(root.querySelector<HTMLInputElement>('#import-token'), 'wrong');
       buttonNamed(root, 'Find apps').click();
-      http.expectOne(`${importsUrl}/another tool/apps`).flush(
-        { error: { code: 'another tool_token_invalid', message: 'another tool refused this API token. Check the token and try again.' } },
-        { status: 400, statusText: 'Bad Request' },
-      );
+      http
+        .expectOne(`${importsUrl}/another tool/apps`)
+        .flush(
+          {
+            error: {
+              code: 'another tool_token_invalid',
+              message: 'another tool refused this API token. Check the token and try again.',
+            },
+          },
+          { status: 400, statusText: 'Bad Request' },
+        );
       await settle(fixture);
       expect(root.querySelector('[role=alert]')?.textContent).toContain('another tool refused this API token');
       expect(root.querySelector('#import-app')).toBeNull();
@@ -7706,7 +8454,9 @@ describe('App', () => {
       expect(rows(root, 'Progress')[0]).toBe('Zones: 3 read / 1 written');
       expect(root.textContent).not.toContain('See zones');
 
-      [...root.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Start another import')?.click();
+      [...root.querySelectorAll<HTMLAnchorElement>('a')]
+        .find((a) => a.textContent?.trim() === 'Start another import')
+        ?.click();
       await settle(fixture);
       await answerHistory(fixture, [run('j1', 'failed', { error: 'another tool answered 500 when listing stories' })]);
       expect(TestBed.inject(Router).url).toBe('/projects/p1/import');
@@ -7742,7 +8492,10 @@ describe('App', () => {
       links[2]?.click();
       await settle(fixture);
       expect(TestBed.inject(Router).url).toBe('/projects/p1/import/j1');
-      await answerPoll(fixture, job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }));
+      await answerPoll(
+        fixture,
+        job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }),
+      );
       expect(rows(root, 'Report')).toHaveLength(3);
       await flushRefresh(fixture, { projects: [acme], zones: [zone, ...imported] });
     });
@@ -7779,13 +8532,16 @@ describe('App', () => {
       await tick();
       // The same page, now following j2; a read of j1 still in flight is ignored.
       expect(fixture.debugElement.query(By.css('app-import-job-page')).componentInstance).toBe(page);
-      for (const req of http.match(`${importsUrl}/j1`)) req.flush(job('running', { progress: progress([3, 3], [5, 5], [9, 9]) }));
+      for (const req of http.match(`${importsUrl}/j1`))
+        req.flush(job('running', { progress: progress([3, 3], [5, 5], [9, 9]) }));
       await tick();
       fixture.detectChanges();
       expect(root.querySelector('[aria-label=Progress]')).toBeNull();
       expect(root.textContent).toContain('Loading the import');
 
-      http.expectOne(`${importsUrl}/j2`).flush({ ...job('failed', { error: 'another tool answered 500 when listing apps' }), id: 'j2' });
+      http
+        .expectOne(`${importsUrl}/j2`)
+        .flush({ ...job('failed', { error: 'another tool answered 500 when listing apps' }), id: 'j2' });
       await tick();
       fixture.detectChanges();
       expect(root.querySelector('[role=alert]')?.textContent).toContain('another tool answered 500 when listing apps');
@@ -7796,7 +8552,11 @@ describe('App', () => {
 
     it('shows the message of an import it cannot read, without polling again', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
-      await answerPoll(fixture, { error: { code: 'not_found', message: 'This project has no import with this id' } }, 404);
+      await answerPoll(
+        fixture,
+        { error: { code: 'not_found', message: 'This project has no import with this id' } },
+        404,
+      );
       expect(root.querySelector('[role=alert]')?.textContent).toContain('This project has no import with this id');
       await tick();
       http.expectNone(`${importsUrl}/j1`);

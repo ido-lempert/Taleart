@@ -177,9 +177,14 @@ export class InvitePage implements OnInit {
   protected readonly pwPassword = signal('');
   protected readonly pwConfirm = signal('');
 
+  // The choices come from the sign-in methods, so the page reads them with the invitation, not after.
   async ngOnInit(): Promise<void> {
     try {
-      const preview = await this.auth.invitation(this.token());
+      const [loaded, preview] = await Promise.all([this.auth.ensure(), this.auth.invitation(this.token())]);
+      if (!loaded) {
+        this.state.set('unreachable');
+        return;
+      }
       this.preview.set(preview);
       this.state.set(preview ? 'ready' : 'invalid');
     } catch {

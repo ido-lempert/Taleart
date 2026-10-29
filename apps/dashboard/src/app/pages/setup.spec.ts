@@ -69,6 +69,39 @@ describe('SetupPage: the first admin chooses a method', () => {
     document.body.replaceChildren();
   });
 
+  it('shows every method the state lists on a fresh page, with no state read before', async () => {
+    fixture = TestBed.createComponent(SetupPage);
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    for (const req of http.match(`${API_BASE}/auth/state`)) {
+      req.flush({
+        setupRequired: true,
+        user: null,
+        methods: [
+          { id: 'passkey', label: 'Passkey', kind: 'passkey' },
+          { id: 'password', label: 'Password', kind: 'password' },
+          { id: 'google', label: 'Google', kind: 'google' },
+        ],
+      });
+    }
+    await settle(fixture);
+    expect(text()).toContain('Create passkey');
+    expect(input('setup-password')).not.toBeNull();
+    expect(root().querySelector('a[href*="/providers/google/start"]')).not.toBeNull();
+  });
+
+  it('says it is reading the methods, then that it could not reach TaleArt, with no choices offered', async () => {
+    fixture = TestBed.createComponent(SetupPage);
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    expect(text()).toContain('Reading the sign-in methods');
+    for (const req of http.match(`${API_BASE}/auth/state`)) req.flush({}, { status: 500, statusText: 'Server Error' });
+    await settle(fixture);
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain('Could not reach TaleArt');
+    expect(root().querySelector('#setup-password')).toBeNull();
+    expect(text()).not.toContain('Create passkey');
+  });
+
   it('offers a passkey, a password and the providers the state lists', () => {
     open([
       { id: 'passkey', label: 'Passkey', kind: 'passkey' },

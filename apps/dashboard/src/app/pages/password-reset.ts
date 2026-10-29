@@ -83,9 +83,14 @@ export class PasswordResetPage implements OnInit {
   protected readonly password = signal('');
   protected readonly confirm = signal('');
 
+  // The state is read first, so a sign-in through the link keeps the sign-in methods list.
   async ngOnInit(): Promise<void> {
     try {
-      const preview = await this.auth.passwordReset(this.token());
+      const [loaded, preview] = await Promise.all([this.auth.ensure(), this.auth.passwordReset(this.token())]);
+      if (!loaded) {
+        this.state.set('unreachable');
+        return;
+      }
       this.preview.set(preview);
       this.state.set(preview ? 'ready' : 'invalid');
     } catch {

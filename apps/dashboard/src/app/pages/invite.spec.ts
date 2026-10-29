@@ -7,6 +7,15 @@ import { API_BASE } from '../dashboard.store';
 import { InvitePage } from './invite';
 
 const PREVIEW = { projectName: 'Acme', expiresAt: '2026-11-05T10:00:00.000Z' };
+const STATE = {
+  setupRequired: false,
+  user: null,
+  methods: [
+    { id: 'passkey', label: 'Passkey', kind: 'passkey' },
+    { id: 'password', label: 'Password', kind: 'password' },
+    { id: 'google', label: 'Google', kind: 'google' },
+  ],
+};
 const invitation = `${API_BASE}/auth/invitations/tok`;
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
@@ -55,6 +64,36 @@ describe('InvitePage: joining by invitation with a passkey, a password or a prov
     http.verify();
     document.body.replaceChildren();
     vi.restoreAllMocks();
+  });
+
+  it('shows every method the state lists on a fresh visit to the link, with no state read before', async () => {
+    // Nothing has read /auth/state yet: the page must read it itself.
+    fixture = TestBed.createComponent(InvitePage);
+    fixture.componentRef.setInput('token', 'tok');
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    for (const req of http.match(`${API_BASE}/auth/state`)) req.flush(STATE);
+    for (const req of http.match(invitation)) req.flush(PREVIEW);
+    await settle(fixture);
+    expect(text()).toContain('Create passkey');
+    expect(input('invite-password')).not.toBeNull();
+    expect(root().querySelector<HTMLAnchorElement>('a[href*="/providers/google/start"]')?.textContent?.trim()).toBe(
+      'Continue with Google',
+    );
+  });
+
+  it('says it is opening the invitation, then that it could not reach the API when the methods cannot be read', async () => {
+    fixture = TestBed.createComponent(InvitePage);
+    fixture.componentRef.setInput('token', 'tok');
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    expect(text()).toContain('Opening your invitation');
+    for (const req of http.match(`${API_BASE}/auth/state`)) req.flush({}, { status: 500, statusText: 'Server Error' });
+    for (const req of http.match(invitation)) req.flush(PREVIEW);
+    await settle(fixture);
+    expect(root().querySelector('h1')?.textContent).toContain('Join TaleArt');
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain('Could not reach the API');
+    expect(input('invite-password')).toBeNull();
   });
 
   it('names the project and offers each method that is on', async () => {

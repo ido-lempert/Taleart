@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -89,7 +89,15 @@ export const MAX_FIRST_PROJECT_NAME = 100;
           <a class="btn btn--secondary" routerLink="/sign-in">Go to sign-in</a>
         }
 
-        @if (offersPasskey()) {
+        @if (!ready()) {
+          <p class="muted" role="status">Reading the sign-in methods…</p>
+        } @else if (unreachable()) {
+          <p class="form-error" role="alert">
+            Could not reach TaleArt to read the sign-in methods. Reload the page to try again.
+          </p>
+        }
+
+        @if (ready() && !unreachable() && offersPasskey()) {
           @if (supported) {
             <form class="auth-card__form" (ngSubmit)="submitPasskey()" novalidate>
               <p class="field__hint">Your passkey is stored on this device or in your password manager.</p>
@@ -108,7 +116,7 @@ export const MAX_FIRST_PROJECT_NAME = 100;
           }
         }
 
-        @if (offersPassword()) {
+        @if (ready() && !unreachable() && offersPassword()) {
           <form class="auth-card__form" aria-labelledby="setup-password-title" (ngSubmit)="submitPassword()" novalidate>
             <h2 class="auth-card__subtitle" id="setup-password-title">With a username and password</h2>
             <app-password-fields
@@ -127,7 +135,7 @@ export const MAX_FIRST_PROJECT_NAME = 100;
           </form>
         }
 
-        @if (providers().length > 0) {
+        @if (ready() && !unreachable() && providers().length > 0) {
           <div class="auth-card__form">
             <app-provider-buttons [methods]="providers()" purpose="setup" />
             <p class="field__hint">
@@ -139,7 +147,7 @@ export const MAX_FIRST_PROJECT_NAME = 100;
     </main>
   `,
 })
-export class SetupPage {
+export class SetupPage implements OnInit {
   private readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -159,6 +167,9 @@ export class SetupPage {
     (this.methods() ?? []).filter((m) => m.kind !== 'passkey' && m.kind !== 'password'),
   );
   protected readonly authError = signal(authErrorMessage(this.route.snapshot.queryParamMap.get('auth_error')));
+  /** False while the sign-in methods are read (a fresh page), true once they are known or failed to load. */
+  protected readonly ready = signal(false);
+  protected readonly unreachable = signal(false);
 
   protected readonly error = signal('');
   protected readonly passkeyError = signal('');
@@ -185,6 +196,18 @@ export class SetupPage {
       return `The project name is longer than ${MAX_FIRST_PROJECT_NAME} characters. Shorten it.`;
     }
     return { name, email, project: project.join('') };
+  }
+
+  ngOnInit(): void {
+    // Known already (the setup guard read it): show the choices at once; otherwise read them first.
+    if (this.auth.state() !== null) this.ready.set(true);
+    else void this.loadMethods();
+  }
+
+  private async loadMethods(): Promise<void> {
+    const loaded = await this.auth.ensure();
+    this.unreachable.set(loaded === null);
+    this.ready.set(true);
   }
 
   protected async submitPasskey(): Promise<void> {
