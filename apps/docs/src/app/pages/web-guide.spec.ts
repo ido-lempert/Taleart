@@ -36,7 +36,7 @@ describe('the Web guide page', () => {
 
   it('has the eleven steps, in order, as a numbered list', () => {
     const steps = [...page.querySelectorAll('ol.steps > li')];
-    expect(steps.length).toBe(11);
+    expect(steps.length).toBe(12);
     expect(steps[0].textContent).toContain('Issue the zone key');
     expect(steps[1].textContent).toContain('Add the script once per page');
     expect(steps[2].textContent).toContain('Place the zone');
@@ -48,6 +48,7 @@ describe('the Web guide page', () => {
     expect(steps[8].textContent).toContain('Add a countdown or a promo code');
     expect(steps[9].textContent).toContain('Listen for component events');
     expect(steps[10].textContent).toContain('Add a reaction');
+    expect(steps[11].textContent).toContain("Show groups by the viewer's properties");
   });
 
   it('gives every step a figure with an image, its alt text, its size and a caption', () => {

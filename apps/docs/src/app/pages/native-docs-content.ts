@@ -233,6 +233,7 @@ struct MyApp: App {
             listener: AppTaleartHooks(),
             externalUserId: nil,
             tags: [],
+            properties: nil,
             fallback: FallbackMode.none,
             frequency: nil,
             analytics: true
@@ -325,6 +326,7 @@ export const SWIFT_FREQUENCY = `TaleartSdk.shared.doInit(config: TaleartConfig(
     listener: nil,
     externalUserId: nil,
     tags: [],
+    properties: nil,
     fallback: FallbackMode.none,
     frequency: FrequencyRuleOnce.shared,    // or FrequencyRuleDaily.shared, FrequencyRuleWeekly.shared,
                                             // or FrequencyRuleCount(views: 3) for 1 to 50 views
@@ -333,6 +335,38 @@ export const SWIFT_FREQUENCY = `TaleartSdk.shared.doInit(config: TaleartConfig(
 
 export const SWIFT_ANALYTICS = `let zone = TaleartZoneView(apiUrl: "https://api.example.com", zoneKey: "tak_YOUR_ZONE_KEY")
 zone.analytics = false    // this zone sends no events; nil (the default) follows TaleartConfig.analytics`;
+
+export const ANDROID_PROPERTIES = `TaleartSdk.init(
+    TaleartConfig(
+        apiUrl = "https://api.example.com",
+        properties = mapOf(
+            "plan" to "pro",                            // a String
+            "age" to 34,                                // a number
+            "newsletter" to true,                       // a Boolean
+            "segment" to listOf("beta", "newsletter"),  // a list of Strings
+        ),
+    ),
+)`;
+
+export const ANDROID_PROPERTIES_VIEW = `// One view only: its properties replace the SDK's, and its zone is read again at once.
+view.properties = mapOf("plan" to "free")   // Java: view.setProperties(map)
+
+// Back to the SDK's properties:
+view.properties = null`;
+
+export const SWIFT_PROPERTIES = `// The properties argument of TaleartConfig(...) in doInit. Swift needs every argument,
+// so pass nil when the app has none.
+properties: [
+    "plan": "pro",                      // a String
+    "age": 34,                          // a number
+    "newsletter": true,                 // a Boolean
+    "segment": ["beta", "newsletter"],  // a list of Strings
+],
+
+// One zone only: its properties replace the SDK's, and the zone is read again at once.
+let zone = TaleartZoneView(apiUrl: "https://api.example.com", zoneKey: "tak_YOUR_ZONE_KEY")
+zone.properties = ["plan": "free"]
+// Back to the SDK's properties: zone.properties = nil`;
 
 // ---------- Hooks, config, events, strings ----------
 
@@ -376,6 +410,7 @@ export const CONFIG_FIELDS: readonly FieldRow[] = [
   { name: 'listener', type: 'TaleartListener?', def: 'null', meaning: 'The hooks of every view. It runs after a view’s own listener.' },
   { name: 'externalUserId', type: 'String?', def: 'null', meaning: 'The viewer’s external user ID, for groups targeted to user lists. Sent with each zone read in its own header (X-TaleArt-External-User-Id, base64url), never in a URL; the API does not keep it. Null sends none.' },
   { name: 'tags', type: 'List<String>', def: 'empty', meaning: 'The viewer’s targeting tags. A group whose tags do not pass its rule (any or all of them) is left out on the device; the tags are never sent. Empty: every group shows.' },
+  { name: 'properties', type: 'Map<String, Any?>?', def: 'null (every group shows)', meaning: 'The viewer’s properties: the values a tale group’s audience rule reads (Swift: [String: Any]?). A flat map of name to a String, a number, a Boolean or a List of Strings; pass a date as epoch milliseconds. A name starts with a letter and uses letters, digits, _, . or -, up to 64 characters, and is case-sensitive. At most 50 properties, a string at most 256 characters, a list at most 50 items; an invalid entry is ignored. Null: the app passed none, so every audience rule passes, as with no tags. Set: a group whose rule does not pass is left out on the device, together with its tags, and the properties are never sent (not in a header, a URL or an analytics event). An empty map means the app knows nothing about the viewer: neq, notIn and notExists pass, and every other condition fails.' },
   { name: 'fallback', type: 'FallbackMode', def: 'FallbackMode.None', meaning: 'What a view shows when its zone fails to load. None: nothing, as before. Message: the translated load.failed text and a load.retry button that reads the zone again. A view’s own fallbackView (Android) or fallbackViewController (iOS) wins over both.' },
   { name: 'frequency', type: 'FrequencyRule?', def: 'null (no cap)', meaning: 'How often a viewer sees a tale group. Once: hide a group after its first view. Daily: at most one view per 24 hours. Weekly: one per 7 days. Count(views): hide after N views, N from 1 to 50. A view is one opening of the viewer on a group, counted only on this device in the SDK’s store, never sent to TaleArt. Groups over the cap leave the display; when none remain, nothing is shown. An out-of-range Count throws IllegalArgumentException when it is built.' },
   { name: 'analytics', type: 'Boolean', def: 'true', meaning: 'false turns the SDK’s analytics events off: impression, open, view and click. Per zone they are queued and sent every 5 seconds, when 20 are queued, and when the app goes to the background, in requests of at most 50. A request is retried once; a failure is silent. Each event carries only its type, the group id, the tale id (view and click only) and the time, with the zone key and the anonymous visitor id header. A view’s own setting wins over it.' },
@@ -476,6 +511,7 @@ export const ANDROID_VIEW_MEMBERS: readonly FieldRow[] = [
   { name: 'onErrorListener', type: '((ZoneResult.Failure) -> Unit)?', def: 'null', meaning: 'Called with each failed read. The view then shows nothing.' },
   { name: 'fallbackView', type: 'View?', def: 'null', meaning: 'A host View shown instead of the zone when the read fails. It wins over TaleartConfig.fallback. In Java: setFallbackView(View).' },
   { name: 'analytics', type: 'Boolean?', def: 'null', meaning: 'false turns this view’s analytics events off; null follows TaleartConfig.analytics.' },
+  { name: 'properties', type: 'Map<String, Any?>?', def: 'null (the SDK’s)', meaning: 'This view’s viewer properties, replacing TaleartConfig.properties for this view; null uses the SDK’s. Setting it reads the view’s zone again at once. In Java: setProperties(map). There is no XML attribute for it.' },
   { name: 'controller', type: 'TaleartZoneController', def: '(val)', meaning: 'The zone the view shows. It keeps the zone when the view is detached and attached again.' },
   { name: 'hostsComposition', type: 'Boolean', def: '(val)', meaning: 'True once the view has a window and a lifecycle owner.' },
   { name: 'configure', type: 'fun (apiUrl, zoneKey)', def: '(function)', meaning: 'Sets the API origin and the zone’s key in one call.' },
@@ -515,6 +551,7 @@ export const IOS_ZONE_MEMBERS: readonly FieldRow[] = [
   { name: 'fallbackViewController', type: 'UIViewController?', def: 'nil', meaning: 'Shown in place of the zone when the read fails. Nil: TaleartConfig.fallback decides (nothing, or the message).' },
   { name: 'fallbackHeight', type: 'Double', def: '120', meaning: 'The height in points of fallbackViewController’s view.' },
   { name: 'analytics', type: 'Bool?', def: 'nil', meaning: 'false turns this view’s analytics events off; nil follows TaleartConfig.analytics.' },
+  { name: 'properties', type: '[String: Any]?', def: 'nil (the SDK’s)', meaning: 'This zone’s viewer properties, replacing TaleartConfig.properties for this zone; nil uses the SDK’s. Setting it reads the zone again at once.' },
   { name: 'strings', type: 'Map<String, Map<String, String>>?', def: 'nil', meaning: 'This view’s texts per locale, over the SDK’s.' },
   { name: 'locale', type: 'String?', def: 'nil', meaning: 'This view’s locale. Nil uses the SDK’s.' },
   { name: 'client', type: 'DeliveryClient', def: 'the shared client', meaning: 'The client the next read uses.' },
@@ -555,11 +592,13 @@ export const MAPPING: readonly MappingRow[] = [
   { topic: 'Tap opens the viewer', web: 'Built in; the onPresented hook fires', android: 'opensViewer = false, then onGroupClickListener', ios: 'opensViewer = false, then onGroupClick' },
   { topic: 'External user ID and tags', web: 'setExternalUserId(), setTags(), or init()', android: 'TaleartConfig.externalUserId (sent in a header) and tags (applied on the device)', ios: 'TaleartConfig(externalUserId:, tags:): the same as Android' },
   { topic: 'Fallback when the zone fails', web: 'fallback="message" or init({ fallback }); a slot="fallback" child', android: 'TaleartConfig.fallback; TaleartView.fallbackView; TaleartZone(fallback =)', ios: 'TaleartConfig(fallback:); zone.fallbackViewController and fallbackHeight' },
-  { topic: 'Frequency cap', web: 'frequency attribute or init({ frequency })', android: 'TaleartConfig.frequency', ios: 'TaleartConfig(frequency:)' },
+  { topic: 'Viewer properties', web: 'init({ properties }), setProperties(), setProperty(name, value)', android: 'TaleartConfig.properties; TaleartView.properties (per view; no XML attribute)', ios: 'TaleartConfig(properties:); zone.properties (per zone)' },
+  { topic: 'Frequency cap',web: 'frequency attribute or init({ frequency })', android: 'TaleartConfig.frequency', ios: 'TaleartConfig(frequency:)' },
   { topic: 'Analytics events', web: 'analytics="off" or init({ analytics: false })', android: 'TaleartConfig.analytics; app:taleartAnalytics; TaleartZone(analytics =)', ios: 'TaleartConfig(analytics:); zone.analytics' },
 ];
 
 /** What the native SDKs do not do yet, said once and linked from both guides and both references. */
 export const NOT_YET_NATIVE: readonly string[] = [
   'onGroupImpression counts a group when it is first shown in a render, not when it is on screen: the native SDK does not measure visibility yet.',
+  'The Compose TaleartZone has no properties parameter: a composable uses the SDK’s viewer properties from TaleartConfig, and cannot set its own for one zone.',
 ];

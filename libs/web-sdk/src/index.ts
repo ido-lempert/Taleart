@@ -1,11 +1,20 @@
 import { init } from './lib/config';
-import { configureZone, defineTaleartElement, setExternalUserId, setTags } from './lib/taleart-element';
+import {
+  configureZone,
+  defineTaleartElement,
+  setExternalUserId,
+  setProperties,
+  setProperty,
+  setTags,
+} from './lib/taleart-element';
 
 export { getConfig, init } from './lib/config';
 export {
   configureZone,
   defineTaleartElement,
   setExternalUserId,
+  setProperties,
+  setProperty,
   setTags,
   TaleartElement,
   TALEART_ELEMENT_TAG,
@@ -37,4 +46,12 @@ export type {
 if (typeof customElements !== 'undefined') defineTaleartElement();
 
 // The page's handle: `Taleart.init({ … })` before or after the elements connect.
-(globalThis as unknown as { Taleart: unknown }).Taleart = { init, configureZone, setExternalUserId, setTags, defineTaleartElement };
+(globalThis as unknown as { Taleart: unknown }).Taleart = {
+  init,
+  configureZone,
+  setExternalUserId,
+  setTags,
+  setProperties,
+  setProperty,
+  defineTaleartElement,
+};

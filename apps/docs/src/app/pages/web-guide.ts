@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { DOCS_NPM_SNIPPET, DOCS_SNIPPET, DOCS_TEST_PAGE_WITH_KEY, EXAMPLE_INSTALL } from '../docs-content';
+import { DOCS_NPM_SNIPPET, DOCS_PROPERTIES_SCRIPT, DOCS_SNIPPET, DOCS_TEST_PAGE_WITH_KEY, EXAMPLE_INSTALL } from '../docs-content';
 
 const LOCALE_SAMPLE = `import { init } from '${EXAMPLE_INSTALL.sdkUrl}';
 
@@ -91,7 +91,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
     <h1 tabindex="-1">Web guide</h1>
     <p class="lede">
       This guide puts a TaleArt zone on a web page, step by step: the zone key, the script, the element, the options, the
-      hooks, a check on the test page, and five optional steps: a placeholder for a zone that cannot load, a limit on how often a group shows, countdown and promo-code elements, component events, and a reaction. The full list of attributes, options, strings, hooks and events is in the
+      hooks, a check on the test page, and six optional steps: a placeholder for a zone that cannot load, a limit on how often a group shows, countdown and promo-code elements, component events, a reaction, and the viewer's properties. The full list of attributes, options, strings, hooks and events is in the
       <a routerLink="/reference/web-sdk">Web SDK reference</a>.
     </p>
 
@@ -418,6 +418,51 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
           </figcaption>
         </figure>
       </li>
+      <li>
+        <h3 class="step-title" id="step-show-groups-by-the-viewers-properties">Show groups by the viewer's properties.</h3> A tale group can carry an
+        audience rule, set in its Audience on the dashboard: for example, a welcome group for viewers on the free plan and an
+        offers group for viewers on the pro plan. The page tells the SDK the viewer's properties once, when the page loads
+        and again after sign-in. <code>setProperties</code> replaces them all, <code>setProperty</code> changes one and keeps
+        the others, and <code>null</code> clears. The SDK checks the rule in the browser: the properties are never sent to
+        TaleArt.
+        <pre tabindex="0" role="region" aria-label="Viewer properties"><code>{{ propertiesSample }}</code></pre>
+        <figure>
+          <img
+            src="images/web-audience-bar-free.png"
+            alt="A bar for a free viewer: only the Welcome group shows, as one round tile."
+            width="1120"
+            height="284"
+          />
+          <figcaption>A bar for a viewer with <code>plan: 'free'</code>: the group for pro viewers is left out.</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="images/web-audience-bar-pro.png"
+            alt="A bar for a pro viewer: only the Pro offers group shows, as one round tile."
+            width="1120"
+            height="284"
+          />
+          <figcaption>The same bar for a viewer with <code>plan: 'pro'</code> and <code>age: 34</code>: the welcome group is left out.</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="images/web-audience-banner-free.png"
+            alt="A banner for a free viewer: the Welcome gift slide, a teal artwork with a gift box."
+            width="1120"
+            height="704"
+          />
+          <figcaption>A banner for a free viewer: its slides are the groups, so only the welcome slide is there.</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="images/web-audience-banner-pro.png"
+            alt="A banner for a pro viewer: the Pro sale slide, a warm sunset artwork with a large sun."
+            width="1120"
+            height="704"
+          />
+          <figcaption>The same banner for a pro viewer: only the pro slide is there.</figcaption>
+        </figure>
+      </li>
     </ol>
 
     <h2 id="when-it-is-live">When it is live</h2>
@@ -434,6 +479,7 @@ export class WebGuidePage {
   protected readonly npmSnippet = DOCS_NPM_SNIPPET;
   protected readonly elementSample = ELEMENT_SAMPLE;
   protected readonly localeSample = LOCALE_SAMPLE;
+  protected readonly propertiesSample = DOCS_PROPERTIES_SCRIPT;
   protected readonly hooksSample = HOOKS_SAMPLE;
   protected readonly domSample = DOM_SAMPLE;
   protected readonly testPageSample = DOCS_TEST_PAGE_WITH_KEY;

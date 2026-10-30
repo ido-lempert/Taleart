@@ -68,7 +68,7 @@ export function taleGroupFilter(value: string | null | undefined): TaleGroupFilt
  * shows under All, and under Scheduled when it has a window.
  */
 export function inTaleGroupFilter(
-  group: Pick<ProjectTaleGroup, 'storedStatus' | 'startsAt' | 'endsAt' | 'zoneIds' | 'visibility' | 'tags' | 'tagMatch'>,
+  group: Pick<ProjectTaleGroup, 'storedStatus' | 'startsAt' | 'endsAt' | 'zoneIds' | 'visibility' | 'tags' | 'tagMatch' | 'audience'>,
   filter: TaleGroupFilter,
 ): boolean {
   const archived = group.storedStatus === 'archived';

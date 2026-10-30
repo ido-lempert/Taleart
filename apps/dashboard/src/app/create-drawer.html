@@ -391,6 +391,8 @@
                 Targeting is not access control: a group's tales are not secret from viewers outside its lists.
               </p>
             }
+            <!-- The audience rule (epic viewer properties): saved on its own, with its own buttons. -->
+            <app-audience-rule [group]="group" />
           } @else {
             <p class="muted">This tale group no longer exists.</p>
           }

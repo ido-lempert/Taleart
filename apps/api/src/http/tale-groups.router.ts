@@ -12,6 +12,7 @@ import {
   type RenameTaleGroupRequest,
   type SetScheduleRequest,
   type SetStatusRequest,
+  type SetTaleGroupAudienceRequest,
   type SetTaleGroupTagsRequest,
   type SetTaleGroupUserListsRequest,
   type TagMatch,
@@ -38,9 +39,12 @@ import {
   TaleGroupNotFoundError,
 } from '@taleart/server-tales';
 import {
+  audienceRulesForTaleGroups,
+  copyTaleGroupAudience,
   copyTaleGroupTags,
   copyTaleGroupUserLists,
   releaseAudienceHold,
+  setTaleGroupAudience,
   setTaleGroupTags,
   setTaleGroupUserLists,
   tagMatchesForTaleGroups,
@@ -55,28 +59,30 @@ import { requireListEditor, userListsChanged } from './user-lists.router';
 import { HttpError } from './errors';
 import { requiredName, requiredSchedule, requiredSettableStatus, requiredString, requiredStringArray } from './validation';
 
-/** A tale group's targeting as the Management API returns it (epic targeting R1, R4). */
-type GroupTargeting = Pick<TaleGroup, 'tags' | 'tagMatch' | 'userLists'>;
+/** A tale group's targeting as the Management API returns it (epic targeting R1, R4; epic viewer properties). */
+type GroupTargeting = Pick<TaleGroup, 'tags' | 'tagMatch' | 'userLists' | 'audience'>;
 
 /** The targeting of a group that has none: every viewer sees it. */
-const NO_TARGETING: GroupTargeting = { tags: [], tagMatch: DEFAULT_TAG_MATCH, userLists: [] };
+const NO_TARGETING: GroupTargeting = { tags: [], tagMatch: DEFAULT_TAG_MATCH, userLists: [], audience: null };
 
 /**
- * Tale groups with their tags, tag match mode and user lists. The tales module stores
+ * Tale groups with their tags, tag match mode, user lists and audience rule. The tales module stores
  * groups and the targeting module their targeting; the API composes the two (AD-1).
  */
 export async function withTags<G extends { id: string }>(pool: Pool, groups: G[]): Promise<(G & GroupTargeting)[]> {
   const ids = groups.map((g) => g.id);
-  const [tags, matches, lists] = await Promise.all([
+  const [tags, matches, lists, audiences] = await Promise.all([
     tagsForTaleGroups(pool, ids),
     tagMatchesForTaleGroups(pool, ids),
     userListsForTaleGroups(pool, ids),
+    audienceRulesForTaleGroups(pool, ids),
   ]);
   return groups.map((group) => ({
     ...group,
     tags: tags.get(group.id) ?? [],
     tagMatch: matches.get(group.id) ?? DEFAULT_TAG_MATCH,
     userLists: lists.get(group.id) ?? [],
+    audience: audiences.get(group.id) ?? null,
   }));
 }
 
@@ -256,7 +262,8 @@ export function taleGroupsRouter(pool: Pool): Router {
       let targeting: GroupTargeting = NO_TARGETING;
       const copy = await copyTaleGroup(pool, { taleGroupId, zoneId: input.zoneId }, async (tx, ids) => {
         const lists = await copyTaleGroupUserLists(tx, ids);
-        targeting = { ...(await copyTaleGroupTags(tx, ids)), userLists: lists.userLists };
+        const audience = await copyTaleGroupAudience(tx, ids);
+        targeting = { ...(await copyTaleGroupTags(tx, ids)), userLists: lists.userLists, audience };
       });
       // A copy that left its lists behind is held hidden (audience-removed): its public media follow.
       userListsChanged();
@@ -303,6 +310,34 @@ export function taleGroupsRouter(pool: Pool): Router {
       const [group] = await withTags(pool, [await getTaleGroup(pool, taleGroupId)]);
       const body: TaleGroup = { ...group, ...targeting };
       res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/:taleGroupId/audience', groupAccess, async (req, res, next) => {
+    try {
+      // Tale group first (404), then the body (400): `audience` is a rule, or null to clear it.
+      const { taleGroupId } = req.params;
+      if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
+      const body = req.body as Partial<SetTaleGroupAudienceRequest> | null;
+      if (!body || typeof body !== 'object' || !('audience' in body)) {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'audience is required: an audience rule, or null to clear it');
+      }
+      const [before] = await withTags(pool, [{ id: taleGroupId }]);
+      // The rule is checked by the targeting module (400 with its reason), before anything is stored.
+      const audience = await setTaleGroupAudience(pool, taleGroupId, body.audience);
+      // As the tags: a person chose a new audience, so a group held after its lists were removed is
+      // theirs again. Only a real change does it.
+      if (JSON.stringify(before.audience) !== JSON.stringify(audience)) {
+        try {
+          await releaseAudienceHold(pool, taleGroupId);
+        } finally {
+          userListsChanged();
+        }
+      }
+      const [group] = await withTags(pool, [await getTaleGroup(pool, taleGroupId)]);
+      res.json({ ...group, audience } satisfies TaleGroup);
     } catch (err) {
       next(err);
     }

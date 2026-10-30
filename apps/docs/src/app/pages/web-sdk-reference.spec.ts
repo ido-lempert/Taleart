@@ -68,7 +68,7 @@ describe('the Web SDK reference page', () => {
   it('has the SDK sources it reads (guards against a moved file)', () => {
     expect(SOURCE_STRINGS.size).toBeGreaterThan(40);
     expect(SOURCE_HOOKS).toEqual(expect.arrayContaining(['onLoaded', 'onActionClicked', 'onEvent']));
-    expect(SOURCE_OPTIONS).toEqual(['apiUrl', 'locale', 'strings', 'theme', 'externalUserId', 'tags', 'hooks', 'fallback', 'frequency', 'analytics']);
+    expect(SOURCE_OPTIONS).toEqual(['apiUrl', 'locale', 'strings', 'theme', 'externalUserId', 'tags', 'properties', 'hooks', 'fallback', 'frequency', 'analytics']);
     expect(SOURCE_ATTRIBUTES).toEqual(['api-url', 'zone-key', 'locale', 'theme', 'fallback', 'frequency', 'analytics']);
   });
 

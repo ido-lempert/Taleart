@@ -1,5 +1,5 @@
 // The SDK's global configuration: `Taleart.init(config)` sets it, every element reads it (epic SDK v2).
-import { encodeExternalUserIdHeader } from '@taleart/contract';
+import { encodeExternalUserIdHeader, viewerPropertiesFrom, type ViewerProperties } from '@taleart/contract';
 import type { StringsConfig } from './i18n';
 import { parseFrequency, type FrequencyRule } from './frequency';
 import type { TaleartHooks } from './hooks';
@@ -27,6 +27,8 @@ export interface TaleartConfig {
   externalUserId?: string | null;
   /** The viewer's tags, as {@link setTags} takes them. */
   tags?: readonly string[] | null;
+  /** The viewer's properties (segments, plan, age, ...), as {@link setProperties} takes them; `null` clears them. Never sent anywhere. */
+  properties?: ViewerProperties | null;
   /** Hooks for every element (see `hooks.ts`); an element's own `hooks` property adds to them. */
   hooks?: TaleartHooks | null;
   /** What elements show when their zone fails to load: `none` (default) or `message` (text and a retry button). */
@@ -45,6 +47,7 @@ export interface ResolvedTaleartConfig {
   readonly theme: Readonly<Partial<Theme>>;
   readonly externalUserId: string | null;
   readonly tags: readonly string[] | null;
+  readonly properties: ViewerProperties | null;
   readonly hooks: TaleartHooks | null;
   readonly fallback: FallbackMode;
   readonly frequency: FrequencyRule | null;
@@ -64,6 +67,7 @@ const KEYS: readonly ConfigKey[] = [
   'theme',
   'externalUserId',
   'tags',
+  'properties',
   'hooks',
   'fallback',
   'frequency',
@@ -124,6 +128,7 @@ interface State {
   theme: Readonly<Partial<Theme>>;
   externalUserId: string | null;
   tags: readonly string[] | null;
+  properties: ViewerProperties | null;
   hooks: TaleartHooks | null;
   fallback: FallbackMode;
   frequency: FrequencyRule | null;
@@ -138,6 +143,7 @@ let state: State = {
   theme: Object.freeze({}),
   externalUserId: null,
   tags: null,
+  properties: null,
   hooks: null,
   fallback: 'none',
   frequency: null,
@@ -217,6 +223,20 @@ export function init(config: TaleartConfig): void {
           continue;
         }
         break;
+      case 'properties': {
+        if (value === null) {
+          next.properties = null;
+          break;
+        }
+        if (!isRecord(value)) {
+          warnInvalid(key, 'an object of properties, or null');
+          continue;
+        }
+        const kept = viewerPropertiesFrom(value) ?? {};
+        warnDropped(value, kept);
+        next.properties = Object.freeze(kept);
+        break;
+      }
       case 'hooks':
         if (value === null) next.hooks = null;
         else if (isRecord(value)) next.hooks = { ...(value as TaleartHooks) };
@@ -284,6 +304,18 @@ function warnInvalid(key: ConfigKey, expected: string): void {
   console.warn(`TaleArt: init needs ${key} as ${expected}; it is ignored`);
 }
 
+// One warning for the viewer properties that were dropped: their count and names (at most 5, 64
+// characters each). A value is never logged.
+function warnDropped(input: Record<string, unknown>, kept: object): void {
+  const dropped = Object.keys(input).filter((name) => !Object.prototype.hasOwnProperty.call(kept, name));
+  if (!dropped.length) return;
+  const names = dropped.slice(0, 5).map((name) => name.slice(0, 64)).join(', ');
+  const count = dropped.length === 1 ? '1 viewer property is' : `${dropped.length} viewer properties are`;
+  console.warn(
+    `TaleArt: ${count} not valid and ignored (${names}${dropped.length > 5 ? ', …' : ''}). A name is a letter, then letters, digits, "_", "." or "-"; a value is a string, a number, a boolean or a list of strings, within the limits.`,
+  );
+}
+
 // Whether an option's value is the same as before. Hooks compare by reference: their functions are not data.
 function sameValue(key: ConfigKey, before: unknown, after: unknown): boolean {
   if (key === 'hooks') return before === after;
@@ -299,6 +331,7 @@ export function getConfig(): ResolvedTaleartConfig {
     theme: state.theme,
     externalUserId: state.externalUserId,
     tags: state.tags,
+    properties: state.properties,
     hooks: state.hooks,
     fallback: state.fallback,
     frequency: state.frequency,

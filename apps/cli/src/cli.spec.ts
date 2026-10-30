@@ -73,6 +73,12 @@ describe('argument parsing', () => {
     expect(() => parseCommand(tales, ['--group', 'G'])).toThrow(/Missing <files>/);
     const tags = spec('groups', 'tags');
     expect(parseCommand(tags, ['G', '--tag', 'a', '--tag', 'b']).opts['tag']).toEqual(['a', 'b']);
+    const rule = spec('groups', 'rule');
+    expect(parseCommand(rule, ['G', '--audience-json', '{"match":"any","conditions":[]}']).opts['audience-json']).toBe(
+      '{"match":"any","conditions":[]}',
+    );
+    expect(parseCommand(rule, ['G', '--clear']).opts['clear']).toBe(true);
+    expect(() => parseCommand(rule, ['G', '--audience', '{}'])).toThrow(/Unknown option/);
   });
 
   it('reads display settings: booleans, numbers, JSON and text', () => {

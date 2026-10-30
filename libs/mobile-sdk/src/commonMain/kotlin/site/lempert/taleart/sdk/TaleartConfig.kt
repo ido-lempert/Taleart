@@ -11,7 +11,11 @@ package site.lempert.taleart.sdk
  * is sent with each zone read in the `X-TaleArt-External-User-Id` header (base64url, never in a URL),
  * so the Delivery API can show the tale groups targeted to user lists its ID is in. [tags] are the
  * viewer's targeting tags: a group whose tags do not pass its rule is left out on the device, the
- * tags are never sent (as in the Web SDK's `setTags`).
+ * tags are never sent (as in the Web SDK's `setTags`). [properties] are the viewer's properties (segments,
+ * plan, age, ...) that a group's audience rule reads: a group whose rule does not pass them is left out on
+ * the device, as with the tags, and they are never sent. Values are a String, a number, a Boolean or a List
+ * of Strings; an invalid entry is dropped, and only the first 50 valid ones count (`targeting/AudienceRule.kt`).
+ * Null (the default) means the app passed none: every audience rule passes, as the Web SDK does without them.
  *
  * [fallback] is what a view shows when its zone fails to load: nothing ([FallbackMode.None], the
  * default), or the translated `load.failed` text with a `load.retry` button ([FallbackMode.Message]).
@@ -29,6 +33,7 @@ data class TaleartConfig(
     val listener: TaleartListener? = null,
     val externalUserId: String? = null,
     val tags: List<String> = emptyList(),
+    val properties: Map<String, Any?>? = null,
     val fallback: FallbackMode = FallbackMode.None,
     val frequency: FrequencyRule? = null,
     val analytics: Boolean = true,

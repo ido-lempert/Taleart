@@ -1,9 +1,13 @@
 import {
+  audienceRulePasses,
   encodeExternalUserIdHeader,
   tagRulePasses,
+  viewerPropertiesFrom,
   viewerTagSet,
   type AnalyticsEventType,
   type DeliveryZone,
+  type ViewerProperties,
+  type ViewerPropertyValue,
 } from '@taleart/contract';
 import { recordAnalyticsEvent, type AnalyticsTarget } from './analytics';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
@@ -118,6 +122,41 @@ export function setTags(tags: readonly string[] | null): void {
 }
 
 /**
+ * Tells the SDK the viewer's properties, for every `<taleart-view>` on the page, now and later
+ * (epic viewer properties): a flat map of name to value, a string, a number, a boolean or a list
+ * of strings (dates as epoch milliseconds). A tale group with an audience rule shows only when the
+ * rule passes for these properties, on top of its tags; a group without a rule always shows, and
+ * so does every group while no properties are set: before any call, or after `setProperties(null)`.
+ * Calling again replaces all of them; rendered elements show the matching groups at once, without
+ * a new request. The properties are evaluated in the browser and are never sent to TaleArt: not in
+ * a request, a header or an analytics event. Invalid entries are dropped with one console warning.
+ * Same as `init({ properties })`.
+ */
+export function setProperties(properties: ViewerProperties | null): void {
+  init({ properties });
+}
+
+/**
+ * Sets one viewer property, keeping the others (epic viewer properties). A `null` value removes it.
+ * On a page with no properties set, `setProperty(name, null)` changes nothing, so every group still
+ * shows. Otherwise it behaves as {@link setProperties} does: the same re-render at once, no request,
+ * nothing sent.
+ */
+export function setProperty(name: string, value: ViewerPropertyValue | null): void {
+  const current = getConfig().properties;
+  if (value === null && current === null) return;
+  // A name or value that is not valid changes nothing (one warning), so a page never falls to {}.
+  if (value !== null && !Object.prototype.hasOwnProperty.call(viewerPropertiesFrom({ [name]: value }) ?? {}, name)) {
+    console.warn('TaleArt: setProperty ignores a property that is not valid (a name, then a value within the limits)');
+    return;
+  }
+  const next: Record<string, unknown> = { ...(current ?? {}) };
+  if (value === null) delete next[name];
+  else next[name] = value;
+  init({ properties: next as ViewerProperties });
+}
+
+/**
  * Tells the SDK who the viewer is, for user-list targeting, for every `<taleart-view>` on the page,
  * now and later (epic targeting R4): the host's own ID for the viewer, an opaque one, never an
  * email address or a phone number. A tale group targeted to user lists shows only to a viewer
@@ -139,10 +178,14 @@ function externalUserIdHeader(): string | null {
   return externalUserId === null ? null : encodeExternalUserIdHeader(externalUserId);
 }
 
-// The zone with only the tale groups whose tag rule passes for the viewer's tags.
+// The zone with only the tale groups whose tag rule and audience rule pass for the viewer.
 function targeted(zone: DeliveryZone): DeliveryZone {
-  const tags = viewerTagSet(getConfig().tags);
-  return { ...zone, taleGroups: zone.taleGroups.filter((group) => tagRulePasses(group, tags)) };
+  const { tags: viewerTags, properties } = getConfig();
+  const tags = viewerTagSet(viewerTags);
+  return {
+    ...zone,
+    taleGroups: zone.taleGroups.filter((group) => tagRulePasses(group, tags) && audienceRulePasses(group.audience, properties)),
+  };
 }
 
 // The ids of a zone's groups, as one string, to tell whether a render would change.
@@ -171,13 +214,14 @@ function locateTale(zone: DeliveryZone, taleId: string): { groupId: string; tale
   return null;
 }
 
-// Applies a configuration change to the connected elements: a theme only restyles, new tags only
-// retarget, anything else reads the zone again.
+// Applies a configuration change to the connected elements: a theme only restyles, new tags or
+// properties only retarget, anything else reads the zone again.
 onConfigChange((changed: ReadonlySet<ConfigKey>) => {
   const only = (key: ConfigKey) => changed.size === 1 && changed.has(key);
+  const retargetOnly = [...changed].every((key) => key === 'tags' || key === 'properties');
   for (const element of connected) {
     if (only('theme')) element.retheme();
-    else if (only('tags')) element.retarget();
+    else if (retargetOnly) element.retarget();
     else if (only('hooks') || only('analytics')) continue;
     else element.reload();
   }

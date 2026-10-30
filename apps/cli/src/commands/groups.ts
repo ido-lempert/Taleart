@@ -1,6 +1,9 @@
 import {
   isSwitchable,
   switchStatus,
+  validateAudienceRule,
+  type AudienceRule,
+  type SetTaleGroupAudienceRequest,
   type CopyTaleGroupRequest,
   type CreateTaleGroupRequest,
   type ProjectTaleGroup,
@@ -25,6 +28,19 @@ const zoneOption = (description: string, required = false) => ({
 
 async function groupId(ctx: Context): Promise<string> {
   return resolveGroupId(ctx.client(), ctx.args['group'] as string, () => ctx.projectId());
+}
+
+/** The audience rule of --audience-json: a JSON object the contract accepts (the API checks it again). */
+function parseAudienceRule(text: string): AudienceRule {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw usageError('--audience-json must be a JSON object: {"match":"all","conditions":[...]}');
+  }
+  const checked = validateAudienceRule(parsed);
+  if (checked.ok === false) throw usageError(`--audience-json: ${checked.reason}`);
+  return checked.rule;
 }
 
 async function zoneId(ctx: Context): Promise<string> {
@@ -260,6 +276,39 @@ export const groups: GroupSpec = {
           data: updated,
           text: `${updated.name}: user lists ${lists || '(none: every viewer)'} (visible: ${visible(updated.visibility)})`,
         };
+      },
+    },
+    {
+      name: 'rule',
+      mutates: true,
+      result: 'TaleGroup',
+      summary: "Set or clear a tale group's audience rule (the viewer properties it shows to).",
+      description:
+        'The rule is a JSON object: {"match":"all" or "any","conditions":[{"property":…,"operator":…,"value":…}]}, 1 to 10 ' +
+        "conditions. The viewer properties are the host page's and are checked in the browser or app, never sent here. A group with no " +
+        'rule shows to every viewer its tags and user lists allow; --clear removes the rule. A rule the API refuses is 400 with its reason.',
+      project: 'optional',
+      args: [groupArg],
+      options: {
+        'audience-json': { type: 'string', valueName: '<json>', description: 'The audience rule as a JSON object.' },
+        clear: { type: 'boolean', description: 'Remove the audience rule.' },
+      },
+      examples: [
+        `taleart groups rule Summer --audience-json '{"match":"all","conditions":[{"property":"plan","operator":"eq","value":"pro"}]}'`,
+        'taleart groups rule Summer --clear',
+      ],
+      async run(ctx) {
+        const json = ctx.opts['audience-json'] as string | undefined;
+        const clear = ctx.opts['clear'] === true;
+        if (clear && json !== undefined) throw usageError('Give --audience-json or --clear, not both');
+        if (!clear && json === undefined) throw usageError('Give --audience-json or --clear');
+        const audience = clear ? null : parseAudienceRule(json as string);
+        const client = ctx.client();
+        const id = await groupId(ctx);
+        const body: SetTaleGroupAudienceRequest = { audience };
+        const updated = await client.put<TaleGroup>(`/tale-groups/${seg(id)}/audience`, body);
+        const summary = audience ? `${audience.match} of ${audience.conditions.length} condition(s)` : '(none: every viewer)';
+        return { data: updated, text: `${updated.name}: audience ${summary} (visible: ${visible(updated.visibility)})` };
       },
     },
     {

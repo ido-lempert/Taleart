@@ -10,6 +10,7 @@ function group(id: string, tags: string[], tagMatch: 'any' | 'all'): DeliveryTal
     cover: null,
     tags,
     tagMatch,
+    audience: null,
     tales: [
       {
         id: `t-${id}`,

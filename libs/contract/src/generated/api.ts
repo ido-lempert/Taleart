@@ -1614,6 +1614,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tale-groups/{taleGroupId}/audience": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or clear the audience rule of a tale group.
+         * @description The body is `{ "audience": AudienceRule }` to set the rule, or `{ "audience": null }` to clear it (the group then has no audience rule). The rule is checked on save (match, 1 to 10 conditions, operators, value types and limits); a rule that breaks one is 400 `validation_failed` with the reason as its message, and nothing changes. Any project member who may change the group's tags may change its audience (the same check, 403 `forbidden` otherwise). The rule is public like tag names: keep private content out of its values. A viewer must pass the tags, the user lists and the audience rule to see the group. Unknown tale group: 404 `tale_group_not_found`.
+         */
+        put: operations["setTaleGroupAudience"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tale-groups/{taleGroupId}/user-lists": {
         parameters: {
             query?: never;
@@ -2033,6 +2055,8 @@ export interface components {
             tagMatch: components["schemas"]["TagMatch"];
             /** @description The user lists the group is targeted to, by name ignoring case; empty when none. With any, the group shows only to viewers whose external user ID is in one of them (and whose tags pass its tag rule). */
             userLists: components["schemas"]["TaleGroupUserList"][];
+            /** @description The group's audience rule (viewer properties, see `AudienceRule`), or null when it has none. Every viewer gets the same rule; the SDK evaluates it with `audienceRulePasses` from the contract, on top of the tags and user lists. */
+            audience: components["schemas"]["AudienceRule"] | null;
         };
         /** @description A tale group as a zone lists it, with its position in that zone. */
         ZoneTaleGroup: components["schemas"]["TaleGroup"] & {
@@ -2071,6 +2095,8 @@ export interface components {
             tagMatch: components["schemas"]["TagMatch"];
             /** @description The user lists the group is targeted to, by name ignoring case; empty when none. With any, the group shows only to viewers whose external user ID is in one of them (and whose tags pass its tag rule). */
             userLists: components["schemas"]["TaleGroupUserList"][];
+            /** @description The group's audience rule (viewer properties, see `AudienceRule`), or null when it has none. Every viewer gets the same rule; the SDK evaluates it with `audienceRulePasses` from the contract, on top of the tags and user lists. */
+            audience: components["schemas"]["AudienceRule"] | null;
             taleCount: number;
             /** @description The group's tales that are Shown (stored `live`). */
             shownTaleCount: number;
@@ -2175,6 +2201,34 @@ export interface components {
          * @enum {string}
          */
         TagMatch: "any" | "all";
+        /**
+         * @description How a condition compares the viewer's property with its value. `eq` and `neq` compare strings ignoring case (Unicode NFC, trimmed), and numbers and booleans exactly. `in` and `notIn` take a list of strings. `gt`, `gte`, `lt` and `lte` compare numbers only. `contains` finds a substring of a string (ignoring case) or an item of a list of strings. `exists` and `notExists` take no value. A missing property is false, except for `neq`, `notIn` and `notExists`, which are true. A value of another type than the property's is false.
+         * @enum {string}
+         */
+        AudienceOperator: "eq" | "neq" | "in" | "notIn" | "gt" | "gte" | "lt" | "lte" | "contains" | "exists" | "notExists";
+        /** @description One test on one viewer property. */
+        AudienceCondition: {
+            /** @description The viewer property's name, as the host page passes it (case-sensitive). */
+            property: string;
+            operator: components["schemas"]["AudienceOperator"];
+            /** @description The value compared with. Required for every operator but `exists` and `notExists`, which take none. A string is at most 256 characters; a list holds 1 to 50 strings of at most 256. */
+            value?: string | number | boolean | string[];
+        };
+        /** @description A tale group's audience rule: all or any of its conditions must hold. It is evaluated in the browser or app with `audienceRulePasses` from the contract, against the viewer properties the host page passed; those never reach the server. The limits and the test table are in the contract (`audience-rule.cases.json`). */
+        AudienceRule: {
+            /**
+             * @description `all` needs every condition to hold, `any` one of them.
+             * @enum {string}
+             */
+            match: "all" | "any";
+            /** @description The conditions, 1 to 10. Rules do not nest. */
+            conditions: components["schemas"]["AudienceCondition"][];
+        };
+        /** @description The audience rule to set, or null to clear it. One shape for both: a client never clears a rule by sending an empty one by accident. */
+        SetTaleGroupAudienceRequest: {
+            /** @description The new rule, or null to clear it. */
+            audience: components["schemas"]["AudienceRule"] | null;
+        };
         CreateTaleGroupRequest: {
             /** @description Trimmed before it is checked and stored; at most 100 characters. */
             name: string;
@@ -2508,6 +2562,8 @@ export interface components {
             /** @description The names of the group's targeting tags, ignoring case by name; empty when the group has none. The SDK compares them with the viewer's tags; every viewer gets the same list. */
             tags: string[];
             tagMatch: components["schemas"]["TagMatch"];
+            /** @description The group's audience rule (viewer properties), or null when it has none. Every viewer gets the same rule; the SDK evaluates it against the properties the host page passed, which are never sent to the server. */
+            audience: components["schemas"]["AudienceRule"] | null;
             /** @description True when the group is targeted to user lists and the viewer's external user ID (header `X-TaleArt-External-User-Id`) is in one of them; left out otherwise. A group targeted to lists the viewer is in none of is not in the response at all, so the SDK never needs the lists. */
             userListMatched?: boolean;
             /** @description The group's cover, or null when it has none; the bar then shows its first tale's lowest media element (the document's media background, else its first image or video element), or, when that tale has no media, its canvas colour. */
@@ -6431,6 +6487,36 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    setTaleGroupAudience: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTaleGroupAudienceRequest"];
+            };
+        };
+        responses: {
+            /** @description The tale group with its audience rule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     setTaleGroupUserLists: {
         parameters: {
             query?: never;
@@ -6939,6 +7025,8 @@ export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: Readon
 export const createZoneRequestTemplateValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["CreateZoneRequest"]["template"]> = ["stories-bar", "promo-banner", "blank"];
 export const userListRefusalValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserListRefusal"]> = ["too-long", "control-character", "not-one-column"];
 export const tagMatchValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TagMatch"]> = ["any", "all"];
+export const audienceOperatorValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AudienceOperator"]> = ["eq", "neq", "in", "notIn", "gt", "gte", "lt", "lte", "contains", "exists", "notExists"];
+export const audienceRuleMatchValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AudienceRule"]["match"]> = ["all", "any"];
 export const visibilityReasonSubjectValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReason"]["subject"]> = ["zone", "group", "tale"];
 export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet", "no-visible-groups", "no-tale-groups", "audience-empty", "audience-removed"];
 export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ContentStatus"]> = ["draft", "live", "scheduled", "processing", "invalid-media", "paused", "blocked-by-group", "expired", "quota-reached", "archived"];

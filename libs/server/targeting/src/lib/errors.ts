@@ -6,6 +6,16 @@ import {
   MAX_USER_LISTS_PER_PROJECT,
 } from '@taleart/contract';
 
+/** Thrown when an audience rule breaks the contract's rules; the message is the reason (epic viewer properties). */
+export class InvalidAudienceRuleError extends Error {
+  readonly code = ErrorCodes.validationFailed;
+
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = 'InvalidAudienceRuleError';
+  }
+}
+
 /** Thrown when a tag name is blank or longer than {@link MAX_TAG_NAME_LENGTH} characters. */
 export class InvalidTagNameError extends Error {
   readonly code = ErrorCodes.validationFailed;

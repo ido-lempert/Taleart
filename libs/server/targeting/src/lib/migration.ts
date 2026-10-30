@@ -49,6 +49,18 @@ export async function migrateTargeting(db: Db): Promise<void> {
     );
   `);
 
+  // A tale group's audience rule (epic viewer properties): the rule as JSON, one row per group that
+  // has one. The rule holds plain values only; a group with no row has no rule and every viewer passes it.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tale_group_audiences (
+      tale_group_id uuid PRIMARY KEY,
+      project_id uuid NOT NULL REFERENCES projects(id),
+      rule jsonb NOT NULL CHECK (jsonb_typeof(rule) = 'object'),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      FOREIGN KEY (tale_group_id, project_id) REFERENCES tale_groups (id, project_id) ON DELETE CASCADE
+    );
+  `);
+
   await migrateUserLists(db);
 }
 

@@ -4,6 +4,11 @@
 // visibility reason: targeting narrows who sees a group, it does not make it "Not visible" (AD-6),
 // so `delivery-rule.ts` and the indicator still agree. Story 4 adds user lists; story 7 adds segments
 // here. Its own file, so the Web SDK, which imports the tag rule, does not bundle it.
+//
+// Epic viewer properties: the group's audience rule (its conditions on the viewer's properties) is
+// named after the tags and lists: "for viewers tagged summer where plan is pro and age ≥ 30".
+
+import type { AudienceCondition, AudienceRule } from './audience-rule';
 
 /**
  * A tale group's targeting, as the Management API returns it: tags as `{ name }` (or names), the
@@ -13,6 +18,8 @@ export interface GroupAudience {
   readonly tags?: readonly ({ readonly name: string } | string)[] | null;
   readonly tagMatch?: string | null;
   readonly userLists?: readonly { readonly id?: string; readonly name: string; readonly idCount: number }[] | null;
+  /** The audience rule on the viewer's properties (epic viewer properties); absent or no conditions: none. */
+  readonly audience?: AudienceRule | null;
 }
 
 /** How many tag names the summary line names before "N more"; the full list is in `audienceDetail`. */
@@ -41,9 +48,55 @@ export function formatCount(n: number): string {
   return String(Math.floor(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** True when the group shows only to some viewers: it has targeting tags or user lists (story 7 adds segments). */
+// The group's audience conditions, or none (a rule with no conditions passes every viewer).
+function conditions(group: GroupAudience): AudienceCondition[] {
+  return Array.isArray(group.audience?.conditions) ? group.audience.conditions : [];
+}
+
+/** True when the group shows only to some viewers: it has targeting tags, user lists or an audience rule. */
 export function isTargeted(group: GroupAudience): boolean {
-  return tagNames(group).length > 0 || userLists(group).length > 0;
+  return tagNames(group).length > 0 || userLists(group).length > 0 || conditions(group).length > 0;
+}
+
+// A condition in plain words, as the summary and the detail say it: "plan is pro", "age ≥ 30".
+function conditionPhrase(condition: AudienceCondition): string {
+  const { property: name, operator, value } = condition;
+  const list = Array.isArray(value) ? value : [];
+  const text = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+  switch (operator) {
+    case 'eq':
+      return `${name} is ${text}`;
+    case 'neq':
+      return `${name} is not ${text}`;
+    case 'in':
+      return `${name} is one of ${joinNames(list, 'or')}`;
+    case 'notIn':
+      return `${name} is not one of ${joinNames(list, 'or')}`;
+    case 'gt':
+      return `${name} > ${text}`;
+    case 'gte':
+      return `${name} ≥ ${text}`;
+    case 'lt':
+      return `${name} < ${text}`;
+    case 'lte':
+      return `${name} ≤ ${text}`;
+    case 'contains':
+      return `${name} contains "${text}"`;
+    case 'exists':
+      return `${name} is set`;
+    case 'notExists':
+      return `${name} is not set`;
+    default:
+      return name;
+  }
+}
+
+// The rule's conditions joined with "and" (All) or "or" (Any); past `max`, the rest as "N more".
+function rulePhrase(group: GroupAudience, max: number): string | null {
+  const phrases = conditions(group).map(conditionPhrase);
+  if (phrases.length === 0) return null;
+  const word = group.audience?.match === 'any' ? 'or' : 'and';
+  return joinNames(shortened(phrases, max), word);
 }
 
 // "a", "a or b", "a, b or c"; with `all`, "and".
@@ -80,8 +133,11 @@ export function audienceSummary(group: GroupAudience, maxTags = AUDIENCE_SUMMARY
           'or',
         )}`
       : null;
-  if (tagged && listed) return `${tagged} in ${listed}`;
-  return tagged ?? listed;
+  const who = tagged && listed ? `${tagged} in ${listed}` : (tagged ?? listed);
+  const rule = rulePhrase(group, maxTags);
+  if (rule === null) return who;
+  // With a rule: "for viewers where plan is pro and age ≥ 30", or "… tagged summer where plan is pro".
+  return who ? `${who} where ${rule}` : `viewers where ${rule}`;
 }
 
 /** The indicator's line with the audience: "Visible on site · for viewers tagged summer or vip"; the line alone when none. */
@@ -103,7 +159,8 @@ function ids(n: number): string {
 export function audienceDetail(group: GroupAudience): string[] {
   const names = tagNames(group);
   const lists = userLists(group);
-  if (names.length === 0 && lists.length === 0) return [];
+  const rule = rulePhrase(group, Number.MAX_SAFE_INTEGER);
+  if (names.length === 0 && lists.length === 0 && rule === null) return [];
   const sentences: string[] = [];
   if (lists.length > 0) {
     const named = lists.map((list) => `${list.name} (${ids(list.idCount)})`);
@@ -128,5 +185,9 @@ export function audienceDetail(group: GroupAudience): string[] {
     );
   }
   if (lists.length > 0) sentences.push('A page that sets no external user ID does not show it.');
+  if (rule !== null) {
+    const shown = names.length > 0 || lists.length > 0 ? 'Of those, to viewers' : 'Shown to viewers';
+    sentences.push(`${shown} where ${rule}.`, 'A page that passes no properties shows it to every viewer.');
+  }
   return sentences;
 }

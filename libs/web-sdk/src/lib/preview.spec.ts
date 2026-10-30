@@ -90,7 +90,18 @@ describe('the preview entry point', () => {
     expect(entry.previewDocument).toBe(previewDocument);
     expect(Object.keys(sdk)).not.toContain('TalePreview');
     expect(Object.keys(sdk).sort()).toEqual(
-      ['TALEART_ELEMENT_TAG', 'TaleartElement', 'configureZone', 'defineTaleartElement', 'getConfig', 'init', 'setExternalUserId', 'setTags'].sort(),
+      [
+        'TALEART_ELEMENT_TAG',
+        'TaleartElement',
+        'configureZone',
+        'defineTaleartElement',
+        'getConfig',
+        'init',
+        'setExternalUserId',
+        'setProperties',
+        'setProperty',
+        'setTags',
+      ].sort(),
     );
   });
 

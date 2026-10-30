@@ -88,6 +88,14 @@ class TaleartZoneView(apiUrl: String?, zoneKey: String) {
         get() = controller.strings
         set(value) { controller.strings = value }
 
+    /**
+     * This view's viewer properties, replacing the SDK's (`TaleartConfig.properties`); null to use the SDK's.
+     * From Swift, a `[String: Any]` of strings, numbers, booleans and string arrays. A change reads the zone again.
+     */
+    var properties: Map<String, Any?>?
+        get() = controller.properties
+        set(value) { controller.properties = value }
+
     /** This view's locale (BCP 47, such as `he-IL`); null to use the SDK's. */
     var locale: String?
         get() = controller.locale

@@ -80,6 +80,22 @@ export const DOCS_TAGS_SCRIPT = [
   '</script>',
 ].join('\n');
 
+/** The viewer's properties for audience rules (epic viewer properties): set at load, then after sign-in. Never sent to TaleArt. */
+export const DOCS_PROPERTIES_SCRIPT = [
+  '<script type="module">',
+  `  import { init, setProperties, setProperty } from '${EXAMPLE_INSTALL.sdkUrl}';`,
+  '',
+  '  // At page load: the properties your site knows about the viewer. Groups with an audience rule are checked against them.',
+  "  init({ properties: { plan: 'free' } });",
+  '',
+  '  // After sign-in: the signed-in viewer\'s properties replace them all.',
+  "  setProperties({ plan: 'pro', age: 34 });",
+  '',
+  '  // One property changes later (the viewer upgrades): the others stay. null removes it.',
+  "  setProperty('plan', 'pro');",
+  '</script>',
+].join('\n');
+
 /**
  * The viewer's external user ID (epic targeting R4): an opaque ID of the host's own, never an email.
  * `setExternalUserId(null)` sends none again, for example after sign-out.

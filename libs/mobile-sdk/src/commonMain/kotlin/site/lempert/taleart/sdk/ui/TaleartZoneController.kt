@@ -27,6 +27,7 @@ import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.delivery.ZoneRequest
 import site.lempert.taleart.sdk.delivery.encodeExternalUserIdHeader
+import site.lempert.taleart.sdk.targeting.audienceRulePasses
 import site.lempert.taleart.sdk.targeting.tagRulePasses
 import site.lempert.taleart.sdk.targeting.viewerTagSet
 import site.lempert.taleart.sdk.delivery.ZoneResult
@@ -106,6 +107,16 @@ class TaleartZoneController(
 
     /** The view's analytics setting, or null to use the SDK's `analytics` option (`taleartAnalytics` on Android). */
     var analytics: Boolean? by mutableStateOf(null)
+
+    /**
+     * The view's viewer properties (epic viewer properties), or null to use the SDK's `TaleartConfig.properties`.
+     * They replace the SDK's, not merge with them. A change reads the zone again, as the rule is applied to the zone read.
+     */
+    var properties: Map<String, Any?>? = null
+        set(value) {
+            field = value
+            if (configured) reload()
+        }
 
     /** Where this view's events go: the zone last read successfully, or null while none is shown. */
     private var analyticsTarget: AnalyticsTarget? = null
@@ -196,12 +207,17 @@ class TaleartZoneController(
     }
 
     /**
-     * The zone without the groups the viewer's tags leave out (epic targeting R2): the tag rule is
-     * applied here, as the Web SDK applies it to the zone it read; the tags are never sent.
+     * The zone without the groups the viewer's tags or properties leave out (epic targeting R2, epic
+     * viewer properties): the tag rule and the audience rule are applied here, as the Web SDK applies
+     * them to the zone it read, for bars and banners alike; the tags and properties are never sent.
+     * The properties are the view's own, else the SDK's.
      */
     private fun targeted(zone: DeliveryZone): DeliveryZone {
         val tags = viewerTagSet(TaleartSdk.config.tags)
-        return zone.copy(taleGroups = zone.taleGroups.filter { tagRulePasses(it.tags, it.tagMatch, tags) })
+        val properties = this.properties ?: TaleartSdk.config.properties
+        return zone.copy(
+            taleGroups = zone.taleGroups.filter { tagRulePasses(it.tags, it.tagMatch, tags) && audienceRulePasses(it.audience, properties) },
+        )
     }
 
     /**

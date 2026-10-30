@@ -3372,6 +3372,48 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/audience:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags:
+        - Targeting
+      operationId: setTaleGroupAudience
+      summary: Set or clear the audience rule of a tale group.
+      description: >-
+        The body is `{ "audience": AudienceRule }` to set the rule, or `{ "audience": null }` to clear
+        it (the group then has no audience rule). The rule is checked on save (match, 1 to 10
+        conditions, operators, value types and limits); a rule that breaks one is 400
+        `validation_failed` with the reason as its message, and nothing changes. Any project member
+        who may change the group's tags may change its audience (the same check, 403 `forbidden`
+        otherwise). The rule is public like tag names: keep private content out of its values. A
+        viewer must pass the tags, the user lists and the audience rule to see the group. Unknown
+        tale group: 404 `tale_group_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTaleGroupAudienceRequest'
+      responses:
+        '200':
+          description: The tale group with its audience rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tale-groups/{taleGroupId}/user-lists:
     parameters:
       - name: taleGroupId
@@ -4364,7 +4406,7 @@ components:
       description: >-
         A tale group belongs to its project. Zones place it, each in
         its own order; its tales, tags and media are the same in every zone.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tales, tags, tagMatch, userLists, visibility]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tales, tags, tagMatch, userLists, audience, visibility]
       properties:
         visibility:
           $ref: '#/components/schemas/Visibility'
@@ -4439,6 +4481,14 @@ components:
             pass its tag rule).
           items:
             $ref: '#/components/schemas/TaleGroupUserList'
+        audience:
+          description: >-
+            The group's audience rule (viewer properties, see `AudienceRule`), or null when it has none.
+            Every viewer gets the same rule; the SDK evaluates it with `audienceRulePasses` from the contract,
+            on top of the tags and user lists.
+          oneOf:
+            - $ref: '#/components/schemas/AudienceRule'
+            - type: 'null'
     ZoneTaleGroup:
       description: A tale group as a zone lists it, with its position in that zone.
       allOf:
@@ -4456,7 +4506,7 @@ components:
         A tale group as the project's list shows it: the
         group's own fields, cover, tags and visibility in any zone it is placed
         in, with its tale counts instead of its tales, so the list stays small.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tags, tagMatch, userLists, visibility, taleCount, shownTaleCount]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tags, tagMatch, userLists, audience, visibility, taleCount, shownTaleCount]
       properties:
         visibility:
           $ref: '#/components/schemas/Visibility'
@@ -4510,6 +4560,14 @@ components:
             pass its tag rule).
           items:
             $ref: '#/components/schemas/TaleGroupUserList'
+        audience:
+          description: >-
+            The group's audience rule (viewer properties, see `AudienceRule`), or null when it has none.
+            Every viewer gets the same rule; the SDK evaluates it with `audienceRulePasses` from the contract,
+            on top of the tags and user lists.
+          oneOf:
+            - $ref: '#/components/schemas/AudienceRule'
+            - type: 'null'
         taleCount:
           type: integer
           minimum: 0
@@ -4717,6 +4775,77 @@ components:
         its tags, `all` only to a viewer with every one of them. A group with
         no tags, or a viewer whose page passed no tags, always passes. The
         SDK decides, with `tagRulePasses` from the contract.
+    AudienceOperator:
+      type: string
+      enum: [eq, neq, in, notIn, gt, gte, lt, lte, contains, exists, notExists]
+      description: >-
+        How a condition compares the viewer's property with its value. `eq` and `neq` compare strings
+        ignoring case (Unicode NFC, trimmed), and numbers and booleans exactly. `in` and `notIn` take a
+        list of strings. `gt`, `gte`, `lt` and `lte` compare numbers only. `contains` finds a substring of
+        a string (ignoring case) or an item of a list of strings. `exists` and `notExists` take no value.
+        A missing property is false, except for `neq`, `notIn` and `notExists`, which are true. A value of
+        another type than the property's is false.
+    AudienceCondition:
+      type: object
+      description: One test on one viewer property.
+      required: [property, operator]
+      additionalProperties: false
+      properties:
+        property:
+          type: string
+          pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'
+          description: The viewer property's name, as the host page passes it (case-sensitive).
+        operator:
+          $ref: '#/components/schemas/AudienceOperator'
+        value:
+          description: >-
+            The value compared with. Required for every operator but `exists` and `notExists`, which take
+            none. A string is at most 256 characters; a list holds 1 to 50 strings of at most 256.
+          oneOf:
+            - type: string
+              maxLength: 256
+            - type: number
+            - type: boolean
+            - type: array
+              minItems: 1
+              maxItems: 50
+              items:
+                type: string
+                maxLength: 256
+    AudienceRule:
+      type: object
+      description: >-
+        A tale group's audience rule: all or any of its conditions must hold. It is evaluated in the
+        browser or app with `audienceRulePasses` from the contract, against the viewer properties the host
+        page passed; those never reach the server. The limits and the test table are in the contract
+        (`audience-rule.cases.json`).
+      required: [match, conditions]
+      additionalProperties: false
+      properties:
+        match:
+          type: string
+          enum: [all, any]
+          description: '`all` needs every condition to hold, `any` one of them.'
+        conditions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: The conditions, 1 to 10. Rules do not nest.
+          items:
+            $ref: '#/components/schemas/AudienceCondition'
+    SetTaleGroupAudienceRequest:
+      type: object
+      description: >-
+        The audience rule to set, or null to clear it. One shape for both: a client never clears a rule by
+        sending an empty one by accident.
+      required: [audience]
+      additionalProperties: false
+      properties:
+        audience:
+          description: The new rule, or null to clear it.
+          oneOf:
+            - $ref: '#/components/schemas/AudienceRule'
+            - type: 'null'
     CreateTaleGroupRequest:
       type: object
       required: [name]
@@ -5380,7 +5509,7 @@ components:
             $ref: '#/components/schemas/DeliveryTaleGroup'
     DeliveryTaleGroup:
       type: object
-      required: [id, name, cover, tales, tags, tagMatch]
+      required: [id, name, cover, tales, tags, tagMatch, audience]
       properties:
         id:
           type: string
@@ -5397,6 +5526,13 @@ components:
             type: string
         tagMatch:
           $ref: '#/components/schemas/TagMatch'
+        audience:
+          description: >-
+            The group's audience rule (viewer properties), or null when it has none. Every viewer gets the same
+            rule; the SDK evaluates it against the properties the host page passed, which are never sent to the server.
+          oneOf:
+            - $ref: '#/components/schemas/AudienceRule'
+            - type: 'null'
         userListMatched:
           type: boolean
           description: >-

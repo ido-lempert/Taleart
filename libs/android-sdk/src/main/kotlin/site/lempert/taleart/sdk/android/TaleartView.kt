@@ -100,6 +100,14 @@ class TaleartView @JvmOverloads constructor(
         get() = controller.strings
         set(value) { controller.strings = value }
 
+    /**
+     * This view's viewer properties (see `TaleartConfig.properties`), replacing the SDK's; null to use the SDK's.
+     * Set them here when a screen knows the viewer better than the app did at start. A change reads the zone again.
+     */
+    var properties: Map<String, Any?>?
+        get() = controller.properties
+        set(value) { controller.properties = value }
+
     /** This view's locale (BCP 47, such as `he-IL`); null to use the SDK's (see `TaleartSdk.init`). */
     var locale: String?
         get() = controller.locale

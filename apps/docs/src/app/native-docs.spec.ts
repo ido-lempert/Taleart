@@ -93,10 +93,12 @@ describe('native docs: pages and navigation', () => {
       const page = harness.routeNativeElement as HTMLElement;
       expect(page.querySelector('h1')?.textContent).toContain(path === '/android-guide' ? 'Android guide' : 'iOS guide');
       const steps = [...page.querySelectorAll('ol.steps > li')];
-      expect(steps.length).toBe(7);
-      for (const step of steps) {
+      expect(steps.length).toBe(8);
+      // The viewer-properties step is text and code only: its states are not screenshotted for native yet.
+      for (const step of steps.filter((s) => s.querySelector('h3')?.id !== 'step-properties')) {
         expect(step.querySelectorAll('figure img').length).toBeGreaterThan(0);
       }
+      expect(page.querySelector('#step-properties')?.textContent).toContain('Pass viewer properties');
       // The steps hold the setup figures; the feature sections (fallback, frequency, components, answers) hold the
       // screenshots of the new states, outside the steps. So the figure checks run over every figure of the page.
       const imgs = [...page.querySelectorAll('figure img')];
@@ -145,7 +147,7 @@ describe('native docs: the reference rows match the SDK sources', () => {
   });
 
   it('lists every TaleartConfig field', () => {
-    expect(configFields().length).toBe(10);
+    expect(configFields().length).toBe(11);
     expect(sorted(CONFIG_FIELDS.map((f) => f.name))).toEqual(sorted(configFields()));
   });
 

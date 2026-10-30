@@ -79,3 +79,77 @@ describe('audience summary with user lists (epic targeting R7, story 5.4)', () =
     expect(audienceSummary({ userLists: null })).toBeNull();
   });
 });
+
+describe('audience summary with an audience rule (epic viewer properties)', () => {
+  const rule = (match: 'all' | 'any', ...conditions: object[]) => ({ match, conditions }) as never;
+  const plan = { property: 'plan', operator: 'eq', value: 'pro' };
+  const age = { property: 'age', operator: 'gte', value: 30 };
+
+  it('says the rule in plain words: "for viewers where plan is pro and age ≥ 30"', () => {
+    const group = { audience: rule('all', plan, age) };
+    expect(isTargeted(group)).toBe(true);
+    expect(audienceSummary(group)).toBe('viewers where plan is pro and age ≥ 30');
+    expect(withAudience(VISIBLE_ON_SITE_TEXT, audienceSummary(group))).toBe(
+      'Visible on site · for viewers where plan is pro and age ≥ 30',
+    );
+  });
+
+  it('joins the conditions with "or" for Any', () => {
+    expect(audienceSummary({ audience: rule('any', plan, age) })).toBe('viewers where plan is pro or age ≥ 30');
+  });
+
+  it('puts the rule after the tags and lists it narrows', () => {
+    expect(audienceSummary({ tags: tags('summer'), audience: rule('all', plan) })).toBe(
+      'viewers tagged summer where plan is pro',
+    );
+    expect(
+      audienceSummary({
+        tags: tags('summer', 'vip'),
+        tagMatch: 'all',
+        userLists: [{ name: 'Loyal', idCount: 1204 }],
+        audience: rule('all', plan),
+      }),
+    ).toBe('viewers tagged summer and vip in user list Loyal (1,204) where plan is pro');
+  });
+
+  it('writes every operator in words', () => {
+    const phrase = (condition: object) => audienceSummary({ audience: rule('all', condition) });
+    expect(phrase({ property: 'plan', operator: 'neq', value: 'free' })).toBe('viewers where plan is not free');
+    expect(phrase({ property: 'plan', operator: 'in', value: ['pro', 'team'] })).toBe(
+      'viewers where plan is one of pro or team',
+    );
+    expect(phrase({ property: 'plan', operator: 'notIn', value: ['free'] })).toBe('viewers where plan is not one of free');
+    expect(phrase({ property: 'age', operator: 'gt', value: 18 })).toBe('viewers where age > 18');
+    expect(phrase({ property: 'age', operator: 'lte', value: 65 })).toBe('viewers where age ≤ 65');
+    expect(phrase({ property: 'age', operator: 'lt', value: 65 })).toBe('viewers where age < 65');
+    expect(phrase({ property: 'city', operator: 'contains', value: 'par' })).toBe('viewers where city contains "par"');
+    expect(phrase({ property: 'vip', operator: 'eq', value: true })).toBe('viewers where vip is true');
+    expect(phrase({ property: 'plan', operator: 'exists' })).toBe('viewers where plan is set');
+    expect(phrase({ property: 'plan', operator: 'notExists' })).toBe('viewers where plan is not set');
+  });
+
+  it('names at most three conditions, then how many more', () => {
+    const many = { audience: rule('all', plan, age, { property: 'city', operator: 'exists' }, { property: 'x', operator: 'notExists' }) };
+    expect(audienceSummary(many)).toBe('viewers where plan is pro, age ≥ 30, city is set and 1 more');
+    expect(audienceSummary(many, 1)).toBe('viewers where plan is pro and 3 more');
+  });
+
+  it('a rule with no conditions names nothing and is not targeting', () => {
+    expect(isTargeted({ audience: rule('all') })).toBe(false);
+    expect(audienceSummary({ audience: rule('all') })).toBeNull();
+    expect(audienceDetail({ audience: rule('all') })).toEqual([]);
+  });
+
+  it('says in the detail what the rule shows, and what a page with no properties does', () => {
+    expect(audienceDetail({ audience: rule('all', plan, age) })).toEqual([
+      'Shown to viewers where plan is pro and age ≥ 30.',
+      'A page that passes no properties shows it to every viewer.',
+    ]);
+    expect(audienceDetail({ tags: tags('summer'), audience: rule('any', plan) })).toEqual([
+      'Shown to viewers tagged summer.',
+      'A page that passes no tags shows it to every viewer.',
+      'Of those, to viewers where plan is pro.',
+      'A page that passes no properties shows it to every viewer.',
+    ]);
+  });
+});

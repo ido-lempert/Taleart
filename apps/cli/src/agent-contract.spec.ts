@@ -85,6 +85,40 @@ describe('--json: one document on stdout, at most one on stderr', () => {
     expect(text.stderrText).toBe('Created tag vip\n');
   });
 
+  it('groups rule sends the audience rule, clears it with null, and refuses a bad rule before the call', async () => {
+    const GROUP = { id: '55555555-5555-4555-8555-555555555555', projectId: PROJECT.id, name: 'Summer', tags: [], tagMatch: 'any' };
+    const RULE = { match: 'all', conditions: [{ property: 'plan', operator: 'eq', value: 'pro' }] };
+    const sent: unknown[] = [];
+    const route = api((c) => {
+      if (c.method === 'GET' && c.path === `/tale-groups/${GROUP.id}`) return { status: 200, body: GROUP };
+      if (c.method === 'PUT' && c.path === `/tale-groups/${GROUP.id}/audience`) {
+        sent.push(c.body);
+        return { status: 200, body: { ...GROUP, visibility: { visible: false, reasons: [{ code: 'not-in-any-zone' }] }, audience: (c.body as { audience: unknown }).audience } };
+      }
+      return undefined;
+    });
+    const set = fakeIo(route, { env: env() });
+    expect(await run(['groups', 'rule', GROUP.id, '--audience-json', JSON.stringify(RULE), '--json'], set)).toBe(EXIT.ok);
+    expect(oneJson(set.stdoutText)).toMatchObject({ audience: RULE });
+    expect(sent[0]).toEqual({ audience: RULE });
+
+    const cleared = fakeIo(route, { env: env() });
+    expect(await run(['groups', 'rule', GROUP.id, '--clear'], cleared)).toBe(EXIT.ok);
+    expect(sent[1]).toEqual({ audience: null });
+    expect(cleared.stdoutText).toContain('audience (none: every viewer)');
+
+    const bad = fakeIo(route, { env: env() });
+    expect(await run(['groups', 'rule', GROUP.id, '--audience-json', '{"match":"some","conditions":[]}', '--json'], bad)).toBe(EXIT.usage);
+    expect(oneJson(bad.stderrText)).toMatchObject({ error: { code: 'usage' } });
+    expect(JSON.stringify(oneJson(bad.stderrText))).toContain('match must be');
+    const notJson = fakeIo(route, { env: env() });
+    expect(await run(['groups', 'rule', GROUP.id, '--audience-json', '[1'], notJson)).toBe(EXIT.usage);
+    expect(notJson.stderrText).toContain('--audience-json must be a JSON object');
+    const both = fakeIo(route, { env: env() });
+    expect(await run(['groups', 'rule', GROUP.id, '--clear', '--audience-json', '{}'], both)).toBe(EXIT.usage);
+    expect(sent).toHaveLength(2);
+  });
+
   it('a group without a command: JSON help on stdout, the error on stderr, exit 2', async () => {
     const io = fakeIo();
     expect(await run(['zones', '--json'], io)).toBe(EXIT.usage);
@@ -113,6 +147,7 @@ describe('structured help', () => {
     const byName = Object.fromEntries(help.commands.map((c) => [c.command, c]));
     expect(byName['zones list']).toMatchObject({ mutates: false, auth: true, destructive: false, result: 'Zone[]' });
     expect(byName['groups on']).toMatchObject({ mutates: true, result: 'TaleGroup' });
+    expect(byName['groups rule']).toMatchObject({ mutates: true, destructive: false, result: 'TaleGroup' });
     expect(byName['tales delete']).toMatchObject({ mutates: true, destructive: true });
     expect(byName['config path']).toMatchObject({ mutates: false, auth: false });
     expect(byName['zones display'].options.find((o) => o.name === 'set')).toEqual(

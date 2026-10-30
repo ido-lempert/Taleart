@@ -10,6 +10,7 @@ function group(id: string, tags: string[] = []): DeliveryTaleGroup {
     cover: null,
     tags,
     tagMatch: 'any',
+    audience: null,
     tales: [
       {
         id: `t-${id}`,

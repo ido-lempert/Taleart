@@ -136,7 +136,7 @@ Methods: `retry()` reads the zone again after a failed load (see Load failures).
 The script sets `globalThis.Taleart`, with the functions below. `init(config)` (also a named export of the module) sets
 the SDK's options, before or after the elements connect; elements that show a zone read the options again. Every
 option is optional: an option left out keeps its value. `null` clears `locale`, `strings`, `theme`, `externalUserId`,
-`tags`, `hooks` and `frequency`, `fallback: null` means `none`, and `analytics: null` means on. An invalid option logs one console warning naming it and keeps its value.
+`tags`, `properties`, `hooks` and `frequency`, `fallback: null` means `none`, and `analytics: null` means on. An invalid option logs one console warning naming it and keeps its value.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -146,6 +146,7 @@ option is optional: an option left out keeps its value. `null` clears `locale`, 
 | `theme` | none | Theme fields for every element. A zone's `configureZone` theme and an element's own theme win over it. |
 | `externalUserId` | none | The viewer's external user ID (see User lists). |
 | `tags` | none | The viewer's targeting tags (see Targeting tags). |
+| `properties` | none | The viewer's properties, for audience rules (see Viewer properties). |
 | `hooks` | none | Hooks for every element (see Hooks). |
 | `fallback` | `none` | What every element shows when its zone fails to load: `none` or `message` (see Load failures). An element's `fallback` wins. |
 | `frequency` | none | How often a viewer sees a tale group: `once`, `daily`, `weekly` or a whole number from 1 to 50 (see Frequency cap). An element's `frequency` wins. |
@@ -161,7 +162,7 @@ init({
 });
 ```
 
-`setTags`, `setExternalUserId`, `configureZone` and `defineTaleartElement` remain, each the same as its `init` option.
+`setTags`, `setProperties`, `setProperty`, `setExternalUserId`, `configureZone` and `defineTaleartElement` remain, each the same as its `init` option (`setProperty` sets one property, see Viewer properties).
 
 ## Locale and strings
 
@@ -355,7 +356,7 @@ The element reports four events to the TaleArt API, which the zone's Analytics t
 group is half on screen, an **open** when a viewer opens the group, a **view** when a tale is shown in the viewer, and a
 **click** when a tale's button, image button or swipe-up link is activated (counted whether or not the host cancels the
 navigation). Each event carries its type, its tale group's id, its tale's id (views and clicks only) and the time in UTC.
-Nothing else is sent: not the external user ID, not the tags, nothing from the page.
+Nothing else is sent: not the external user ID, not the tags, not the viewer properties, nothing from the page.
 
 Events wait in memory and go out together: every 5 seconds while any wait, at 20 of them, and when the page is hidden,
 by `navigator.sendBeacon` (or `fetch` with `keepalive` when a beacon is not possible). The zone key is the bearer token
@@ -392,6 +393,53 @@ request. The SDK decides in the browser: the tags are never sent to TaleArt. The
 zone with its tag names, so targeting is not access control: anyone with the zone key can read every visible group
 and its tag names. Keep anything private out of tag names.
 
+## Viewer properties
+
+A tale group can carry an **audience rule** on top of its tags: a rule over the viewer's properties (a segment, a plan,
+an age, ...), set in the dashboard under the group's Audience. The page passes the properties once, as a flat object
+of name to value (a string, a number, a boolean or a list of strings; pass a date as epoch milliseconds):
+
+```js
+import { setProperties, setProperty } from 'https://api.example.com/sdk/v1/taleart.js';
+
+setProperties({ plan: 'pro', age: 34, segment: ['beta', 'newsletter'] });
+
+// Later, one property at a time (null removes it):
+setProperty('plan', 'free');
+setProperty('segment', null);
+```
+
+Every `<taleart-view>` on the page, now and later, then shows a group only when its tag rule (above) **and** its audience
+rule pass. A rule has **All** (every condition) or **Any** (one of them), with 1 to 10 conditions:
+
+| Operator | The group's condition holds when | Viewer value |
+| --- | --- | --- |
+| `eq`, `neq` | the viewer's value equals (or differs from) the rule's value | string, number or boolean |
+| `in`, `notIn` | the viewer's string is one of (or none of) the listed values | string |
+| `gt`, `gte`, `lt`, `lte` | the viewer's number is greater (or less), or equal | number |
+| `contains` | the viewer's string contains the text, or its list holds the item | string or list |
+| `exists`, `notExists` | the viewer has the property (or not); no value | any |
+
+The rules, as the SDK evaluates them:
+
+- a group without an audience rule always shows, and so does every group while the page has set no properties (no call,
+  `setProperties(null)`): a page without the feature shows everything;
+- once properties are set, a condition on a property the viewer does not have is false, except `neq`, `notIn` and
+  `notExists`, which are true;
+- a value of another kind than the property's (a number against a string, `gt` on a string) is false;
+- strings match ignoring case and surrounding spaces (`'Pro '` matches `pro`); numbers and booleans match exactly;
+- the page passes at most 50 properties, a string of at most 256 characters, and a list of at most 50 items. A name is
+  a letter, then letters, digits, `_`, `.` or `-` (case counts). An invalid entry is dropped with one console warning, and
+  `setProperty` with an invalid name or value changes nothing.
+
+A viewer sees the same groups in a bar and in a banner: the banner shows only the slides whose rule passes, with a dot
+for each. Calling `setProperties` or `setProperty` again re-renders the rendered elements at once, without a new request.
+
+The SDK decides in the browser, and the properties are **never sent** to TaleArt: not in a request, a header, a URL or
+an analytics event. The Delivery API sends every group of the zone with its rule (the rule is public, like tag names),
+so the rule is not access control: anyone with the zone key can read every group and its rule. Keep private content out
+of rule values, and keep the values themselves out of the page's public source.
+
 ## User lists and the external user ID
 
 A tale group can also be targeted to **user lists**: lists of your site's own user IDs, uploaded as a CSV on the
@@ -404,7 +452,7 @@ import { setExternalUserId } from 'https://api.example.com/sdk/v1/taleart.js';
 setExternalUserId('cust-1001');
 ```
 
-- A group with user lists shows only when the viewer's ID is in one of them, and its tag rule (above) also passes.
+- A group with user lists shows only when the viewer's ID is in one of them, and its tag rule and audience rule (above) also pass.
   A viewer with no ID, or one in none of its lists, does not get the group: the Delivery API leaves it out.
 - Groups without user lists show as before, so a page that never calls `setExternalUserId` sees only those.
 - Use an **opaque ID**, never an email address or a phone number. It is trimmed and matched exactly (case counts);

@@ -5,6 +5,7 @@ import {
   ErrorCodes,
   isErrorBody,
   MAX_TALE_GROUPS_PER_PROJECT,
+  type AudienceRule,
   type Frame,
   type FrameType,
   type Invitation,
@@ -1097,9 +1098,31 @@ export class DashboardStore {
     } catch (err) {
       return apiErrorMessage(err, 'The audience was not saved. Try again.');
     }
-    // Only the targeting changes, in every zone the group is placed in (AD-14): the
-    // group's tales and positions may have moved meanwhile.
-    const targeting = { tags: saved.tags, tagMatch: saved.tagMatch ?? tagMatch };
+    this.patchTargeting(taleGroupId, { tags: saved.tags, tagMatch: saved.tagMatch ?? tagMatch });
+    if (held) await this.refresh();
+    return '';
+  }
+
+  /**
+   * Sets or clears a tale group's audience rule (epic viewer properties). The rule is checked by the
+   * API; a refusal is its reason, and nothing changes. The group shows the saved rule wherever it is listed.
+   */
+  async setTaleGroupAudience(taleGroupId: string, audience: AudienceRule | null): Promise<string> {
+    let saved: TaleGroup;
+    try {
+      saved = await firstValueFrom(
+        this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/audience`, { audience }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The audience rule was not saved. Try again.');
+    }
+    this.patchTargeting(taleGroupId, { audience: saved.audience ?? null });
+    return '';
+  }
+
+  // Only the targeting changes, in every zone the group is placed in (AD-14): the group's tales and
+  // positions may have moved meanwhile.
+  private patchTargeting(taleGroupId: string, targeting: Partial<Pick<TaleGroup, 'tags' | 'tagMatch' | 'audience'>>): void {
     this.patchZoneGroups(taleGroupId, (g) => ({ ...g, ...targeting }));
     this.patchReadGroup(taleGroupId, (g) => ({ ...g, ...targeting }));
     this.projectTaleGroups.update((lists) =>
@@ -1107,8 +1130,6 @@ export class DashboardStore {
         Object.entries(lists).map(([id, list]) => [id, list.map((g) => (g.id === taleGroupId ? { ...g, ...targeting } : g))]),
       ),
     );
-    if (held) await this.refresh();
-    return '';
   }
 
   /**

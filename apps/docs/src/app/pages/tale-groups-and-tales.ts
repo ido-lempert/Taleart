@@ -43,7 +43,7 @@ import { RouterLink } from '@angular/router';
 <p>The <strong>...</strong> menu on each group has:</p>
 <ul>
 <li><strong>Rename</strong> and <strong>Cover</strong>: a still image, or an animated cover of at most 300 KB.</li>
-<li><strong>Audience</strong>: tags and user lists. See <a routerLink="/targeting">Targeting</a>.</li>
+<li><strong>Audience</strong>: tags, user lists and viewer properties. See <a routerLink="/targeting">Targeting</a>.</li>
 <li><strong>Schedule</strong>: a start and an end time. Leave a field empty for no start or no end. The panel shows the time zone it uses.</li>
 <li><strong>Show in another zone</strong>: place the same group in more than one zone. An edit shows in every zone.</li>
 <li><strong>Copy to zone</strong>: make an independent copy. Later edits do not carry over.</li>

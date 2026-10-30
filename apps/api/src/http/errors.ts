@@ -49,6 +49,7 @@ import {
   SiteKeyNotFoundError,
 } from '@taleart/server-access';
 import {
+  InvalidAudienceRuleError,
   InvalidTagNameError,
   InvalidUserListNameError,
   TagExistsError,
@@ -177,6 +178,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof EmptyDisplayChangeError ||
     err instanceof UnknownTemplateError ||
     err instanceof InvalidTagNameError ||
+    err instanceof InvalidAudienceRuleError ||
     err instanceof InvalidUserListNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||

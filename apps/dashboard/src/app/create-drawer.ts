@@ -40,6 +40,7 @@ import {
   type UserList,
   type ZoneTemplateKey,
 } from '@taleart/contract/core';
+import { AudienceRuleSection } from './audience-rule-section';
 import { CoverEditor } from './cover-editor';
 import { DashboardStore, isAudienceHeld, type DrawerRequest, type ZoneField } from './dashboard.store';
 import { Drawer } from './drawer';
@@ -79,7 +80,7 @@ export function checkMediaFile(file: File): { type: string; problem: string } {
 
 @Component({
   selector: 'app-create-drawer',
-  imports: [FormsModule, RouterLink, Drawer, StatusBadge, ShowSwitch, SettingsForm, CoverEditor],
+  imports: [FormsModule, RouterLink, Drawer, StatusBadge, ShowSwitch, SettingsForm, CoverEditor, AudienceRuleSection],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './create-drawer.html',
 })

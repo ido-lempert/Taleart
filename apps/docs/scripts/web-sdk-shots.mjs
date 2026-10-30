@@ -6,6 +6,7 @@
 //
 // Usage: node apps/docs/scripts/web-sdk-shots.mjs
 // With --reaction, only the Reaction shots are written (web-shot-reaction*.png); the other images stay as they are.
+// With --audience, only the audience shots are written (web-audience-*.png): a bar and a banner for two viewers.
 import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
@@ -13,6 +14,7 @@ import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 
 const REACTION_ONLY = process.argv.includes('--reaction');
+const AUDIENCE_ONLY = process.argv.includes('--audience');
 const COMPONENTS_ONLY = process.argv.includes('--components');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
@@ -140,6 +142,8 @@ const KEYS = {
   bannerPlain: 'tak_DemoBannerPlainKey000001',
   barSquare: 'tak_DemoBarSquareKey0000001',
   barLarge: 'tak_DemoBarLargeKey00000001',
+  audienceBar: 'tak_DemoAudienceBarKey0000000',
+  audienceBanner: 'tak_DemoAudienceBannerKey0000',
 };
 // Display settings per sample zone (a missing field takes its default); the banners stay still for the shots.
 const SETTINGS = {
@@ -152,6 +156,46 @@ const SETTINGS = {
 };
 // Not in KEYS: the stand-in refuses it, so a zone with this key cannot load (the failure shots).
 const REFUSED_KEY = 'tak_RevokedDemoKey00000000001';
+
+// The audience zone: two groups, each with an audience rule (the same zone for a bar and a banner).
+const AUDIENCE_GROUPS = [
+  {
+    id: 'g-welcome',
+    name: 'Welcome',
+    tale: { id: 't-welcome', title: 'Welcome gift', media: 'gift' },
+    audience: { match: 'all', conditions: [{ property: 'plan', operator: 'eq', value: 'free' }] },
+  },
+  {
+    id: 'g-pro',
+    name: 'Pro offers',
+    tale: { id: 't-pro', title: 'Pro sale', media: 'sale' },
+    audience: { match: 'all', conditions: [{ property: 'plan', operator: 'eq', value: 'pro' }] },
+  },
+];
+function audienceZone(frameType) {
+  return {
+    id: 'z-home-top',
+    name: 'Home – top',
+    slug: 'home-top',
+    frame: { id: 'f-home-top', type: frameType, settings: frameType === 'banner' ? { autoplay: false } : {} },
+    taleGroups: AUDIENCE_GROUPS.map((g) => ({
+      id: g.id,
+      name: g.name,
+      cover: null,
+      audience: g.audience,
+      tales: [
+        {
+          id: g.tale.id,
+          title: g.tale.title,
+          media: { kind: 'image', contentType: 'image/png', url: `${ORIGIN}/media/${g.tale.media}.png` },
+        },
+      ],
+    })),
+  };
+}
+// The two viewers of the audience shots: a free one, and a pro one (aged 34), set with init({ properties }).
+const AUDIENCE_VIEWERS = { free: { plan: 'free' }, pro: { plan: 'pro', age: 34 } };
+const AUDIENCE_KINDS = { audienceBar: 'bar', audienceBanner: 'banner' };
 
 function zoneFor(kind) {
   const frameType = kind.startsWith('banner') ? 'banner' : 'bar';
@@ -197,7 +241,25 @@ ${body || `<taleart-view zone-key="${KEYS[kind]}"></taleart-view>`}
 </html>`;
 }
 
+// One host page per kind and viewer, at /audienceBar-free.html and so on: the viewer's properties set before the zone loads.
+const AUDIENCE_HOSTS = Object.fromEntries(
+  Object.entries(AUDIENCE_KINDS).flatMap(([kind]) =>
+    Object.entries(AUDIENCE_VIEWERS).map(([viewer, properties]) => [
+      `/${kind}-${viewer}.html`,
+      () =>
+        page({
+          kind,
+          script: `<script type="module">
+  import { init } from '/sdk/v1/taleart.js';
+  init({ properties: ${JSON.stringify(properties)} });
+</script>`,
+        }),
+    ]),
+  ),
+);
+
 const HOSTS = {
+  ...AUDIENCE_HOSTS,
   '/bar.html': () => page({ kind: 'bar' }),
   '/banner.html': () => page({ kind: 'banner' }),
   '/features.html': () => page({ kind: 'features' }),
@@ -615,7 +677,7 @@ async function startServer() {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       const kind = Object.keys(KEYS).find((k) => KEYS[k] === key);
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
-      const zone = kind === 'hebrew' ? localisedZone() : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
+      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
       return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(zone));
     }
     if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
@@ -644,6 +706,36 @@ async function startServer() {
   return { server, origin: `http://127.0.0.1:${server.address().port}` };
 }
 
+// The audience shots: each zone for each viewer, checked to show its own group and not the other's.
+async function audienceShots(browser, origin, written) {
+  const context = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'en-US' });
+  try {
+    for (const kind of Object.keys(AUDIENCE_KINDS)) {
+      const wait = kind === 'audienceBar' ? 'button.item' : '[aria-roledescription="carousel"]';
+      for (const viewer of Object.keys(AUDIENCE_VIEWERS)) {
+        const p = await context.newPage();
+        await p.goto(`${origin}/${kind}-${viewer}.html`);
+        await p.waitForFunction(
+          (sel) => !!document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel),
+          wait,
+          { timeout: 15_000 },
+        );
+        await p.waitForLoadState('networkidle');
+        await p.waitForTimeout(500);
+        const shown = await p.locator('taleart-view').evaluate((el) => el.shadowRoot?.innerHTML ?? '');
+        const [own, other] = viewer === 'free' ? ['Welcome', 'Pro offers'] : ['Pro offers', 'Welcome'];
+        if (!shown.includes(own) || shown.includes(other)) throw new Error(`${kind}-${viewer}: expected only "${own}" to show`);
+        const name = `web-audience-${AUDIENCE_KINDS[kind]}-${viewer}.png`;
+        await p.locator('main').screenshot({ path: join(imagesDir, name) });
+        written.push(name);
+        await p.close();
+      }
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 async function main() {
   await mkdir(imagesDir, { recursive: true });
   const { server, origin } = await startServer();
@@ -652,6 +744,10 @@ async function main() {
   Object.assign(MEDIA, await renderArt(browser));
   const written = [];
   try {
+    if (AUDIENCE_ONLY) {
+      await audienceShots(browser, origin, written);
+      return;
+    }
     const ready = (p, selector) =>
       p.waitForFunction(
         (sel) => {

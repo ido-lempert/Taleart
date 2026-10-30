@@ -396,7 +396,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
+      'TRUNCATE tale_group_audiences, tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -1417,6 +1417,7 @@ describe('Management API v1: projects and zones', () => {
         tags: [],
         tagMatch: 'any',
         userLists: [],
+        audience: null,
         // Off, in a zone that is not set up, with no tale (R7).
         visibility: notVisible(
           why('group-off', 'group'),
@@ -1723,6 +1724,117 @@ describe('Management API v1: projects and zones', () => {
     });
   });
 
+  describe('audience rules (epic viewer properties)', () => {
+    const RULE = { match: 'all', conditions: [{ property: 'plan', operator: 'eq', value: 'pro' }] };
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    function putJson(path: string, body: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function createGroup(zoneId: string, name: string): Promise<{ id: string; projectId: string }> {
+      return (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+    }
+
+    // Each listed group's audience rule, keyed by group name.
+    async function groupAudiences(zoneId: string): Promise<Record<string, unknown>> {
+      const groups: { name: string; audience: unknown }[] = await (await fetch(`${base}/zones/${zoneId}/tale-groups`)).json();
+      return Object.fromEntries(groups.map((g) => [g.name, g.audience]));
+    }
+
+    it('sets, replaces and clears the audience rule, keeps it on restart, and lists it with every group', async () => {
+      const zone = await createZone();
+      const first = await createGroup(zone.id, 'First');
+      await createGroup(zone.id, 'Second');
+      expect((await (await fetch(`${base}/tale-groups/${first.id}`)).json()).audience).toBeNull();
+
+      const set = await putJson(`/tale-groups/${first.id}/audience`, { audience: RULE });
+      expect(set.status).toBe(200);
+      expect((await set.json()).audience).toEqual(RULE);
+      await restart();
+      expect(await groupAudiences(zone.id)).toEqual({ First: RULE, Second: null });
+      const project = await (await fetch(`${base}/projects/${zone.projectId}/tale-groups`)).json();
+      expect(project.map((g: { audience: unknown }) => g.audience)).toEqual([RULE, null]);
+
+      const replacement = { match: 'any', conditions: [{ property: 'segment', operator: 'in', value: ['a', 'b'] }] };
+      expect((await (await putJson(`/tale-groups/${first.id}/audience`, { audience: replacement })).json()).audience).toEqual(
+        replacement,
+      );
+      expect(await groupAudiences(zone.id)).toEqual({ First: replacement, Second: null });
+
+      const cleared = await putJson(`/tale-groups/${first.id}/audience`, { audience: null });
+      expect(cleared.status).toBe(200);
+      expect((await cleared.json()).audience).toBeNull();
+      expect(await groupAudiences(zone.id)).toEqual({ First: null, Second: null });
+      expect((await pool.query('SELECT 1 FROM tale_group_audiences')).rowCount).toBe(0);
+    });
+
+    it('refuses a rule that breaks the contract with 400 validation_failed and its reason, and changes nothing', async () => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id, 'First');
+      const cases: [unknown, RegExp][] = [
+        [{ audience: { match: 'every', conditions: [{ property: 'plan', operator: 'exists' }] } }, /match must be "all" or "any"/],
+        [{ audience: { match: 'all', conditions: [] } }, /1 to 10 conditions/],
+        [{ audience: { match: 'all', conditions: [{ property: 'plan', operator: 'gt', value: '3' }] } }, /gt needs a number/],
+        [{ audience: { match: 'all', conditions: [{ property: '1plan', operator: 'exists' }] } }, /property must be/],
+        [{ audience: { match: 'all', conditions: [{ property: 'plan', operator: 'matches', value: 'x' }] } }, /operator must be one of/],
+        [{ audience: { match: 'all', conditions: [{ match: 'all', conditions: [] }] } }, /unknown field "match"/],
+        [{ audience: 'pro' }, /audience rule is an object/],
+        [{}, /audience is required/],
+      ];
+      for (const [body, reason] of cases) {
+        const res = await putJson(`/tale-groups/${group.id}/audience`, body);
+        expect(res.status, JSON.stringify(body)).toBe(400);
+        const error = (await res.json()).error;
+        expect(error.code).toBe('validation_failed');
+        expect(error.message).toMatch(reason);
+      }
+      expect(await groupAudiences(zone.id)).toEqual({ First: null });
+      expect((await pool.query('SELECT 1 FROM tale_group_audiences')).rowCount).toBe(0);
+    });
+
+    it('answers 404 tale_group_not_found for an unknown group', async () => {
+      const res = await putJson(`/tale-groups/${unknownId}/audience`, { audience: RULE });
+      expect(res.status).toBe(404);
+      expect((await res.json()).error.code).toBe('tale_group_not_found');
+    });
+
+    it('copies the rule with the group, into another zone too', async () => {
+      const zone = await createZone();
+      const other = await createZone();
+      const group = await createGroup(zone.id, 'First');
+      await putJson(`/tale-groups/${group.id}/audience`, { audience: RULE });
+      const copy = await post(`/tale-groups/${group.id}/copy`, { zoneId: other.id });
+      expect(copy.status).toBe(201);
+      const body = await copy.json();
+      expect(body.audience).toEqual(RULE);
+      expect((await (await fetch(`${base}/tale-groups/${body.id}`)).json()).audience).toEqual(RULE);
+    });
+
+    it('ships the rule in the Delivery zone payload for every viewer, and nothing else of the viewer', async () => {
+      const zone = await createZone();
+      const pro = await createGroup(zone.id, 'Pro');
+      const tale = await (await post(`/tale-groups/${pro.id}/tales`, { title: 'Pro tale' })).json();
+      await createGroup(zone.id, 'Everyone');
+      await putJson(`/tale-groups/${pro.id}/audience`, { audience: RULE });
+      await publish('tale-groups', pro.id);
+      await publish('tales', tale.id);
+      await asLegacy(tale.id);
+      const key = await installZone(zone.id);
+
+      const anonymous = await (await deliverZone(key)).json();
+      const named = await (await deliverZone(key, { [EXTERNAL_USER_ID_HEADER]: encodeExternalUserIdHeader('viewer-1') as string })).json();
+      const audiences = (body: { taleGroups: { name: string; audience: unknown }[] }) =>
+        Object.fromEntries(body.taleGroups.map((g) => [g.name, g.audience]));
+      expect(audiences(anonymous)).toEqual({ Pro: RULE });
+      expect(audiences(named)).toEqual({ Pro: RULE });
+    });
+  });
+
   describe('tags', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
 
@@ -1824,6 +1936,7 @@ describe('Management API v1: projects and zones', () => {
         ],
         tagMatch: 'any',
         userLists: [],
+        audience: null,
         visibility: SOME_VISIBILITY,
       });
       expect(await groupTags(zone.id)).toEqual({ First: ['Beach', 'summer'], Second: [] });
@@ -2094,6 +2207,7 @@ describe('Management API v1: projects and zones', () => {
           cover: null,
           tags: ['summer'],
           tagMatch: 'any',
+          audience: null,
           tales: [{ id: tale.id, title: 'Beach', media: null, document: NO_MEDIA_DOCUMENT }],
         },
       ]);
@@ -2124,6 +2238,7 @@ describe('Management API v1: projects and zones', () => {
         tags: [],
         tagMatch: 'any',
         userLists: [],
+        audience: null,
         // On, with a tale to show, in two zones neither of which is set up yet: each zone reason once (R7).
         visibility: notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')),
       });
@@ -2218,13 +2333,13 @@ describe('Management API v1: projects and zones', () => {
         {
           id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [],
           // Cover, tags and counts (epic UX rework R14), but not the tales: the zone lists carry them.
-          cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 1,
+          cover: null, tags: [], tagMatch: 'any', userLists: [], audience: null, shownTaleCount: 1,
           // In no zone (R7); its one tale has nothing published either.
           visibility: notVisible(why('group-off', 'group'), why('not-in-any-zone', 'group'), why('no-shown-tales', 'group')),
         },
-        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
-        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
-        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', userLists: [], audience: null, shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], tagMatch: 'any', userLists: [], audience: null, shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', userLists: [], audience: null, shownTaleCount: 0, visibility: SOME_VISIBILITY },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
@@ -2553,6 +2668,7 @@ describe('Management API v1: projects and zones', () => {
         tags: [{ id: summer.id, name: 'summer' }],
         tagMatch: 'any',
         userLists: [],
+        audience: null,
       });
       expect(body.id).not.toBe(g.id);
       expect(body.tales.map((t) => t.id)).not.toContain(one.id);
@@ -5229,6 +5345,7 @@ describe('Management API v1: projects and zones', () => {
             cover: null,
             tags: [],
             tagMatch: 'any',
+            audience: null,
             tales: [
               {
                 id: a1.id,
@@ -5246,6 +5363,7 @@ describe('Management API v1: projects and zones', () => {
             cover: null,
             tags: [],
             tagMatch: 'any',
+            audience: null,
             tales: [
               {
                 id: b1.id,

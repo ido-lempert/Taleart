@@ -12,7 +12,7 @@ import {
 } from '@taleart/contract';
 import { projectForSiteKey, zoneForKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { passesUserLists, tagRulesForTaleGroups, userListAudiences } from '@taleart/server-targeting';
+import { audienceRulesForTaleGroups, passesUserLists, tagRulesForTaleGroups, userListAudiences } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
 import express, { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
@@ -171,9 +171,12 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
       // passed straight to the lookup, which hashes it; the ID is never logged, stored, kept in a
       // variable past this call, or put with the visitor id. A header that carries no valid ID
       // matches no list.
-      const [tagRules, audiences] = await Promise.all([
+      // Each group's audience rule (epic viewer properties): the same for every viewer; the SDK checks
+      // the properties its page passed, on the client. They are never sent here.
+      const [tagRules, audiences, audienceRules] = await Promise.all([
         tagRulesForTaleGroups(pool, groupIds),
         userListAudiences(pool, zone.projectId, groupIds, perViewer ? decodeExternalUserIdHeader(idHeader) : null),
+        audienceRulesForTaleGroups(pool, groupIds),
       ]);
       // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).
       const body: DeliveryZone = {
@@ -196,6 +199,7 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
           name: group.name,
           tags: tagRules.get(group.id)?.tags ?? [],
           tagMatch: tagRules.get(group.id)?.tagMatch ?? DEFAULT_TAG_MATCH,
+          audience: audienceRules.get(group.id) ?? null,
           ...(audiences.matched.has(group.id.toLowerCase()) && { userListMatched: true }),
           cover: group.cover && {
             kind: mediaKind(group.cover.contentType),

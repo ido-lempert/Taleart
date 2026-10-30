@@ -38,6 +38,8 @@ export type Tag = Schemas['Tag'];
 export type TaleGroupTag = Schemas['TaleGroupTag'];
 export type CreateTagRequest = Schemas['CreateTagRequest'];
 export type SetTaleGroupTagsRequest = Schemas['SetTaleGroupTagsRequest'];
+/** Sets a tale group's audience rule (epic viewer properties), or clears it with `null`. */
+export type SetTaleGroupAudienceRequest = Schemas['SetTaleGroupAudienceRequest'];
 /** A user list as a tale group is targeted to it (epic targeting R4), with its ID count, never its IDs. */
 export type TaleGroupUserList = Schemas['TaleGroupUserList'];
 export type SetTaleGroupUserListsRequest = Schemas['SetTaleGroupUserListsRequest'];
@@ -167,6 +169,7 @@ export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: The
 export * from './templates';
 export * from './visibility';
 export * from './targeting';
+export * from './audience-rule';
 export * from './audience';
 export * from './user-lists';
 export * from './external-user-id';

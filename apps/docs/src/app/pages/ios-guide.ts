@@ -11,6 +11,7 @@ import {
   SWIFT_INIT,
   SWIFT_LOCALE,
   SWIFT_PACKAGE,
+  SWIFT_PROPERTIES,
   SWIFT_UIKIT,
   SWIFTUI_REPRESENTABLE,
 } from './native-docs-content';
@@ -129,6 +130,43 @@ import {
           />
           <figcaption class="muted">Diagram of the start-up order (not a screenshot).</figcaption>
         </figure>
+      </li>
+
+      <li>
+        <h3 id="step-properties">Pass viewer properties</h3>
+        <p>
+          Pass what the app knows about the viewer as <code>properties</code>: a dictionary from a name to a String, a
+          number, a Boolean or an array of Strings. A tale group can carry an audience rule, set in the dashboard under its
+          targeting, and the SDK shows the group only when the rule passes these values. The rule can test a value with
+          <code>eq</code>, <code>in</code>, <code>gt</code>, <code>contains</code>, <code>exists</code> and the other
+          operators listed on the <a routerLink="/targeting">Targeting</a> page.
+        </p>
+        <p>
+          Put the properties in <code>TaleartConfig</code> at launch. Swift needs every argument of the configuration, so
+          pass <code>nil</code> when the app has none:
+        </p>
+        <pre tabindex="0" role="region" aria-label="Viewer properties in the configuration"><code>{{ swiftProperties }}</code></pre>
+        <p>
+          A name starts with a letter and uses letters, digits, <code>_</code>, <code>.</code> or <code>-</code>, up to 64
+          characters, and is case-sensitive. A dictionary has at most 50 properties, a string at most 256 characters and an
+          array at most 50 items. An invalid entry is ignored. Dates go as epoch milliseconds.
+        </p>
+        <p>
+          With no properties (<code>nil</code>) every group's audience rule passes, as it does with no tags. An empty
+          dictionary means the app knows nothing about the viewer: a group whose rule needs a value is then left out, while
+          the negative conditions (<code>neq</code>, <code>notIn</code>, <code>notExists</code>) pass.
+        </p>
+        <p>
+          A group shows only when its tags and its audience rule both pass. The properties stay on the device: the SDK
+          sends them in no request header, no URL and no analytics event. The rule itself is public, as the tag names are,
+          so keep private content out of rule values.
+        </p>
+        <p>
+          A zone can use its own properties, which replace the SDK's for that zone only. Setting <code>properties</code> on a
+          <code>TaleartZoneView</code> reads its zone again at once. A later <code>doInit</code> applies its properties on
+          the next read of a zone: a zone already on screen keeps the groups it shows until it reads again, as it does for
+          tags.
+        </p>
       </li>
 
       <li>
@@ -430,6 +468,7 @@ export class IosGuidePage {
   protected readonly swiftInit = SWIFT_INIT;
   protected readonly swiftHooks = SWIFT_HOOKS;
   protected readonly swiftLocale = SWIFT_LOCALE;
+  protected readonly swiftProperties = SWIFT_PROPERTIES;
   protected readonly swiftFallback = SWIFT_FALLBACK;
   protected readonly swiftFrequency = SWIFT_FREQUENCY;
   protected readonly swiftAnalytics = SWIFT_ANALYTICS;

@@ -143,7 +143,7 @@ import { RouterLink } from '@angular/router';
       <code>init(config)</code> sets the page's options, before or after the elements connect. Every option is
       optional: an option left out keeps its value, and an element attribute overrides the option. <code>null</code>
       clears <code>locale</code>, <code>strings</code>, <code>theme</code>, <code>externalUserId</code>,
-      <code>tags</code>, <code>hooks</code> and <code>frequency</code>; <code>fallback: null</code> means <code>none</code>, and
+      <code>tags</code>, <code>properties</code>, <code>hooks</code> and <code>frequency</code>; <code>fallback: null</code> means <code>none</code>, and
       <code>analytics: null</code> means on.
       An invalid option logs one console warning that names it and keeps its value.
     </p>
@@ -197,6 +197,12 @@ import { RouterLink } from '@angular/router';
             <td>array of strings or null</td>
             <td>None: every group shows</td>
             <td>The viewer's targeting tags. Matched ignoring case and surrounding spaces. Same as <code>setTags</code>.</td>
+          </tr>
+          <tr>
+            <td><code>properties</code></td>
+            <td>object or null</td>
+            <td>None: every group shows</td>
+            <td>The viewer's properties for audience rules: a flat object of name to text, number, boolean or list of text. Same as <code>setProperties</code>. Never sent to TaleArt.</td>
           </tr>
           <tr>
             <td><code>hooks</code></td>
@@ -269,6 +275,16 @@ import { RouterLink } from '@angular/router';
             <td><code>setTags</code></td>
             <td><code>setTags(tags)</code></td>
             <td>The same as <code>init</code> with <code>tags</code>. Rendered elements show the matching groups at once.</td>
+          </tr>
+          <tr>
+            <td><code>setProperties</code></td>
+            <td><code>setProperties(properties)</code></td>
+            <td>The same as <code>init</code> with <code>properties</code>. Pass <code>null</code> to clear them. Rendered elements show the groups that pass at once.</td>
+          </tr>
+          <tr>
+            <td><code>setProperty</code></td>
+            <td><code>setProperty(name, value)</code></td>
+            <td>Sets one property and keeps the others. A <code>null</code> value removes it. With no properties set yet, <code>setProperty(name, null)</code> changes nothing.</td>
           </tr>
           <tr>
             <td><code>defineTaleartElement</code></td>

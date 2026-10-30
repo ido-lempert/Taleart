@@ -1,11 +1,16 @@
 package site.lempert.taleart.sdk.delivery
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Contextual
+import site.lempert.taleart.sdk.targeting.AudienceCondition
+import site.lempert.taleart.sdk.targeting.AudienceRule
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 
 // The Delivery API's zone, as `DeliveryZone` and its parts in libs/contract (openapi/openapi.yaml
@@ -57,6 +62,14 @@ data class DeliveryTaleGroup(
     val tags: List<String> = emptyList(),
     /** How the tags combine: `any` (the default) or `all`. */
     val tagMatch: String = "any",
+    /**
+     * The group's audience rule (epic viewer properties), or null when it has none. The SDK shows the
+     * group when the viewer's properties (`TaleartConfig.properties`) pass it, never sending them.
+     * Contextual: a zone is read from JSON by [readZone] and never written back as JSON, so the rule
+     * has no serializer; it stays in the descriptor, which ContractModelsTest checks against the spec.
+     */
+    @Contextual
+    val audience: AudienceRule? = null,
     /**
      * True when the group is targeted to user lists and the viewer's external user ID is in one of
      * them (epic targeting R4). The SDK sends the viewer's external user ID in its own header
@@ -132,6 +145,7 @@ internal fun readZone(body: JsonObject): DeliveryZone = DeliveryZone(
             name = group.string("name"),
             tags = (group["tags"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
             tagMatch = group.string("tagMatch", "any").takeIf { it == "any" || it == "all" } ?: "any",
+            audience = (group["audience"] as? JsonObject)?.let(::audienceRuleFrom),
             userListMatched = (group["userListMatched"] as? JsonPrimitive)?.booleanOrNull ?: false,
             cover = (group["cover"] as? JsonObject)?.let { cover ->
                 DeliveryCover(
@@ -164,6 +178,32 @@ internal fun readZone(body: JsonObject): DeliveryZone = DeliveryZone(
     },
 )
 
+// A rule as the Delivery API sends it (`{match, conditions: [{property, operator, value?}]}`). A condition
+// that is not an object reads as one with no operator, which fails closed, as an unknown operator does.
+internal fun audienceRuleFrom(rule: JsonObject): AudienceRule = AudienceRule(
+    match = rule.string("match", "any"),
+    conditions = rule.objectsOrEmpty("conditions").map { condition ->
+        AudienceCondition(
+            property = condition.string("property"),
+            operator = condition.string("operator"),
+            value = condition["value"]?.let(::jsonValue),
+        )
+    },
+)
+
+// A JSON value as the rule compares it: text, a number (a Double), a boolean, a list of values; an object
+// stays as JSON, which no comparison accepts.
+internal fun jsonValue(element: JsonElement): Any? = when (element) {
+    is JsonNull -> null
+    is JsonArray -> element.map(::jsonValue)
+    is JsonObject -> element
+    is JsonPrimitive -> when {
+        element.isString -> element.content
+        element.booleanOrNull != null -> element.booleanOrNull
+        else -> element.doubleOrNull
+    }
+}
+
 // A text field, or its default when it is missing or not text.
 private fun JsonObject.string(key: String, default: String = ""): String =
     (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: default
@@ -171,3 +211,6 @@ private fun JsonObject.string(key: String, default: String = ""): String =
 // The objects of a list field; anything in it that is not an object is left out.
 private fun JsonObject.objects(key: String): List<JsonObject> =
     (this[key] as? JsonArray)?.filterIsInstance<JsonObject>().orEmpty()
+
+// The items of a list field, objects or not: a condition that is not an object is kept (it fails closed).
+private fun JsonObject.objectsOrEmpty(key: String): List<JsonObject> = (this[key] as? JsonArray)?.map { (it as? JsonObject) ?: JsonObject(emptyMap()) }.orEmpty()

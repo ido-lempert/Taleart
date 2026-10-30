@@ -10,6 +10,8 @@ import {
   APPLICATION_INIT,
   ANDROID_HOOKS,
   ANDROID_LOCALE,
+  ANDROID_PROPERTIES,
+  ANDROID_PROPERTIES_VIEW,
   BACKUP_RULES_NEW,
   BACKUP_RULES_OLD,
   COMPOSE_ZONE,
@@ -140,6 +142,45 @@ import {
           />
           <figcaption class="muted">Diagram of the start-up order (not a screenshot).</figcaption>
         </figure>
+      </li>
+
+      <li>
+        <h3 id="step-properties">Pass viewer properties</h3>
+        <p>
+          Pass what the app knows about the viewer as <code>properties</code>: a map from a name to a String, a number, a
+          Boolean or a list of Strings. A tale group can carry an audience rule, set in the dashboard under its targeting,
+          and the SDK shows the group only when the rule passes these values. The rule can test a value with
+          <code>eq</code>, <code>in</code>, <code>gt</code>, <code>contains</code>, <code>exists</code> and the other
+          operators listed on the <a routerLink="/targeting">Targeting</a> page.
+        </p>
+        <pre tabindex="0" role="region" aria-label="Viewer properties in the configuration"><code>{{ androidProperties }}</code></pre>
+        <p>
+          A name starts with a letter and uses letters, digits, <code>_</code>, <code>.</code> or <code>-</code>, up to 64
+          characters, and is case-sensitive. A map has at most 50 properties, a string at most 256 characters and a list at
+          most 50 items. An invalid entry is ignored. Dates go as epoch milliseconds.
+        </p>
+        <p>
+          Leave the properties out (<code>null</code>, the default) when the app passes none: every group's audience rule
+          then passes, as it does with no tags. An empty map means the app knows nothing about the viewer: a group whose
+          rule needs a value is then left out, while the negative conditions (<code>neq</code>, <code>notIn</code>,
+          <code>notExists</code>) pass.
+        </p>
+        <p>
+          A group shows only when its tags and its audience rule both pass. The properties stay on the device: the SDK
+          sends them in no request header, no URL and no analytics event. The rule itself is public, as the tag names are,
+          so keep private content out of rule values.
+        </p>
+        <p>
+          A view can use its own properties in code (there is no XML attribute for them). They replace the SDK's for that
+          view only:
+        </p>
+        <pre tabindex="0" role="region" aria-label="Viewer properties for one view"><code>{{ androidPropertiesView }}</code></pre>
+        <p>
+          A later <code>TaleartSdk.init</code> applies its properties on the next read of a zone: a zone already on screen
+          keeps the groups it shows until it reads again, as it does for tags. Setting a view's <code>properties</code>
+          reads that view's zone at once. The Compose <code>TaleartZone</code> has no properties of its own (see
+          <a routerLink="/reference/android-sdk">Not available natively yet</a>).
+        </p>
       </li>
 
       <li>
@@ -530,6 +571,8 @@ export class AndroidGuidePage {
   protected readonly manifestApplication = MANIFEST_APPLICATION;
   protected readonly androidHooks = ANDROID_HOOKS;
   protected readonly androidLocale = ANDROID_LOCALE;
+  protected readonly androidProperties = ANDROID_PROPERTIES;
+  protected readonly androidPropertiesView = ANDROID_PROPERTIES_VIEW;
   protected readonly androidFallback = ANDROID_FALLBACK;
   protected readonly androidFrequency = ANDROID_FREQUENCY;
   protected readonly androidAnalytics = ANDROID_ANALYTICS;
