@@ -92,6 +92,10 @@ class TaleartZoneController(
     var loaded: Boolean by mutableStateOf(false)
         private set
 
+    /** True while a read of the current inputs is in flight: a view with no zone yet shows its loading skeleton. */
+    var reading: Boolean by mutableStateOf(false)
+        private set
+
     /** The last read's failure, or null after a success or while inputs are missing. */
     var failure: ZoneResult.Failure? by mutableStateOf(null)
         private set
@@ -172,6 +176,7 @@ class TaleartZoneController(
             zone = null
             failure = null
             loaded = false
+            reading = false
             analyticsTarget = null
             readApiUrl = null
             return
@@ -184,6 +189,7 @@ class TaleartZoneController(
         // The viewer's external user ID travels in its own header, never in the URL (as the Web SDK).
         val externalUserIdHeader = encodeExternalUserIdHeader(TaleartSdk.config.externalUserId)
         load = scope.launch {
+            reading = true
             when (val result = client.fetchZone(api, ZoneRequest(key = key), externalUserIdHeader)) {
                 is ZoneResult.Success -> {
                     analyticsTarget = AnalyticsTarget(api, key)
@@ -191,10 +197,12 @@ class TaleartZoneController(
                     deliver(listener, event) { it.onLoaded(event) }
                     zone = withinFrequency(targeted(result.zone), key)
                     loaded = true
+                    reading = false
                 }
                 is ZoneResult.Failure -> {
                     zone = null
                     loaded = false
+                    reading = false
                     failure = result
                     analyticsTarget = null
                     println("TaleArt: ${result.message}")

@@ -2,7 +2,11 @@ package site.lempert.taleart.taller
 
 import site.lempert.taleart.sdk.FallbackMode
 import site.lempert.taleart.sdk.FrequencyRule
+import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.storage.InMemoryKeyValueStore
+import site.lempert.taleart.sdk.ui.BarLayout
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** The SDK's key-value storage on the device: SharedPreferences on Android, NSUserDefaults on iOS. */
 typealias KeyValueStore = site.lempert.taleart.sdk.storage.KeyValueStore
@@ -45,8 +49,10 @@ data class DebugSettings(val apiUrl: String, val zoneKey: String) {
  * without taps (the docs' screenshots). They are read from the same store as the settings, under `taller.*`
  * keys (Android also takes them as launch Intent extras, which win): `taller.autoOpenGroup` (the index of
  * the group the viewer opens on at start), `taller.autoOpenTale` (the tale in it, from 0), `taller.fallback`
- * (`none` or `message`), `taller.frequency` (see [frequencyRule]), `taller.locale` (the SDK's locale, BCP 47)
- * and `taller.layoutDirection` (`ltr` or `rtl`, `TaleartConfig.layoutDirection`). An unset key keeps the SDK's default.
+ * (`none` or `message`), `taller.frequency` (see [frequencyRule]), `taller.locale` (the SDK's locale, BCP 47),
+ * `taller.layoutDirection` (`ltr` or `rtl`, `TaleartConfig.layoutDirection`) and `taller.barLayout` (`ring`, `chip`,
+ * `poster` or `stack`: the bar layout the zone's bar is drawn in, whatever the zone's own setting). An unset key
+ * keeps the SDK's default.
  */
 data class TallerDebugOptions(
     val autoOpenGroup: Int? = null,
@@ -55,6 +61,7 @@ data class TallerDebugOptions(
     val frequency: FrequencyRule? = null,
     val locale: String = "",
     val layoutDirection: String? = null,
+    val barLayout: BarLayout? = null,
 ) {
     companion object {
         const val AUTO_OPEN_GROUP = "taller.autoOpenGroup"
@@ -63,6 +70,7 @@ data class TallerDebugOptions(
         const val FREQUENCY = "taller.frequency"
         const val LOCALE = "taller.locale"
         const val LAYOUT_DIRECTION = "taller.layoutDirection"
+        const val BAR_LAYOUT = "taller.barLayout"
 
         fun load(store: KeyValueStore, extras: Map<String, String> = emptyMap()): TallerDebugOptions {
             fun read(key: String): String? = (extras[key] ?: store.get(key))?.trim()?.takeIf { it.isNotEmpty() }
@@ -73,6 +81,7 @@ data class TallerDebugOptions(
                 frequency = read(FREQUENCY)?.let(::frequencyRule),
                 locale = read(LOCALE).orEmpty(),
                 layoutDirection = read(LAYOUT_DIRECTION)?.lowercase(),
+                barLayout = read(BAR_LAYOUT)?.let(::barLayoutNamed),
             )
         }
     }
@@ -84,4 +93,18 @@ fun frequencyRule(value: String): FrequencyRule? = when (value.trim().lowercase(
     "daily" -> FrequencyRule.Daily
     "weekly" -> FrequencyRule.Weekly
     else -> value.trim().toIntOrNull()?.takeIf { it in 1..50 }?.let { FrequencyRule.Count(it) }
+}
+
+/** A bar layout as the debug option names it (`ring`, `chip`, `poster` or `stack`, any case); null for anything else. */
+fun barLayoutNamed(value: String): BarLayout? = BarLayout.entries.firstOrNull { it.key == value.trim().lowercase() }
+
+/**
+ * The zone with its bar drawn in [layout]: the frame's `layout` setting replaced, the rest of the zone as delivered.
+ * A zone without a bar frame is returned as it is.
+ */
+fun DeliveryZone.withBarLayout(layout: BarLayout): DeliveryZone {
+    val frame = frame ?: return this
+    if (frame.type != "bar") return this
+    val settings = (frame.settings as? JsonObject).orEmpty() + ("layout" to JsonPrimitive(layout.key))
+    return copy(frame = frame.copy(settings = JsonObject(settings)))
 }

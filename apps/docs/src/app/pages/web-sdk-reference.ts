@@ -358,6 +358,11 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>banner.stopRotation</code></td><td>Stop automatic slide show</td></tr>
           <tr><td><code>banner.startRotation</code></td><td>Start automatic slide show</td></tr>
           <tr><td><code>bar.seen</code></td><td>&#123;name&#125;, seen</td></tr>
+          <tr><td><code>bar.story</code></td><td>&#123;count&#125; story</td></tr>
+          <tr><td><code>bar.stories</code></td><td>&#123;count&#125; stories</td></tr>
+          <tr><td><code>bar.newStory</code></td><td>&#123;count&#125; new story</td></tr>
+          <tr><td><code>bar.newStories</code></td><td>&#123;count&#125; new stories</td></tr>
+          <tr><td><code>bar.noNewStories</code></td><td>No new stories</td></tr>
           <tr><td><code>load.failed</code></td><td>Stories could not be loaded.</td></tr>
           <tr><td><code>load.retry</code></td><td>Try again</td></tr>
           <tr><td><code>links.newTab</code></td><td>(opens in a new tab)</td></tr>

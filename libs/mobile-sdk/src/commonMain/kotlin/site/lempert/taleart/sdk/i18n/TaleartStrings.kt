@@ -28,6 +28,11 @@ object TaleartStrings {
         "banner.startRotation" to "Start automatic slide show",
 
         "bar.seen" to "{name}, seen",
+        "bar.loading" to "Loading stories",
+        "bar.story" to "{count} story",
+        "bar.stories" to "{count} stories",
+        "bar.newStory" to "{count} new story",
+        "bar.newStories" to "{count} new stories",
 
         "load.failed" to "Stories could not be loaded.",
         "load.retry" to "Try again",

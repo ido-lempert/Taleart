@@ -140,8 +140,10 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
       <li>
         <h3 class="step-title" id="step-place-the-zone">Place the zone.</h3> Put one <code>&lt;taleart-view&gt;</code> where the zone should appear, with
-        its zone key. The element renders the zone's display (a bar of circles or a banner) and opens a group full
-        screen when a visitor taps it. Each zone on the page takes its own element and key.
+        its zone key. The element renders the zone's display (a bar or a banner) and opens a group full screen when a
+        visitor taps it. Each zone on the page takes its own element and key. The bar's layout (a ring, a chip, a poster
+        or a stack) is set in the dashboard's Display tab, not in the HTML; until the zone arrives the element shows a
+        loading skeleton of that layout (see <a routerLink="/zones-and-displays" fragment="bar-layouts">the layouts</a>).
         <pre tabindex="0" role="region" aria-label="The zone element"><code>{{ elementSample }}</code></pre>
         <figure>
           <img

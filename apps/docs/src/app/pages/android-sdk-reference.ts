@@ -5,6 +5,8 @@ import {
   ANDROID_MOBILE_COORDINATES,
   ANDROID_VIEW_MEMBERS,
   ANDROID_ZONE_PARAMS,
+  BAR_LAYOUTS,
+  BAR_SETTING_FIELDS,
   NATIVE_THEME_FIELDS,
   CONFIG_FIELDS,
   EVENT_FIELDS,
@@ -198,6 +200,57 @@ import {
       </table>
     </div>
 
+    <h2 id="bar">Bar settings</h2>
+    <p>
+      The bar display's settings, set in the dashboard on a bar zone's frame. A setting that is missing or not valid takes
+      its default. The layouts, and the settings each one ignores, are described in <a routerLink="/android-guide">the guide</a>
+      under Bar layouts.
+    </p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="bar-layouts-caption">
+      <table id="bar-layouts-table">
+        <caption id="bar-layouts-caption">Bar layouts</caption>
+        <thead>
+          <tr>
+            <th scope="col">Layout</th>
+            <th scope="col">Use</th>
+            <th scope="col">Ignored settings</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of barLayouts; track row.layout) {
+            <tr>
+              <td><code>{{ row.layout }}</code></td>
+              <td>{{ row.use }}</td>
+              <td>{{ row.ignored }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="bar-settings-caption">
+      <table id="bar-settings-fields">
+        <caption id="bar-settings-caption">Bar settings</caption>
+        <thead>
+          <tr>
+            <th scope="col">Field</th>
+            <th scope="col">Type</th>
+            <th scope="col">Default</th>
+            <th scope="col">Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of barSettings; track row.name) {
+            <tr>
+              <td><code>{{ row.name }}</code></td>
+              <td><code>{{ row.type }}</code></td>
+              <td>{{ row.def }}</td>
+              <td>{{ row.meaning }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
     <h2 id="listener">TaleartListener</h2>
     <p>
       The hooks. Implement the interface and override the methods you need; each default does nothing. A hook that throws
@@ -326,6 +379,8 @@ export class AndroidSdkReferencePage {
   protected readonly viewMembers = ANDROID_VIEW_MEMBERS;
   protected readonly zoneParams = ANDROID_ZONE_PARAMS;
   protected readonly themeFields = NATIVE_THEME_FIELDS;
+  protected readonly barLayouts = BAR_LAYOUTS;
+  protected readonly barSettings = BAR_SETTING_FIELDS;
   protected readonly hooks = LISTENER_HOOKS;
   protected readonly eventFields = EVENT_FIELDS;
   protected readonly stringKeys = STRING_KEYS;

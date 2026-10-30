@@ -11,13 +11,17 @@ import { recordAnalyticsEvent, type AnalyticsTarget } from './analytics';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
+  barLayoutOf,
   BAR_FRAME_TYPE,
   BAR_STYLES,
+  type BarLayout,
   COVER_MOTION_MS,
+  markBarSeen,
   prefersReducedMotion,
+  readBarSettings,
   REDUCED_MOTION_QUERY,
   renderBar,
-  setItemSeen,
+  renderBarSkeleton,
 } from './bar';
 import {
   checkFallback,
@@ -56,6 +60,8 @@ const ZONE_KEY_ATTR = 'zone-key';
 const LOCALE_ATTR = 'locale';
 const FALLBACK_ATTR = 'fallback';
 const FREQUENCY_ATTR = 'frequency';
+// The bar layout to draw the loading skeleton in, before the zone says which one it is (a hint: not observed).
+const LAYOUT_ATTR = 'layout';
 // The reading direction of this element: `ltr` or `rtl` overrides the page's, `auto` (or none) takes the page's or the SDK's `dir` option.
 const DIR_ATTR = 'dir';
 // `analytics="off"` turns the element's events off; any other value, or no attribute, leaves them to the SDK option.
@@ -189,6 +195,12 @@ function targeted(zone: DeliveryZone): DeliveryZone {
   };
 }
 
+// The groups a rendered item stands for: a bar item's `data-tale-group-ids` (a stack: every group it draws), else
+// the one group of its `data-tale-group-id` (a bar item's, or a banner slide's).
+function groupIdsOf(el: HTMLElement): string[] {
+  return (el.dataset['taleGroupIds'] ?? el.dataset['taleGroupId'] ?? '').split(' ').filter(Boolean);
+}
+
 // The ids of a zone's groups, as one string, to tell whether a render would change.
 function groupKey(zone: DeliveryZone): string {
   return zone.taleGroups.map((group) => group.id).join('\n');
@@ -304,6 +316,8 @@ export class TaleartElement extends ElementBase {
   private retargetOnClose = false;
   // The group whose view the frequency cap counted since the viewer opened: one view per group entered, not per tale.
   private viewCounted: string | null = null;
+  // The bar layout of the last zone this element showed: the loading skeleton keeps its shape across a reload.
+  private shownLayout: BarLayout | null = null;
   // This element's hooks (`hooks` property), checked and copied; null for none.
   private ownHooks: TaleartHooks | null = null;
   // The first 8 characters of the zone key of the last load: what hook events name of it.
@@ -635,6 +649,7 @@ export class TaleartElement extends ElementBase {
     this.impressed.clear();
     this.hookKeyPrefix = key.slice(0, KEY_PREFIX_LENGTH);
     if (!apiUrl || !key || !this.isConnected) return;
+    this.showSkeleton();
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
       const request = { key };
@@ -736,8 +751,26 @@ export class TaleartElement extends ElementBase {
     return { ...zone, taleGroups: zone.taleGroups.filter((group) => !capped.has(group.id)) };
   }
 
+  // While the zone loads, the bar's loading skeleton: the footprint of the bar, in the layout the `layout`
+  // attribute names or else the last zone this element showed (the ring by default). It is replaced by the
+  // zone's display, or by nothing, when the response comes.
+  private showSkeleton(): void {
+    const layout = barLayoutOf(this.getAttribute(LAYOUT_ATTR)) ?? this.shownLayout ?? 'ring';
+    const themed = document.createElement('div');
+    themed.className = 'taleart';
+    this.themed = { element: themed, configName: this.zone, theme: undefined };
+    this.applyDirection();
+    applyTheme(themed, undefined, getConfig().theme, zoneThemes.get(this.zone) ?? {}, this.themeOverride);
+    const style = document.createElement('style');
+    style.textContent = THEME_SCHEME_STYLES + BAR_STYLES;
+    themed.replaceChildren(renderBarSkeleton(layout));
+    this.root.replaceChildren(style, themed);
+  }
+
   // Renders the zone's display (AD-17) when the SDK knows its type; unknown types are skipped (AD-5).
   private render(input: DeliveryZone, focusGroup: string | null, configName: string): void {
+    // Takes the loading skeleton off, whatever this render shows (nothing, for a zone with no display).
+    this.root.replaceChildren();
     this.pendingFocus = null;
     this.renderedKey = groupKey(input);
     const zone = this.withinFrequency(input, configName);
@@ -784,7 +817,7 @@ export class TaleartElement extends ElementBase {
     themed.className = 'taleart';
     this.themed = { element: themed, configName, theme: zone.theme };
     this.retheme();
-    let barItems: Map<string, HTMLButtonElement> | null = null;
+    let bar: HTMLElement | null = null;
     // The display's item or slide of the group shown last takes focus back when the viewer closes.
     let view: DisplayView | null = null;
     const viewer = new LazyTaleViewer(themed, zone.taleGroups, {
@@ -794,8 +827,7 @@ export class TaleartElement extends ElementBase {
           this.viewCounted = groupId;
           recordView(groupId);
         }
-        const item = barItems?.get(groupId);
-        if (item) setItemSeen(item, names.get(groupId) ?? '', true, t);
+        if (bar) markBarSeen(bar, groupId, names.get(groupId) ?? '', t);
       },
       onPresented: (groupId) => {
         const group = groupRef(zone, groupId);
@@ -858,21 +890,23 @@ export class TaleartElement extends ElementBase {
 
     if (frame?.type === BAR_FRAME_TYPE) {
       // Cover pictures are held until the first content is laid out (loadFirstContent).
-      const bar = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings, undefined, t));
+      const list = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings, undefined, t));
+      bar = list;
+      this.shownLayout = readBarSettings(frame.settings).layout ?? null;
+      // An item stands for the groups in its `data-tale-group-ids` (a stack: all of them).
       const items = new Map<string, HTMLButtonElement>();
-      for (const button of bar.querySelectorAll<HTMLButtonElement>('button.item')) {
-        items.set(button.dataset['taleGroupId'] ?? '', button);
+      for (const button of list.querySelectorAll<HTMLButtonElement>('button.item')) {
+        for (const id of (button.dataset['taleGroupIds'] ?? '').split(' ')) if (id) items.set(id, button);
       }
-      barItems = items;
       view = {
-        element: bar,
+        element: list,
         focus: (groupId) => {
-          const item = groupId === null ? bar.querySelector<HTMLButtonElement>('button.item') : items.get(groupId);
+          const item = groupId === null ? list.querySelector<HTMLButtonElement>('button.item') : items.get(groupId);
           item?.focus();
           return !!item;
         },
       };
-      bar.addEventListener('click', (e) => {
+      list.addEventListener('click', (e) => {
         const item = (e.target as Element | null)?.closest<HTMLButtonElement>('button.item');
         if (item) open(item.dataset['taleGroupId'] ?? '');
       });
@@ -936,19 +970,21 @@ export class TaleartElement extends ElementBase {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           const target = entry.target as HTMLElement;
-          const groupId = target.dataset['taleGroupId'] ?? '';
           observer.unobserve(target);
-          if (!groupId || this.impressed.has(groupId)) continue;
-          this.impressed.add(groupId);
-          const group = groupRef(zone, groupId);
-          emit(this, 'groupImpression', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug, group });
-          this.track('impression', group);
+          // A bar item counts its groups (a stack: every group it draws); a banner slide, its one group.
+          for (const groupId of groupIdsOf(target)) {
+            if (this.impressed.has(groupId)) continue;
+            this.impressed.add(groupId);
+            const group = groupRef(zone, groupId);
+            emit(this, 'groupImpression', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug, group });
+            this.track('impression', group);
+          }
         }
       },
       { threshold: 0.5 },
     );
-    for (const node of element.querySelectorAll<HTMLElement>('[data-tale-group-id]')) {
-      if (!this.impressed.has(node.dataset['taleGroupId'] ?? '')) observer.observe(node);
+    for (const node of element.querySelectorAll<HTMLElement>('[data-tale-group-id], [data-tale-group-ids]')) {
+      if (groupIdsOf(node).some((groupId) => !this.impressed.has(groupId))) observer.observe(node);
     }
     this.impressionObserver = observer;
   }

@@ -133,6 +133,36 @@ Properties without an attribute:
 
 Methods: `retry()` reads the zone again after a failed load (see Load failures).
 
+## Bar layouts
+
+A bar zone draws its groups in one of four layouts. The zone's Display tab in the dashboard sets the layout (the frame
+setting `layout`), with the shape, size, titles, alignment and gap; the HTML sets none of them. A layout reads only the
+settings it uses, and the dashboard dims the rest:
+
+| Layout | Look | Settings it does not use |
+| --- | --- | --- |
+| `ring` (default) | A round cover in a gradient ring that turns until the visitor has seen the group; the seen ring is static. With the shape `rounded-square`, square covers. | None |
+| `chip` | A pill with a round cover of the size, the name, and a dot for each group not yet seen. The row wraps onto more lines. | `shape` |
+| `poster` | A card of 112 × 188 px: the cover full bleed, a scrim under the name and the count of stories, one segment per tale (at most 12) along the top. An unseen card has the accent border; a card lifts on hover. | `shape`, `size` |
+| `stack` | Up to four overlapping covers, a `+N` bubble for the rest, and the count of new stories (`6 new stories`), in one row. One button opens the first unseen group. | `shape`, `showTitles`, `alignment`, `gap` (`size` applies) |
+
+Each item is a button named by its group, and the seen state is announced with the group's name (`bar.seen`). The
+arrow keys move focus through the items in visual order (in a right-to-left page, Left goes forward); Home and End go
+to the first and the last. Enter or Space opens the group. On a right-to-left page the layouts turn with the page: the
+poster's tilt and the chip's dot follow the reading direction.
+
+The `groupImpression` event fires once per group, when its item is half on screen. A stack draws every group it stands
+for, so each of its groups counts once while the stack is half on screen.
+
+While the zone loads, the element shows a loading skeleton in the same space as the bar, so the page does not move when
+the zone arrives. The skeleton takes the layout from the element's `layout` attribute (`ring`, `chip`, `poster` or
+`stack`), else from the layout the element last showed, else the ring. The attribute is a hint for the skeleton only:
+the layout is the dashboard's, and the attribute is not observed (a change of it does not read the zone again). A zone
+that fails, or has no display, takes the skeleton away as before.
+
+Every motion stops for a visitor who asks for reduced motion: the ring turns, the items enter, the skeleton shimmers, and
+a poster lifts at once instead of over half a second.
+
 ## Configuration: `Taleart.init`
 
 The script sets `globalThis.Taleart`, with the functions below. `init(config)` (also a named export of the module) sets
@@ -226,6 +256,11 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 | `banner.stopRotation` | Stop automatic slide show |
 | `banner.startRotation` | Start automatic slide show |
 | `bar.seen` | {name}, seen |
+| `bar.story` | {count} story |
+| `bar.stories` | {count} stories |
+| `bar.newStory` | {count} new story |
+| `bar.newStories` | {count} new stories |
+| `bar.noNewStories` | No new stories |
 | `load.failed` | Stories could not be loaded. |
 | `load.retry` | Try again |
 | `links.newTab` |  (opens in a new tab) |
@@ -591,7 +626,8 @@ What the host page does:
   <link rel="preconnect" href="https://api.example.com" crossorigin />
   <link rel="preconnect" href="https://api.example.com" />
   <style>
-    /* Reserve the display's height, so the page does not shift when it renders: 94 px for the default bar. */
+    /* Reserve the display's height, so the page does not shift when it renders: 94 px for the default ring bar (252 px for a
+       poster bar, 68 px for a stack, and 56 px less 4 px for each line of a chip bar). */
     taleart-view { display: block; min-height: 94px; }
   </style>
 </head>

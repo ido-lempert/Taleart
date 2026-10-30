@@ -470,6 +470,11 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'banner.stopRotation', english: 'Stop automatic slide show', note: 'The autoplay control, while it plays.' },
   { key: 'banner.startRotation', english: 'Start automatic slide show', note: 'The autoplay control, while it is paused.' },
   { key: 'bar.seen', english: '{name}, seen', note: 'A bar item that the viewer has shown.' },
+  { key: 'bar.loading', english: 'Loading stories', note: 'The bar’s loading skeleton, announced while the zone is read.' },
+  { key: 'bar.story', english: '{count} story', note: 'The poster layout’s caption for one tale.' },
+  { key: 'bar.stories', english: '{count} stories', note: 'The poster layout’s caption for a group’s tales.' },
+  { key: 'bar.newStory', english: '{count} new story', note: 'The stack layout’s caption for one unseen group.' },
+  { key: 'bar.newStories', english: '{count} new stories', note: 'The stack layout’s caption for the unseen groups.' },
   { key: 'load.failed', english: 'Stories could not be loaded.', note: 'The message of a failed read, with fallback = Message.' },
   { key: 'load.retry', english: 'Try again', note: 'The retry button under the message; it reads the zone again.' },
   { key: 'links.open', english: 'Open in browser', note: 'Native only: a link that leaves the app for the browser.' },
@@ -528,6 +533,31 @@ export const NATIVE_THEME_FIELDS: readonly FieldRow[] = [
   { name: 'liveColor', type: 'String?', def: 'null', meaning: '#rrggbb for the live badge, or the last ring colour.' },
   { name: 'successColor', type: 'String', def: '#047857', meaning: 'A right quiz answer; lightened on a dark card until it reads at 4.5:1.' },
   { name: 'errorColor', type: 'String', def: '#b91c1c', meaning: 'A wrong quiz answer; lightened on a dark card until it reads at 4.5:1.' },
+];
+
+/** One bar layout (the bar display’s `layout` setting): what it is for, and the settings it ignores. */
+export interface BarLayoutRow {
+  readonly layout: string;
+  readonly use: string;
+  readonly ignored: string;
+}
+
+/** The bar layouts, as the guides and the references list them (`BarLayout` in BarSettings.kt). */
+export const BAR_LAYOUTS: readonly BarLayoutRow[] = [
+  { layout: 'ring', use: 'The default. Each cover sits in a gradient ring with its title under it; the ring turns while a group is unseen and stays grey once it is seen.', ignored: 'None.' },
+  { layout: 'chip', use: 'A pill per group: a round cover, its title, and a dot while the group is unseen. The pills wrap onto more rows.', ignored: 'shape. The size sets the cover (28, 32 or 40 dp).' },
+  { layout: 'poster', use: 'A portrait card per group: the cover fills it, with the title and the tale count under a dark scrim, and a segment for each tale along the top.', ignored: 'shape and size. The card is 3:5 and has a fixed corner radius.' },
+  { layout: 'stack', use: 'The groups overlap in one collapsed button: up to four round covers and a +N bubble for the rest, with the count of unseen groups. The button opens the first unseen group.', ignored: 'shape, showTitles, alignment and gap. The size sets the covers (40, 48 or 56 dp).' },
+];
+
+/** The bar display’s settings, as the references list them (`BarSettings` in BarSettings.kt; the schema’s defaults). */
+export const BAR_SETTING_FIELDS: readonly FieldRow[] = [
+  { name: 'layout', type: 'BarLayout', def: 'Ring', meaning: 'ring, chip, poster or stack (see Bar layouts). A missing or unknown value is ring.' },
+  { name: 'shape', type: 'BarShape', def: 'Circle', meaning: 'circle or rounded-square: the ring’s and the cover’s shape.' },
+  { name: 'size', type: 'BarSize', def: 'Medium', meaning: 'small, medium or large: the cover’s size, 48, 64 or 80 dp in a ring.' },
+  { name: 'showTitles', type: 'Boolean', def: 'true', meaning: 'Shows each group’s title under its cover.' },
+  { name: 'alignment', type: 'BarAlignment', def: 'Start', meaning: 'start or center: where the items sit when they do not fill the row.' },
+  { name: 'gap', type: 'Int', def: '12', meaning: 'Space between items in dp, from 4 to 24.' },
 ];
 
 /** TaleartView members (checked for their declarations in TaleartView.kt). */

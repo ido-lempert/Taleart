@@ -11,7 +11,7 @@ import { RouterLink } from '@angular/router';
 <h2 id="create-a-zone">Create a zone</h2>
 <p>Open <strong>Zones</strong>, then <strong>New zone</strong>. Give it a name. The slug is made from the name if you leave it empty. Pick a template:</p>
 <ul>
-<li><strong>Stories bar</strong> - a row of circles, one per tale group.</li>
+<li><strong>Stories bar</strong> - a row with one item per tale group, in the layout you pick (a ring by default).</li>
 <li><strong>Promo banner</strong> - one wide card that cycles through tale groups.</li>
 <li><strong>Blank</strong> - a zone with no display yet. Choose one later on the Display tab.</li>
 </ul>
@@ -58,7 +58,58 @@ import { RouterLink } from '@angular/router';
 </tbody>
 </table></div>
 <p>The layout sets how each group is drawn. <code>ring</code> is the default: a round cover in a ring that spins until the visitor has seen it. <code>chip</code> is a round cover beside its title in a pill; the shape is ignored. <code>poster</code> is a tall card with the title over the cover; the shape and the size are ignored. <code>stack</code> overlaps the items in one collapsed row; only the size applies. The dashboard dims the settings a layout does not use.</p>
-<p>The new layouts and variants are set here now. The SDKs draw them from the next releases; until then a zone shows the look it had before, whatever you set.</p>
+<h4 id="bar-layouts">Layouts</h4>
+<p>The four layouts draw the same groups, and each one is set here, in the zone's Display tab. The web SDK draws all four. The table says when each one fits and which settings it leaves out.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
+<thead>
+<tr>
+<th>Layout</th>
+<th>When to use it</th>
+<th>Settings it does not use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ring</code> (default)</td>
+<td>The main row of a page: round covers in a ring that spins until the visitor has seen them.</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>ring</code> with the shape <strong>Rounded square</strong></td>
+<td>The same row with square covers, for a page whose pictures are square.</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>chip</code></td>
+<td>Headers and navigation: a small round cover and the name in a pill. The row wraps onto more lines.</td>
+<td>Shape</td>
+</tr>
+<tr>
+<td><code>poster</code></td>
+<td>Editorial and desktop pages: a tall card with the cover full bleed, the name over it and one segment per tale.</td>
+<td>Shape and size</td>
+</tr>
+<tr>
+<td><code>stack</code></td>
+<td>A tight space, such as a sticky header: the covers overlap in one row, with the number of new stories.</td>
+<td>Shape, show titles, alignment and gap (the size still applies)</td>
+</tr>
+</tbody>
+</table></div>
+<p>The ring, as the default and in the rounded square:</p>
+<p><img class="guide-img" src="images/web-bar-layout-ring.png" width="1120" height="284" alt="The ring layout: round covers in a gradient ring, each with its group name under it." /></p>
+<p><img class="guide-img" src="images/web-bar-layout-tile.png" width="1120" height="284" alt="The ring layout with the shape set to rounded square: square covers in a gradient ring, each with its name under it." /></p>
+<p>The chip, which wraps onto a second line when the row is full:</p>
+<p><img class="guide-img" src="images/web-bar-layout-chip.png" width="1120" height="312" alt="The chip layout: each group a pill with a round cover and its name, and a dot on the groups not yet seen. The row wraps onto a second line." /></p>
+<p>The poster, with a segment per tale along the top of each card and the number of stories at its foot:</p>
+<p><img class="guide-img" src="images/web-bar-layout-poster.png" width="1120" height="600" alt="The poster layout: tall cards with the cover full bleed, the name and the number of stories over a dark band, and a segment per tale along the top of each card." /></p>
+<p>The stack, collapsed into one row: the covers overlap, a bubble counts the groups not shown, and the text says how many stories are new. A visitor opens the first new group with one tap:</p>
+<p><img class="guide-img" src="images/web-bar-layout-stack.png" width="1120" height="284" alt="The stack layout: four overlapping round covers, a +2 bubble for the two groups not shown, and the text 6 new stories, in one row." /></p>
+<p>On a right-to-left page the layouts turn around with the page. The poster starts at the right, and the chip's cover sits at the right of its pill:</p>
+<p><img class="guide-img" src="images/web-bar-layout-poster-rtl.png" width="1120" height="600" alt="The poster layout on a Hebrew page: the cards start at the right, and the names and counts are right-aligned." /></p>
+<p><img class="guide-img" src="images/web-bar-layout-chip-rtl.png" width="1120" height="312" alt="The chip layout on a Hebrew page: the round cover sits at the right of each pill, the dot at the left, and the rows fill from the right." /></p>
+<p>While a zone loads, the page shows a loading skeleton of the bar in the same space, so nothing moves when the zone arrives. The skeleton is grey and still under reduced motion. The layout is not known until the zone arrives, so the element draws the skeleton in the layout its <code>layout</code> attribute names (<code>ring</code>, <code>chip</code>, <code>poster</code> or <code>stack</code>), else the layout it last showed, else the ring. The attribute only shapes the skeleton; the dashboard sets the layout.</p>
+<p><img class="guide-img" src="images/web-bar-layout-loading.png" width="1120" height="284" alt="The loading skeleton: five grey circles, each with a grey bar under it, in the footprint of the ring layout." /></p>
 <p>The default bar is round, medium and titled. Here the shape is <strong>Rounded square</strong>, titles are off and the items sit in the centre:</p>
 <p><img class="guide-img" src="images/web-display-bar-square.png" width="1120" height="284" alt="A stories bar with four rounded-square covers centred in the row, with no titles under them." /></p>
 <p>Here the size is <strong>Large</strong> and the gap is 20 pixels:</p>

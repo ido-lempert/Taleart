@@ -104,6 +104,7 @@ fun App(
                 fallback = options.fallback,
                 frequency = options.frequency,
                 layoutDirection = options.layoutDirection,
+                strings = TallerStrings.bar,
             ),
         )
         controller.configure(with.apiUrl, with.zoneKey)
@@ -212,14 +213,28 @@ private fun HomeScreen(
     Column {
         // The zone's display as a host app shows it: the SDK's own, which also shows the fallback placeholder.
         if (settings.complete) {
-            TaleartZone(
-                controller,
-                modifier = Modifier.testTag("zone-display"),
-                onGroupClick = { tapped = it.name },
-                seenGroups = seen,
-                // The host's title colour and font, as the web bar inherits the page's.
-                titleStyle = TextStyle(color = LocalContentColor.current, fontFamily = LocalTextStyle.current.fontFamily),
-            )
+            // The host's title colour and font, as the web bar inherits the page's.
+            val titleStyle = TextStyle(color = LocalContentColor.current, fontFamily = LocalTextStyle.current.fontFamily)
+            // The debug option draws the zone's bar in its layout; without it (or before the zone reads) the controller shows it.
+            val shown = options.barLayout?.let { layout -> zone?.withBarLayout(layout) }
+            if (shown != null) {
+                TaleartZone(
+                    shown,
+                    modifier = Modifier.testTag("zone-display"),
+                    onGroupClick = { tapped = it.name },
+                    seenGroups = seen,
+                    titleStyle = titleStyle,
+                    zoneKey = settings.zoneKey,
+                )
+            } else {
+                TaleartZone(
+                    controller,
+                    modifier = Modifier.testTag("zone-display"),
+                    onGroupClick = { tapped = it.name },
+                    seenGroups = seen,
+                    titleStyle = titleStyle,
+                )
+            }
         }
         if (zone != null) {
             tapped?.let { Text("Tapped: $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("tapped")) }

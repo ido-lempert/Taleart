@@ -28,6 +28,12 @@ export const DEFAULT_STRINGS = {
   'banner.startRotation': 'Start automatic slide show',
 
   'bar.seen': '{name}, seen',
+  // A poster's count of tales, and a collapsed stack's count of unseen groups (`{count}` is the number).
+  'bar.story': '{count} story',
+  'bar.stories': '{count} stories',
+  'bar.newStory': '{count} new story',
+  'bar.newStories': '{count} new stories',
+  'bar.noNewStories': 'No new stories',
 
   'load.failed': 'Stories could not be loaded.',
   'load.retry': 'Try again',

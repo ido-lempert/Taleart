@@ -9,6 +9,8 @@
 // With --audience, only the audience shots are written (web-audience-*.png): a bar and a banner for two viewers.
 // With --theme, only the colour-scheme pair is written (web-theme-light.png, web-theme-dark.png): the same bar on a light
 // and a dark device (colorScheme light and dark, a dark host page), with the theme left on `auto`.
+// With --bar-layouts, only the bar layout shots are written (web-bar-layout-*.png): each layout of the bar, a rounded-square
+// ring, the loading skeleton (a stand-in that answers late), and the chip and the poster on a right-to-left page.
 import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
@@ -19,6 +21,7 @@ const REACTION_ONLY = process.argv.includes('--reaction');
 const AUDIENCE_ONLY = process.argv.includes('--audience');
 const COMPONENTS_ONLY = process.argv.includes('--components');
 const THEME_ONLY = process.argv.includes('--theme');
+const BAR_LAYOUTS_ONLY = process.argv.includes('--bar-layouts');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
 const imagesDir = join(root, 'apps/docs/public/images');
@@ -126,8 +129,26 @@ const HEBREW_GROUPS = [
   { id: 'g-new', name: 'חדש' },
   { id: 'g-winter', name: 'חורף' },
   { id: 'g-trips', name: 'טיולים' },
+  { id: 'g-food', name: 'אוכל' },
+  { id: 'g-music', name: 'מוזיקה' },
 ];
-const HEBREW_TALES = { 'Beach': 'חוף', 'Sunset': 'שקיעה', 'Shoes': 'נעליים', 'Snow': 'שלג', 'Cabin': 'צריף', 'Mountains': 'הרים' };
+const HEBREW_TALES = { 'Beach': 'חוף', 'Sunset': 'שקיעה', 'Shoes': 'נעליים', 'Snow': 'שלג', 'Cabin': 'צריף', 'Mountains': 'הרים', 'Dinner': 'ארוחה', 'Concert': 'קונצרט', 'Stage': 'במה', 'Dance': 'ריקוד' };
+// The six groups of the bar layouts: the four above, and two more, so the stack shows its "+2" bubble and a poster has
+// three segments.
+const LAYOUT_GROUPS = [
+  ...GROUPS,
+  { id: 'g-food', name: 'Food', cover: null, tales: [{ id: 't-dinner', title: 'Dinner', media: 'cabin' }] },
+  {
+    id: 'g-music',
+    name: 'Music',
+    cover: null,
+    tales: [
+      { id: 't-concert', title: 'Concert', media: 'sunset' },
+      { id: 't-stage', title: 'Stage', media: 'beach' },
+      { id: 't-dance', title: 'Dance', media: 'shoes' },
+    ],
+  },
+];
 
 // The local server's origin, set once it listens: the SDK takes only absolute media URLs.
 let ORIGIN = '';
@@ -148,6 +169,14 @@ const KEYS = {
   barLarge: 'tak_DemoBarLargeKey00000001',
   audienceBar: 'tak_DemoAudienceBarKey0000000',
   audienceBanner: 'tak_DemoAudienceBannerKey0000',
+  layoutRing: 'tak_DemoLayoutRingKey000000001',
+  layoutTile: 'tak_DemoLayoutTileKey000000001',
+  layoutChip: 'tak_DemoLayoutChipKey000000001',
+  layoutPoster: 'tak_DemoLayoutPosterKey0000001',
+  layoutStack: 'tak_DemoLayoutStackKey000000001',
+  layoutLoading: 'tak_DemoLayoutLoadingKey0000001',
+  hebrewChip: 'tak_DemoHebrewChipKey00000000001',
+  hebrewPoster: 'tak_DemoHebrewPosterKey0000001',
 };
 // Display settings per sample zone (a missing field takes its default); the banners stay still for the shots.
 const SETTINGS = {
@@ -157,6 +186,15 @@ const SETTINGS = {
   bannerPlain: { autoplay: false, showDots: false },
   barSquare: { shape: 'rounded-square', showTitles: false, alignment: 'center' },
   barLarge: { size: 'large', gap: 20 },
+  // The bar layouts: the ring (the default look), the rounded-square ring, a chip, a poster, a collapsed stack.
+  layoutRing: { layout: 'ring' },
+  layoutTile: { layout: 'ring', shape: 'rounded-square' },
+  layoutChip: { layout: 'chip' },
+  layoutPoster: { layout: 'poster' },
+  layoutStack: { layout: 'stack' },
+  layoutLoading: { layout: 'ring' },
+  hebrewChip: { layout: 'chip' },
+  hebrewPoster: { layout: 'poster' },
 };
 // Not in KEYS: the stand-in refuses it, so a zone with this key cannot load (the failure shots).
 const REFUSED_KEY = 'tak_RevokedDemoKey00000000001';
@@ -203,12 +241,13 @@ const AUDIENCE_KINDS = { audienceBar: 'bar', audienceBanner: 'banner' };
 
 function zoneFor(kind) {
   const frameType = kind.startsWith('banner') ? 'banner' : 'bar';
+  const groups = kind.startsWith('layout') ? LAYOUT_GROUPS : GROUPS;
   return {
     id: 'z-home-top',
     name: 'Home – top',
     slug: 'home-top',
     frame: { id: 'f-home-top', type: frameType, settings: SETTINGS[kind] ?? {} },
-    taleGroups: GROUPS.map((g) => ({
+    taleGroups: groups.map((g) => ({
       id: g.id,
       name: g.name,
       cover: null,
@@ -266,7 +305,18 @@ const HEBREW_SCRIPT = `<script type="module">
   import { init } from '/sdk/v1/taleart.js';
   init({
     locale: 'he',
-    strings: { he: { 'viewer.close': 'סגור', 'viewer.nextGroup': 'הבאה', 'viewer.previousGroup': 'הקודמת' } },
+    strings: {
+      he: {
+        'viewer.close': 'סגור',
+        'viewer.nextGroup': 'הבאה',
+        'viewer.previousGroup': 'הקודמת',
+        'bar.story': '{count} סיפור',
+        'bar.stories': '{count} סיפורים',
+        'bar.newStory': '{count} סיפור חדש',
+        'bar.newStories': '{count} סיפורים חדשים',
+        'bar.noNewStories': 'אין סיפורים חדשים',
+      },
+    },
   });
 </script>`;
 
@@ -293,6 +343,15 @@ const HOSTS = {
       body: `<div style="font: 600 20px system-ui, sans-serif; margin: 0 0 14px">Home</div>
 <taleart-view zone-key="${REFUSED_KEY}" fallback="message"></taleart-view>`,
     }),
+  // The bar layouts (--bar-layouts): one host page per layout, the loading stand-in, and the Hebrew pages (right to left).
+  '/layout-ring.html': () => page({ kind: 'layoutRing' }),
+  '/layout-tile.html': () => page({ kind: 'layoutTile' }),
+  '/layout-chip.html': () => page({ kind: 'layoutChip' }),
+  '/layout-poster.html': () => page({ kind: 'layoutPoster' }),
+  '/layout-stack.html': () => page({ kind: 'layoutStack' }),
+  '/layout-loading.html': () => page({ kind: 'layoutLoading' }),
+  '/he-chip.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrewChip', script: HEBREW_SCRIPT }),
+  '/he-poster.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrewPoster', script: HEBREW_SCRIPT }),
   '/reaction.html': () => page({ kind: 'reaction' }),
   '/components.html': () => page({ kind: 'components' }),
   '/banner-wide.html': () => page({ kind: 'banner31' }),
@@ -304,6 +363,19 @@ const HOSTS = {
   '/he.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrew', script: HEBREW_SCRIPT }),
   '/rtl-banner.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrewBanner', script: HEBREW_SCRIPT }),
 };
+
+// The bar layouts in Hebrew: the zone of a layout kind (`layoutChip`, `layoutPoster`) with its groups and tales in Hebrew.
+function localisedLayoutZone(kind) {
+  const zone = zoneFor(kind === 'hebrewChip' ? 'layoutChip' : 'layoutPoster');
+  zone.name = 'הבית – למעלה';
+  zone.slug = 'home-top';
+  zone.taleGroups = zone.taleGroups.map((g) => ({
+    ...g,
+    name: HEBREW_GROUPS.find((h) => h.id === g.id)?.name ?? g.name,
+    tales: g.tales.map((t) => ({ ...t, title: HEBREW_TALES[t.title] ?? t.title })),
+  }));
+  return zone;
+}
 
 // The sample zone in Hebrew, as a bar (`bar`) or a banner (`banner`).
 function localisedZone(frame = 'bar') {
@@ -669,6 +741,9 @@ async function readBody(req) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+// Responses held open for the loading shot; they are dropped when the run ends.
+const held = new Set();
+
 async function startServer() {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -684,7 +759,9 @@ async function startServer() {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       const kind = Object.keys(KEYS).find((k) => KEYS[k] === key);
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
-      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'hebrewBanner' ? localisedZone('banner') : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
+      // The loading stand-in: the zone of this key is never answered, so the page keeps its loading skeleton.
+      if (kind === 'layoutLoading') return void held.add(res);
+      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'hebrewBanner' ? localisedZone('banner') : kind === 'hebrewChip' || kind === 'hebrewPoster' ? localisedLayoutZone(kind) : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
       return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(zone));
     }
     if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
@@ -773,6 +850,48 @@ async function themeShots(browser, origin, written) {
   }
 }
 
+// The bar layouts (epic end-user redesign P4): each layout as a host page places it, a rounded-square ring, the loading
+// skeleton frozen (reduced motion stops its shimmer; the stand-in never answers), and the chip and the poster on a
+// right-to-left page. Each shot waits for the layout's items and for their entrance to finish.
+async function barLayoutShots(browser, origin, written) {
+  // A layout's items are there once their zone answered: the network is idle then. The loading shot's zone never
+  // answers, so it waits for the skeleton alone.
+  const shot = async (context, path, name, wait, answered = true) => {
+    const p = await context.newPage();
+    await p.goto(`${origin}${path}`);
+    await p.waitForFunction(
+      (sel) => !!document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel),
+      wait,
+      { timeout: 15_000 },
+    );
+    if (answered) await p.waitForLoadState('networkidle');
+    await p.waitForTimeout(answered ? 1200 : 300);
+    await p.locator('main').screenshot({ path: join(imagesDir, name) });
+    written.push(name);
+    await p.close();
+  };
+  const desktop = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'en-US' });
+  const rtl = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'he-IL' });
+  const still = await browser.newContext({
+    viewport: { width: 560, height: 360 },
+    deviceScaleFactor: 2,
+    locale: 'en-US',
+    reducedMotion: 'reduce',
+  });
+  try {
+    await shot(desktop, '/layout-ring.html', 'web-bar-layout-ring.png', 'button.item');
+    await shot(desktop, '/layout-tile.html', 'web-bar-layout-tile.png', 'button.item');
+    await shot(desktop, '/layout-chip.html', 'web-bar-layout-chip.png', 'button.chip');
+    await shot(desktop, '/layout-poster.html', 'web-bar-layout-poster.png', 'button.poster');
+    await shot(desktop, '/layout-stack.html', 'web-bar-layout-stack.png', 'button.stack');
+    await shot(rtl, '/he-poster.html', 'web-bar-layout-poster-rtl.png', 'button.poster');
+    await shot(rtl, '/he-chip.html', 'web-bar-layout-chip-rtl.png', 'button.chip');
+    await shot(still, '/layout-loading.html', 'web-bar-layout-loading.png', 'ul.skeleton', false);
+  } finally {
+    for (const context of [desktop, rtl, still]) await context.close();
+  }
+}
+
 async function main() {
   await mkdir(imagesDir, { recursive: true });
   const { server, origin } = await startServer();
@@ -787,6 +906,10 @@ async function main() {
     }
     if (THEME_ONLY) {
       await themeShots(browser, origin, written);
+      return;
+    }
+    if (BAR_LAYOUTS_ONLY) {
+      await barLayoutShots(browser, origin, written);
       return;
     }
     const ready = (p, selector) =>
@@ -1019,6 +1142,7 @@ async function main() {
     written.push('web-shot-promo-copied.png');
   } finally {
     await browser.close();
+    for (const response of held) response.destroy();
     server.close();
   }
   console.log(`wrote ${written.join(', ')} to ${imagesDir}`);

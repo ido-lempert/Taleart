@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
+  BAR_LAYOUTS,
   NATIVE_STYLES,
   NOT_YET_NATIVE,
   SWIFT_ANALYTICS,
@@ -103,7 +104,7 @@ import {
             width="415"
             height="900"
             loading="lazy"
-            alt="Screenshot of the TaleArt sample app on iOS: a bar of three round covers with group names under them (Summer sale, Staff picks and a Hebrew group), below the app's title and Settings button, above a list of the zone's groups."
+            alt="Screenshot of the TaleArt sample app on iOS: a bar of three round covers in gradient rings, with Hebrew group names under them (קיץ בים, חורף בעיר and טיול בהרים), below the app’s title and Settings button, above a list of the zone’s groups."
           />
           <figcaption class="muted">
             The bar in the TaleArt sample app (taller) on iOS, a real screenshot. The list below it is the sample app's own
@@ -284,7 +285,7 @@ import {
         width="415"
         height="900"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on iOS with a frequency cap of once, before any view: the zone bar shows three round covers, Summer, Sale and Your voice."
+        alt="Screenshot of the TaleArt sample app on iOS with a frequency cap of once, before any view: the zone bar shows three round covers in gradient rings, with the group names קיץ בים, חורף בעיר and טיול בהרים under them."
       />
       <figcaption class="muted">
         The zone bar before the viewer has opened a group, with the cap set to once (a real screenshot).
@@ -296,10 +297,88 @@ import {
         width="415"
         height="900"
         loading="lazy"
-        alt="Screenshot of the same TaleArt sample app on iOS after the Summer group was viewed once and the app opened again: the zone bar shows only Sale and Your voice."
+        alt="Screenshot of the same TaleArt sample app on iOS after the group קיץ בים was viewed once and the app opened again: the zone bar shows only two covers, חורף בעיר and טיול בהרים."
       />
       <figcaption class="muted">
-        The same zone after the viewer had opened the Summer group once: the group has left the bar (a real screenshot).
+        The same zone after the viewer had opened the first group, קיץ בים, once: the group has left the bar (a real screenshot).
+      </figcaption>
+    </figure>
+
+    <h2 id="bar-layouts">Bar layouts</h2>
+    <p>
+      A bar zone draws its groups in one of four layouts, set by the bar's <code>layout</code> setting in the dashboard.
+      Ring is the default. The other bar settings (shape, size, titles, alignment and gap) apply where the table says so,
+      and the rest are ignored. While the zone is read, the bar shows a loading skeleton in the footprint it had last, so
+      the page does not move when the groups arrive. The skeleton is announced as busy, and it stands still under reduced
+      motion.
+    </p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="ios-bar-layouts-caption">
+      <table>
+        <caption id="ios-bar-layouts-caption">The bar layouts and the settings each one ignores</caption>
+        <thead>
+          <tr>
+            <th scope="col">Layout</th>
+            <th scope="col">Use</th>
+            <th scope="col">Ignored settings</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of barLayouts; track row.layout) {
+            <tr>
+              <td><code>{{ row.layout }}</code></td>
+              <td>{{ row.use }}</td>
+              <td>{{ row.ignored }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-bar-ring.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on iOS with the bar in the ring layout: three round covers in gradient rings, with Hebrew group names under them, below the app’s title and Settings button."
+      />
+      <figcaption class="muted">
+        The ring layout, the default. The sample app (taller) sets the layout with its <code>taller.barLayout</code> debug option; a real screenshot.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-bar-chip.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on iOS with the bar in the chip layout: three pills, each with a round cover, a Hebrew group name and a purple dot for a group not yet seen, two pills on the first row and one on the second."
+      />
+      <figcaption class="muted">
+        The chip layout, a real screenshot of the sample app (taller). The pills wrap onto as many rows as the width needs.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-bar-poster.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on iOS with the bar in the poster layout: portrait cards, each with its group’s picture, a white title and “2 stories” over a dark scrim, a bar for each tale along the top, and the third card cut off at the edge because the row scrolls sideways."
+      />
+      <figcaption class="muted">
+        The poster layout, a real screenshot of the sample app (taller). Each group in the sample zone has two tales.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-bar-stack.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on iOS with the bar in the stack layout: four overlapping round covers and a +1 bubble for the fifth group, with “5 new stories” under them."
+      />
+      <figcaption class="muted">
+        The stack layout, a real screenshot of the sample app (taller). The zone has five groups, so the fifth one is in the +1 bubble.
       </figcaption>
     </figure>
 
@@ -453,7 +532,7 @@ import {
         width="415"
         height="900"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app's bar on iOS with a Hebrew locale and right-to-left layout: three Hebrew group circles, the first group on the right, with their titles under them."
+        alt="Screenshot of the TaleArt sample app's bar on iOS with a Hebrew locale and right-to-left layout: three round covers in gradient rings with Hebrew group names under them, the first group on the right."
       />
       <figcaption class="muted">
         The bar with the Hebrew locale and <code>layoutDirection</code> set to <code>rtl</code>, a real screenshot of the
@@ -510,5 +589,6 @@ export class IosGuidePage {
   protected readonly swiftAnalytics = SWIFT_ANALYTICS;
   protected readonly swiftLayoutDirection = SWIFT_LAYOUT_DIRECTION;
   protected readonly swiftComponents = SWIFT_COMPONENTS;
+  protected readonly barLayouts = BAR_LAYOUTS;
   protected readonly notYet = NOT_YET_NATIVE;
 }

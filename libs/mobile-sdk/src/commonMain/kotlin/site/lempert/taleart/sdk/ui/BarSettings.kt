@@ -9,6 +9,13 @@ import kotlinx.serialization.json.longOrNull
 /** The display type the bar renders (AD-5), as `BAR_FRAME_TYPE` in the Web SDK. */
 const val BAR_FRAME_TYPE = "bar"
 
+/**
+ * How each tale group is drawn (`layout` in bar.schema.json): [Ring] the cover in a gradient ring, the default;
+ * [Chip] a round cover beside its title in a pill; [Poster] a tall card with the title over the cover; [Stack]
+ * the groups overlapping in one collapsed button.
+ */
+enum class BarLayout(val key: String) { Ring("ring"), Chip("chip"), Poster("poster"), Stack("stack") }
+
 /** How a bar cover is cut: `circle` or `rounded-square`. */
 enum class BarShape(val key: String) { Circle("circle"), RoundedSquare("rounded-square") }
 
@@ -29,6 +36,8 @@ data class BarSettings(
     val alignment: BarAlignment = BarAlignment.Start,
     /** Space between items in dp, from [GAP_MIN] to [GAP_MAX]. */
     val gap: Int = 12,
+    /** How each group is drawn; the others' settings it ignores are listed in bar.schema.json. */
+    val layout: BarLayout = BarLayout.Ring,
 ) {
     companion object {
         const val GAP_MIN = 4
@@ -46,6 +55,7 @@ data class BarSettings(
                 p.longOrNull ?: p.content.toDoubleOrNull()?.takeIf { it % 1.0 == 0.0 }?.toLong()
             }
             return BarSettings(
+                layout = BarLayout.entries.firstOrNull { it.key == text("layout") } ?: defaults.layout,
                 shape = BarShape.entries.firstOrNull { it.key == text("shape") } ?: defaults.shape,
                 size = BarSize.entries.firstOrNull { it.key == text("size") } ?: defaults.size,
                 showTitles = (s["showTitles"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull ?: defaults.showTitles,

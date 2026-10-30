@@ -112,9 +112,12 @@ fun TaleartZone(
         CompositionLocalProvider(LocalTaleartContext provides context) {
             val zone = controller.zone
             if (zone != null) {
+                RememberBarSettings(zone, controller.zoneKey)
                 ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
             } else if (controller.failure != null) {
                 FailurePlaceholder(fallback, onRetry = { controller.reload() })
+            } else if (controller.reading) {
+                ZoneLoading(controller.zoneKey, modifier, titleStyle)
             }
         }
     }
@@ -151,12 +154,35 @@ fun TaleartZone(
         CompositionLocalProvider(LocalTaleartContext provides context) {
             val zone = controller.zone
             if (zone != null) {
+                RememberBarSettings(zone, controller.zoneKey)
                 ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
             } else if (controller.failure != null) {
                 FailurePlaceholder(fallback, onRetry = { controller.reload() })
+            } else if (controller.reading) {
+                ZoneLoading(controller.zoneKey, modifier, titleStyle)
             }
         }
     }
+}
+
+// The bar's settings of a zone on screen, kept for its loading skeleton (see [LastBarSettings]).
+@Composable
+private fun RememberBarSettings(zone: DeliveryZone, zoneKey: String) {
+    val frame = zone.frame ?: return
+    if (frame.type != BAR_FRAME_TYPE) return
+    SideEffect { LastBarSettings.remember(zoneKey, BarSettings.read(frame.settings)) }
+}
+
+// A zone being read: the bar's loading skeleton, in the footprint the zone's bar last had (the ring's by default).
+@Composable
+private fun ZoneLoading(zoneKey: String, modifier: Modifier, titleStyle: TextStyle) {
+    BarSkeleton(
+        settings = LastBarSettings.of(zoneKey) ?: BarSettings(),
+        titleStyle = titleStyle,
+        translate = LocalTaleartContext.current.translate,
+        reducedMotion = rememberPrefersReducedMotion(),
+        modifier = modifier,
+    )
 }
 
 /**
