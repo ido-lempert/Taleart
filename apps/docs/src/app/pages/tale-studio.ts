@@ -64,6 +64,7 @@ import { RouterLink } from '@angular/router';
 </tbody>
 </table></div>
 <p>A link must be an absolute <code>http</code> or <code>https</code> URL of at most 2,048 characters.</p>
+<p>A poll's inspector has a <strong>View</strong> select. For the this-or-that and grid views, each option also has a colour, with a button to clear it.</p>
 <p><img class="guide-img" src="images/web-shot-elements.png" width="780" height="1400" alt="A tale in the viewer with display elements: the text Summer is here, a sun emoji, a thin white line made with a shape, a filled yellow button Shop the sale, an outlined button See all shoes and a Read the story swipe-up link pinned to the bottom." /></p>
 <p>The screenshot above shows how text, an emoji, a shape, two buttons and a swipe-up link look to a visitor in the viewer. Poll, quiz, rating, countdown, promo code and reaction have their own page: <a routerLink="/interactive-components">Interactive components</a>.</p>
 <h2 id="autosave-and-publish">Autosave and publish</h2>

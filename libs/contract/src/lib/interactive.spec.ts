@@ -60,6 +60,29 @@ describe('poll element type (epic interactive components R1, R2)', () => {
     expect(validate({ ...validPoll, color: '#ffffff' })).toBe(false);
   });
 
+  it('takes a view (default sticker) and an optional colour per option, without changing older polls', () => {
+    expect(validate({ ...validPoll, view: 'this-or-that' })).toBe(true);
+    for (const view of ['sticker', 'embed', 'this-or-that', 'grid', 'inline']) {
+      expect(validate({ ...validPoll, view })).toBe(true);
+    }
+    expect(validate({ ...validPoll, view: 'carousel' })).toBe(false);
+    expect(
+      validate({ ...validPoll, options: [{ id: 'tea', label: 'Tea', color: '#1a2B3c' }, validPoll.options[1]] }),
+    ).toBe(true);
+    expect(validate({ ...validPoll, options: [{ id: 'tea', label: 'Tea', color: 'red' }, validPoll.options[1]] })).toBe(
+      false,
+    );
+    expect(
+      validate({ ...validPoll, options: [{ id: 'tea', label: 'Tea', color: '#fff' }, validPoll.options[1]] }),
+    ).toBe(false);
+  });
+
+  it('documents the view default and that the colour is content data', () => {
+    const props = poll?.schema as { properties: Record<string, { default?: unknown }> };
+    expect(props.properties['view']?.default).toBe('sticker');
+    expect(JSON.stringify(poll?.schema)).toContain('not part of the theme');
+  });
+
   it('states its text limits and refuses control characters', () => {
     expect(validate({ ...validPoll, question: 'x'.repeat(200) })).toBe(true);
     expect(validate({ ...validPoll, question: 'x'.repeat(201) })).toBe(false);

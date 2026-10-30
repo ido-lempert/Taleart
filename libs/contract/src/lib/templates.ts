@@ -31,7 +31,7 @@ export const ZONE_TEMPLATES: readonly ZoneTemplate[] = [
     description: 'A row of circles, one per tale group, at the top of a page.',
     frame: {
       type: 'bar',
-      settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+      settings: { layout: 'ring', shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
     },
   },
   {
@@ -40,7 +40,14 @@ export const ZONE_TEMPLATES: readonly ZoneTemplate[] = [
     description: 'A wide banner that rotates through the tale groups on its own.',
     frame: {
       type: 'banner',
-      settings: { aspectRatio: '3:1', autoplay: true, intervalSeconds: 5, showDots: true, loop: true },
+      settings: {
+        variant: 'carousel',
+        aspectRatio: '3:1',
+        autoplay: true,
+        intervalSeconds: 5,
+        showDots: true,
+        loop: true,
+      },
     },
   },
   {

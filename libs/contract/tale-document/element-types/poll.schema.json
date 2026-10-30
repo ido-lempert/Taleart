@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PollElementProps",
-  "description": "The props of a poll: an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.",
+  "description": "The props of a poll: an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll. The `view` picks how the poll is drawn (sticker, embed, this-or-that, grid or inline); each option's optional `color` is used only by this-or-that and grid, and is content data (the app's own category colour), not part of the theme.",
   "type": "object",
   "additionalProperties": false,
   "required": ["question", "options", "theme"],
@@ -41,6 +41,11 @@
             "minLength": 1,
             "maxLength": 60,
             "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+          },
+          "color": {
+            "description": "Optional colour of the option as #rrggbb; used only by the this-or-that and grid views, as content data (not theme).",
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
           }
         }
       }
@@ -49,6 +54,12 @@
       "description": "`light` draws dark text on a light card; `dark` light text on a dark card.",
       "type": "string",
       "enum": ["light", "dark"]
+    },
+    "view": {
+      "description": "How the poll is drawn: sticker, a small card on the tale; embed, a card that holds its own results; this-or-that, two large halves to pick between; grid, the options as tiles; inline, the options as plain rows in the flow of the page. Left out, sticker.",
+      "type": "string",
+      "enum": ["sticker", "embed", "this-or-that", "grid", "inline"],
+      "default": "sticker"
     }
   }
 }

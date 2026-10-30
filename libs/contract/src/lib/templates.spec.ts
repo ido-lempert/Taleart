@@ -10,11 +10,18 @@ describe('zone templates', () => {
     ]);
     expect(findTemplate('stories-bar')?.frame).toEqual({
       type: 'bar',
-      settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+      settings: { layout: 'ring', shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
     });
     expect(findTemplate('promo-banner')?.frame).toEqual({
       type: 'banner',
-      settings: { aspectRatio: '3:1', autoplay: true, intervalSeconds: 5, showDots: true, loop: true },
+      settings: {
+        variant: 'carousel',
+        aspectRatio: '3:1',
+        autoplay: true,
+        intervalSeconds: 5,
+        showDots: true,
+        loop: true,
+      },
     });
     expect(findTemplate('blank')?.frame).toBeNull();
   });

@@ -3695,7 +3695,7 @@ export interface components {
         };
         /**
          * PollElementProps
-         * @description The props of a poll: an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.
+         * @description The props of a poll: an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll. The `view` picks how the poll is drawn (sticker, embed, this-or-that, grid or inline); each option's optional `color` is used only by this-or-that and grid, and is content data (the app's own category colour), not part of the theme.
          */
         "poll.schema": {
             /** @description A short heading above the question; none when left out. */
@@ -3708,12 +3708,20 @@ export interface components {
                 id: string;
                 /** @description The answer as visitors read it: its accessible name. */
                 label: string;
+                /** @description Optional colour of the option as #rrggbb; used only by the this-or-that and grid views, as content data (not theme). */
+                color?: string;
             }[];
             /**
              * @description `light` draws dark text on a light card; `dark` light text on a dark card.
              * @enum {string}
              */
             theme: "light" | "dark";
+            /**
+             * @description How the poll is drawn: sticker, a small card on the tale; embed, a card that holds its own results; this-or-that, two large halves to pick between; grid, the options as tiles; inline, the options as plain rows in the flow of the page. Left out, sticker.
+             * @default sticker
+             * @enum {string}
+             */
+            view: "sticker" | "embed" | "this-or-that" | "grid" | "inline";
         };
         /**
          * RatingElementProps
@@ -7094,6 +7102,7 @@ export const videoSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<component
 export const shapeSchemaShapeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["shape.schema"]["shape"]> = ["rectangle", "ellipse", "line"];
 export const buttonSchemaVariantValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["button.schema"]["variant"]> = ["filled", "outline"];
 export const pollSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["poll.schema"]["theme"]> = ["light", "dark"];
+export const pollSchemaViewValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["poll.schema"]["view"]> = ["sticker", "embed", "this-or-that", "grid", "inline"];
 export const ratingSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["rating.schema"]["theme"]> = ["light", "dark"];
 export const quizSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["quiz.schema"]["theme"]> = ["light", "dark"];
 export const countdownSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["countdown.schema"]["theme"]> = ["light", "dark"];

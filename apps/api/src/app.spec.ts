@@ -651,8 +651,22 @@ describe('Management API v1: projects and zones', () => {
 
   describe('display (one frame per zone, AD-17)', () => {
     const unknownZoneId = '00000000-0000-4000-8000-000000000000';
-    const barDefaults = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
-    const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
+    const barDefaults = {
+      layout: 'ring',
+      shape: 'circle',
+      size: 'medium',
+      showTitles: true,
+      alignment: 'start',
+      gap: 12,
+    };
+    const bannerDefaults = {
+      variant: 'carousel',
+      aspectRatio: '16:9',
+      autoplay: true,
+      intervalSeconds: 5,
+      showDots: true,
+      loop: true,
+    };
 
     function patch(path: string, body: unknown): Promise<Response> {
       return fetch(`${base}${path}`, {
@@ -697,6 +711,11 @@ describe('Management API v1: projects and zones', () => {
       );
       const bar = types.find((t: { key: string }) => t.key === 'bar');
       expect(bar.schema.properties).toEqual({
+        layout: expect.objectContaining({
+          title: 'Layout',
+          enum: ['ring', 'chip', 'poster', 'stack'],
+          default: 'ring',
+        }),
         shape: expect.objectContaining({ title: 'Shape', enum: ['circle', 'rounded-square'], default: 'circle' }),
         size: expect.objectContaining({ title: 'Size', enum: ['small', 'medium', 'large'], default: 'medium' }),
         showTitles: expect.objectContaining({ title: 'Show titles', type: 'boolean', default: true }),
@@ -706,6 +725,11 @@ describe('Management API v1: projects and zones', () => {
       const banner = types.find((t: { key: string }) => t.key === 'banner');
       expect(banner.schema.additionalProperties).toBe(false);
       expect(banner.schema.properties).toEqual({
+        variant: expect.objectContaining({
+          title: 'Variant',
+          enum: ['carousel', 'coverflow', 'peek', 'deck', 'sticky', 'strip'],
+          default: 'carousel',
+        }),
         aspectRatio: expect.objectContaining({ title: 'Aspect ratio', enum: ['16:9', '3:1', '1:1'], default: '16:9' }),
         autoplay: expect.objectContaining({ title: 'Autoplay', type: 'boolean', default: true }),
         intervalSeconds: expect.objectContaining({ title: 'Interval', type: 'integer', minimum: 3, maximum: 15, default: 5 }),
@@ -1234,8 +1258,22 @@ describe('Management API v1: projects and zones', () => {
   });
 
   describe('zone templates (epic UX rework R5)', () => {
-    const barSettings = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
-    const bannerSettings = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
+    const barSettings = {
+      layout: 'ring',
+      shape: 'circle',
+      size: 'medium',
+      showTitles: true,
+      alignment: 'start',
+      gap: 12,
+    };
+    const bannerSettings = {
+      variant: 'carousel',
+      aspectRatio: '3:1',
+      autoplay: true,
+      intervalSeconds: 5,
+      showDots: true,
+      loop: true,
+    };
 
     async function frameCount(zoneId: string): Promise<number> {
       return (await pool.query('SELECT 1 FROM frames WHERE zone_id = $1', [zoneId])).rowCount ?? 0;
@@ -4614,7 +4652,14 @@ describe('Management API v1: projects and zones', () => {
 
   describe('the Delivery API', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
-    const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
+    const bannerDefaults = {
+      variant: 'carousel',
+      aspectRatio: '16:9',
+      autoplay: true,
+      intervalSeconds: 5,
+      showDots: true,
+      loop: true,
+    };
 
     function send(method: string, path: string, cookie = sessionCookie): Promise<Response> {
       return globalThis.fetch(`${base}${path}`, { method, headers: { Cookie: cookie } });
@@ -4786,7 +4831,7 @@ describe('Management API v1: projects and zones', () => {
         frame: {
           id: frame.id,
           type: 'bar',
-          settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+          settings: { layout: 'ring', shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
         },
         taleGroups: [],
       });
@@ -4802,7 +4847,52 @@ describe('Management API v1: projects and zones', () => {
       expect((await (await deliver(key)).json()).frame).toEqual({
         id: frame.id,
         type: 'bar',
-        settings: { shape: 'rounded-square', size: 'medium', showTitles: false, alignment: 'start', gap: 20 },
+        settings: {
+          layout: 'ring',
+          shape: 'rounded-square',
+          size: 'medium',
+          showTitles: false,
+          alignment: 'start',
+          gap: 20,
+        },
+      });
+    });
+
+    it('saves and delivers the P4 layout and P5 variant, refuses other values, and fills them for stored settings from before', async () => {
+      const zone = await createZone();
+      await post(`/zones/${zone.id}/frame`, { type: 'bar' });
+      const chip = await patch(`/zones/${zone.id}/frame`, { settings: { layout: 'chip', size: 'small' } });
+      expect(chip.status).toBe(200);
+      expect((await chip.json()).settings).toEqual({ layout: 'chip', size: 'small' });
+      const refused = await patch(`/zones/${zone.id}/frame`, { settings: { layout: 'tile' } });
+      expect(refused.status).toBe(400);
+      expect((await refused.json()).error.message).toContain(
+        'settings.layout must be one of: ring, chip, poster, stack',
+      );
+      // A stored bar from before the layout existed reads back with the ring look.
+      await pool.query('UPDATE frames SET settings = \'{"gap": 16}\'::jsonb WHERE zone_id = $1', [zone.id]);
+      const { key } = await issue(zone.id);
+      expect((await (await deliver(key)).json()).frame.settings).toEqual({
+        layout: 'ring',
+        shape: 'circle',
+        size: 'medium',
+        showTitles: true,
+        alignment: 'start',
+        gap: 16,
+      });
+      const banner = await patch(`/zones/${zone.id}/frame`, { type: 'banner', settings: { variant: 'sticky' } });
+      expect(banner.status).toBe(200);
+      expect((await banner.json()).settings).toEqual({ variant: 'sticky' });
+      const badVariant = await patch(`/zones/${zone.id}/frame`, { settings: { variant: 'slideshow' } });
+      expect(badVariant.status).toBe(400);
+      await pool.query('UPDATE frames SET settings = \'{"loop": false}\'::jsonb WHERE zone_id = $1', [zone.id]);
+      expect((await (await deliver(key)).json()).frame.settings).toEqual({
+        variant: 'carousel',
+        aspectRatio: '16:9',
+        autoplay: true,
+        intervalSeconds: 5,
+        showDots: true,
+        loop: false,
       });
     });
 
@@ -4824,11 +4914,26 @@ describe('Management API v1: projects and zones', () => {
     });
 
     it('delivers only valid settings when a stored row is invalid, filling defaults', async () => {
-      const defaults = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
+      const defaults = {
+        layout: 'ring',
+        shape: 'circle',
+        size: 'medium',
+        showTitles: true,
+        alignment: 'start',
+        gap: 12,
+      };
       const cases: [string, unknown, object][] = [
-        ['bar', { gap: 40, shape: 'star', size: 'large', color: 'red' }, { ...defaults, size: 'large' }],
+        [
+          'bar',
+          { gap: 40, shape: 'star', size: 'large', color: 'red', layout: 'mosaic' },
+          { ...defaults, layout: 'ring', size: 'large' },
+        ],
         ['bar', ['x'], defaults],
-        ['banner', { stray: 1, intervalSeconds: 40, aspectRatio: '</style>', loop: false }, { ...bannerDefaults, loop: false }],
+        [
+          'banner',
+          { stray: 1, intervalSeconds: 40, aspectRatio: '</style>', loop: false, variant: 'slideshow' },
+          { ...bannerDefaults, loop: false },
+        ],
       ];
       for (const [type, stored, delivered] of cases) {
         const zone = await createZone();

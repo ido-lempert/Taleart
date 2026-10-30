@@ -45,7 +45,9 @@ import { CoverEditor } from './cover-editor';
 import { DashboardStore, isAudienceHeld, type DrawerRequest, type ZoneField } from './dashboard.store';
 import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
-import { initialSettings, SettingsForm, type Settings } from './settings-form';
+import { initialSettings, settingsFields, SettingsForm, type Settings } from './settings-form';
+import { DisplayOptionPicker } from './display-option-picker';
+import { displayOptionSetting, ignoredSettings as ignoredDisplaySettings } from './display-options';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from './status';
 
 /** A media type by file extension, for a file the browser gave no type. */
@@ -80,7 +82,17 @@ export function checkMediaFile(file: File): { type: string; problem: string } {
 
 @Component({
   selector: 'app-create-drawer',
-  imports: [FormsModule, RouterLink, Drawer, StatusBadge, ShowSwitch, SettingsForm, CoverEditor, AudienceRuleSection],
+  imports: [
+    FormsModule,
+    RouterLink,
+    Drawer,
+    StatusBadge,
+    ShowSwitch,
+    SettingsForm,
+    DisplayOptionPicker,
+    CoverEditor,
+    AudienceRuleSection,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './create-drawer.html',
 })
@@ -312,6 +324,25 @@ export class CreateDrawer implements OnInit {
 
   /** The settings being edited: the stored ones, with schema defaults for missing fields. */
   protected readonly settings = signal<Settings>({});
+
+  /** The option setting (layout or variant) a display type has, or null: the picker above the form edits it. */
+  protected optionSetting(type: string): ReturnType<typeof displayOptionSetting> {
+    const setting = displayOptionSetting(type);
+    // Only when the type's schema holds the setting, so an older API without it shows no picker.
+    return setting && settingsFields(this.settingsSchema()).some((f) => f.key === setting.key) ? setting : null;
+  }
+
+  /** The keys of the option setting, which the picker edits, so the form leaves them out. */
+  protected optionSettingKeys(type: string): readonly string[] {
+    const setting = this.optionSetting(type);
+    return setting ? [setting.key] : [];
+  }
+
+  /** The settings the chosen layout or variant does not use, dimmed in the form with the reason. */
+  protected readonly ignoredSettings = computed(() => {
+    const frame = this.settingsFrame();
+    return frame ? ignoredDisplaySettings(frame.type, this.settings()) : new Map<string, string>();
+  });
 
   /** The field the API named when it refused the settings, as in "settings.gap must be at most 24". */
   protected readonly invalidSetting = linkedSignal(() => /^settings\.([A-Za-z0-9_]+)\b/.exec(this.error())?.[1] ?? '');

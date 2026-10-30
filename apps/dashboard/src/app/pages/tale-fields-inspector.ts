@@ -1,7 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
 import { EMOJI_FONT_STACK, propSchema, propValueProblem, type PropSchema } from '@taleart/contract/tale-document';
 import { emojiName, TaleEmojiPicker, type ElementChange, type EmojiChoice } from './tale-shapes';
-import type { ChoicesField, EmojiListField, FieldsInspector, InspectorField, StudioElementType } from './tale-element-types';
+import type {
+  ChoiceColorField,
+  ChoicesField,
+  EmojiListField,
+  FieldsInspector,
+  InspectorField,
+  StudioElementType,
+} from './tale-element-types';
 
 /** One choice's label as the inspector shows it (epic interactive components R1). */
 interface ChoiceView {
@@ -14,6 +21,8 @@ interface ChoiceView {
   choiceId: string;
   label: string;
   value: string;
+  /** The choice's colour now, as `#rrggbb`, or '' for none. */
+  color: string;
 }
 
 /** A choices field as the inspector shows it: its items and the label's schema. */
@@ -28,6 +37,8 @@ interface ChoicesView extends ChoicesField {
   max: number;
   /** The correct choice's id now, or '' for none. */
   correctId: string;
+  /** The colour of each choice, when the colour input shows now (its prop holds one of its values). */
+  colorShown: ChoiceColorField | null;
 }
 
 /** One emoji of an emoji list as the inspector shows it (components, 2026-10-29). */
@@ -108,7 +119,7 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
               [attr.aria-required]="field.required ? 'true' : null"
               (change)="apply(field, $any($event.target).value)"
             >
-              @if (!field.required) {
+              @if (!field.required && !field.shows) {
                 <option value="" [selected]="field.value === ''">None</option>
               }
               @for (option of field.options ?? []; track option.value) {
@@ -278,6 +289,33 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
               (change)="applyChoice(group, item, $any($event.target).value)"
             />
             <span class="field__error" aria-live="polite" [id]="item.id + '-error'">{{ errors()[item.key] ?? '' }}</span>
+            @if (group.colorShown; as color) {
+              @let colorInvalid = errors()[item.key + '#color'] ? 'true' : null;
+              <div class="row fields-choice__color">
+                <label class="field__label" [for]="item.id + '-color'">{{ color.label }}: {{ item.label }}</label>
+                <input
+                  class="input"
+                  type="color"
+                  [id]="item.id + '-color'"
+                  [disabled]="locked()"
+                  [attr.aria-invalid]="colorInvalid"
+                  [attr.aria-describedby]="item.id + '-color-hint ' + item.id + '-color-error'"
+                  [value]="item.color || '#000000'"
+                  (change)="applyChoiceColor(group, item, $any($event.target).value)"
+                />
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--sm"
+                  [id]="item.id + '-color-clear'"
+                  [attr.aria-disabled]="locked() || !item.color ? 'true' : null"
+                  (click)="applyChoiceColor(group, item, null)"
+                >
+                  No colour<span class="visually-hidden">: {{ item.label }}</span>
+                </button>
+              </div>
+              <span class="field__hint" [id]="item.id + '-color-hint'">{{ color.hint ?? '' }}</span>
+              <span class="field__error" aria-live="polite" [id]="item.id + '-color-error'">{{ errors()[item.key + '#color'] ?? '' }}</span>
+            }
             @if (group.list) {
               <!-- Each button's name starts with its visible text (WCAG 2.5.3), then names the answer. -->
               <div class="row fields-choice__actions">
@@ -374,6 +412,7 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
     .fields-emoji__glyph { font-size: 1.75rem; line-height: 1; min-width: 2rem; text-align: center; }
     .fields-choice__actions { flex-wrap: wrap; gap: 4px; }
     .fields-choices__add { justify-self: start; }
+    .fields-choice__color { align-items: center; flex-wrap: wrap; gap: 8px; }
   `,
 })
 export class TaleFieldsInspector {
@@ -431,7 +470,7 @@ export class TaleFieldsInspector {
           id: `field-${type.key}-${field.prop}-${this.element().id}`,
           schema: found.schema,
           required: found.required,
-          value: value === undefined || value === null ? '' : String(value),
+          value: value === undefined || value === null ? (field.shows ?? '') : String(value),
         },
       ];
     });
@@ -471,6 +510,7 @@ export class TaleFieldsInspector {
     const min = array?.minItems ?? items.length;
     const max = array?.maxItems ?? items.length;
     const correct = choices.correct ? props[choices.correct.prop] : undefined;
+    const colorWhen = choices.color ? this.colorVisible(choices.color) : false;
     return {
       ...choices,
       id,
@@ -479,6 +519,7 @@ export class TaleFieldsInspector {
       min,
       max,
       correctId: typeof correct === 'string' ? correct : '',
+      colorShown: colorWhen ? (choices.color ?? null) : null,
       items: items.map((item, index) => ({
         key: `${choices.prop}/${typeof item?.id === 'string' ? item.id : String(index)}`,
         index,
@@ -486,9 +527,19 @@ export class TaleFieldsInspector {
         choiceId: typeof item?.id === 'string' ? item.id : String(index),
         label: choices.itemLabel(index),
         value: typeof item?.label === 'string' ? item.label : '',
+        color: typeof (item as { color?: unknown } | null)?.color === 'string' ? (item as { color: string }).color : '',
       })),
     };
   });
+
+  // Whether a choice colour input shows now: its `when` prop holds one of its values, the schema's default when unset.
+  private colorVisible(color: ChoiceColorField): boolean {
+    const type = this.type();
+    const found = propSchema(type.schema, color.when.prop);
+    const props = this.edited().props;
+    const value = props[color.when.prop] ?? (found?.schema as { default?: unknown } | undefined)?.default;
+    return color.when.values.includes(String(value));
+  }
 
   // The props with the choice at `index` relabelled: a copy of the array, ids untouched.
   private withChoice(group: ChoicesView, index: number, label: string): Record<string, unknown> {
@@ -522,6 +573,26 @@ export class TaleFieldsInspector {
       label: `${item.label} changed`,
       choice: { prop: group.prop, index: item.index, label: raw },
       said: `${item.label} set`,
+    });
+  }
+
+  /**
+   * Sets or clears one choice's colour (a poll option's `color`) as one history step, once the schema
+   * accepts it; null clears it. A refused colour stays unapplied and says why.
+   */
+  protected applyChoiceColor(group: ChoicesView, item: ChoiceView, raw: string | null): void {
+    if (this.locked() || !group.colorShown) return;
+    const key = `${item.key}#color`;
+    const list = propSchema(this.type().schema, group.prop)?.schema as { items?: Record<string, unknown> } | undefined;
+    const colorSchema = list?.items ? propSchema(list.items, 'color')?.schema : undefined;
+    const next = raw === null || raw === '' ? null : raw.toUpperCase();
+    const problem = next === null || !colorSchema ? null : propValueProblem(colorSchema, next, false);
+    this.setError(key, problem);
+    if (problem || (next ?? '') === item.color.toUpperCase()) return;
+    this.changed.emit({
+      label: `${item.label} colour changed`,
+      choice: { prop: group.prop, index: item.index, color: next },
+      said: next === null ? `${item.label} colour cleared` : `${item.label} colour set to ${next}`,
     });
   }
 

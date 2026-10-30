@@ -108,12 +108,14 @@ fun TaleartZone(
         controller.tracker,
         ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
     )
-    CompositionLocalProvider(LocalTaleartContext provides context) {
-        val zone = controller.zone
-        if (zone != null) {
-            ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
-        } else if (controller.failure != null) {
-            FailurePlaceholder(fallback, onRetry = { controller.reload() })
+    ProvideTaleartDirection {
+        CompositionLocalProvider(LocalTaleartContext provides context) {
+            val zone = controller.zone
+            if (zone != null) {
+                ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+            } else if (controller.failure != null) {
+                FailurePlaceholder(fallback, onRetry = { controller.reload() })
+            }
         }
     }
 }
@@ -145,12 +147,14 @@ fun TaleartZone(
         controller.tracker,
         ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
     )
-    CompositionLocalProvider(LocalTaleartContext provides context) {
-        val zone = controller.zone
-        if (zone != null) {
-            ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
-        } else if (controller.failure != null) {
-            FailurePlaceholder(fallback, onRetry = { controller.reload() })
+    ProvideTaleartDirection {
+        CompositionLocalProvider(LocalTaleartContext provides context) {
+            val zone = controller.zone
+            if (zone != null) {
+                ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+            } else if (controller.failure != null) {
+                FailurePlaceholder(fallback, onRetry = { controller.reload() })
+            }
         }
     }
 }

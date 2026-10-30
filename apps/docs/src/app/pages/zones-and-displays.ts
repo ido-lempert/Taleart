@@ -32,6 +32,10 @@ import { RouterLink } from '@angular/router';
 </thead>
 <tbody>
 <tr>
+<td>Layout</td>
+<td><code>ring</code> (default, the current look), <code>chip</code>, <code>poster</code> or <code>stack</code></td>
+</tr>
+<tr>
 <td>Shape</td>
 <td>circle or rounded square</td>
 </tr>
@@ -53,6 +57,8 @@ import { RouterLink } from '@angular/router';
 </tr>
 </tbody>
 </table></div>
+<p>The layout sets how each group is drawn. <code>ring</code> is the default: a round cover in a ring that spins until the visitor has seen it. <code>chip</code> is a round cover beside its title in a pill; the shape is ignored. <code>poster</code> is a tall card with the title over the cover; the shape and the size are ignored. <code>stack</code> overlaps the items in one collapsed row; only the size applies. The dashboard dims the settings a layout does not use.</p>
+<p>The new layouts and variants are set here now. The SDKs draw them from the next releases; until then a zone shows the look it had before, whatever you set.</p>
 <p>The default bar is round, medium and titled. Here the shape is <strong>Rounded square</strong>, titles are off and the items sit in the centre:</p>
 <p><img class="guide-img" src="images/web-display-bar-square.png" width="1120" height="284" alt="A stories bar with four rounded-square covers centred in the row, with no titles under them." /></p>
 <p>Here the size is <strong>Large</strong> and the gap is 20 pixels:</p>
@@ -66,6 +72,10 @@ import { RouterLink } from '@angular/router';
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>Variant</td>
+<td><code>carousel</code> (default, the current look), <code>coverflow</code>, <code>peek</code>, <code>deck</code>, <code>sticky</code> or <code>strip</code></td>
+</tr>
 <tr>
 <td>Aspect ratio</td>
 <td>16:9, 3:1 or 1:1</td>
@@ -88,6 +98,8 @@ import { RouterLink } from '@angular/router';
 </tr>
 </tbody>
 </table></div>
+<p>The variant sets how the slides are shown. <code>carousel</code> is the default: one slide at a time. <code>coverflow</code> puts the current slide in front with its neighbours turned away at the sides. <code>peek</code> shows the neighbours at the edges. <code>deck</code> fans the slides out like cards. <code>sticky</code> stays on screen while the page scrolls. <code>strip</code> is a continuous marquee of the slides. Autoplay, loop, dots and the aspect ratio apply to the first four; <code>sticky</code> and <code>strip</code> ignore the aspect ratio, the dots and loop. The dashboard dims the settings a variant does not use.</p>
+<p>The new layouts and variants are set here now. The SDKs draw them from the next releases; until then a zone shows the look it had before, whatever you set.</p>
 <p>A banner shows one group at a time as a slide, with previous and next arrows and a dot per slide. Here are three ways it can look. The aspect ratio <strong>3:1</strong> gives a wide strip:</p>
 <p><img class="guide-img" src="images/web-display-banner-wide.png" width="1120" height="526" alt="A wide 3:1 banner with a slide, previous and next arrows and four dots, the first one filled." /></p>
 <p>The aspect ratio <strong>1:1</strong> gives a square card:</p>

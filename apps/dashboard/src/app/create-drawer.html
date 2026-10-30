@@ -178,12 +178,17 @@
           </div>
         }
         @case ('displaySettings') {
-          @if (settingsFrame()) {
+          @if (settingsFrame(); as frame) {
+            @if (optionSetting(frame.type)) {
+              <app-display-option-picker [type]="frame.type" [(value)]="settings" />
+            }
             <app-settings-form
               idPrefix="frame-settings"
               errorId="create-error"
               [schema]="settingsSchema()"
               [invalidField]="invalidSetting()"
+              [skip]="optionSettingKeys(frame.type)"
+              [ignored]="ignoredSettings()"
               [(value)]="settings"
               (changed)="settingChanged($event)"
             />

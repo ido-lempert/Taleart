@@ -89,6 +89,9 @@ describe('argument parsing', () => {
       aspectRatio: '3:1',
     });
     expect(parseSettings(['gap=4'], '{"gap":12,"size":"large"}')).toEqual({ gap: 4, size: 'large' });
+    // The P4 layout and P5 variant are text, like shape and aspectRatio.
+    expect(parseSettings(['layout=chip'], undefined)).toEqual({ layout: 'chip' });
+    expect(parseSettings(['variant=sticky', 'loop=false'], undefined)).toEqual({ variant: 'sticky', loop: false });
     expect(() => parseSettings(['gap'], undefined)).toThrow(/key=value/);
     expect(() => parseSettings([], '[1]')).toThrow(/JSON object/);
   });

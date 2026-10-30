@@ -138,6 +138,7 @@ export function fieldAccepts(field: SettingsField, value: unknown): boolean {
             <select
               class="select"
               [id]="id(field)"
+              [disabled]="ignoredReason(field) !== null"
               [attr.aria-invalid]="invalid(field) ? 'true' : null"
               [attr.aria-describedby]="describedBy(field)"
               (change)="set(field, $any($event.target).value)"
@@ -151,6 +152,9 @@ export function fieldAccepts(field: SettingsField, value: unknown): boolean {
             @if (field.hint) {
               <p class="field__hint" [id]="id(field) + '-hint'">{{ field.hint }}</p>
             }
+            @if (ignoredReason(field); as reason) {
+              <p class="field__hint field__ignored" [id]="id(field) + '-ignored'">{{ reason }}</p>
+            }
           </div>
         }
         @case ('toggle') {
@@ -159,6 +163,7 @@ export function fieldAccepts(field: SettingsField, value: unknown): boolean {
               <input
                 type="checkbox"
                 [id]="id(field)"
+                [disabled]="ignoredReason(field) !== null"
                 [checked]="value()[field.key] === true"
                 [attr.aria-invalid]="invalid(field) ? 'true' : null"
                 [attr.aria-describedby]="describedBy(field)"
@@ -168,6 +173,9 @@ export function fieldAccepts(field: SettingsField, value: unknown): boolean {
             </label>
             @if (field.hint) {
               <p class="field__hint" [id]="id(field) + '-hint'">{{ field.hint }}</p>
+            }
+            @if (ignoredReason(field); as reason) {
+              <p class="field__hint field__ignored" [id]="id(field) + '-ignored'">{{ reason }}</p>
             }
           </div>
         }
@@ -179,6 +187,7 @@ export function fieldAccepts(field: SettingsField, value: unknown): boolean {
               type="number"
               inputmode="numeric"
               [id]="id(field)"
+              [disabled]="ignoredReason(field) !== null"
               [attr.min]="$any(field).min ?? null"
               [attr.max]="$any(field).max ?? null"
               [attr.step]="$any(field).step"
@@ -190,6 +199,9 @@ export function fieldAccepts(field: SettingsField, value: unknown): boolean {
             />
             @if (field.hint) {
               <p class="field__hint" [id]="id(field) + '-hint'">{{ field.hint }}</p>
+            }
+            @if (ignoredReason(field); as reason) {
+              <p class="field__hint field__ignored" [id]="id(field) + '-ignored'">{{ reason }}</p>
             }
           </div>
         }
@@ -206,6 +218,13 @@ export class SettingsForm {
   readonly value = model.required<Settings>();
   /** Prefixes the field ids, so two forms on a page do not clash. */
   readonly idPrefix = input('settings');
+  /**
+   * Settings the form shows dimmed, by key, with the reason: a setting the chosen layout or variant
+   * does not use. A dimmed field is disabled and keeps its value (end-user redesign P4, P5).
+   */
+  readonly ignored = input<ReadonlyMap<string, string>>(new Map());
+  /** Keys the form leaves out, because another control of the drawer edits them (a layout or a variant). */
+  readonly skip = input<readonly string[]>([]);
   /** The field the API refused, marked invalid. */
   readonly invalidField = input('');
   /** The id of the message that explains the refusal. */
@@ -213,7 +232,11 @@ export class SettingsForm {
   /** The key of each field the user changes, so a refusal naming it can be cleared. */
   readonly changed = output<string>();
 
-  protected readonly fields = computed(() => settingsFields(this.schema()));
+  protected readonly fields = computed(() => settingsFields(this.schema()).filter((f) => !this.skip().includes(f.key)));
+
+  protected ignoredReason(field: SettingsField): string | null {
+    return this.ignored().get(field.key) ?? null;
+  }
 
   protected id(field: SettingsField): string {
     return `${this.idPrefix()}-${field.key}`;
@@ -224,7 +247,11 @@ export class SettingsForm {
   }
 
   protected describedBy(field: SettingsField): string | null {
-    const ids = [field.hint ? `${this.id(field)}-hint` : '', this.invalid(field) ? this.errorId() : ''].filter(Boolean);
+    const ids = [
+      field.hint ? `${this.id(field)}-hint` : '',
+      this.ignoredReason(field) !== null ? `${this.id(field)}-ignored` : '',
+      this.invalid(field) ? this.errorId() : '',
+    ].filter(Boolean);
     return ids.length ? ids.join(' ') : null;
   }
 

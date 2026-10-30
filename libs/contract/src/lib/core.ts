@@ -877,6 +877,11 @@ export interface FrameTypeRegistryFile {
  * the Delivery API returns every field, filled with its default when unset.
  */
 export interface BarSettings {
+  /**
+   * How each tale group is drawn (epic end-user redesign P4). `ring` is the default look. Optional in
+   * this type so constants written before P4 still compile; the Delivery API always fills it.
+   */
+  layout?: 'ring' | 'chip' | 'poster' | 'stack';
   shape: 'circle' | 'rounded-square';
   size: 'small' | 'medium' | 'large';
   showTitles: boolean;
@@ -892,6 +897,11 @@ export interface BarSettings {
  * when unset.
  */
 export interface BannerSettings {
+  /**
+   * How the slides are shown (epic end-user redesign P5). `carousel` is the default look. Optional in
+   * this type like `BarSettings.layout`; the Delivery API always fills it.
+   */
+  variant?: 'carousel' | 'coverflow' | 'peek' | 'deck' | 'sticky' | 'strip';
   aspectRatio: '16:9' | '3:1' | '1:1';
   autoplay: boolean;
   /** Seconds per slide while autoplaying, 3 to 15. */

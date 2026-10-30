@@ -15,8 +15,18 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import site.lempert.taleart.sdk.TaleartConfig
+import site.lempert.taleart.sdk.TaleartSdk
+import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.delivery.readZone
+import site.lempert.taleart.sdk.storage.InMemoryKeyValueStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -143,5 +153,28 @@ class TaleartDirectionTest : ComposeUiTestBase() {
         val days = onNodeWithText("02", useUnmergedTree = true).getBoundsInRoot().left
         val seconds = onNodeWithText("05", useUnmergedTree = true).getBoundsInRoot().left
         assertTrue(days < seconds, "days stay at the start of the digits: $days < $seconds")
+    }
+
+    @Test
+    fun theZoneReadThroughAControllerMirrorsWhenTheConfiguredDirectionArrivesAfterTheFirstComposition() = runComposeUiTest {
+        // The taller app's order: the zone is on screen before TaleartSdk.init runs (in a LaunchedEffect).
+        val zoneJson = """{"id":"z1","name":"Home top","slug":"home-top","theme":null,"frame":$bar,"taleGroups":[{"id":"a","name":"A","tales":[]},{"id":"b","name":"B","tales":[]},{"id":"c","name":"C","tales":[]}]}"""
+        val controller = TaleartZoneController(
+            DeliveryClient(HttpClient(MockEngine { respond(zoneJson, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) })),
+        )
+        controller.configure("http://api.test", "tak_key")
+        try {
+            setContent { TaleartZone(controller, seenGroups = SeenGroups(InMemoryKeyValueStore())) }
+            waitUntil("the zone is read", 5_000) { controller.zone != null }
+            waitForIdle()
+            TaleartSdk.init(TaleartConfig(layoutDirection = "rtl"))
+            waitForIdle()
+            val lefts = onAllNodesWithTag(BAR_ITEM_TAG).fetchSemanticsNodes().map { it.boundsInRoot.left }
+            assertEquals(3, lefts.size)
+            assertEquals(lefts.sortedDescending(), lefts)
+        } finally {
+            controller.close()
+            TaleartSdk.init(TaleartConfig())
+        }
     }
 }

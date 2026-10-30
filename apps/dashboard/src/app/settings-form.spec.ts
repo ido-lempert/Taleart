@@ -73,6 +73,21 @@ describe('settings form schema reading', () => {
   it('builds the banner form from the shipped banner schema, with no banner-specific code', () => {
     expect(settingsFields(bannerSchema)).toEqual([
       {
+        key: 'variant',
+        label: 'Variant',
+        hint: expect.any(String),
+        default: 'carousel',
+        kind: 'choice',
+        choices: [
+          { value: 'carousel', label: 'Carousel' },
+          { value: 'coverflow', label: 'Coverflow' },
+          { value: 'peek', label: 'Peek' },
+          { value: 'deck', label: 'Deck' },
+          { value: 'sticky', label: 'Sticky' },
+          { value: 'strip', label: 'Strip' },
+        ],
+      },
+      {
         key: 'aspectRatio',
         label: 'Aspect ratio',
         hint: expect.any(String),
@@ -90,6 +105,7 @@ describe('settings form schema reading', () => {
       { key: 'loop', label: 'Loop', hint: expect.any(String), default: true, kind: 'toggle' },
     ]);
     expect(initialSettings(bannerSchema, {})).toEqual({
+      variant: 'carousel',
       aspectRatio: '16:9',
       autoplay: true,
       intervalSeconds: 5,

@@ -29,6 +29,7 @@ describe('frame-type registry', () => {
       { key: 'banner', label: 'Banner' },
     ]);
     expect(Object.keys((types[0].schema as { properties: object }).properties)).toEqual([
+      'layout',
       'shape',
       'size',
       'showTitles',
@@ -36,6 +37,7 @@ describe('frame-type registry', () => {
       'gap',
     ]);
     expect(Object.keys((types[1].schema as { properties: object }).properties)).toEqual([
+      'variant',
       'aspectRatio',
       'autoplay',
       'intervalSeconds',
@@ -58,6 +60,9 @@ describe('frame-type registry', () => {
     it('accepts every R2 value', () => {
       const valid = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
       expect(() => registry.validate('bar', valid)).not.toThrow();
+      for (const layout of ['ring', 'chip', 'poster', 'stack']) {
+        expect(() => registry.validate('bar', { layout })).not.toThrow();
+      }
       for (const gap of [4, 24]) expect(() => registry.validate('bar', { gap })).not.toThrow();
       for (const size of ['small', 'medium']) expect(() => registry.validate('bar', { size })).not.toThrow();
     });
@@ -67,6 +72,8 @@ describe('frame-type registry', () => {
       [{ gap: 3 }, 'settings.gap must be at least 4'],
       [{ gap: 12.5 }, 'settings.gap must be integer'],
       [{ gap: '12' }, 'settings.gap must be integer'],
+      [{ layout: 'tile' }, 'settings.layout must be one of: ring, chip, poster, stack'],
+      [{ layout: 'Ring' }, 'settings.layout must be one of: ring, chip, poster, stack'],
       [{ shape: 'star' }, 'settings.shape must be one of: circle, rounded-square'],
       [{ size: 'huge' }, 'settings.size must be one of: small, medium, large'],
       [{ alignment: 'end' }, 'settings.alignment must be one of: start, center'],
@@ -77,6 +84,7 @@ describe('frame-type registry', () => {
 
     it('fills each missing field with its schema default, keeping stored values', () => {
       expect(registry.withDefaults('bar', {})).toEqual({
+        layout: 'ring',
         shape: 'circle',
         size: 'medium',
         showTitles: true,
@@ -93,7 +101,8 @@ describe('frame-type registry', () => {
     it('replaces each invalid stored value with its default and drops unknown keys', () => {
       expect(
         registry.withDefaults('bar', { gap: 40, shape: 'star', size: 'large', showTitles: 'no', color: 'red' }),
-      ).toEqual({ shape: 'circle', size: 'large', showTitles: true, alignment: 'start', gap: 12 });
+      ).toEqual({ layout: 'ring', shape: 'circle', size: 'large', showTitles: true, alignment: 'start', gap: 12 });
+      expect(registry.withDefaults('bar', { layout: 'mosaic' })).toMatchObject({ layout: 'ring' });
       expect(registry.withDefaults('bar', { gap: 12.5, alignment: null })).toMatchObject({ gap: 12, alignment: 'start' });
     });
 
@@ -109,11 +118,21 @@ describe('frame-type registry', () => {
 
   describe('banner settings', () => {
     const registry = loadFrameTypeRegistry(shippedDir);
-    const defaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
+    const defaults = {
+      variant: 'carousel',
+      aspectRatio: '16:9',
+      autoplay: true,
+      intervalSeconds: 5,
+      showDots: true,
+      loop: true,
+    };
 
-    it('accepts every R3 value', () => {
+    it('accepts every R3 value and every P5 variant', () => {
       const valid = { aspectRatio: '3:1', autoplay: false, intervalSeconds: 3, showDots: false, loop: false };
       expect(() => registry.validate('banner', valid)).not.toThrow();
+      for (const variant of ['carousel', 'coverflow', 'peek', 'deck', 'sticky', 'strip']) {
+        expect(() => registry.validate('banner', { variant })).not.toThrow();
+      }
       for (const intervalSeconds of [3, 15]) expect(() => registry.validate('banner', { intervalSeconds })).not.toThrow();
       for (const aspectRatio of ['16:9', '1:1']) expect(() => registry.validate('banner', { aspectRatio })).not.toThrow();
     });
@@ -123,6 +142,7 @@ describe('frame-type registry', () => {
       [{ intervalSeconds: 2 }, 'settings.intervalSeconds must be at least 3'],
       [{ intervalSeconds: 4.5 }, 'settings.intervalSeconds must be integer'],
       [{ aspectRatio: '4:3' }, 'settings.aspectRatio must be one of: 16:9, 3:1, 1:1'],
+      [{ variant: 'slideshow' }, 'settings.variant must be one of: carousel, coverflow, peek, deck, sticky, strip'],
       [{ autoplay: 'yes' }, 'settings.autoplay must be boolean'],
       [{ showDots: 1 }, 'settings.showDots must be boolean'],
       [{ loop: null }, 'settings.loop must be boolean'],
@@ -132,8 +152,9 @@ describe('frame-type registry', () => {
 
     it('fills defaults, keeps valid stored values, replaces invalid ones and drops unknown keys', () => {
       expect(registry.withDefaults('banner', {})).toEqual(defaults);
-      expect(registry.withDefaults('banner', { aspectRatio: '3:1', showDots: false })).toEqual({
+      expect(registry.withDefaults('banner', { variant: 'deck', aspectRatio: '3:1', showDots: false })).toEqual({
         ...defaults,
+        variant: 'deck',
         aspectRatio: '3:1',
         showDots: false,
       });

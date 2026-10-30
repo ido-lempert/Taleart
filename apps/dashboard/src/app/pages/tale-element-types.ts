@@ -102,6 +102,11 @@ export interface InspectorField {
   /** For a select: the name people read for each enum value. */
   options?: readonly { value: string; label: string }[];
   hint?: string;
+  /**
+   * For a select whose prop the schema defaults (a poll's `view`): the value it shows while the prop
+   * is left out, offered in place of "None".
+   */
+  shows?: string;
 }
 
 /**
@@ -128,6 +133,20 @@ export interface ChoicesField {
    * picked from the choices, or none. Removing that choice clears it.
    */
   correct?: { prop: string; label: string; none: string; hint?: string };
+  /**
+   * An optional `#rrggbb` colour on each choice (a poll option's `color`, content data, not theme),
+   * shown only while `when.prop` holds one of `when.values` (a poll's `view`).
+   */
+  color?: ChoiceColorField;
+}
+
+/** The colour of each choice, shown only for some values of another prop (see {@link ChoicesField.color}). */
+export interface ChoiceColorField {
+  /** The name of the colour input, such as "Colour". */
+  label: string;
+  hint?: string;
+  /** The prop whose value shows the colour input, and the values it shows it for. */
+  when: { prop: string; values: readonly string[] };
 }
 
 /**
@@ -140,7 +159,8 @@ export type ChoiceEdit =
   | { prop: string; index: number; label: string }
   | { prop: string; add: { id: string; label: string }; max: number }
   | { prop: string; remove: string; min: number; clears?: string }
-  | { prop: string; move: string; by: -1 | 1 };
+  | { prop: string; move: string; by: -1 | 1 }
+  | { prop: string; index: number; color: string | null };
 
 /** The props with `edit` applied, or null when it changes nothing (an id gone, a limit reached, an end). */
 export function applyChoiceEdit(
@@ -151,6 +171,16 @@ export function applyChoiceEdit(
   if (!Array.isArray(items)) return null;
   const list = items as readonly Record<string, unknown>[];
   const at = (id: string) => list.findIndex((item) => item?.['id'] === id);
+  if ('color' in edit) {
+    if (edit.index < 0 || edit.index >= list.length) return null;
+    const next = list.map((item, i) => {
+      if (i !== edit.index) return item;
+      const rest = { ...item };
+      delete rest['color'];
+      return edit.color === null ? rest : { ...rest, color: edit.color };
+    });
+    return { ...props, [edit.prop]: next };
+  }
   if ('label' in edit) {
     if (edit.index < 0 || edit.index >= list.length) return null;
     return { ...props, [edit.prop]: list.map((item, i) => (i === edit.index ? { ...item, label: edit.label } : item)) };
@@ -309,6 +339,15 @@ function oneOf(type: string, hintId: string, hint: string): AddLimit {
     reached: (doc) => (doc?.elements.filter((e) => e.type === type).length ?? 0) >= ELEMENT_TYPE_LIMITS[type],
   };
 }
+
+// The poll's views, as the server's schema names them, with the words people read for each.
+const POLL_VIEWS: readonly { value: string; label: string }[] = [
+  { value: 'sticker', label: 'Sticker' },
+  { value: 'embed', label: 'Embed' },
+  { value: 'this-or-that', label: 'This or that' },
+  { value: 'grid', label: 'Grid' },
+  { value: 'inline', label: 'Inline' },
+];
 
 const THEME_FIELD: InspectorField = {
   prop: 'theme',
@@ -489,12 +528,25 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
         { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
         { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
         THEME_FIELD,
+        {
+          prop: 'view',
+          label: 'View',
+          control: 'select',
+          options: POLL_VIEWS,
+          shows: 'sticker',
+          hint: 'How the poll is drawn: a sticker, an embed, this or that (two halves), a grid of tiles, or inline rows.',
+        },
       ],
       choices: {
         prop: 'options',
         label: 'Options',
         itemLabel: (index) => `Option ${index + 1}`,
         hint: 'Up to 60 characters each. Votes stay with an option when its text changes.',
+        color: {
+          label: 'Colour',
+          hint: "Optional. Used by the this or that and grid views only; it is the option's own colour, not the theme's.",
+          when: { prop: 'view', values: ['this-or-that', 'grid'] },
+        },
       },
     },
     create: {
@@ -754,6 +806,7 @@ export const FIELDS_PROP_KEYWORDS: readonly string[] = [
   'pattern',
   'minimum',
   'maximum',
+  'default',
 ];
 
 /** The pattern a colour field's prop has: `#RRGGBB`, what the colour picker gives. */
@@ -878,10 +931,32 @@ function checkChoicesField(
   const items = (prop['items'] ?? {}) as Record<string, unknown>;
   const itemProps = (items['properties'] ?? {}) as Record<string, Record<string, unknown>>;
   const required = Array.isArray(items['required']) ? (items['required'] as unknown[]) : [];
+  const color = choices.color;
+  if (color) {
+    const when = Object.prototype.hasOwnProperty.call(properties, color.when.prop)
+      ? properties[color.when.prop]
+      : undefined;
+    if (
+      !when ||
+      !Array.isArray(when['enum']) ||
+      color.when.values.some((v) => !(when['enum'] as unknown[]).includes(v))
+    ) {
+      fail(`the colour of "${name}" shows for values of "${color.when.prop}", which must be an enum of its schema`);
+    }
+    const colour = Object.prototype.hasOwnProperty.call(itemProps, 'color') ? itemProps['color'] : undefined;
+    if (
+      !colour ||
+      colour['type'] !== 'string' ||
+      colour['pattern'] !== HEX_COLOR_PATTERN ||
+      required.includes('color')
+    ) {
+      fail(`the items of "${name}" need an optional colour prop of type string with pattern ${HEX_COLOR_PATTERN}`);
+    }
+  }
   if (
     items['type'] !== 'object' ||
     items['additionalProperties'] !== false ||
-    Object.keys(itemProps).sort().join() !== 'id,label' ||
+    Object.keys(itemProps).sort().join() !== (color ? 'color,id,label' : 'id,label') ||
     !required.includes('id') ||
     !required.includes('label')
   ) {

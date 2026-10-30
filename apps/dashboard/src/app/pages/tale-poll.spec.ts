@@ -7,7 +7,12 @@ import type { PollElement, TaleDocument } from '@taleart/contract/tale-document'
 import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
-import { STUDIO_TEST_ELEMENT_TYPES, studioElementTypes, type InspectorField } from './tale-element-types';
+import {
+  applyChoiceEdit,
+  STUDIO_TEST_ELEMENT_TYPES,
+  studioElementTypes,
+  type InspectorField,
+} from './tale-element-types';
 import { TaleStudioPage } from './tale-studio';
 import { settle, WAIT_FOR_TEST } from './tale-studio.testing';
 
@@ -107,6 +112,103 @@ describe('the poll descriptor and the choices field', () => {
   });
 });
 
+const HEX = '^#[0-9a-fA-F]{6}$';
+
+describe('the poll views and option colours (end-user redesign P6)', () => {
+  it('offers the five views in a select that shows the default, sticker, and no None', () => {
+    const poll = studioElementTypes().find((t) => t.key === 'poll');
+    const view = (poll?.inspector as { fields: InspectorField[] }).fields.find((f) => f.prop === 'view');
+    expect(view?.control).toBe('select');
+    expect(view?.options?.map((o) => o.value)).toEqual(['sticker', 'embed', 'this-or-that', 'grid', 'inline']);
+    expect(view?.shows).toBe('sticker');
+  });
+
+  it('shows the option colour input for this-or-that and grid only', () => {
+    const poll = studioElementTypes().find((t) => t.key === 'poll');
+    const choices = (poll?.inspector as { choices: { color: unknown } }).choices;
+    expect(choices.color).toMatchObject({ label: 'Colour', when: { prop: 'view', values: ['this-or-that', 'grid'] } });
+  });
+
+  it('refuses a colour prop that is not #rrggbb, or a view that is not an enum of its schema', () => {
+    const item = {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'label'],
+      properties: {
+        id: { type: 'string' },
+        label: { type: 'string' },
+        color: { type: 'string', pattern: '^#[0-9a-fA-F]{3}$' },
+      },
+    };
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        q: { type: 'string' },
+        view: { type: 'string', enum: ['a', 'b'], default: 'a' },
+        choices: { type: 'array', minItems: 2, maxItems: 2, items: item },
+      },
+    };
+    const build = (s: Record<string, unknown>, color: { when: { prop: string; values: string[] } }) =>
+      studioElementTypes({
+        registry: [{ key: 'widget', label: 'Widget', schema: s }],
+        descriptors: {
+          widget: {
+            palette: {
+              category: 'interactive',
+              order: 9,
+              keywords: ['widget'],
+              icon: 'plus',
+              action: { kind: 'configured' },
+            },
+            create: { box: { x: 0, y: 0, w: 0.5, h: 0.1, rotation: 0 }, props: () => ({}) },
+            inspector: {
+              fields: [{ prop: 'q', label: 'Q', control: 'text' }],
+              choices: {
+                prop: 'choices',
+                label: 'Choices',
+                itemLabel: (i) => `Choice ${i + 1}`,
+                color: { label: 'Colour', when: color.when },
+              },
+            },
+          },
+        },
+      });
+    expect(() => build(schema, { when: { prop: 'view', values: ['a'] } })).toThrow(/optional colour prop/);
+    const hex = {
+      ...schema,
+      properties: {
+        ...schema.properties,
+        choices: {
+          ...schema.properties.choices,
+          items: { ...item, properties: { ...item.properties, color: { type: 'string', pattern: HEX } } },
+        },
+      },
+    };
+    expect(() => build(hex, { when: { prop: 'view', values: ['c'] } })).toThrow(/enum of its schema/);
+    expect(build(hex, { when: { prop: 'view', values: ['a'] } })).toHaveLength(1);
+  });
+
+  it('sets and clears one option colour as one edit, leaving the other options alone', () => {
+    const props = {
+      question: 'Q?',
+      options: [
+        { id: 'a', label: 'A' },
+        { id: 'b', label: 'B', color: '#112233' },
+      ],
+    };
+    expect(applyChoiceEdit(props, { prop: 'options', index: 0, color: '#AABBCC' })?.['options']).toEqual([
+      { id: 'a', label: 'A', color: '#AABBCC' },
+      { id: 'b', label: 'B', color: '#112233' },
+    ]);
+    expect(applyChoiceEdit(props, { prop: 'options', index: 1, color: null })?.['options']).toEqual([
+      { id: 'a', label: 'A' },
+      { id: 'b', label: 'B' },
+    ]);
+    expect(applyChoiceEdit(props, { prop: 'options', index: 5, color: '#000000' })).toBeNull();
+  });
+});
+
 // A poll as a stored draft holds it.
 function storedPoll(): PollElement {
   return {
@@ -119,6 +221,7 @@ function storedPoll(): PollElement {
     props: {
       question: 'Tea or coffee?',
       theme: 'light',
+      view: 'sticker',
       options: [
         { id: 'tea', label: 'Tea' },
         { id: 'coffee', label: 'Coffee' },
@@ -255,6 +358,33 @@ describe('Tale Studio: a poll (epic interactive components story 4.1)', () => {
     expect(await leaving).toBe(true);
   });
 
+  it('shows a view select defaulting to sticker, and the option colours for this-or-that and grid only', async () => {
+    await open({ version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [storedPoll()] });
+    const id = poll().id;
+    q<HTMLButtonElement>(`#studio-el-${id}`).click();
+    await settle(fixture);
+    for (const read of http.match(responsesUrl)) read.flush({ elements: [] });
+    await settle(fixture);
+    const view = q<HTMLSelectElement>(`#field-poll-view-${id}`);
+    expect(view.value).toBe('sticker');
+    expect([...view.options].map((o) => o.value)).toEqual(['sticker', 'embed', 'this-or-that', 'grid', 'inline']);
+    expect(q(`#field-poll-options-${id}-0-color`)).toBeNull();
+
+    await edit(`#field-poll-view-${id}`, 'this-or-that');
+    expect(poll().props.view).toBe('this-or-that');
+    expect(q<HTMLInputElement>(`#field-poll-options-${id}-0-color`)).not.toBeNull();
+
+    await edit(`#field-poll-options-${id}-0-color`, '#2563eb');
+    expect(poll().props.options[0]).toEqual({ id: 'tea', label: 'Tea', color: '#2563EB' });
+    expect(poll().props.options[1]).toEqual({ id: 'coffee', label: 'Coffee' });
+    q<HTMLButtonElement>(`#field-poll-options-${id}-0-color-clear`).click();
+    await settle(fixture);
+    expect(poll().props.options[0]).toEqual({ id: 'tea', label: 'Tea' });
+
+    await edit(`#field-poll-view-${id}`, 'inline');
+    expect(q(`#field-poll-options-${id}-0-color`)).toBeNull();
+  });
+
   it('refuses to duplicate a poll, since a tale holds one', async () => {
     await open({ version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [storedPoll()] });
     const el = q<HTMLButtonElement>(`#studio-el-${storedPoll().id}`);
@@ -297,6 +427,7 @@ describe('Tale Studio: a poll (epic interactive components story 4.1)', () => {
       props: {
         question: 'Tea or coffee?',
         theme: 'light',
+        view: 'sticker',
         options: [
           { id: 'tea', label: 'Tea' },
           { id: 'coffee', label: 'Coffee' },

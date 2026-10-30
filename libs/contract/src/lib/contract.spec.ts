@@ -70,8 +70,9 @@ describe('bar frame schema', () => {
     additionalProperties: boolean;
   };
 
-  it('has the R2 fields with their values and defaults, and nothing else', () => {
+  it('has the R2 and P4 fields with their values and defaults, and nothing else', () => {
     const fields: Record<keyof BarSettings, object> = {
+      layout: { enum: ['ring', 'chip', 'poster', 'stack'], default: 'ring' },
       shape: { enum: ['circle', 'rounded-square'], default: 'circle' },
       size: { enum: ['small', 'medium', 'large'], default: 'medium' },
       showTitles: { type: 'boolean', default: true },
@@ -91,8 +92,9 @@ describe('banner frame schema', () => {
     additionalProperties: boolean;
   };
 
-  it('has the R3 fields with their values and defaults, and nothing else', () => {
+  it('has the R3 and P5 fields with their values and defaults, and nothing else', () => {
     const fields: Record<keyof BannerSettings, object> = {
+      variant: { enum: ['carousel', 'coverflow', 'peek', 'deck', 'sticky', 'strip'], default: 'carousel' },
       aspectRatio: { enum: ['16:9', '3:1', '1:1'], default: '16:9' },
       autoplay: { type: 'boolean', default: true },
       intervalSeconds: { type: 'integer', minimum: 3, maximum: 15, default: 5 },

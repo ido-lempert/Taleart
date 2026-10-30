@@ -136,3 +136,42 @@ describe('checkTaleDocument: a reaction (components, 2026-10-29)', () => {
     expect(refused(reaction({ emojis: undefined })).pointer).toBe('/elements/0/props/emojis');
   });
 });
+
+describe('checkTaleDocument: poll views and option colours (end-user redesign P4)', () => {
+  const poll = (props: Record<string, unknown> = {}) =>
+    doc([
+      element('poll', {
+        question: 'Tea or coffee?',
+        theme: 'light',
+        options: [
+          { id: 'tea', label: 'Tea' },
+          { id: 'coffee', label: 'Coffee' },
+        ],
+        ...props,
+      }),
+    ]);
+
+  it('keeps a poll without view or colours valid, as before the redesign', () => {
+    expect(() => checkTaleDocument(poll())).not.toThrow();
+  });
+
+  it('accepts each view and a #rrggbb colour per option', () => {
+    for (const view of ['sticker', 'embed', 'this-or-that', 'grid', 'inline']) {
+      expect(() => checkTaleDocument(poll({ view }))).not.toThrow();
+    }
+    const options = [
+      { id: 'tea', label: 'Tea', color: '#2563eb' },
+      { id: 'coffee', label: 'Coffee', color: '#B45309' },
+    ];
+    expect(() => checkTaleDocument(poll({ view: 'this-or-that', options }))).not.toThrow();
+  });
+
+  it('refuses an unknown view and a colour that is not #rrggbb', () => {
+    expect(() => checkTaleDocument(poll({ view: 'carousel' }))).toThrow(InvalidTaleDocumentError);
+    const options = [
+      { id: 'tea', label: 'Tea', color: 'blue' },
+      { id: 'coffee', label: 'Coffee' },
+    ];
+    expect(() => checkTaleDocument(poll({ view: 'grid', options }))).toThrow(InvalidTaleDocumentError);
+  });
+});

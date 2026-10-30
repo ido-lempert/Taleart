@@ -180,13 +180,14 @@ export const zones: GroupSpec = {
       args: [zoneArg],
       options: {
         type: { type: 'string', valueName: '<type>', description: 'The display type: bar or banner (see display-types).' },
-        set: { type: 'string', multiple: true, valueName: '<key=value>', description: 'A setting, such as gap=8 or shape=rounded-square (true, false and numbers are not text: see above).' },
+        set: { type: 'string', multiple: true, valueName: '<key=value>', description: 'A setting, such as gap=8, shape=rounded-square, layout=chip (bar) or variant=sticky (banner) (true, false and numbers are not text: see above).' },
         settings: { type: 'string', valueName: '<json>', description: 'Settings as a JSON object.' },
         reset: { type: 'boolean', description: 'Start from the type\'s defaults instead of the current settings.' },
       },
       examples: [
         'taleart zones display home-top --type bar',
         'taleart zones display home-top --type bar --set shape=rounded-square --set size=large --set gap=8',
+        'taleart zones display home-top --type bar --set layout=chip --set size=small',
         'taleart zones display promo --type banner --settings \'{"aspectRatio":"3:1","autoplay":true}\'',
       ],
       async run(ctx) {

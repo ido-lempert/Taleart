@@ -19,6 +19,7 @@ import { describeWindow, formatShort } from './schedule';
 const barSchema = {
   type: 'object',
   properties: {
+    layout: { title: 'Layout', type: 'string', enum: ['ring', 'chip', 'poster', 'stack'], default: 'ring' },
     shape: { title: 'Shape', type: 'string', enum: ['circle', 'rounded-square'], default: 'circle' },
     size: { title: 'Size', type: 'string', enum: ['small', 'medium', 'large'], default: 'medium' },
     showTitles: { title: 'Show titles', type: 'boolean', default: true },
@@ -34,9 +35,27 @@ const barSchema = {
   },
   additionalProperties: false,
 };
+// The shipped banner schema, as GET /frame-types sends it (only the fields the display settings use).
+const bannerSchema = {
+  type: 'object',
+  properties: {
+    variant: {
+      title: 'Variant',
+      type: 'string',
+      enum: ['carousel', 'coverflow', 'peek', 'deck', 'sticky', 'strip'],
+      default: 'carousel',
+    },
+    aspectRatio: { title: 'Aspect ratio', type: 'string', enum: ['16:9', '3:1', '1:1'], default: '16:9' },
+    autoplay: { title: 'Autoplay', type: 'boolean', default: true },
+    intervalSeconds: { title: 'Interval', type: 'integer', minimum: 3, maximum: 15, default: 5 },
+    showDots: { title: 'Show dots', type: 'boolean', default: true },
+    loop: { title: 'Loop', type: 'boolean', default: true },
+  },
+  additionalProperties: false,
+};
 const frameTypes = [
   { key: 'bar', label: 'Bar', schema: barSchema },
-  { key: 'banner', label: 'Banner', schema: { type: 'object', properties: {}, additionalProperties: false } },
+  { key: 'banner', label: 'Banner', schema: bannerSchema },
 ];
 const acme = { id: 'p1', name: 'Acme' };
 const globex = { id: 'p2', name: 'Globex' };
@@ -927,7 +946,7 @@ describe('App', () => {
 
     describe('display type', () => {
       const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
-      const barDefaults = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
+      const barDefaults = { layout: 'ring', shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
       const typeSelect = (root: HTMLElement) => root.querySelector<HTMLSelectElement>('#display-type-select');
 
       it('switches bar to banner and back, resetting the settings, and announces each change', async () => {
@@ -959,7 +978,7 @@ describe('App', () => {
           expect(buttonNamed(root, 'Change type').disabled).toBe(true);
           expect(announced(root)).toContain(`The display is now a ${label.toLowerCase()}, with its default settings.`);
         }
-        // The banner's schema here has no fields: no Settings button; the bar's has.
+        // Both shipped schemas have fields, so both show Settings.
         expect(root.querySelector('.display-row button')).not.toBeNull();
       });
 
@@ -1001,7 +1020,7 @@ describe('App', () => {
         bar.fixture.destroy();
         const banner = await open('/zones/z1', { ...oneZone, displays: { z1: frameBanner } });
         expect(banner.root.querySelector('#display-type')?.textContent).toContain('Banner');
-        expect(settingsButton(banner.root)).toBeNull();
+        expect(settingsButton(banner.root)).not.toBeNull();
       });
 
       it('builds the form from the schema, showing defaults for unset fields', async () => {
@@ -1012,7 +1031,7 @@ describe('App', () => {
         const labels = [...(drawer()?.querySelectorAll('.field__label, .checkbox') ?? [])].map((l) =>
           l.textContent?.trim(),
         );
-        expect(labels).toEqual(['Shape', 'Size', 'Show titles', 'Alignment', 'Gap']);
+        expect(labels).toEqual(['Layout', 'Shape', 'Size', 'Show titles', 'Alignment', 'Gap']);
         const shape = field<HTMLSelectElement>('shape');
         expect([...(shape?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Circle', 'Rounded square']);
         expect(shape?.value).toBe('circle');
@@ -1029,7 +1048,7 @@ describe('App', () => {
 
       it('saves every field and shows the saved values when opened again', async () => {
         const { fixture, root } = await openSettings();
-        const settings = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
+        const settings = { layout: 'ring', shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
 
         choose(field<HTMLSelectElement>('shape'), 'rounded-square');
         choose(field<HTMLSelectElement>('size'), 'large');
@@ -1050,6 +1069,46 @@ describe('App', () => {
         expect(field<HTMLSelectElement>('shape')?.value).toBe('rounded-square');
         expect(field<HTMLInputElement>('showTitles')?.checked).toBe(false);
         expect(field<HTMLInputElement>('gap')?.value).toBe('20');
+      });
+
+      it('picks the bar layout with a thumbnail per option, dims the settings it does not use and saves it', async () => {
+        const { fixture } = await openSettings();
+        const radios = [...(drawer()?.querySelectorAll<HTMLInputElement>('input[name="display-layout"]') ?? [])];
+        expect(radios.map((r) => r.value)).toEqual(['ring', 'chip', 'poster', 'stack']);
+        expect(radios.find((r) => r.checked)?.value).toBe('ring');
+        expect(drawer()?.querySelectorAll('.display-option svg[role="img"]').length).toBe(4);
+        expect(field<HTMLSelectElement>('shape')?.disabled).toBe(false);
+
+        radios.find((r) => r.value === 'chip')?.click();
+        await settle(fixture);
+        expect(field<HTMLSelectElement>('shape')?.disabled).toBe(true);
+        expect(drawer()?.querySelector('#frame-settings-shape-ignored')?.textContent).toContain(
+          'Not used by the Chip layout.',
+        );
+        expect(field<HTMLSelectElement>('size')?.disabled).toBe(false);
+
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frame`);
+        expect(req.request.body).toEqual({
+          settings: { layout: 'chip', shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+        });
+        req.flush({ ...frameBar, settings: req.request.body.settings });
+        await settle(fixture);
+      });
+
+      it('dims the banner settings a sticky variant does not use, and no layout picker for a bar', async () => {
+        const { fixture } = await openSettings({ ...oneZone, displays: { z1: frameBanner } });
+        expect(drawer()?.querySelectorAll('input[name="display-variant"]').length).toBe(6);
+        expect(drawer()?.querySelector('input[name="display-layout"]')).toBeNull();
+        drawer()?.querySelector<HTMLInputElement>('input[name="display-variant"][value="sticky"]')?.click();
+        await settle(fixture);
+        for (const key of ['aspectRatio', 'showDots', 'loop']) {
+          expect(field<HTMLInputElement | HTMLSelectElement>(key)?.disabled).toBe(true);
+        }
+        expect(field<HTMLInputElement>('autoplay')?.disabled).toBe(false);
+        expect(drawer()?.querySelector('#frame-settings-loop-ignored')?.textContent).toContain(
+          'Not used by the Sticky variant.',
+        );
       });
 
       it('keeps the drawer open with the API message and marks the refused field', async () => {
@@ -1090,6 +1149,7 @@ describe('App', () => {
         buttonNamed(drawer() as HTMLElement, 'Save').click();
         const req = http.expectOne(`${API_BASE}/zones/z1/frame`);
         expect(req.request.body.settings).toEqual({
+          layout: 'ring',
           shape: 'circle',
           size: 'medium',
           showTitles: true,
@@ -1124,6 +1184,7 @@ describe('App', () => {
         buttonNamed(drawer() as HTMLElement, 'Save').click();
         const req = http.expectOne(`${API_BASE}/zones/z1/frame`);
         expect(req.request.body.settings).toEqual({
+          layout: 'ring',
           shape: 'circle',
           size: 'large',
           showTitles: true,

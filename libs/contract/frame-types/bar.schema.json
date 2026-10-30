@@ -4,6 +4,13 @@
   "description": "Settings for the bar frame type (epic web zones R2). A missing field takes its default.",
   "type": "object",
   "properties": {
+    "layout": {
+      "title": "Layout",
+      "description": "How each tale group is drawn. ring: the cover in a ring, the default look; applies shape, size, showTitles, alignment and gap. chip: a round cover beside its title in a pill; shape is ignored. poster: a tall card with the title over the cover; shape and size are ignored. stack: the items overlap in one collapsed row; only size applies, and shape, showTitles, alignment and gap are ignored.",
+      "type": "string",
+      "enum": ["ring", "chip", "poster", "stack"],
+      "default": "ring"
+    },
     "shape": {
       "title": "Shape",
       "description": "The shape of each tale group's cover.",

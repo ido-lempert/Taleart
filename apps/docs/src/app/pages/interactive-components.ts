@@ -53,6 +53,26 @@ import { RouterLink } from '@angular/router';
 <h2 id="what-the-visitor-sees">What the visitor sees</h2>
 <p>These are real screenshots of the Web SDK in the viewer at phone size, with sample tales. The same components look the same in the Android and iOS SDKs.</p>
 <h3 id="poll-view">Poll</h3>
+<p>A poll has a <strong>View</strong>, and each option may have its own colour. The table gives the values and the default.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>View</td>
+<td><code>sticker</code> (default), <code>embed</code>, <code>this-or-that</code>, <code>grid</code> or <code>inline</code></td>
+</tr>
+<tr>
+<td>Option colour</td>
+<td>optional <code>#rrggbb</code> on each option, used by <code>this-or-that</code> and <code>grid</code> only; it is content (the colour of that answer), not part of the theme</td>
+</tr>
+</tbody>
+</table></div>
+<p>The SDKs draw the views from the next releases; until then a poll shows its sticker look whatever the view is set to.</p>
 <figure><img src="images/web-shot-poll.png" alt="The Poll group in the viewer: a white card on a sunrise picture with the title Quick poll, the question Tea or coffee? and two outlined buttons, Tea and Coffee." width="780" height="1400" /><figcaption>A poll before the visitor votes.</figcaption></figure>
 <figure><img src="images/web-shot-poll-answered.png" alt="The same poll after a tap on Tea: each button fills with its share, Tea 61% and Coffee 39%, and the chosen button has a thicker border." width="780" height="1400" /><figcaption>After a vote each option shows its share, and the visitor's choice is marked.</figcaption></figure>
 <h3 id="quiz-view">Quiz</h3>

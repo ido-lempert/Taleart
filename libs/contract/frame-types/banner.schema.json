@@ -4,6 +4,13 @@
   "description": "Settings for the banner frame type (epic web zones R3). A missing field takes its default.",
   "type": "object",
   "properties": {
+    "variant": {
+      "title": "Variant",
+      "description": "How the slides are shown. carousel: one slide at a time, the default look. coverflow: the current slide in front, its neighbours turned away at the sides. peek: the neighbours show at the edges. deck: the slides fanned out like cards. sticky: the banner stays on screen while the page scrolls. strip: a continuous marquee of the slides. autoplay, loop, showDots and aspectRatio apply to carousel, coverflow, peek and deck; sticky and strip ignore aspectRatio, showDots and loop; strip also ignores autoplay and intervalSeconds, since it scrolls at a fixed speed.",
+      "type": "string",
+      "enum": ["carousel", "coverflow", "peek", "deck", "sticky", "strip"],
+      "default": "carousel"
+    },
     "aspectRatio": {
       "title": "Aspect ratio",
       "description": "The banner's width to height.",
