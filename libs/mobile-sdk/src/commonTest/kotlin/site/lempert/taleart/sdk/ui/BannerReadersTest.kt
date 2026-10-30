@@ -15,7 +15,7 @@ class BannerReadersTest {
 
     @Test
     fun bannerSettingsTakeTheSchemaDefaults() {
-        val defaults = BannerSettings(BannerAspectRatio.Wide, autoplay = true, intervalSeconds = 5, showDots = true, loop = true)
+        val defaults = BannerSettings(aspectRatio = BannerAspectRatio.Wide, autoplay = true, intervalSeconds = 5, showDots = true, loop = true)
         assertEquals(defaults, BannerSettings.read(null))
         assertEquals(defaults, BannerSettings.read(json("{}")))
         assertEquals(defaults, BannerSettings.read(json("[]")))
@@ -25,7 +25,7 @@ class BannerReadersTest {
     @Test
     fun bannerSettingsKeepEachValidField() {
         assertEquals(
-            BannerSettings(BannerAspectRatio.Strip, autoplay = false, intervalSeconds = 15, showDots = false, loop = false),
+            BannerSettings(aspectRatio = BannerAspectRatio.Strip, autoplay = false, intervalSeconds = 15, showDots = false, loop = false),
             BannerSettings.read(json("""{"aspectRatio":"3:1","autoplay":false,"intervalSeconds":15,"showDots":false,"loop":false}""")),
         )
         assertEquals(BannerAspectRatio.Square, BannerSettings.read(json("""{"aspectRatio":"1:1"}""")).aspectRatio)
@@ -47,6 +47,38 @@ class BannerReadersTest {
         assertEquals(BannerAspectRatio.Wide, BannerSettings.read(json("""{"aspectRatio":16}""")).aspectRatio)
         // Unknown keys are ignored.
         assertEquals(BannerSettings(), BannerSettings.read(json("""{"shape":"circle","speed":9}""")))
+    }
+
+    @Test
+    fun theVariantsAreTheSchemaNamesAndTheDefaultIsTheCarousel() {
+        assertEquals(listOf("carousel", "coverflow", "peek", "deck", "sticky", "strip"), BannerVariant.entries.map { it.key })
+        assertEquals(BannerVariant.Carousel, BannerSettings().variant)
+        assertEquals(BannerVariant.Carousel, BannerSettings.read(null).variant)
+        assertEquals(BannerVariant.Carousel, BannerSettings.read(json("{}")).variant)
+    }
+
+    @Test
+    fun aKnownVariantIsKeptAndAnUnknownOneIsTheCarousel() {
+        for (variant in BannerVariant.entries) {
+            assertEquals(variant, BannerSettings.read(json("""{"variant":"${variant.key}"}""")).variant)
+        }
+        assertEquals(BannerVariant.Carousel, BannerSettings.read(json("""{"variant":"ticker"}""")).variant)
+        assertEquals(BannerVariant.Carousel, BannerSettings.read(json("""{"variant":"Strip"}""")).variant)
+        assertEquals(BannerVariant.Carousel, BannerSettings.read(json("""{"variant":3}""")).variant)
+        assertEquals(BannerVariant.Carousel, BannerSettings.read(json("""{"variant":null}""")).variant)
+    }
+
+    @Test
+    fun theOtherSettingsAreReadWhateverTheVariant() {
+        // The sticky and strip variants ignore some settings when drawn, but the settings are read as sent.
+        assertEquals(
+            BannerSettings(variant = BannerVariant.Sticky, aspectRatio = BannerAspectRatio.Square, showDots = false, loop = false),
+            BannerSettings.read(json("""{"variant":"sticky","aspectRatio":"1:1","showDots":false,"loop":false}""")),
+        )
+        assertEquals(
+            BannerSettings(variant = BannerVariant.Strip, autoplay = false, intervalSeconds = 9),
+            BannerSettings.read(json("""{"variant":"strip","autoplay":false,"intervalSeconds":9}""")),
+        )
     }
 
     @Test

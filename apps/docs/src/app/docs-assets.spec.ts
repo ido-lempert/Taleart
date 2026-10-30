@@ -57,6 +57,32 @@ function intrinsicSize(file: string): { width: number; height: number } {
   return { width: Number(viewBox[3]), height: Number(viewBox[4]) };
 }
 
+/** Every <video> tag in the templates: its file, poster and declared size, the flags it sets, and whether a caption follows it. */
+const videos = templates.flatMap(({ name, text }) =>
+  [...text.matchAll(/<video\b[^>]*>/g)].map((m) => {
+    const tag = m[0];
+    const at = m.index ?? 0;
+    const value = (key: string) => new RegExp(`\\b${key}="([^"]*)"`).exec(tag)?.[1];
+    const flag = (key: string) => new RegExp(`\\s${key}(?=[\\s>])`).test(tag);
+    const after = text.slice(at + tag.length, at + tag.length + 700);
+    return {
+      template: name,
+      // The file is on the tag, or on the <source> inside it.
+      src: value('src') ?? /<source\b[^>]*\bsrc="([^"]*)"/.exec(after)?.[1] ?? '',
+      poster: value('poster') ?? '',
+      width: Number(value('width')),
+      height: Number(value('height')),
+      muted: flag('muted'),
+      loop: flag('loop'),
+      playsinline: flag('playsinline'),
+      controls: flag('controls'),
+      autoplay: flag('autoplay'),
+      preload: value('preload'),
+      captioned: /<figcaption\b/.test(after),
+    };
+  }),
+);
+
 describe('docs image references', () => {
   it('reads every page template and finds the images they use', () => {
     expect(templates.length).toBeGreaterThan(30);
@@ -95,5 +121,58 @@ describe('docs image references', () => {
       .filter((src) => readFileSync(join(PUBLIC, src)).length > 400 * 1024)
       .map((src) => src);
     expect(big).toEqual([]);
+  });
+});
+
+describe('docs video clips', () => {
+  it('finds the clips the pages embed', () => {
+    expect(videos.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('plays only when the visitor asks: muted, looping, with controls, and no autoplay (also under reduced motion)', () => {
+    for (const v of videos) {
+      expect({ clip: v.src, muted: v.muted, loop: v.loop, playsinline: v.playsinline, controls: v.controls, preload: v.preload, autoplay: v.autoplay }).toEqual({
+        clip: v.src,
+        muted: true,
+        loop: true,
+        playsinline: true,
+        controls: true,
+        preload: 'metadata',
+        autoplay: false,
+      });
+    }
+  });
+
+  it('points at a clip file that exists, with the exact case, and keeps it under 400 KB (WebM) or 600 KB (MP4)', () => {
+    const problems = videos.flatMap((v) => {
+      const out: string[] = [];
+      if (!/^images\/[\w.-]+\.(webm|mp4)$/.test(v.src)) out.push(`${v.template}: src "${v.src}" is not a local WebM or MP4 in images/`);
+      else if (!existsExact(join(PUBLIC, v.src))) out.push(`${v.template}: ${v.src} does not exist`);
+      else if (readFileSync(join(PUBLIC, v.src)).length > (v.src.endsWith('.mp4') ? 600 : 400) * 1024)
+        out.push(`${v.template}: ${v.src} is over ${v.src.endsWith('.mp4') ? 600 : 400} KB`);
+      return out;
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it('declares its width and height, and a poster image of the same frame ratio', () => {
+    const problems = videos.flatMap((v) => {
+      const out: string[] = [];
+      if (!(v.width > 0) || !(v.height > 0)) out.push(`${v.template}: ${v.src} declares no width and height`);
+      if (!/^images\/[\w.-]+\.png$/.test(v.poster) || !existsExact(join(PUBLIC, v.poster))) {
+        out.push(`${v.template}: ${v.src} has no poster image in images/`);
+      } else {
+        const poster = intrinsicSize(join(PUBLIC, v.poster));
+        if (Math.abs(poster.width / poster.height - v.width / v.height) > 0.02) {
+          out.push(`${v.template}: ${v.src} is ${v.width}x${v.height} but its poster ${v.poster} is ${poster.width}x${poster.height}`);
+        }
+      }
+      return out;
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it('captions every clip in a figure', () => {
+    expect(videos.filter((v) => !v.captioned).map((v) => `${v.template}: ${v.src}`)).toEqual([]);
   });
 });

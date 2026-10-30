@@ -94,7 +94,7 @@ describe('banner settings', () => {
   });
 
   it('keeps every valid value', () => {
-    const settings = { aspectRatio: '3:1', autoplay: false, intervalSeconds: 3, showDots: false, loop: false };
+    const settings = { variant: 'peek', aspectRatio: '3:1', autoplay: false, intervalSeconds: 3, showDots: false, loop: false };
     expect(readBannerSettings(settings)).toEqual(settings);
     expect(readBannerSettings({ intervalSeconds: 15, aspectRatio: '1:1' })).toMatchObject({ intervalSeconds: 15, aspectRatio: '1:1' });
   });

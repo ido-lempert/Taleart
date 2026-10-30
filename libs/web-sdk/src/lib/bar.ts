@@ -1,12 +1,14 @@
 import type { DeliveryTaleGroup } from '@taleart/contract';
 import { defaultTranslate, type Translate } from './i18n';
-import { BAR_LAYOUT_STYLES, renderChip, renderPoster, renderRing, renderStack } from './bar-layouts';
+import { adopt, BAR_LAYOUT_STYLES, renderRing, renderSkeleton } from './bar-layouts';
 import { prefersReducedMotion } from './bar-cover';
-import { readBarSettings } from './bar-settings';
+import { readBarSettings, type BarLayout } from './bar-settings';
+import { holdMedia } from './first-content';
 
 // The bar is this module's public face: its settings, its covers, its layouts and its look. The parts live
-// in bar-settings.ts (what a bar is set to), bar-cover.ts (the covers) and bar-layouts.ts (the four layouts,
-// their skeleton and their look). One module of the SDK draws it, so the bar costs one chunk.
+// in bar-settings.ts (what a bar is set to), bar-cover.ts (the covers), bar-layouts.ts (the ring, the skeleton
+// and what the layouts share) and bar-extra-layouts.ts (the chip, poster and stack), which loads on the first
+// bar that asks for one, as the viewer does (viewer-loader.ts).
 export {
   BAR_CHOICES,
   BAR_DEFAULTS,
@@ -78,6 +80,27 @@ const BASE_STYLES = `
 /* Two tokens, so the focus ring shows on any background: the paper inside, the ink outside. */
 .bar .item:focus-visible { outline: 2px solid var(--ta-ink); outline-offset: 2px; box-shadow: 0 0 0 2px var(--ta-paper); border-radius: 8px; }
 `;
+
+// The chunk of the chip, poster and stack, once loaded (null before). A failed load is not kept: the next bar tries again.
+let extra: typeof import('./bar-extra-layouts') | null = null;
+let extraLoading: Promise<typeof import('./bar-extra-layouts')> | null = null;
+function loadExtraLayouts(): Promise<typeof import('./bar-extra-layouts')> {
+  return (extraLoading ??= import('./bar-extra-layouts').then(
+    (module) => (extra = module),
+    (err: unknown) => {
+      extraLoading = null;
+      throw err;
+    },
+  ));
+}
+
+/**
+ * The look of the chip, the poster and the stack, once their chunk has loaded (empty before): the element adds it to
+ * its stylesheet when it draws such a bar straight away, and a bar that waits for the chunk adds it beside its list.
+ */
+export function barLayoutStyles(): string {
+  return extra?.EXTRA_LAYOUT_STYLES ?? '';
+}
 
 /**
  * The rules that come last, so a layout's own display and colours do not undo them: hidden titles, forced
@@ -152,6 +175,10 @@ function moveFocus(list: HTMLElement, event: KeyboardEvent): void {
  * layout and its settings; each layout reads only the settings it uses (BAR_IGNORED). Animated covers stay
  * still when `reducedMotion` is true.
  *
+ * The ring is drawn here. The chip, poster and stack are drawn from their chunk: at once when it is loaded,
+ * else the list returns as the layout's loading skeleton and `onReady` is called with the list once the
+ * layout is in it (a chunk that fails to load leaves the ring).
+ *
  * Every item's `data-tale-group-ids` lists the groups it stands for (one, or all of a stack), so the element
  * counts an impression for each of them. Arrow keys move focus between the items in visual order.
  */
@@ -161,13 +188,43 @@ export function renderBar(
   settings: unknown = {},
   reducedMotion = prefersReducedMotion(),
   t: Translate = defaultTranslate,
+  onReady?: (list: HTMLElement) => void,
 ): HTMLElement {
   const s = readBarSettings(settings);
-  const list =
-    s.layout === 'chip' ? renderChip(groups, seen, s, reducedMotion, t)
-    : s.layout === 'poster' ? renderPoster(groups, seen, s, reducedMotion, t)
-    : s.layout === 'stack' ? renderStack(groups, seen, s, reducedMotion, t)
-    : renderRing(groups, seen, s, reducedMotion, t);
+  const layout: BarLayout = s.layout ?? 'ring';
+  if (layout === 'ring') return keyed(renderRing(groups, seen, s, reducedMotion, t));
+  if (extra) return keyed(extra.renderExtraLayout(layout, groups, seen, s, reducedMotion, t));
+  const list = keyed(renderSkeleton(layout));
+  void loadExtraLayouts().then(
+    (module) => {
+      const built = holdMedia(() => module.renderExtraLayout(layout, groups, seen, s, reducedMotion, t));
+      adopt(list, built);
+      const style = document.createElement('style');
+      style.textContent = module.EXTRA_LAYOUT_STYLES;
+      list.before(style);
+      onReady?.(list);
+    },
+    () => {
+      adopt(list, renderRing(groups, seen, s, reducedMotion, t));
+      onReady?.(list);
+    },
+  );
+  return list;
+}
+
+/**
+ * Loads the chip, poster and stack now, so the next bar of any of them is drawn in its list at once (the page
+ * does not wait). Resolves once they are loaded; a failed load resolves too, and the next bar tries again.
+ */
+export function preloadBarLayouts(): Promise<void> {
+  return loadExtraLayouts().then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+// The arrow keys and Home and End move focus between the items of a list, as the list is drawn.
+function keyed(list: HTMLUListElement): HTMLUListElement {
   list.addEventListener('keydown', (event) => moveFocus(list, event));
   return list;
 }

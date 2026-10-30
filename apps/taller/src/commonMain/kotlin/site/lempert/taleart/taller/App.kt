@@ -216,7 +216,7 @@ private fun HomeScreen(
             // The host's title colour and font, as the web bar inherits the page's.
             val titleStyle = TextStyle(color = LocalContentColor.current, fontFamily = LocalTextStyle.current.fontFamily)
             // The debug option draws the zone's bar in its layout; without it (or before the zone reads) the controller shows it.
-            val shown = options.barLayout?.let { layout -> zone?.withBarLayout(layout) }
+            val shown = if (options.barLayout != null || options.bannerVariant != null) zone?.let { options.drawn(it) } else null
             if (shown != null) {
                 TaleartZone(
                     shown,

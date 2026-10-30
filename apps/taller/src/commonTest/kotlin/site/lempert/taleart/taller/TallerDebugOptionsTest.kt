@@ -6,6 +6,7 @@ import site.lempert.taleart.sdk.FallbackMode
 import site.lempert.taleart.sdk.FrequencyRule
 import site.lempert.taleart.sdk.delivery.DeliveryFrame
 import site.lempert.taleart.sdk.delivery.DeliveryZone
+import site.lempert.taleart.sdk.ui.BannerVariant
 import site.lempert.taleart.sdk.ui.BarLayout
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -89,6 +90,46 @@ class TallerDebugOptionsTest {
         assertSame(none, none.withBarLayout(BarLayout.Chip))
         val banner = DeliveryZone(id = "z", frame = DeliveryFrame(id = "f", type = "banner", settings = null))
         assertSame(banner, banner.withBarLayout(BarLayout.Chip))
+    }
+
+    @Test
+    fun readsTheBannerVariantAndIgnoresAnUnknownOne() {
+        assertEquals(BannerVariant.Coverflow, TallerDebugOptions.load(InMemoryStore(mapOf(TallerDebugOptions.BANNER_VARIANT to " Coverflow "))).bannerVariant)
+        assertEquals(BannerVariant.Strip, TallerDebugOptions.load(InMemoryStore(), mapOf(TallerDebugOptions.BANNER_VARIANT to "strip")).bannerVariant)
+        assertNull(TallerDebugOptions.load(InMemoryStore(mapOf(TallerDebugOptions.BANNER_VARIANT to "ticker"))).bannerVariant)
+        assertNull(TallerDebugOptions.load(InMemoryStore()).bannerVariant)
+    }
+
+    @Test
+    fun aBannerIsDrawnInAnotherVariantWithItsOtherSettingsKept() {
+        val banner = DeliveryZone(
+            id = "z",
+            frame = DeliveryFrame(id = "f", type = "banner", settings = JsonObject(mapOf("aspectRatio" to JsonPrimitive("1:1"), "loop" to JsonPrimitive(false)))),
+        )
+        val peek = banner.withBannerVariant(BannerVariant.Peek)
+        assertEquals(
+            JsonObject(mapOf("aspectRatio" to JsonPrimitive("1:1"), "loop" to JsonPrimitive(false), "variant" to JsonPrimitive("peek"))),
+            peek.frame?.settings,
+        )
+        assertEquals(banner.taleGroups, peek.taleGroups)
+    }
+
+    @Test
+    fun aZoneWithoutABannerIsNotChangedByTheVariant() {
+        val bar = DeliveryZone(id = "z", frame = DeliveryFrame(id = "f", type = "bar", settings = null))
+        assertSame(bar, bar.withBannerVariant(BannerVariant.Deck))
+        val none = DeliveryZone(id = "z")
+        assertSame(none, none.withBannerVariant(BannerVariant.Deck))
+    }
+
+    @Test
+    fun theDebugOptionsDrawABarOrABannerOrNeither() {
+        val options = TallerDebugOptions(barLayout = BarLayout.Chip, bannerVariant = BannerVariant.Sticky)
+        val bar = DeliveryZone(id = "z", frame = DeliveryFrame(id = "f", type = "bar", settings = null))
+        val banner = DeliveryZone(id = "z", frame = DeliveryFrame(id = "f", type = "banner", settings = null))
+        assertEquals(JsonObject(mapOf("layout" to JsonPrimitive("chip"))), options.drawn(bar).frame?.settings)
+        assertEquals(JsonObject(mapOf("variant" to JsonPrimitive("sticky"))), options.drawn(banner).frame?.settings)
+        assertSame(banner, TallerDebugOptions().drawn(banner))
     }
 
     @Test

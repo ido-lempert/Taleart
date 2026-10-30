@@ -47,6 +47,14 @@ describe('the performance page', () => {
     expect(row('Third-party requests')).toEqual(['Third-party requests', 'None', 'None']);
   });
 
+  it('says which chunks load on first use: the viewer, the banner variants, and the bar layouts beyond the ring', () => {
+    const text = page.textContent ?? '';
+    expect(text).toContain('the viewer and the renderers of tale documents');
+    expect(text).toContain('coverflow, peek, deck, sticky and strip');
+    expect(text).toContain('chip, poster and stack');
+    expect(text).toContain('which together hold the ring, the carousel and the rest the page needs');
+  });
+
   it('gives the verify commands', () => {
     const text = page.textContent ?? '';
     expect(text).toContain('pnpm nx run web-sdk:measure-budget');

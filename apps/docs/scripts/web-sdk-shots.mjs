@@ -11,8 +11,13 @@
 // and a dark device (colorScheme light and dark, a dark host page), with the theme left on `auto`.
 // With --bar-layouts, only the bar layout shots are written (web-bar-layout-*.png): each layout of the bar, a rounded-square
 // ring, the loading skeleton (a stand-in that answers late), and the chip and the poster on a right-to-left page.
+// With --banner-variants, only the banner variant shots are written (web-banner-variant-*.png): each variant of the
+// banner on a left-to-right page (carousel, coverflow, peek, deck, sticky, strip), and coverflow, peek, deck and strip
+// on a right-to-left page. The stills have no autoplay, and the strip is frozen part way along its loop.
+// With --clips, only the motion clips are written (web-clip-*.webm), recorded by Playwright from a small page: the
+// ring turning and a hover, and the banner's coverflow and strip moving. Each is a few seconds and kept under 300 KB.
 import { createServer } from 'node:http';
-import { mkdir, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
@@ -22,6 +27,8 @@ const AUDIENCE_ONLY = process.argv.includes('--audience');
 const COMPONENTS_ONLY = process.argv.includes('--components');
 const THEME_ONLY = process.argv.includes('--theme');
 const BAR_LAYOUTS_ONLY = process.argv.includes('--bar-layouts');
+const BANNER_VARIANTS_ONLY = process.argv.includes('--banner-variants');
+const CLIPS_ONLY = process.argv.includes('--clips');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
 const imagesDir = join(root, 'apps/docs/public/images');
@@ -177,6 +184,19 @@ const KEYS = {
   layoutLoading: 'tak_DemoLayoutLoadingKey0000001',
   hebrewChip: 'tak_DemoHebrewChipKey00000000001',
   hebrewPoster: 'tak_DemoHebrewPosterKey0000001',
+  variantCarousel: 'tak_DemoVariantCarouselKey00001',
+  variantCoverflow: 'tak_DemoVariantCoverflowKey0001',
+  variantPeek: 'tak_DemoVariantPeekKey00000001',
+  variantDeck: 'tak_DemoVariantDeckKey0000000001',
+  variantSticky: 'tak_DemoVariantStickyKey000001',
+  variantStrip: 'tak_DemoVariantStripKey0000001',
+  heVariantCoverflow: 'tak_DemoHeVariantCoverflowKey01',
+  heVariantPeek: 'tak_DemoHeVariantPeekKey0000001',
+  heVariantDeck: 'tak_DemoHeVariantDeckKey0000001',
+  heVariantStrip: 'tak_DemoHeVariantStripKey00001',
+  clipRing: 'tak_DemoClipRingKey00000000000001',
+  clipCoverflow: 'tak_DemoClipCoverflowKey000001',
+  clipStrip: 'tak_DemoClipStripKey0000000001',
 };
 // Display settings per sample zone (a missing field takes its default); the banners stay still for the shots.
 const SETTINGS = {
@@ -195,6 +215,20 @@ const SETTINGS = {
   layoutLoading: { layout: 'ring' },
   hebrewChip: { layout: 'chip' },
   hebrewPoster: { layout: 'poster' },
+  // The banner variants: still (no autoplay) for the shots; the clips autoplay, the strip at its own speed.
+  variantCarousel: { variant: 'carousel', autoplay: false },
+  variantCoverflow: { variant: 'coverflow', autoplay: false },
+  variantPeek: { variant: 'peek', autoplay: false },
+  variantDeck: { variant: 'deck', autoplay: false },
+  variantSticky: { variant: 'sticky', autoplay: false },
+  variantStrip: { variant: 'strip' },
+  heVariantCoverflow: { variant: 'coverflow', autoplay: false },
+  heVariantPeek: { variant: 'peek', autoplay: false },
+  heVariantDeck: { variant: 'deck', autoplay: false },
+  heVariantStrip: { variant: 'strip' },
+  clipRing: { layout: 'ring' },
+  clipCoverflow: { variant: 'coverflow', intervalSeconds: 3 },
+  clipStrip: { variant: 'strip' },
 };
 // Not in KEYS: the stand-in refuses it, so a zone with this key cannot load (the failure shots).
 const REFUSED_KEY = 'tak_RevokedDemoKey00000000001';
@@ -239,9 +273,12 @@ function audienceZone(frameType) {
 const AUDIENCE_VIEWERS = { free: { plan: 'free' }, pro: { plan: 'pro', age: 34 } };
 const AUDIENCE_KINDS = { audienceBar: 'bar', audienceBanner: 'banner' };
 
+// The kinds drawn as a banner, and the kinds that use the six groups (the layouts and the variants).
+const isBanner = (kind) => /^(banner|variant|heVariant|clipCoverflow|clipStrip)/.test(kind);
+const isWide = (kind) => /^(layout|variant|heVariant|clip)/.test(kind);
 function zoneFor(kind) {
-  const frameType = kind.startsWith('banner') ? 'banner' : 'bar';
-  const groups = kind.startsWith('layout') ? LAYOUT_GROUPS : GROUPS;
+  const frameType = isBanner(kind) ? 'banner' : 'bar';
+  const groups = isWide(kind) ? LAYOUT_GROUPS : GROUPS;
   return {
     id: 'z-home-top',
     name: 'Home – top',
@@ -262,7 +299,7 @@ function zoneFor(kind) {
 
 // The host pages: the docs' snippet, with the locale variant for Hebrew.
 const SNIPPET_SCRIPT = '<script type="module" src="/sdk/v1/taleart.js"></script>';
-function page({ lang = 'en', dir = 'ltr', kind = 'bar', body = '', script = '', dark = false }) {
+function page({ lang = 'en', dir = 'ltr', kind = 'bar', body = '', script = '', dark = false, pad = 24 }) {
   return `<!doctype html>
 <html lang="${lang}" dir="${dir}">
 <head>
@@ -271,7 +308,7 @@ function page({ lang = 'en', dir = 'ltr', kind = 'bar', body = '', script = '', 
 <title>Web SDK sample</title>
 <style>
   body { margin: 0; font-family: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; background: ${dark ? '#111827' : '#f5f5f7'}; color: ${dark ? '#f9fafb' : '#1d1d1f'}; }
-  main { padding: 24px; }
+  main { padding: ${pad}px; }
   taleart-view { display: block; min-height: 94px; }
 </style>
 ${script || SNIPPET_SCRIPT}
@@ -315,6 +352,8 @@ const HEBREW_SCRIPT = `<script type="module">
         'bar.newStory': '{count} סיפור חדש',
         'bar.newStories': '{count} סיפורים חדשים',
         'bar.noNewStories': 'אין סיפורים חדשים',
+        'banner.watch': 'לצפייה',
+        'banner.dismiss': 'סגירת הבאנר',
       },
     },
   });
@@ -352,6 +391,22 @@ const HOSTS = {
   '/layout-loading.html': () => page({ kind: 'layoutLoading' }),
   '/he-chip.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrewChip', script: HEBREW_SCRIPT }),
   '/he-poster.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrewPoster', script: HEBREW_SCRIPT }),
+  // The banner variants (--banner-variants): one host page per variant, and the right-to-left pages of the four that
+  // place their slides by direction; the clips' pages (--clips).
+  '/banner-variant-carousel.html': () => page({ kind: 'variantCarousel' }),
+  '/banner-variant-coverflow.html': () => page({ kind: 'variantCoverflow' }),
+  '/banner-variant-peek.html': () => page({ kind: 'variantPeek' }),
+  '/banner-variant-deck.html': () => page({ kind: 'variantDeck' }),
+  '/banner-variant-sticky.html': () => page({ kind: 'variantSticky' }),
+  '/banner-variant-strip.html': () => page({ kind: 'variantStrip' }),
+  '/he-banner-coverflow.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'heVariantCoverflow', script: HEBREW_SCRIPT }),
+  '/he-banner-peek.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'heVariantPeek', script: HEBREW_SCRIPT }),
+  '/he-banner-deck.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'heVariantDeck', script: HEBREW_SCRIPT }),
+  '/he-banner-strip.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'heVariantStrip', script: HEBREW_SCRIPT }),
+  // The clips' pages have a small margin, so each clip's frame keeps the ratio of the picture that stands for it.
+  '/clip-ring.html': () => page({ kind: 'clipRing', pad: 4 }),
+  '/clip-banner-coverflow.html': () => page({ kind: 'clipCoverflow', pad: 12 }),
+  '/clip-banner-strip.html': () => page({ kind: 'clipStrip', pad: 12 }),
   '/reaction.html': () => page({ kind: 'reaction' }),
   '/components.html': () => page({ kind: 'components' }),
   '/banner-wide.html': () => page({ kind: 'banner31' }),
@@ -367,6 +422,19 @@ const HOSTS = {
 // The bar layouts in Hebrew: the zone of a layout kind (`layoutChip`, `layoutPoster`) with its groups and tales in Hebrew.
 function localisedLayoutZone(kind) {
   const zone = zoneFor(kind === 'hebrewChip' ? 'layoutChip' : 'layoutPoster');
+  zone.name = 'הבית – למעלה';
+  zone.slug = 'home-top';
+  zone.taleGroups = zone.taleGroups.map((g) => ({
+    ...g,
+    name: HEBREW_GROUPS.find((h) => h.id === g.id)?.name ?? g.name,
+    tales: g.tales.map((t) => ({ ...t, title: HEBREW_TALES[t.title] ?? t.title })),
+  }));
+  return zone;
+}
+
+// A banner variant in Hebrew, for the right-to-left shots: the six groups and their tales, named in Hebrew.
+function localisedVariantZone(kind) {
+  const zone = zoneFor(kind);
   zone.name = 'הבית – למעלה';
   zone.slug = 'home-top';
   zone.taleGroups = zone.taleGroups.map((g) => ({
@@ -761,7 +829,7 @@ async function startServer() {
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
       // The loading stand-in: the zone of this key is never answered, so the page keeps its loading skeleton.
       if (kind === 'layoutLoading') return void held.add(res);
-      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'hebrewBanner' ? localisedZone('banner') : kind === 'hebrewChip' || kind === 'hebrewPoster' ? localisedLayoutZone(kind) : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
+      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'hebrewBanner' ? localisedZone('banner') : kind === 'hebrewChip' || kind === 'hebrewPoster' ? localisedLayoutZone(kind) : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : kind.startsWith('heVariant') ? localisedVariantZone(kind) : zoneFor(kind);
       return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(zone));
     }
     if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
@@ -892,6 +960,97 @@ async function barLayoutShots(browser, origin, written) {
   }
 }
 
+// The banner variants (epic end-user redesign P5): each variant as a host page places it, on a left-to-right page, and
+// coverflow, peek, deck and strip on a right-to-left page. A still waits for the slides and for the variant's transitions
+// to settle; the strip is frozen a third of the way along its 18-second loop (its animations paused at 6 s).
+async function bannerVariantShots(browser, origin, written) {
+  const shot = async (context, path, name, { freezeStrip = false, showThird = false } = {}) => {
+    const p = await context.newPage();
+    await p.goto(`${origin}${path}`);
+    await p.waitForFunction(
+      (sel) => !!document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel),
+      '[data-tale-group-id]',
+      { timeout: 15_000 },
+    );
+    await p.waitForLoadState('networkidle');
+    await p.waitForTimeout(900);
+    // The third slide shown, so a peek has a neighbour on each side.
+    if (showThird) {
+      await p.locator('taleart-view .b-dot').nth(2).click();
+      await p.waitForTimeout(900);
+    }
+    if (freezeStrip) {
+      await p.evaluate(() => {
+        for (const animation of document.querySelector('taleart-view').shadowRoot.getAnimations({ subtree: true })) {
+          animation.pause();
+          animation.currentTime = 6000;
+        }
+      });
+    }
+    await p.waitForTimeout(150);
+    await p.locator('main').screenshot({ path: join(imagesDir, name) });
+    written.push(name);
+    await p.close();
+  };
+  const ltr = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'en-US' });
+  const rtl = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'he-IL' });
+  try {
+    for (const variant of ['carousel', 'coverflow', 'deck', 'sticky']) {
+      await shot(ltr, `/banner-variant-${variant}.html`, `web-banner-variant-${variant}.png`);
+    }
+    await shot(ltr, '/banner-variant-peek.html', 'web-banner-variant-peek.png', { showThird: true });
+    await shot(ltr, '/banner-variant-strip.html', 'web-banner-variant-strip.png', { freezeStrip: true });
+    for (const variant of ['coverflow', 'deck']) {
+      await shot(rtl, `/he-banner-${variant}.html`, `web-banner-variant-${variant}-rtl.png`);
+    }
+    await shot(rtl, '/he-banner-peek.html', 'web-banner-variant-peek-rtl.png', { showThird: true });
+    await shot(rtl, '/he-banner-strip.html', 'web-banner-variant-strip-rtl.png', { freezeStrip: true });
+  } finally {
+    for (const context of [ltr, rtl]) await context.close();
+  }
+}
+
+// The motion clips (epic end-user redesign P7): short WebM recordings of the SDK in motion, made by Playwright's
+// `recordVideo` (no conversion, so the file is the recording as it is). Each records a few seconds of one page, small
+// at one device pixel, sized to its poster, to stay under 300 KB, and is copied to the images folder under its name.
+async function clipShots(browser, origin, written) {
+  const clipDir = join(root, 'node_modules/.cache/web-sdk-clips');
+  await mkdir(clipDir, { recursive: true });
+  // Each frame has the ratio of the picture the docs show as its poster (1120 by 284, 1120 by 760 and 1120 by 300).
+  const clips = [
+    { path: '/clip-ring.html', name: 'web-clip-ring.webm', wait: 'button.item', action: 'hover', size: { width: 420, height: 106 } },
+    { path: '/clip-banner-coverflow.html', name: 'web-clip-banner-coverflow.webm', wait: '[data-tale-group-id]', size: { width: 420, height: 285 } },
+    { path: '/clip-banner-strip.html', name: 'web-clip-banner-strip.webm', wait: '[data-tale-group-id]', size: { width: 420, height: 113 } },
+  ];
+  for (const clip of clips) {
+    const context = await browser.newContext({
+      viewport: clip.size,
+      deviceScaleFactor: 1,
+      locale: 'en-US',
+      recordVideo: { dir: clipDir, size: clip.size },
+    });
+    const p = await context.newPage();
+    await p.goto(`${origin}${clip.path}`);
+    await p.waitForFunction(
+      (sel) => !!document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel),
+      clip.wait,
+      { timeout: 15_000 },
+    );
+    if (clip.action === 'hover') {
+      // The unseen rings turn; a hover over the second item shows its ring and cover respond.
+      await p.waitForTimeout(1200);
+      await p.locator('taleart-view button.item').nth(1).hover();
+    }
+    await p.waitForTimeout(3600);
+    const video = p.video();
+    await context.close();
+    const recorded = await video.path();
+    await copyFile(recorded, join(imagesDir, clip.name));
+    if ((await stat(join(imagesDir, clip.name))).size > 300 * 1024) throw new Error(`${clip.name} is over 300 KB`);
+    written.push(clip.name);
+  }
+}
+
 async function main() {
   await mkdir(imagesDir, { recursive: true });
   const { server, origin } = await startServer();
@@ -910,6 +1069,14 @@ async function main() {
     }
     if (BAR_LAYOUTS_ONLY) {
       await barLayoutShots(browser, origin, written);
+      return;
+    }
+    if (BANNER_VARIANTS_ONLY) {
+      await bannerVariantShots(browser, origin, written);
+      return;
+    }
+    if (CLIPS_ONLY) {
+      await clipShots(browser, origin, written);
       return;
     }
     const ready = (p, selector) =>

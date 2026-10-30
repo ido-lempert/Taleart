@@ -66,6 +66,12 @@ const ALLOWED: readonly { file: string; includes: string; reason: string }[] = [
     reason: 'a side card: `slot()` gives its offset sign by `this.rtl`, so the next tale is always on the inline end side.',
   },
   {
+    file: 'lib/banner-variants.ts',
+    includes: 'track.scrollBy?.({ left:',
+    reason:
+      'scrollBy takes a physical left offset only; the offset is the distance on screen from the slide\'s middle to the track\'s, so it is correct in both directions.',
+  },
+  {
     file: 'lib/banner.ts',
     includes: 'translateX(${(isRtl(root) ? 100 : -100) * index}%)',
     reason: 'the slides run from the start of the line: the track moves the way the page reads, by `isRtl`.',

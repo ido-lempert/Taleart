@@ -7,6 +7,8 @@ import {
   IOS_ZONE_MEMBERS,
   BAR_LAYOUTS,
   BAR_SETTING_FIELDS,
+  BANNER_SETTING_FIELDS,
+  BANNER_VARIANTS,
   NATIVE_THEME_FIELDS,
   LISTENER_HOOKS,
   MAPPING,
@@ -231,6 +233,57 @@ import {
       </table>
     </div>
 
+    <h2 id="banner">Banner settings</h2>
+    <p>
+      The banner display's settings, set in the dashboard on a banner zone's frame. A setting that is missing or not valid takes
+      its default. The variants, and the settings each one ignores, are described in <a routerLink="/ios-guide">the guide</a>
+      under Banner variants.
+    </p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="banner-variants-caption">
+      <table id="banner-variants-table">
+        <caption id="banner-variants-caption">Banner variants</caption>
+        <thead>
+          <tr>
+            <th scope="col">Variant</th>
+            <th scope="col">Use</th>
+            <th scope="col">Ignored settings</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of bannerVariants; track row.variant) {
+            <tr>
+              <td><code>{{ row.variant }}</code></td>
+              <td>{{ row.use }}</td>
+              <td>{{ row.ignored }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="banner-settings-caption">
+      <table id="banner-settings-fields">
+        <caption id="banner-settings-caption">Banner settings</caption>
+        <thead>
+          <tr>
+            <th scope="col">Field</th>
+            <th scope="col">Type</th>
+            <th scope="col">Default</th>
+            <th scope="col">Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of bannerSettings; track row.name) {
+            <tr>
+              <td><code>{{ row.name }}</code></td>
+              <td><code>{{ row.type }}</code></td>
+              <td>{{ row.def }}</td>
+              <td>{{ row.meaning }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
     <h2 id="listener">TaleartListener and TaleartListenerBase</h2>
     <p>
       The hooks. In Swift, subclass <code>TaleartListenerBase</code> (an open class whose methods do nothing) and override
@@ -357,6 +410,8 @@ export class IosSdkReferencePage {
   protected readonly themeFields = NATIVE_THEME_FIELDS;
   protected readonly barLayouts = BAR_LAYOUTS;
   protected readonly barSettings = BAR_SETTING_FIELDS;
+  protected readonly bannerVariants = BANNER_VARIANTS;
+  protected readonly bannerSettings = BANNER_SETTING_FIELDS;
   protected readonly functions = IOS_FUNCTIONS;
   protected readonly hooks = LISTENER_HOOKS;
   protected readonly eventFields = EVENT_FIELDS;

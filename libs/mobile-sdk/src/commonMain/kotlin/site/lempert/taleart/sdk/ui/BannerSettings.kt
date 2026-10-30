@@ -17,10 +17,31 @@ enum class BannerAspectRatio(val key: String, val widthOverHeight: Float) {
 }
 
 /**
+ * How the slides are shown (`variant` in banner.schema.json): [Carousel] one at a time, the default;
+ * [Coverflow] the current slide in front with its neighbours turned away; [Peek] the neighbours at
+ * the edges; [Deck] the slides fanned out like cards; [Sticky] a compact bar pinned to the bottom of
+ * its host, dismissible; [Strip] a continuous marquee of the slides.
+ */
+enum class BannerVariant(val key: String) {
+    Carousel("carousel"),
+    Coverflow("coverflow"),
+    Peek("peek"),
+    Deck("deck"),
+    Sticky("sticky"),
+    Strip("strip"),
+}
+
+/**
  * The banner display's settings (web zones R3), as libs/contract/frame-types/banner.schema.json
  * defines them; the defaults are the schema's (`BANNER_DEFAULTS` in the Web SDK).
+ *
+ * [aspectRatio], [autoplay], [intervalSeconds], [showDots] and [loop] are read as the schema says,
+ * but not every variant uses them: [BannerVariant.Sticky] ignores [aspectRatio], [showDots] and
+ * [loop]; [BannerVariant.Strip] ignores [aspectRatio], [showDots], [loop], [autoplay] and
+ * [intervalSeconds] (it scrolls at a fixed speed).
  */
 data class BannerSettings(
+    val variant: BannerVariant = BannerVariant.Carousel,
     val aspectRatio: BannerAspectRatio = BannerAspectRatio.Wide,
     /** Move to the next slide by itself; stops when the person interacts or prefers reduced motion. */
     val autoplay: Boolean = true,
@@ -43,12 +64,14 @@ data class BannerSettings(
             val s = raw as? JsonObject ?: JsonObject(emptyMap())
             val defaults = BannerSettings()
             fun bool(key: String) = (s[key] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
-            val ratio = (s["aspectRatio"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            fun text(key: String) = (s[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val ratio = text("aspectRatio")
             // An integer, as JavaScript's Number.isInteger reads it: 5 and 5.0 are, 5.5 and "5" are not.
             val interval = (s["intervalSeconds"] as? JsonPrimitive)?.takeIf { !it.isString }?.let { p ->
                 p.longOrNull ?: p.content.toDoubleOrNull()?.takeIf { it % 1.0 == 0.0 }?.toLong()
             }
             return BannerSettings(
+                variant = BannerVariant.entries.firstOrNull { it.key == text("variant") } ?: defaults.variant,
                 aspectRatio = BannerAspectRatio.entries.firstOrNull { it.key == ratio } ?: defaults.aspectRatio,
                 autoplay = bool("autoplay") ?: defaults.autoplay,
                 intervalSeconds = interval?.takeIf { it in INTERVAL_MIN..INTERVAL_MAX }?.toInt() ?: defaults.intervalSeconds,

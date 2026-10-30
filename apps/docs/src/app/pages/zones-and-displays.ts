@@ -99,6 +99,10 @@ import { RouterLink } from '@angular/router';
 <p>The ring, as the default and in the rounded square:</p>
 <p><img class="guide-img" src="images/web-bar-layout-ring.png" width="1120" height="284" alt="The ring layout: round covers in a gradient ring, each with its group name under it." /></p>
 <p><img class="guide-img" src="images/web-bar-layout-tile.png" width="1120" height="284" alt="The ring layout with the shape set to rounded square: square covers in a gradient ring, each with its name under it." /></p>
+<figure>
+<video class="guide-clip" src="images/web-clip-ring.webm" muted loop playsinline controls preload="metadata" poster="images/web-bar-layout-ring.png" width="420" height="106" aria-describedby="clip-ring-caption">Your browser cannot play this clip. The unseen rings turn, and a hover enlarges a cover.</video>
+<figcaption id="clip-ring-caption">The unseen rings turn, and a hover enlarges a cover. Press play to watch: the clip does not start by itself.</figcaption>
+</figure>
 <p>The chip, which wraps onto a second line when the row is full:</p>
 <p><img class="guide-img" src="images/web-bar-layout-chip.png" width="1120" height="312" alt="The chip layout: each group a pill with a round cover and its name, and a dot on the groups not yet seen. The row wraps onto a second line." /></p>
 <p>The poster, with a segment per tale along the top of each card and the number of stories at its foot:</p>
@@ -149,15 +153,81 @@ import { RouterLink } from '@angular/router';
 </tr>
 </tbody>
 </table></div>
-<p>The variant sets how the slides are shown. <code>carousel</code> is the default: one slide at a time. <code>coverflow</code> puts the current slide in front with its neighbours turned away at the sides. <code>peek</code> shows the neighbours at the edges. <code>deck</code> fans the slides out like cards. <code>sticky</code> stays on screen while the page scrolls. <code>strip</code> is a continuous marquee of the slides. Autoplay, loop, dots and the aspect ratio apply to the first four; <code>sticky</code> and <code>strip</code> ignore the aspect ratio, the dots and loop. The dashboard dims the settings a variant does not use.</p>
-<p>The new layouts and variants are set here now. The SDKs draw them from the next releases; until then a zone shows the look it had before, whatever you set.</p>
-<p>A banner shows one group at a time as a slide, with previous and next arrows and a dot per slide. Here are three ways it can look. The aspect ratio <strong>3:1</strong> gives a wide strip:</p>
-<p><img class="guide-img" src="images/web-display-banner-wide.png" width="1120" height="526" alt="A wide 3:1 banner with a slide, previous and next arrows and four dots, the first one filled." /></p>
+<h4 id="banner-variants">Variants</h4>
+<p>The variant sets how the slides are shown. The web SDK draws all six. The table says when each one fits and which settings it leaves out, and the dashboard dims those settings.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>When to use it</th>
+<th>Settings it does not use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>carousel</code> (default)</td>
+<td>Most pages: one slide at a time, with the group's name and a Watch button on the picture.</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>coverflow</code></td>
+<td>A hero at the top of a desktop page: the current slide in front, its neighbours turned away at the sides.</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>peek</code></td>
+<td>A phone or a narrow column: the neighbouring slides show at the edges, and a swipe moves to the next one.</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>deck</code></td>
+<td>A few campaigns at once: the groups fanned out like a hand of cards, with the front card open to the visitor.</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>sticky</code></td>
+<td>A compact bar that stays on screen while its section scrolls, with a button to dismiss it.</td>
+<td>Aspect ratio, dots and loop</td>
+</tr>
+<tr>
+<td><code>strip</code></td>
+<td>A ticker under a header: the groups move past in one continuous marquee at a fixed speed.</td>
+<td>Aspect ratio, dots, loop, autoplay and interval</td>
+</tr>
+</tbody>
+</table></div>
+<p>The carousel, the default, is one slide at a time, with the group's name and a Watch button on a dark fade at the bottom of the picture. A dot per slide shows where the visitor is; the current dot is the longer one:</p>
+<p><img class="guide-img" src="images/web-banner-variant-carousel.png" width="1120" height="760" alt="The carousel banner: one slide with the group's name and a Watch button over a dark fade, the previous and next buttons at the sides, and four dots with the first one a long pill." /></p>
+<p>Coverflow puts the current slide in front, and its neighbours are turned away at the sides and partly hidden. A click on a neighbour shows it:</p>
+<p><img class="guide-img" src="images/web-banner-variant-coverflow.png" width="1120" height="760" alt="The coverflow banner: the current slide in front with its title, and its two neighbours turned away and partly hidden at either side." /></p>
+<figure>
+<video class="guide-clip" src="images/web-clip-banner-coverflow.webm" muted loop playsinline controls preload="metadata" poster="images/web-banner-variant-coverflow.png" width="420" height="284" aria-describedby="clip-coverflow-caption">Your browser cannot play this clip. The coverflow banner changes its slide every three seconds.</video>
+<figcaption id="clip-coverflow-caption">The coverflow banner moving on its own: the slides change every three seconds. Press play to watch; the clip does not start by itself.</figcaption>
+</figure>
+<p>Peek shows the neighbouring slides at the edges, so the visitor sees that there is more. A swipe, or the arrows, move one slide:</p>
+<p><img class="guide-img" src="images/web-banner-variant-peek.png" width="1120" height="760" alt="The peek banner: the current card in the middle, with the neighbouring cards cut off at both edges, and the position dots under it." /></p>
+<p>Deck fans the groups out like a hand of cards. The front card opens the group, and the others wait behind it:</p>
+<p><img class="guide-img" src="images/web-banner-variant-deck.png" width="1120" height="760" alt="The deck banner: the groups fanned out behind the front card, which shows its name and a Watch button." /></p>
+<p>Sticky is a compact bar with the current group's cover and name, the previous and next buttons, a rotation button and a dismiss button. It stays at the bottom of its section while the page scrolls, and it never covers the content around it: the bar takes its own space in the page, as any block does. A visitor who dismisses it does not see it again in the same browsing session; the dismissal is kept in the browser's session storage. In a browser that blocks session storage the bar shows again on the next page view:</p>
+<p><img class="guide-img" src="images/web-banner-variant-sticky.png" width="1120" height="284" alt="The sticky banner: a compact bar with previous and next buttons, a round cover and the group's name, a rotation button and a close button." /></p>
+<p>Strip is a marquee of the groups: the covers and names move past at a fixed speed, one full pass of the groups in 18 seconds, and the strip runs in the direction the page reads. Hovering over it, or moving the focus into it, pauses it. A visitor who prefers reduced motion sees it still, and can scroll it sideways:</p>
+<p><img class="guide-img" src="images/web-banner-variant-strip.png" width="1120" height="300" alt="The strip banner: round covers with their group names in a row, cut off at both ends, as if moving past." /></p>
+<figure>
+<video class="guide-clip" src="images/web-clip-banner-strip.webm" muted loop playsinline controls preload="metadata" poster="images/web-banner-variant-strip.png" width="420" height="112" aria-describedby="clip-strip-caption">Your browser cannot play this clip. The strip moves its groups past at a fixed speed.</video>
+<figcaption id="clip-strip-caption">The strip moving at its fixed speed. Press play to watch; the clip does not start by itself.</figcaption>
+</figure>
+<p>On a right-to-left page each variant turns with the page. The next slide of the coverflow is on the left, the peek and the deck open toward the left, and the strip's names and motion run from the right. These are the same four on a Hebrew page:</p>
+<p><img class="guide-img" src="images/web-banner-variant-coverflow-rtl.png" width="1120" height="760" alt="The coverflow banner on a Hebrew page: the front slide with its Hebrew name, and the next slide turned away on the left." /></p>
+<p><img class="guide-img" src="images/web-banner-variant-peek-rtl.png" width="1120" height="760" alt="The peek banner on a Hebrew page: the current card in the middle, with the previous group on the right and the next on the left." /></p>
+<p><img class="guide-img" src="images/web-banner-variant-deck-rtl.png" width="1120" height="760" alt="The deck banner on a Hebrew page: the fan opens toward the left, with the front card's Hebrew name." /></p>
+<p><img class="guide-img" src="images/web-banner-variant-strip-rtl.png" width="1120" height="300" alt="The strip banner on a Hebrew page: Hebrew group names read from the right, with the covers in the same order." /></p>
+<p>Autoplay and its interval apply to every variant except the strip, which moves at its own speed. Loop, dots and the aspect ratio apply to the carousel, the coverflow, the peek and the deck. The stills here were taken with autoplay off, so each one holds still; the strip is frozen a third of the way along its loop.</p>
+<p>A banner shows one group at a time. Here are three ways the carousel can be proportioned. The aspect ratio <strong>3:1</strong> gives a wide strip:</p>
+<p><img class="guide-img" src="images/web-display-banner-wide.png" width="1120" height="526" alt="A wide 3:1 banner with the group's name and a Watch button on the slide, previous and next buttons, and four dots with the first one a long pill." /></p>
 <p>The aspect ratio <strong>1:1</strong> gives a square card:</p>
-<p><img class="guide-img" src="images/web-display-banner-square.png" width="1120" height="1208" alt="A square 1:1 banner with a large slide, arrows and four dots." /></p>
+<p><img class="guide-img" src="images/web-display-banner-square.png" width="1120" height="1208" alt="A square 1:1 banner with a large slide, its name and a Watch button, the arrows and four dots." /></p>
 <p>With <strong>Dots</strong> off the banner keeps its arrows and hides the position dots:</p>
-<p><img class="guide-img" src="images/web-display-banner-plain.png" width="1120" height="704" alt="A 16:9 banner with arrows and no dots under it." /></p>
-<p>Autoplay moves to the next slide by itself after the interval, and stops when the visitor interacts with the banner or prefers reduced motion. These screenshots were taken with autoplay off so each one holds still.</p>
+<p><img class="guide-img" src="images/web-display-banner-plain.png" width="1120" height="704" alt="A 16:9 banner with its name and a Watch button, arrows and no dots under it." /></p>
 <p>Colours, ring style and fonts are not display settings. They come from the <a routerLink="/theme-and-fonts">theme</a>.</p>
 <h2 id="several-zones-on-one-page">Several zones on one page</h2>
 <p>One script tag serves every zone on a page. Each zone has its own zone key, so add one <code>&lt;taleart-view&gt;</code> element per zone, each with its key.</p>

@@ -26,6 +26,8 @@ object TaleartStrings {
         "banner.showGroup" to "Show {name}",
         "banner.stopRotation" to "Stop automatic slide show",
         "banner.startRotation" to "Start automatic slide show",
+        "banner.watch" to "Watch stories",
+        "banner.dismiss" to "Dismiss",
 
         "bar.seen" to "{name}, seen",
         "bar.loading" to "Loading stories",

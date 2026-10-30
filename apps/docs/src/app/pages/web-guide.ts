@@ -159,7 +159,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <figure>
           <img
             src="images/web-view-banner.png"
-            alt="A rendered banner zone: a large picture slide with previous and next arrows, and four dots for the slides."
+            alt="A rendered banner zone: a large picture slide with the group's name and a Watch button, previous and next arrows, and four dots for the slides."
             width="1120"
             height="760"
           />
@@ -496,7 +496,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
     <figure>
       <img
         src="images/web-rtl-banner.png"
-        alt="A banner on a Hebrew page, right to left: the slide with a sun, the previous arrow on the right, the next arrow on the left, and the dots with the first one at the right."
+        alt="A banner on a Hebrew page, right to left: the slide with a sun and its Hebrew name and button at the right, the previous arrow on the right, the next arrow on the left, and the dots with the first one at the right."
         width="1120"
         height="760"
       />

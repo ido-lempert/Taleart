@@ -113,7 +113,8 @@ describe('TaleartElement: the bar layouts while a zone loads and in the page', (
     const el = await mount({ 'api-url': API, 'zone-key': nextKey() });
     release?.(respond(200, zoneWith('chip')));
     await settle();
-    expect(skeleton(el)).toBeNull();
+    // The chip, poster and stack come from their chunk: the skeleton stays until the chunk has drawn the layout.
+    await vi.waitFor(() => expect(skeleton(el)).toBeNull());
     expect(el.shadowRoot?.querySelector('.bar')?.getAttribute('data-layout')).toBe('chip');
     expect(el.shadowRoot?.querySelectorAll('button.item.chip')).toHaveLength(5);
   });
@@ -172,6 +173,7 @@ describe('TaleartElement: the stack', () => {
     const events: { name: string; group?: { id: string } }[] = [];
     init({ hooks: { onEvent: (e) => events.push(e) } });
     const el = await mount();
+    await vi.waitFor(() => expect(el.shadowRoot?.querySelector('button.item.stack')).not.toBeNull());
     const observer = FakeObserver.instances.at(-1) as FakeObserver;
     const [button] = [...(el.shadowRoot?.querySelectorAll<HTMLElement>('button.item') ?? [])];
     expect(observer.observed).toEqual([button]);
@@ -185,6 +187,7 @@ describe('TaleartElement: the stack', () => {
 
   it('opens the first unseen group from its one button, named by the count of new groups', async () => {
     const el = await mount();
+    await vi.waitFor(() => expect(el.shadowRoot?.querySelector('button.item.stack')).not.toBeNull());
     const button = el.shadowRoot?.querySelector<HTMLButtonElement>('button.item.stack');
     expect(button?.getAttribute('aria-label')).toBe('5 new stories');
     button?.click();
@@ -192,5 +195,59 @@ describe('TaleartElement: the stack', () => {
     const dialog = el.shadowRoot?.querySelector('dialog');
     expect(dialog?.hasAttribute('open')).toBe(true);
     expect(dialog?.getAttribute('aria-label')).toBe('Summer');
+  });
+});
+
+// A banner zone of `variant`, its groups as slides.
+const bannerZone = (variant: string): DeliveryZone => ({
+  ...zoneWith('ring'),
+  frame: { id: 'f2', type: 'banner', settings: { variant, autoplay: false } },
+});
+
+describe('TaleartElement: the banner variants in the page', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeAll(() => defineTaleartElement());
+
+  beforeEach(() => {
+    FakeObserver.instances = [];
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    fetchMock = vi.fn(async () => respond(200, bannerZone('coverflow')));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    resetAnalyticsForTests();
+    document.body.replaceChildren();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    init({ hooks: null });
+  });
+
+  it('draws a variant once its chunk has loaded, and counts each group once when its slide is half on screen', async () => {
+    const events: { name: string; group?: { id: string } }[] = [];
+    init({ hooks: { onEvent: (e) => events.push(e) } });
+    const el = await mount();
+    // The variant's skeleton stands in until its chunk has drawn the banner.
+    await vi.waitFor(() => expect(el.shadowRoot?.querySelectorAll('.b-open')).toHaveLength(5));
+    expect(el.shadowRoot?.querySelector('.b-skeleton')).toBeNull();
+    expect(el.shadowRoot?.querySelector('.banner')?.getAttribute('data-variant')).toBe('coverflow');
+    const observer = FakeObserver.instances.at(-1) as FakeObserver;
+    const [first] = [...(el.shadowRoot?.querySelectorAll<HTMLElement>('.b-open') ?? [])];
+    expect(observer.observed).toContain(first);
+    observer.callback([{ isIntersecting: true, target: first }]);
+    expect(events.filter((e) => e.name === 'groupImpression').map((e) => e.group?.id)).toEqual(['ga']);
+    observer.callback([{ isIntersecting: true, target: first }]);
+    expect(events.filter((e) => e.name === 'groupImpression')).toHaveLength(1);
+  });
+
+  it('draws the carousel at once, with no skeleton', async () => {
+    fetchMock.mockImplementation(async () => respond(200, bannerZone('carousel')));
+    const el = await mount();
+    expect(el.shadowRoot?.querySelector('.banner')?.getAttribute('data-variant')).toBe('carousel');
+    expect(el.shadowRoot?.querySelectorAll('.b-open')).toHaveLength(5);
   });
 });

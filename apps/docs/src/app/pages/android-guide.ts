@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import {
   ANDROID_ANALYTICS,
   BAR_LAYOUTS,
+  BANNER_VARIANTS,
   ANDROID_ANALYTICS_XML,
   ANDROID_COMPONENTS,
   ANDROID_COORDINATES,
@@ -431,6 +432,144 @@ import {
       </figcaption>
     </figure>
 
+    <figure class="native-figure native-shot">
+      <video
+        muted
+        loop
+        playsinline
+        controls
+        preload="metadata"
+        poster="images/android-shot-bar-ring.png"
+        width="720"
+        height="1280"
+      >
+        <source src="images/android-clip-ring.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        The ring layout's gradient ring turning around an unseen group, a short recording of the sample app on Android.
+      </figcaption>
+    </figure>
+
+    <h2 id="banner-variants">Banner variants</h2>
+    <p>
+      A banner zone shows its groups one at a time, or in one of five other variants: the frame's <code>variant</code>
+      setting in the dashboard picks it. A missing or unknown value is the carousel. Each variant ignores the settings the
+      table names, and the rest apply. The carousel has been restyled: each slide shows the group's name and a Watch stories
+      button on a scrim, and its previous and next buttons are 48 dp, so they are easy to touch. Right to left, the line of
+      slides, the turn of the coverflow and the fan of the deck, and the marquee run the other way, and the buttons sit on the
+      other edge.
+    </p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="android-banner-variants-caption">
+      <table>
+        <caption id="android-banner-variants-caption">The banner variants and the settings each one ignores</caption>
+        <thead>
+          <tr>
+            <th scope="col">Variant</th>
+            <th scope="col">Use</th>
+            <th scope="col">Ignored settings</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of bannerVariants; track row.variant) {
+            <tr>
+              <td><code>{{ row.variant }}</code></td>
+              <td>{{ row.use }}</td>
+              <td>{{ row.ignored }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-banner-carousel.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the carousel variant: the Hebrew group Summer sea title and a Watch stories button over the cover, with the arrows at the edges and the dots below."
+      />
+      <figcaption class="muted">
+        The carousel: the Hebrew group name and a Watch stories button on a dark scrim over the shown cover, the previous and next buttons on the edges, and the pause button and dots under it., a real screenshot of the sample app’s banner zone.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-banner-coverflow.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the coverflow variant: the front card with the name and button, and the dimmed cards at both sides."
+      />
+      <figcaption class="muted">
+        Coverflow: the shown group in front, its neighbours on both sides turned away and dimmed., a real screenshot of the sample app’s banner zone.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-banner-peek.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the peek variant: the middle card with the neighbours cut off at the left and right edges."
+      />
+      <figcaption class="muted">
+        Peek: the shown group in the middle, the neighbours cut off at the edges., a real screenshot of the sample app’s banner zone.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-banner-deck.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the deck variant: the front card of a fan of cards, with two more behind it at each side."
+      />
+      <figcaption class="muted">
+        Deck: the groups fanned out behind the front card., a real screenshot of the sample app’s banner zone.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-banner-sticky.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the sticky variant: a compact white card with a thumbnail, the group name, Watch stories and a dismiss cross, at the top of the sample app’s content."
+      />
+      <figcaption class="muted">
+        Sticky: a compact card of the shown group at the bottom of its space, with its dismiss button., a real screenshot of the sample app’s banner zone.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-banner-strip.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the strip variant: the group names and round covers scrolling across the line, one of them cut off at the edge."
+      />
+      <figcaption class="muted">
+        Strip: the groups scrolling as a marquee, covers and names moving toward the start of the line., a real screenshot of the sample app’s banner zone.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <video
+        muted
+        loop
+        playsinline
+        controls
+        preload="metadata"
+        poster="images/android-shot-banner-coverflow.png"
+        width="720"
+        height="1280"
+      >
+        <source src="images/android-clip-banner-coverflow.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        The coverflow moving on the sample app, a short clip (under 5 seconds) of a real recording. It stays still under reduced motion.
+      </figcaption>
+    </figure>
+
     <h2 id="analytics">Analytics events</h2>
     <p>
       The SDK sends impression, open, view and click events for each zone, in batches and in the background, so the app
@@ -710,5 +849,6 @@ export class AndroidGuidePage {
   protected readonly backupNew = BACKUP_RULES_NEW;
   protected readonly coordinates = ANDROID_COORDINATES;
   protected readonly barLayouts = BAR_LAYOUTS;
+  protected readonly bannerVariants = BANNER_VARIANTS;
   protected readonly notYet = NOT_YET_NATIVE;
 }

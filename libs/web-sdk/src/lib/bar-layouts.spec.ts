@@ -11,12 +11,20 @@ import {
   barLayoutOf,
   CHIP_COVER_PX,
   markBarSeen,
+  preloadBarLayouts,
   readBarSettings,
   renderBar,
   renderBarSkeleton,
   STACK_COVER_PX,
 } from './bar';
+import { EXTRA_LAYOUT_STYLES } from './bar-extra-layouts';
 import { createTranslate } from './i18n';
+
+// The chip, poster and stack load on first use: the tests draw them once their chunk is in (renderBar then draws at once).
+beforeAll(() => preloadBarLayouts());
+
+// The core's look and the chip, poster and stack's: the rules of every layout, as the element's stylesheet holds them.
+const ALL_BAR_STYLES = BAR_STYLES + EXTRA_LAYOUT_STYLES;
 
 const tale = (id: string) => ({
   id,
@@ -105,24 +113,24 @@ describe('bar layouts: ring', () => {
   });
 
   it('turns the unseen ring only, four seconds a turn, and stops it for reduced motion', () => {
-    expect(BAR_STYLES).toContain('.item:not([data-seen]) .ring::before { animation: ta-bar-spin 4s linear infinite; }');
-    expect(BAR_STYLES).toContain('.item[data-seen] .ring::before { background: var(--ta-seen, var(--ta-muted)); }');
-    expect(BAR_STYLES).toMatch(/\.ring \{[^}]*padding: var\(--ta-ring-width, 2px\);/);
-    expect(BAR_STYLES).toContain('.item:hover .ring { transform: scale(1.07); }');
-    expect(BAR_STYLES).toContain('.item:active .ring { transform: scale(0.94); }');
-    expect(BAR_STYLES).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.bar \.ring::before[\s\S]*animation: none !important/);
+    expect(ALL_BAR_STYLES).toContain('.item:not([data-seen]) .ring::before { animation: ta-bar-spin 4s linear infinite; }');
+    expect(ALL_BAR_STYLES).toContain('.item[data-seen] .ring::before { background: var(--ta-seen, var(--ta-muted)); }');
+    expect(ALL_BAR_STYLES).toMatch(/\.ring \{[^}]*padding: var\(--ta-ring-width, 2px\);/);
+    expect(ALL_BAR_STYLES).toContain('.item:hover .ring { transform: scale(1.07); }');
+    expect(ALL_BAR_STYLES).toContain('.item:active .ring { transform: scale(0.94); }');
+    expect(ALL_BAR_STYLES).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.bar \.ring::before[\s\S]*animation: none !important/);
   });
 
   it('staggers the entrance by item, 60 ms apart', () => {
     const items = [...renderBar(groups, new Set(), {}, false).querySelectorAll<HTMLElement>(':scope > li')];
     expect(items.map((li) => li.style.getPropertyValue('--i'))).toEqual(['0', '1', '2', '3', '4', '5']);
-    expect(BAR_STYLES).toContain('animation-delay: calc(var(--i, 0) * 60ms);');
+    expect(ALL_BAR_STYLES).toContain('animation-delay: calc(var(--i, 0) * 60ms);');
   });
 
   it('draws a rounded square for the shape, and the circle by default', () => {
     expect(renderBar(groups, new Set(), { shape: 'rounded-square' }).dataset['shape']).toBe('rounded-square');
     expect(renderBar(groups, new Set(), {}).dataset['shape']).toBe('circle');
-    expect(BAR_STYLES).toContain('.bar[data-shape="rounded-square"] .ring { border-radius: var(--ta-radius, calc(var(--ta-size) / 4)); }');
+    expect(ALL_BAR_STYLES).toContain('.bar[data-shape="rounded-square"] .ring { border-radius: var(--ta-radius, calc(var(--ta-size) / 4)); }');
   });
 
   it('sizes its covers by the size setting', () => {
@@ -142,7 +150,7 @@ describe('bar layouts: chip', () => {
     expect(items[0].querySelector('.avatar > .cover')).not.toBeNull();
     expect(items[0].querySelector('.title')?.textContent).toBe('Summer');
     expect(items[0].querySelector('.dot')).not.toBeNull();
-    expect(BAR_STYLES).toContain('min-height: 44px;');
+    expect(ALL_BAR_STYLES).toContain('min-height: 44px;');
   });
 
   it('mutes a seen chip, and its dot goes', () => {
@@ -150,13 +158,13 @@ describe('bar layouts: chip', () => {
     const [first, second] = buttons(list);
     expect(first.hasAttribute('data-seen')).toBe(true);
     expect(second.hasAttribute('data-seen')).toBe(false);
-    expect(BAR_STYLES).toContain('.bar .chip[data-seen] .dot { display: none; }');
-    expect(BAR_STYLES).toContain('.bar .chip[data-seen] { color: var(--ta-muted); }');
+    expect(ALL_BAR_STYLES).toContain('.bar .chip[data-seen] .dot { display: none; }');
+    expect(ALL_BAR_STYLES).toContain('.bar .chip[data-seen] { color: var(--ta-muted); }');
   });
 
   it('sizes its cover by the size setting, and wraps its items', () => {
     expect(chips({ size: 'large' }).style.getPropertyValue('--ta-size')).toBe(`${CHIP_COVER_PX.large}px`);
-    expect(BAR_STYLES).toContain('.bar[data-layout="chip"] { flex-wrap: wrap; overflow: visible; }');
+    expect(ALL_BAR_STYLES).toContain('.bar[data-layout="chip"] { flex-wrap: wrap; overflow: visible; }');
   });
 
   it('ignores the shape: no shape is set on the list, and the covers stay round', () => {
@@ -180,7 +188,7 @@ describe('bar layouts: poster', () => {
     expect(items[0].querySelector(':scope > .cover')).not.toBeNull();
     expect(items[0].querySelector('.scrim')).not.toBeNull();
     expect(items[0].querySelector('.ptitle')?.textContent).toBe('Summer');
-    expect(BAR_STYLES).toContain('width: 112px;\n  height: 188px;');
+    expect(ALL_BAR_STYLES).toContain('width: 112px;\n  height: 188px;');
   });
 
   it('shows one segment per tale, at most twelve', () => {
@@ -208,16 +216,16 @@ describe('bar layouts: poster', () => {
   });
 
   it('marks an unseen card with the accent border and a seen one filled', () => {
-    expect(BAR_STYLES).toContain('.bar .poster:not([data-seen]) {\n  box-shadow: inset 0 0 0 2px var(--ta-accent)');
-    expect(BAR_STYLES).toContain('.bar .poster[data-seen] .segs i { background: var(--ta-light); }');
+    expect(ALL_BAR_STYLES).toContain('.bar .poster:not([data-seen]) {\n  box-shadow: inset 0 0 0 2px var(--ta-accent)');
+    expect(ALL_BAR_STYLES).toContain('.bar .poster[data-seen] .segs i { background: var(--ta-light); }');
     const items = buttons(renderBar(groups, new Set(['g1']), { layout: 'poster' }, false));
     expect(items[0].hasAttribute('data-seen')).toBe(true);
     expect(items[0].getAttribute('aria-label')).toBe('Summer, seen');
   });
 
   it('lifts on hover with a tilt that mirrors in right-to-left', () => {
-    expect(BAR_STYLES).toContain('.bar .poster:hover {\n  transform: translateY(-8px) rotate(-1.5deg);');
-    expect(BAR_STYLES).toContain('.bar .poster:dir(rtl):hover { transform: translateY(-8px) rotate(1.5deg); }');
+    expect(ALL_BAR_STYLES).toContain('.bar .poster:hover {\n  transform: translateY(-8px) rotate(-1.5deg);');
+    expect(ALL_BAR_STYLES).toContain('.bar .poster:dir(rtl):hover { transform: translateY(-8px) rotate(1.5deg); }');
   });
 
   it('ignores the shape and the size: no shape is set, and no cover size either', () => {
@@ -366,16 +374,16 @@ describe('bar layouts: loading skeleton', () => {
   });
 
   it('keeps the skeleton still under reduced motion, and off the first-content path', () => {
-    expect(BAR_STYLES).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.bar \.sk \{ animation: none !important/);
-    expect(BAR_STYLES).toContain('.bar.skeleton > li { animation: none; }');
-    expect(BAR_STYLES).toContain('animation: ta-bar-shimmer 1.4s linear infinite;');
+    expect(ALL_BAR_STYLES).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.bar \.sk \{ animation: none !important/);
+    expect(ALL_BAR_STYLES).toContain('.bar.skeleton > li { animation: none; }');
+    expect(ALL_BAR_STYLES).toContain('animation: ta-bar-shimmer 1.4s linear infinite;');
   });
 
   it('draws the ring skeleton at the default footprint: a circle and a title line per item', () => {
     const [first] = [...renderBarSkeleton('ring').querySelectorAll<HTMLElement>(':scope > li')];
     expect(first.querySelector('.sk-circle')).not.toBeNull();
     expect(first.querySelector('.sk-line')).not.toBeNull();
-    expect(BAR_STYLES).toContain('.bar.skeleton[data-layout="ring"] > li { display: flex;');
+    expect(ALL_BAR_STYLES).toContain('.bar.skeleton[data-layout="ring"] > li { display: flex;');
   });
 });
 
@@ -384,19 +392,55 @@ describe('bar layouts: motion and text', () => {
     const titles = [...renderBar(groups, new Set(), { layout: 'chip' }, false).querySelectorAll<HTMLElement>('.title')];
     expect(titles).toHaveLength(6);
     expect(titles.every((t) => t.dir === 'auto')).toBe(true);
-    expect(BAR_STYLES).toMatch(/\.bar\[data-layout="chip"\] \.title \{[^}]*text-overflow: ellipsis;[^}]*unicode-bidi: plaintext;/);
-    expect(BAR_STYLES).toMatch(/\.bar \.ptitle \{[^}]*unicode-bidi: plaintext;/);
+    expect(ALL_BAR_STYLES).toMatch(/\.bar\[data-layout="chip"\] \.title \{[^}]*text-overflow: ellipsis;[^}]*unicode-bidi: plaintext;/);
+    expect(ALL_BAR_STYLES).toMatch(/\.bar \.ptitle \{[^}]*unicode-bidi: plaintext;/);
   });
 
   it('hides the titles last, so a layout display rule cannot show them again', () => {
     const hidden = BAR_STYLES.indexOf('.bar[data-titles="hidden"] .title,');
     expect(hidden).toBeGreaterThan(BAR_STYLES.indexOf('.bar[data-layout="ring"] .title {'));
-    expect(hidden).toBeGreaterThan(BAR_STYLES.indexOf('.bar .ptitle {'));
   });
 
   it('keeps the seen label in the locale the render was given', () => {
     const t = createTranslate('he', { he: { 'bar.seen': '{name}, נצפה' } });
     const [first] = buttons(renderBar(groups, new Set(['g1']), { layout: 'chip' }, false, t));
     expect(first.getAttribute('aria-label')).toBe('Summer, נצפה');
+  });
+});
+
+describe('bar layouts: loading', () => {
+  it('stands the layout skeleton in until its chunk is in, then fills the same list with the layout', async () => {
+    vi.resetModules();
+    const fresh = await import('./bar');
+    const onReady = vi.fn();
+    const list = fresh.renderBar(groups, new Set(['g1']), { layout: 'chip' }, false, undefined, onReady);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    host.appendChild(list);
+    try {
+      expect(list.classList.contains('skeleton')).toBe(true);
+      expect(list.getAttribute('aria-busy')).toBe('true');
+      expect(list.querySelectorAll('button.item')).toHaveLength(0);
+      await vi.waitFor(() => expect(onReady).toHaveBeenCalledWith(list));
+      expect(list.classList.contains('skeleton')).toBe(false);
+      expect(list.hasAttribute('aria-busy')).toBe(false);
+      expect(list.dataset['layout']).toBe('chip');
+      expect(buttons(list)).toHaveLength(6);
+      // The layout's look comes with it, beside the list, once.
+      expect(list.previousElementSibling?.tagName).toBe('STYLE');
+      expect(list.previousElementSibling?.textContent).toContain('.bar[data-layout="chip"]');
+      // Once loaded, the same layout is drawn at once.
+      const next = fresh.renderBar(groups, new Set(), { layout: 'poster' }, false);
+      expect(buttons(next)).toHaveLength(6);
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('keeps the ring for a layout that is always core', () => {
+    const onReady = vi.fn();
+    const list = renderBar(groups, new Set(), {}, false, undefined, onReady);
+    expect(list.dataset['layout']).toBe('ring');
+    expect(onReady).not.toHaveBeenCalled();
   });
 });

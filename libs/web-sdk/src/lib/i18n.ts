@@ -26,6 +26,8 @@ export const DEFAULT_STRINGS = {
   'banner.showGroup': 'Show {name}',
   'banner.stopRotation': 'Stop automatic slide show',
   'banner.startRotation': 'Start automatic slide show',
+  'banner.dismiss': 'Dismiss banner',
+  'banner.watch': 'Watch',
 
   'bar.seen': '{name}, seen',
   // A poster's count of tales, and a collapsed stack's count of unseen groups (`{count}` is the number).

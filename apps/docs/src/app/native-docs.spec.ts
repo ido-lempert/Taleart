@@ -109,6 +109,13 @@ describe('native docs: pages and navigation', () => {
         expect(existsSync(join(IMAGES, src.replace(/^images\//, '')))).toBe(true);
         referenced.push(src.replace(/^images\//, ''));
       }
+      // The clips are video sources (the guides' own clips), not images: they count as used too.
+      for (const source of [...page.querySelectorAll('video source')]) {
+        const src = source.getAttribute('src') ?? '';
+        expect(src).toMatch(path === '/android-guide' ? /^images\/android-/ : /^images\/ios-/);
+        expect(existsSync(join(IMAGES, src.replace(/^images\//, '')))).toBe(true);
+        referenced.push(src.replace(/^images\//, ''));
+      }
       expect(page.textContent).toContain('Backups and the visitor id');
     }
     // Every android-* and ios-* image in the folder is used by a guide, and no guide names a missing one.

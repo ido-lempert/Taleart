@@ -469,6 +469,8 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'banner.showGroup', english: 'Show {name}', note: 'A slide’s control, to open its group.' },
   { key: 'banner.stopRotation', english: 'Stop automatic slide show', note: 'The autoplay control, while it plays.' },
   { key: 'banner.startRotation', english: 'Start automatic slide show', note: 'The autoplay control, while it is paused.' },
+  { key: 'banner.watch', english: 'Watch stories', note: 'The call to action on a slide, and the sticky banner’s subtitle.' },
+  { key: 'banner.dismiss', english: 'Dismiss', note: 'The sticky banner’s dismiss button; it hides the banner for the rest of the app’s run.' },
   { key: 'bar.seen', english: '{name}, seen', note: 'A bar item that the viewer has shown.' },
   { key: 'bar.loading', english: 'Loading stories', note: 'The bar’s loading skeleton, announced while the zone is read.' },
   { key: 'bar.story', english: '{count} story', note: 'The poster layout’s caption for one tale.' },
@@ -558,6 +560,33 @@ export const BAR_SETTING_FIELDS: readonly FieldRow[] = [
   { name: 'showTitles', type: 'Boolean', def: 'true', meaning: 'Shows each group’s title under its cover.' },
   { name: 'alignment', type: 'BarAlignment', def: 'Start', meaning: 'start or center: where the items sit when they do not fill the row.' },
   { name: 'gap', type: 'Int', def: '12', meaning: 'Space between items in dp, from 4 to 24.' },
+];
+
+/** One banner variant (the banner display’s `variant` setting): what it is for, and the settings it ignores. */
+export interface BannerVariantRow {
+  readonly variant: string;
+  readonly use: string;
+  readonly ignored: string;
+}
+
+/** The banner variants, as the guides and the references list them (`BannerVariant` in BannerSettings.kt). */
+export const BANNER_VARIANTS: readonly BannerVariantRow[] = [
+  { variant: 'carousel', use: 'The default. One slide at a time, with the group’s name and a Watch stories button on a scrim, previous and next buttons, dots and autoplay.', ignored: 'None.' },
+  { variant: 'coverflow', use: 'The current slide in front, its neighbours turned away at the sides, the far ones smaller and fainter. Swipe, or tap a neighbour.', ignored: 'None.' },
+  { variant: 'peek', use: 'The current slide in the middle with the neighbours showing at the edges, like a pager with padding.', ignored: 'None.' },
+  { variant: 'deck', use: 'The slides fanned out like a hand of cards. The front card opens its group; a tap on a card behind it brings that card forward.', ignored: 'None.' },
+  { variant: 'sticky', use: 'A compact card of the current slide, pinned to the bottom of the space its host gives it and clear of the system’s bottom bar, with a 48 dp dismiss button. Dismissed, it stays hidden until the app restarts.', ignored: 'aspectRatio, showDots and loop. It always loops.' },
+  { variant: 'strip', use: 'A continuous marquee of the groups’ covers and names, scrolling at a fixed speed (about 18 seconds a loop) toward the start of the line. A press pauses it; under reduced motion it stops and can be scrolled sideways.', ignored: 'aspectRatio, showDots, loop, autoplay and intervalSeconds.' },
+];
+
+/** The banner display’s settings, as the references list them (`BannerSettings` in BannerSettings.kt; the schema’s defaults). */
+export const BANNER_SETTING_FIELDS: readonly FieldRow[] = [
+  { name: 'variant', type: 'BannerVariant', def: 'Carousel', meaning: 'carousel, coverflow, peek, deck, sticky or strip (see Banner variants). A missing or unknown value is carousel.' },
+  { name: 'aspectRatio', type: 'BannerAspectRatio', def: 'Wide (16:9)', meaning: '16:9, 3:1 or 1:1: the slides’ width to height (carousel, coverflow, peek and deck).' },
+  { name: 'autoplay', type: 'Boolean', def: 'true', meaning: 'Moves to the next slide by itself, until the person touches the banner or prefers reduced motion (not strip).' },
+  { name: 'intervalSeconds', type: 'Int', def: '5', meaning: 'Seconds each slide shows while autoplaying, from 3 to 15 (not strip).' },
+  { name: 'showDots', type: 'Boolean', def: 'true', meaning: 'A dot per slide to jump to it (carousel, coverflow, peek and deck).' },
+  { name: 'loop', type: 'Boolean', def: 'true', meaning: 'After the last slide, goes back to the first (carousel, coverflow, peek and deck).' },
 ];
 
 /** TaleartView members (checked for their declarations in TaleartView.kt). */

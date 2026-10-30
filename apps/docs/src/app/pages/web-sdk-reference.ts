@@ -357,6 +357,8 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>banner.showGroup</code></td><td>Show &#123;name&#125;</td></tr>
           <tr><td><code>banner.stopRotation</code></td><td>Stop automatic slide show</td></tr>
           <tr><td><code>banner.startRotation</code></td><td>Start automatic slide show</td></tr>
+          <tr><td><code>banner.watch</code></td><td>Watch</td></tr>
+          <tr><td><code>banner.dismiss</code></td><td>Dismiss banner</td></tr>
           <tr><td><code>bar.seen</code></td><td>&#123;name&#125;, seen</td></tr>
           <tr><td><code>bar.story</code></td><td>&#123;count&#125; story</td></tr>
           <tr><td><code>bar.stories</code></td><td>&#123;count&#125; stories</td></tr>

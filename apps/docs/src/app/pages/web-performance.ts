@@ -32,7 +32,7 @@ import { SDK_BUDGET } from './sdk-budget.generated';
         </thead>
         <tbody>
           <tr>
-            <td>ES module build (all its chunks: <code>index.js</code>, <code>core</code> and <code>viewer</code>), gzipped</td>
+            <td>ES module build (all its chunks: <code>index.js</code>, <code>core</code>, and the chunks loaded on first use), gzipped</td>
             <td>{{ budgetKb }} KB</td>
             <td>{{ esmKb }} KB</td>
           </tr>
@@ -61,10 +61,13 @@ import { SDK_BUDGET } from './sdk-budget.generated';
     </div>
     <p>
       The budget covers all of the SDK's script, gzipped. The page loads two script files: <code>index.js</code> and the
-      <code>core</code> chunk it imports, which together stay under the budget. The viewer and the renderers of tale
-      documents are a third chunk, which the SDK loads the first time a visitor opens a group, so the bar or the banner
-      shows without it; the UMD build is one file that includes the viewer. Each zone adds one request to the TaleArt
-      API, and the page makes no call to any other host. Pictures load as described below.
+      <code>core</code> chunk it imports, which together hold the ring, the carousel and the rest the page needs. Three
+      more chunks load the first time they are needed, so a display that does not use them never fetches them: the
+      viewer and the renderers of tale documents (on the first open of a group), the banner's other variants (coverflow,
+      peek, deck, sticky and strip, on the first banner that uses one) and the bar's chip, poster and stack (on the first
+      bar that uses one). Until its chunk arrives, a display shows its loading skeleton in the same space. The UMD build
+      is one file that includes all of them. Each zone adds one request to the TaleArt API, and the page makes no call to
+      any other host. Pictures load as described below.
     </p>
 
     <h2 id="loading">Loading rules</h2>

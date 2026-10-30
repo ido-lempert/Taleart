@@ -427,7 +427,9 @@ kbd {
 }
 
 .article figure img,
-.article img.guide-img {
+.article figure video,
+.article img.guide-img,
+.article video.guide-clip {
   display: block;
   max-width: 100%;
   height: auto;

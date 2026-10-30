@@ -4,6 +4,7 @@ import site.lempert.taleart.sdk.FallbackMode
 import site.lempert.taleart.sdk.FrequencyRule
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.storage.InMemoryKeyValueStore
+import site.lempert.taleart.sdk.ui.BannerVariant
 import site.lempert.taleart.sdk.ui.BarLayout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -51,8 +52,9 @@ data class DebugSettings(val apiUrl: String, val zoneKey: String) {
  * the group the viewer opens on at start), `taller.autoOpenTale` (the tale in it, from 0), `taller.fallback`
  * (`none` or `message`), `taller.frequency` (see [frequencyRule]), `taller.locale` (the SDK's locale, BCP 47),
  * `taller.layoutDirection` (`ltr` or `rtl`, `TaleartConfig.layoutDirection`) and `taller.barLayout` (`ring`, `chip`,
- * `poster` or `stack`: the bar layout the zone's bar is drawn in, whatever the zone's own setting). An unset key
- * keeps the SDK's default.
+ * `poster` or `stack`: the bar layout the zone's bar is drawn in, whatever the zone's own setting) and
+ * `taller.bannerVariant` (`carousel`, `coverflow`, `peek`, `deck`, `sticky` or `strip`: the variant the zone's banner
+ * is drawn in). An unset key keeps the SDK's default.
  */
 data class TallerDebugOptions(
     val autoOpenGroup: Int? = null,
@@ -62,6 +64,7 @@ data class TallerDebugOptions(
     val locale: String = "",
     val layoutDirection: String? = null,
     val barLayout: BarLayout? = null,
+    val bannerVariant: BannerVariant? = null,
 ) {
     companion object {
         const val AUTO_OPEN_GROUP = "taller.autoOpenGroup"
@@ -71,6 +74,7 @@ data class TallerDebugOptions(
         const val LOCALE = "taller.locale"
         const val LAYOUT_DIRECTION = "taller.layoutDirection"
         const val BAR_LAYOUT = "taller.barLayout"
+        const val BANNER_VARIANT = "taller.bannerVariant"
 
         fun load(store: KeyValueStore, extras: Map<String, String> = emptyMap()): TallerDebugOptions {
             fun read(key: String): String? = (extras[key] ?: store.get(key))?.trim()?.takeIf { it.isNotEmpty() }
@@ -82,6 +86,7 @@ data class TallerDebugOptions(
                 locale = read(LOCALE).orEmpty(),
                 layoutDirection = read(LAYOUT_DIRECTION)?.lowercase(),
                 barLayout = read(BAR_LAYOUT)?.let(::barLayoutNamed),
+                bannerVariant = read(BANNER_VARIANT)?.let(::bannerVariantNamed),
             )
         }
     }
@@ -98,6 +103,9 @@ fun frequencyRule(value: String): FrequencyRule? = when (value.trim().lowercase(
 /** A bar layout as the debug option names it (`ring`, `chip`, `poster` or `stack`, any case); null for anything else. */
 fun barLayoutNamed(value: String): BarLayout? = BarLayout.entries.firstOrNull { it.key == value.trim().lowercase() }
 
+/** A banner variant as the debug option names it (`carousel`, `coverflow`, `peek`, `deck`, `sticky` or `strip`, any case); null for anything else. */
+fun bannerVariantNamed(value: String): BannerVariant? = BannerVariant.entries.firstOrNull { it.key == value.trim().lowercase() }
+
 /**
  * The zone with its bar drawn in [layout]: the frame's `layout` setting replaced, the rest of the zone as delivered.
  * A zone without a bar frame is returned as it is.
@@ -107,4 +115,26 @@ fun DeliveryZone.withBarLayout(layout: BarLayout): DeliveryZone {
     if (frame.type != "bar") return this
     val settings = (frame.settings as? JsonObject).orEmpty() + ("layout" to JsonPrimitive(layout.key))
     return copy(frame = frame.copy(settings = JsonObject(settings)))
+}
+
+/**
+ * The zone with its banner drawn in [variant]: the frame's `variant` setting replaced, the rest of the zone as delivered.
+ * A zone without a banner frame is returned as it is.
+ */
+fun DeliveryZone.withBannerVariant(variant: BannerVariant): DeliveryZone {
+    val frame = frame ?: return this
+    if (frame.type != "banner") return this
+    val settings = (frame.settings as? JsonObject).orEmpty() + ("variant" to JsonPrimitive(variant.key))
+    return copy(frame = frame.copy(settings = JsonObject(settings)))
+}
+
+/**
+ * The zone as the debug options draw it: its bar in [TallerDebugOptions.barLayout] and its banner in
+ * [TallerDebugOptions.bannerVariant], each when set; a zone of neither kind is returned as it is.
+ */
+fun TallerDebugOptions.drawn(zone: DeliveryZone): DeliveryZone {
+    var shown = zone
+    barLayout?.let { shown = shown.withBarLayout(it) }
+    bannerVariant?.let { shown = shown.withBannerVariant(it) }
+    return shown
 }

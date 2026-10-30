@@ -163,6 +163,37 @@ that fails, or has no display, takes the skeleton away as before.
 Every motion stops for a visitor who asks for reduced motion: the ring turns, the items enter, the skeleton shimmers, and
 a poster lifts at once instead of over half a second.
 
+## Banner variants
+
+A banner zone shows its groups as slides in one of six variants. The zone's Display tab in the dashboard sets the variant
+(the frame setting `variant`) with the aspect ratio, autoplay, the interval, dots and loop. A variant reads only the
+settings it uses, and the dashboard dims the rest. The `carousel` is the default look and is part of the element; the
+other five load in their own chunk the first time a banner uses one.
+
+| Variant | Look | Settings it does not use |
+| --- | --- | --- |
+| `carousel` (default) | One slide at a time, with the group's name and a Watch button on a dark fade over the picture. Previous and next buttons at the sides, a dot per slide (the current one is the longer pill). | None |
+| `coverflow` | The current slide in front; its neighbours turned away (`rotateY`) and smaller at the sides. A click on a neighbour shows it. | None |
+| `peek` | The current card in the middle with the neighbours cut off at the edges. The track scrolls with scroll-snap; a swipe moves one card. | None |
+| `deck` | The groups fanned out behind the front card, like a hand of cards. The front card opens the group. | None |
+| `sticky` | A compact bar at the bottom of its section, with the current cover and name, the arrows, a rotation button and a dismiss button. It keeps its own space in the page, so it covers no content. | `aspectRatio`, `showDots`, `loop` |
+| `strip` | A marquee of the groups at a fixed speed: 18 s for one pass, in the direction the page reads. It pauses while the pointer is over it or a control has focus. | `aspectRatio`, `showDots`, `loop`, `autoplay`, `intervalSeconds` |
+
+Every variant follows the page's direction: the coverflow's next slide and the deck's fan go to the inline end, the peek
+scrolls to the slide on the screen's own geometry, and the strip runs toward the start of the line. Keyboard use is the
+same in each: Left and Right move to the previous and the next slide in visual order (in a right-to-left page, Left goes
+forward), and Home and End show the first and the last. Focus is never trapped. The carousel's live region stays off
+while it advances by itself, and the buttons are 44 px.
+
+The `sticky` variant remembers a dismissal for the browsing session in `sessionStorage`; a browser that blocks storage
+shows the bar again on the next page view. The strip, and every variant under reduced motion, stops: no slide moves by
+itself, the strip turns into a sideways scroll, and the transitions stop.
+
+Each slide counts an impression once, when it is first half on screen, as a bar item does. Frequency and targeting apply
+to the groups as before, whatever the variant.
+
+While a variant loads, the banner shows a skeleton in its own footprint. A chunk that fails to load leaves the carousel.
+
 ## Configuration: `Taleart.init`
 
 The script sets `globalThis.Taleart`, with the functions below. `init(config)` (also a named export of the module) sets
@@ -255,6 +286,8 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 | `banner.showGroup` | Show {name} |
 | `banner.stopRotation` | Stop automatic slide show |
 | `banner.startRotation` | Start automatic slide show |
+| `banner.watch` | Watch |
+| `banner.dismiss` | Dismiss banner |
 | `bar.seen` | {name}, seen |
 | `bar.story` | {count} story |
 | `bar.stories` | {count} stories |
@@ -603,6 +636,8 @@ the SDK at most 50 KB gzipped. What the SDK does:
 - A still video cover (a first frame, metadata-only preload) counts as loaded at its first frame, or 1 s after its
   metadata when the browser loads no frame data up front.
 - A banner loads the slide shown, then the slides next to it once that slide has its picture; the rest stay lazy.
+- A banner's variants other than the carousel, and a bar's chip, poster and stack, load their chunk on first use, not on the
+  page's load: until the chunk arrives the display shows its skeleton, and the ring and the carousel need no chunk.
 - Covers and slides have fixed boxes, so nothing inside the element shifts when pictures arrive.
 - The Delivery API answers `Cache-Control: private, no-cache` with an ETag: a repeat visit revalidates the zone and
   gets 304 while it is unchanged, and a paused or unpublished group still disappears at once.

@@ -342,8 +342,8 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
         val square = onNodeWithTag(BANNER_VIEWPORT_TAG).getBoundsInRoot()
         assertEquals(300f, (square.bottom - square.top).value, 0.5f)
         assertEquals(listOf("Show A", "Show B"), dots())
-        // The rotation button's 44dp row below, after a 4dp gap.
-        assertEquals(300f + 16f + 48f, onNodeWithTag(BANNER_TAG).getBoundsInRoot().let { (it.bottom - it.top).value }, 0.5f)
+        // The rotation button's 48dp row below, after a 4dp gap.
+        assertEquals(300f + 16f + 52f, onNodeWithTag(BANNER_TAG).getBoundsInRoot().let { (it.bottom - it.top).value }, 0.5f)
     }
 
     @Test

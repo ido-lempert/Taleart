@@ -12,6 +12,7 @@ import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
   barLayoutOf,
+  barLayoutStyles,
   BAR_FRAME_TYPE,
   BAR_STYLES,
   type BarLayout,
@@ -244,6 +245,8 @@ onConfigChange((changed: ReadonlySet<ConfigKey>) => {
 interface DisplayView {
   readonly element: HTMLElement;
   focus(groupId: string | null): boolean;
+  // Places the display for the page's direction, once it is on the page.
+  refresh?(): void;
   destroy?(): void;
 }
 
@@ -890,18 +893,18 @@ export class TaleartElement extends ElementBase {
 
     if (frame?.type === BAR_FRAME_TYPE) {
       // Cover pictures are held until the first content is laid out (loadFirstContent).
-      const list = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings, undefined, t));
+      // A chip, poster or stack that loads after this render is drawn in its list (displayReady).
+      const list = holdMedia(() =>
+        renderBar(zone.taleGroups, seen, frame.settings, undefined, t, (ready) =>
+          this.displayReady(ready, themed, zone, configName),
+        ),
+      );
       bar = list;
       this.shownLayout = readBarSettings(frame.settings).layout ?? null;
-      // An item stands for the groups in its `data-tale-group-ids` (a stack: all of them).
-      const items = new Map<string, HTMLButtonElement>();
-      for (const button of list.querySelectorAll<HTMLButtonElement>('button.item')) {
-        for (const id of (button.dataset['taleGroupIds'] ?? '').split(' ')) if (id) items.set(id, button);
-      }
       view = {
         element: list,
         focus: (groupId) => {
-          const item = groupId === null ? list.querySelector<HTMLButtonElement>('button.item') : items.get(groupId);
+          const item = groupId === null ? list.querySelector<HTMLButtonElement>('button.item') : barItemOf(list, groupId);
           item?.focus();
           return !!item;
         },
@@ -911,6 +914,7 @@ export class TaleartElement extends ElementBase {
         if (item) open(item.dataset['taleGroupId'] ?? '');
       });
     } else if (frame?.type === BANNER_FRAME_TYPE) {
+      // A variant other than the carousel that loads after this render is drawn in the banner (displayReady).
       const banner = holdMedia(() =>
         renderBanner(
           zone.taleGroups,
@@ -919,12 +923,14 @@ export class TaleartElement extends ElementBase {
             if (view) open(groupId);
           },
           t,
+          (ready) => this.displayReady(ready, themed, zone, configName),
         ),
       );
       if (banner) {
         view = {
           element: banner.element,
           focus: (groupId) => banner.focus(groupId),
+          refresh: () => banner.refresh(),
           destroy: () => banner.destroy(),
         };
       }
@@ -932,10 +938,12 @@ export class TaleartElement extends ElementBase {
     this.view = view;
     if (!view) return;
     const style = document.createElement('style');
-    style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES;
+    style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES + barLayoutStyles();
     this.viewer = viewer;
     themed.replaceChildren(view.element);
     this.root.replaceChildren(style, themed);
+    // The display reads the page's direction now that it is on the page (the slides are placed for it).
+    view.refresh?.();
     this.watchImpressions(view.element, zone, configName);
     this.limitCoverMotion();
     // The display's covers in view load first, then the rest of this render's pictures; the
@@ -949,6 +957,22 @@ export class TaleartElement extends ElementBase {
     });
     // The group's item or slide, or else the display's first one.
     if (focusGroup !== null && !view.focus(focusGroup)) view.focus(null);
+  }
+
+  // A display that drew its layout after the render (a bar's chip, poster or stack, or a banner's variant, once
+  // their chunk loaded): its impressions are watched, its covers' motion limited, and its first pictures released,
+  // as at the first render. Nothing happens when the display is no longer on the page.
+  private displayReady(display: HTMLElement, themed: HTMLElement, zone: DeliveryZone, configName: string): void {
+    if (this.themed?.element !== themed || !display.isConnected) return;
+    this.watchImpressions(display, zone, configName);
+    this.limitCoverMotion();
+    const abort = this.renderAbort;
+    if (!abort) return;
+    void loadFirstContent(themed, coversInView(display), abort.signal, () => {
+      if (this.marked) return;
+      this.marked = true;
+      mark(FIRST_CONTENT_MARK);
+    });
   }
 
   // Stops the timers of the rendered display.
@@ -988,6 +1012,13 @@ export class TaleartElement extends ElementBase {
     }
     this.impressionObserver = observer;
   }
+}
+
+// The bar's item of a group: an item stands for the groups in its `data-tale-group-ids` (a stack: all of them).
+function barItemOf(list: HTMLElement, groupId: string): HTMLButtonElement | undefined {
+  return [...list.querySelectorAll<HTMLButtonElement>('button.item')].find((button) =>
+    (button.dataset['taleGroupIds'] ?? '').split(' ').includes(groupId),
+  );
 }
 
 export function defineTaleartElement(tag = TALEART_ELEMENT_TAG): void {
