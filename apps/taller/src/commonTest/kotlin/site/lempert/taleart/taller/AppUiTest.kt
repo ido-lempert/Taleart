@@ -102,4 +102,17 @@ class AppUiTest : ComposeUiTestBase() {
         waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag("error").fetchSemanticsNodes().isNotEmpty() }
         onNodeWithTag("error").assertTextEquals("Invalid site key or zone: A valid site key and zone are required")
     }
+
+    @Test
+    fun theZoneOnlyPageShowsTheZoneAndNoHostChrome() = runComposeUiTest {
+        setContent {
+            App(store = InMemoryStore(saved), client = client(HttpStatusCode.OK, zone), seenGroups = isolatedSeen(), debug = TallerDebugOptions(zoneOnly = true))
+        }
+
+        waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(BAR_ITEM_TAG).fetchSemanticsNodes().size == 2 }
+        onNodeWithTag("zone-only").assertIsDisplayed()
+        for (tag in listOf("title", "sdk-version", "open-settings", "reload", "groups", "zone-name", "loading")) {
+            assertTrue(onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty(), "$tag is not part of the zone-only page")
+        }
+    }
 }

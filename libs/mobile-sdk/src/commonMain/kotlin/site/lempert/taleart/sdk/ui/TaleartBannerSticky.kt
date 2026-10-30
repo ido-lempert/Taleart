@@ -1,26 +1,21 @@
 package site.lempert.taleart.sdk.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,9 +26,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -43,6 +39,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
@@ -62,16 +60,20 @@ internal object BannerDismissals {
     }
 }
 
-// The dismiss button's cross: 20dp in a 48dp target.
-private const val DISMISS_ICON_DP = 20
-private const val STICKY_THUMB_DP = 56
+// The bar's height, and the room the slide's content keeps clear of the previous and next buttons (`padding: 0 60px`).
+private const val STICKY_HEIGHT_DP = 64
+private const val STICKY_COVER_DP = 44
+private const val STICKY_CONTENT_INSET_DP = 60
 
 /**
- * The sticky banner: a compact card of the shown slide (a thumbnail, its name and "Watch stories") at
- * the bottom of its host, above the system's bottom bar (the safe area), with a dismiss button of 48dp.
- * It cycles through the slides by autoplay as the settings say; a tap on the card opens the shown group.
+ * The sticky banner, as the Web SDK draws it: a full-width bar on the card ground with a soft shadow above it, at
+ * the bottom of its host and above the system's bottom bar (the safe area). It is 64dp high: the previous and next
+ * buttons (44dp, when there are two slides or more) at its two edges, between them the shown slide's round 44dp
+ * cover and its name, and a 44dp dismiss button after them (all in 48dp targets). It has no subtitle.
+ * It cycles through the slides by autoplay as the settings say; a tap on the slide opens the shown group.
  * Dismissing it removes it for the rest of the process ([BannerDismissals]). It ignores the aspect ratio,
- * the dots and loop: it always loops, and stops on a tap, as the other slides do.
+ * the dots and loop: it always loops, and stops on a tap, as the other slides do. Unlike the Web SDK's, it has no
+ * rotation button: the autoplay stops on the first touch, and the previous and next buttons move it by hand.
  */
 @Composable
 internal fun StickyBanner(
@@ -97,6 +99,7 @@ internal fun StickyBanner(
 
     val index = playback.index
     val group = slides[index]
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(
         modifier
             .fillMaxWidth()
@@ -111,61 +114,83 @@ internal fun StickyBanner(
     ) {
         Row(
             Modifier
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                .padding(12.dp)
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                // The web's `0 -4px 16px` ink at 12 %: a soft lift from the platform's own shadow (the bar sits at the
+                // foot of the page, so the light falls from below).
+                .shadow(elevation = 14.dp, shape = RectangleShape, clip = false, ambientColor = palette.ink.copy(alpha = 0.12f), spotColor = palette.ink.copy(alpha = 0.12f))
                 .background(palette.paper)
-                .border(1.dp, palette.muted, RoundedCornerShape(16.dp))
-                .padding(8.dp),
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = 48.dp)
-                    .testTag(BANNER_SLIDE_TAG)
-                    .focusRequester(playback.focusers[index])
-                    .then(playback.stopsOnFocus)
-                    .clickable(role = Role.Button) {
-                        playback.interact()
-                        onClick(group)
+            Box(Modifier.weight(1f).height(STICKY_HEIGHT_DP.dp)) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .testTag(BANNER_SLIDE_TAG)
+                        .focusRequester(playback.focusers[index])
+                        .then(playback.stopsOnFocus)
+                        .clickable(role = Role.Button) {
+                            playback.interact()
+                            onClick(group)
+                        }
+                        .semantics {
+                            contentDescription = group.name
+                            stateDescription = bannerSlideLabel(index, playback.count, translate)
+                            if (!playback.rotating) liveRegion = LiveRegionMode.Polite
+                        }
+                        .padding(horizontal = STICKY_CONTENT_INSET_DP.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(STICKY_COVER_DP.dp).clip(CircleShape)) {
+                        SlideMedia(group, loader, palette.surface)
                     }
-                    .semantics {
-                        contentDescription = group.name
-                        stateDescription = bannerSlideLabel(index, playback.count, translate)
-                        if (!playback.rotating) liveRegion = LiveRegionMode.Polite
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(STICKY_THUMB_DP.dp).clip(RoundedCornerShape(12.dp))) {
-                    SlideMedia(group, loader, palette.surface)
+                    BasicText(
+                        group.name,
+                        style = titleStyle.copy(color = palette.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    BasicText(group.name, style = titleStyle.copy(color = palette.ink, fontSize = 16.sp, fontWeight = FontWeight.Bold))
-                    BasicText(bannerWatchLabel(translate), style = TextStyle(color = palette.muted, fontSize = 13.sp))
+                if (playback.count > 1) {
+                    RoundButton(
+                        colors = palette,
+                        label = translate("banner.previousSlide"),
+                        icon = BannerIcons.PREV,
+                        mirrored = rtl,
+                        disabled = false,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = ARROW_EDGE_DP.dp).then(playback.stopsOnFocus),
+                    ) {
+                        playback.interact()
+                        playback.step(-1)
+                    }
+                    RoundButton(
+                        colors = palette,
+                        label = translate("banner.nextSlide"),
+                        icon = BannerIcons.NEXT,
+                        mirrored = rtl,
+                        disabled = false,
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = ARROW_EDGE_DP.dp).then(playback.stopsOnFocus),
+                    ) {
+                        playback.interact()
+                        playback.step(1)
+                    }
                 }
             }
-            Box(
-                Modifier
-                    .testTag(BANNER_DISMISS_TAG)
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .clickable(role = Role.Button) {
-                        playback.interact()
-                        BannerDismissals.add(key)
-                        dismissed = true
-                    }
-                    .semantics { contentDescription = bannerDismissLabel(translate) },
-                contentAlignment = Alignment.Center,
+            RoundButton(
+                colors = palette,
+                label = bannerDismissLabel(translate),
+                icon = BannerIcons.CLOSE,
+                mirrored = false,
+                disabled = false,
+                modifier = Modifier.testTag(BANNER_DISMISS_TAG),
             ) {
-                Canvas(Modifier.size(DISMISS_ICON_DP.dp)) {
-                    val s = size.width
-                    val stroke = 2.dp.toPx()
-                    drawLine(palette.ink, Offset(s * 0.2f, s * 0.2f), Offset(s * 0.8f, s * 0.8f), strokeWidth = stroke, cap = StrokeCap.Round)
-                    drawLine(palette.ink, Offset(s * 0.8f, s * 0.2f), Offset(s * 0.2f, s * 0.8f), strokeWidth = stroke, cap = StrokeCap.Round)
-                }
+                playback.interact()
+                BannerDismissals.add(key)
+                dismissed = true
             }
         }
     }

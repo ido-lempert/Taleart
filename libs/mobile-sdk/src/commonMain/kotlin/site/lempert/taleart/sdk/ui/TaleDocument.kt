@@ -117,8 +117,8 @@ data class ShapeLook(
     val opacity: Double,
 )
 
-/** A button's look (`ButtonStyle`). */
-data class ButtonLook(val filled: Boolean, val color: String, val fill: String, val radius: Double)
+/** A button's look (`ButtonStyle`). A null [radius] is the full pill of the web stylesheet (`.ta-button`, 99px). */
+data class ButtonLook(val filled: Boolean, val color: String, val fill: String, val radius: Double?)
 
 /** One element the renderer draws, of a type of the registry. */
 sealed interface DocumentElement {
@@ -533,12 +533,12 @@ fun resolveShapeLook(props: JsonObject): ShapeLook? {
     )
 }
 
-/** A button's look from props of any trust (`resolveButtonStyle`): a filled white button with near-black text by default. */
+/** A button's look from props of any trust (`resolveButtonStyle`): a filled white pill button with near-black text by default (a numeric `radius` replaces the pill). */
 fun resolveButtonLook(props: JsonObject): ButtonLook = ButtonLook(
     filled = props.text("variant") != "outline",
     color = props.color("color") ?: "#111827",
     fill = props.color("fill") ?: "#FFFFFF",
-    radius = props.numberIn("radius", 0.0, 0.5, 0.0),
+    radius = if (props.number("radius") == null) null else props.numberIn("radius", 0.0, 0.5, 0.0),
 )
 
 /** A button's label size as a fraction of the canvas height (`buttonFontSize`): 40 % of its box's height, at most 6 % of the canvas. */

@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 // The bar layouts' rules that draw nothing: the stack's covers and opened group, the poster's segments, the covers'
-// sizes, the skeleton's count, the sweep colours, the chip dot's colour and the settings the zone last had.
+// sizes, the skeleton's count, the ring's gradient colours and the settings the zone last had.
 class BarLayoutLogicTest {
     @Test
     fun aStackShowsUpToFourCoversAndFoldsTheRest() {
@@ -42,34 +42,25 @@ class BarLayoutLogicTest {
     }
 
     @Test
-    fun theCoversFollowTheSizeSettingAndAPosterIsThreeToFive() {
+    fun theCoversFollowTheSizeSettingAndAPosterIs112By188() {
         assertEquals(listOf(28, 32, 40), BarSize.entries.map(::chipCoverDp))
         assertEquals(listOf(40, 48, 56), BarSize.entries.map(::stackCoverDp))
-        assertEquals(3 * POSTER_HEIGHT_DP, 5 * POSTER_WIDTH_DP)
+        // The Web SDK's card: 112 by 188 px.
+        assertEquals(112 to 188, POSTER_WIDTH_DP to POSTER_HEIGHT_DP)
     }
 
     @Test
     fun aSkeletonDrawsItsLayoutsCount() {
-        assertEquals(mapOf(BarLayout.Ring to 4, BarLayout.Chip to 3, BarLayout.Poster to 3, BarLayout.Stack to 3), BarLayout.entries.associateWith(::skeletonCount))
+        assertEquals(mapOf(BarLayout.Ring to 5, BarLayout.Chip to 4, BarLayout.Poster to 4, BarLayout.Stack to 1), BarLayout.entries.associateWith(::skeletonCount))
     }
 
     @Test
-    fun aRingSweepHasUpToThreeColoursAndClosesOnTheFirst() {
+    fun aRingGradientHasUpToThreeColoursInOrderAndDoesNotClose() {
         val (a, b, c) = listOf(Color.Red, Color.Green, Color.Blue)
-        assertEquals(listOf(a, b, c, a), ringSweepColors(listOf(a, b, c)))
-        assertEquals(listOf(a, b, c, a), ringSweepColors(listOf(a, b, c, Color.Black)))
+        assertEquals(listOf(a, b, c), ringSweepColors(listOf(a, b, c)))
+        assertEquals(listOf(a, b, c), ringSweepColors(listOf(a, b, c, Color.Black)))
         assertEquals(listOf(a), ringSweepColors(listOf(a)))
         assertEquals(emptyList(), ringSweepColors(emptyList()))
-    }
-
-    @Test
-    fun aChipsDotIsTheAccentWhenItStandsOutElseTheLiveColour() {
-        val paper = Color.White
-        val live = Color(0xFFDB2777)
-        // White on white: the accent does not stand out, so the live colour marks the dot.
-        assertEquals(live, accentDotColor(Color.White, paper, live))
-        // A dark accent on a white card stands out at 3:1 or more.
-        assertEquals(Color(0xFF1D4ED8), accentDotColor(Color(0xFF1D4ED8), paper, live))
     }
 
     @Test

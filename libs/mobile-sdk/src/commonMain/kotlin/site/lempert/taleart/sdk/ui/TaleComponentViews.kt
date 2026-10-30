@@ -6,9 +6,16 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,10 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -120,7 +125,8 @@ internal fun CountdownElement(element: DocumentElement.Countdown, canvas: Canvas
             .clip(RoundedCornerShape(canvas.dp(canvas.h(CARD_RADIUS))))
             .background(card)
             .padding(canvas.dp(canvas.h(CARD_PADDING))),
-        verticalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.012))),
+        // Centred in the box (`justify-content: center`), so no empty band is left under the labels.
+        verticalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.012)), Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         element.title?.let { title ->
@@ -142,17 +148,23 @@ internal fun CountdownElement(element: DocumentElement.Countdown, canvas: Canvas
             )
             // The digits and their units run left to right whatever the direction (`dir="ltr"` in the Web SDK).
             LeftToRight {
-                Row(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken.orEmpty() }) {
+                // The columns keep a gap between them (`gap: 1.2cqh`).
+                Row(
+                    Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken.orEmpty() },
+                    horizontalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.012))),
+                ) {
                     for ((number, label) in units) {
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            // Each number sits in a tile and flips when it changes (`tickA`); the tile is the card's ink at 8 %.
+                            // Each number sits in a tile that fills its column and flips when it changes (`tickA`); the tile is
+                            // the card's ink at 14 %, rounded 0.3em of the digit, padded 0.12em by 0.05em (`.ta-cd-num`).
                             FlipDigit(
                                 number,
                                 reduced,
                                 Modifier
-                                    .clip(RoundedCornerShape(canvas.dp(canvas.h(0.012))))
-                                    .background(ink.copy(alpha = 0.08f))
-                                    .padding(horizontal = canvas.dp(numberPx * 0.12f), vertical = canvas.dp(numberPx * 0.08f)),
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(canvas.dp(numberPx * 0.3f)))
+                                    .background(ink.copy(alpha = 0.14f))
+                                    .padding(horizontal = canvas.dp(numberPx * 0.05f), vertical = canvas.dp(numberPx * 0.12f)),
                             ) {
                                 BasicText(
                                     number,
@@ -163,6 +175,7 @@ internal fun CountdownElement(element: DocumentElement.Countdown, canvas: Canvas
                                         fontFeatureSettings = "tnum",
                                         textAlign = TextAlign.Center,
                                     ),
+                                    modifier = Modifier.fillMaxWidth(),
                                     maxLines = 1,
                                     softWrap = false,
                                 )
@@ -188,16 +201,26 @@ internal fun CountdownElement(element: DocumentElement.Countdown, canvas: Canvas
     }
 }
 
-// What a Copy said: the toast's text, which clears after two seconds. A new one is a new object, so a
-// second copy restarts the two seconds.
+// What a Copy said: the toast's text, which clears after [PROMO_TOAST_MS]. A new one is a new object, so a
+// second copy restarts the time.
 private class CopyStatus(val text: String)
 
+/** How long the copy toast stays, in milliseconds (`PROMO_TOAST_MS` in the Web SDK): four seconds. */
+internal const val PROMO_TOAST_MS = 4_000L
+
+/** The width of the Copy stub, in ems of the card (`flex: 0 0 6em`). */
+internal const val PROMO_STUB_EM = 6f
+
+/** The radius of the notches cut at the seam, in ems of the card (`circle 0.7em`). */
+internal const val PROMO_NOTCH_EM = 0.7f
+
 /**
- * A promo code (`renderPromoCode`): an optional title, the code on a ticket (a card with notches at its seam
- * and a shine that sweeps across it), an optional note, and a Copy button of at least 48 dp. Copy puts the
- * code on the clipboard: a toast says `Copied` (or why it could not copy) for two seconds, and it is said
- * through a live region; [reporter] hears `copied` with the code as its value when the clipboard took it.
- * The code is visible to every visitor, so it is no secret. The code stays left to right in any direction.
+ * A promo code (`renderPromoCode`): an optional title, the ticket (one row: the code in its chip, then a Copy
+ * stub 6em wide behind a dashed divider, with a notch cut at the seam from the top and the bottom, and a shine
+ * that sweeps across it), and an optional note. Copy puts the code on the clipboard: a toast over the card's
+ * top inline-end corner says `Copied` (or why it could not copy) for four seconds and is said through a live
+ * region; [reporter] hears `copied` with the code as its value when the clipboard took it. The code is
+ * visible to every visitor, so it is no secret. The code stays left to right in any direction.
  */
 @Composable
 internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: CanvasMetrics, reporter: ComponentReporter?, modifier: Modifier) {
@@ -208,117 +231,140 @@ internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: Canvas
     var status by remember { mutableStateOf<CopyStatus?>(null) }
     LaunchedEffect(status) {
         if (status != null) {
-            delay(2_000)
+            delay(PROMO_TOAST_MS)
             status = null
         }
     }
 
-    val palette = rememberThemeColors()
     val (card, ink) = cardColors(element.dark)
     val base = canvas.h(CARD_FONT)
     // The chip's code is 1.3 em, smaller for a long code so that its 32 characters fit the canvas width.
     val chipFont = minOf(base * 1.3f, canvas.width * 0.8f / (element.code.length * 0.62f))
-    val edge = canvas.h(0.0025)
-    val ticketRadius = canvas.dp(canvas.h(0.012))
-    val notch = canvas.dp(base * 0.9f)
+    val ticketRadius = canvas.dp(base * 0.8f)
     val onCopy = {
         val copied = copy(element.code)
         status = CopyStatus(t(if (copied) "promo.copied" else "promo.copyFailed"))
         if (copied) report?.report(ComponentRef(element.id, "promo-code", element.code), "copied")
     }
 
-    Column(
-        modifier
-            .clip(RoundedCornerShape(canvas.dp(canvas.h(CARD_RADIUS))))
-            .background(card)
-            .padding(canvas.dp(canvas.h(CARD_PADDING))),
-        verticalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.012))),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        element.title?.let { title ->
-            BasicText(
-                title,
-                style = TextStyle(color = ink.copy(alpha = 0.85f), fontSize = canvas.sp(base * 0.75f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        // The ticket: the code on a dashed stub, with a notch cut from each side at the seam and the shine over it.
+    // The card lays out in the host's direction: the stub, the notches and the toast sit by the inline end.
+    HostDirection {
+        val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
         Box(
-            Modifier
-                .clip(RoundedCornerShape(ticketRadius))
-                .background(ink.copy(alpha = 0.06f))
-                .ticketShine(reduced)
-                .drawBehind {
-                    // The notches: half discs in the card's colour, cut into the ticket's sides at its middle.
-                    val y = size.height / 2f
-                    drawCircle(color = card, radius = notch.toPx(), center = Offset(0f, y))
-                    drawCircle(color = card, radius = notch.toPx(), center = Offset(size.width, y))
-                    drawRoundRect(
-                        color = ink,
-                        cornerRadius = CornerRadius(ticketRadius.toPx(), ticketRadius.toPx()),
-                        style = Stroke(width = edge, pathEffect = PathEffect.dashPathEffect(floatArrayOf(canvas.h(0.008), canvas.h(0.006)))),
+            modifier
+                .clip(RoundedCornerShape(canvas.dp(canvas.h(CARD_RADIUS))))
+                .background(card),
+            // The ticket sits in the middle of the card (`justify-content: center`).
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(canvas.dp(canvas.h(CARD_PADDING))),
+                verticalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.012))),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                element.title?.let { title ->
+                    BasicText(
+                        title,
+                        style = TextStyle(color = ink.copy(alpha = 0.85f), fontSize = canvas.sp(base * 0.75f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                .padding(horizontal = canvas.dp(chipFont * 1.2f), vertical = canvas.dp(chipFont * 0.6f)),
-        ) {
-            // A code is written as it is, left to right, in any direction.
-            LeftToRight {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .clip(RoundedCornerShape(ticketRadius))
+                        .background(ink.copy(alpha = 0.10f))
+                        .drawWithContent {
+                            drawContent()
+                            // The notches: discs in the card's colour cut into the top and bottom edges at the seam,
+                            // 6em from the inline end.
+                            val x = if (rtl) (base * PROMO_STUB_EM) else size.width - (base * PROMO_STUB_EM)
+                            drawCircle(color = card, radius = base * PROMO_NOTCH_EM, center = Offset(x, 0f))
+                            drawCircle(color = card, radius = base * PROMO_NOTCH_EM, center = Offset(x, size.height))
+                        }
+                        .ticketShine(reduced),
+                ) {
+                    // A code is written as it is, left to right, in any direction.
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = MinTarget)
+                            .padding(horizontal = canvas.dp(chipFont * 0.9f), vertical = canvas.dp(chipFont * 0.4f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        LeftToRight {
+                            BasicText(
+                                element.code,
+                                style = TextStyle(
+                                    color = ink,
+                                    fontSize = canvas.sp(chipFont),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center,
+                                ),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                    // The Copy stub: ink at 14 %, behind a dashed divider of 0.2cqh on its inline start side.
+                    val dashEdge = canvas.h(0.002)
+                    Box(
+                        Modifier
+                            .width(canvas.dp(base * PROMO_STUB_EM))
+                            .fillMaxHeight()
+                            .defaultMinSize(minHeight = MinTarget)
+                            .background(ink.copy(alpha = 0.14f))
+                            .drawBehind {
+                                val x = if (rtl) size.width - dashEdge / 2f else dashEdge / 2f
+                                drawLine(
+                                    color = ink.copy(alpha = 0.45f),
+                                    start = Offset(x, 0f),
+                                    end = Offset(x, size.height),
+                                    strokeWidth = dashEdge,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashEdge * 3f, dashEdge * 3f)),
+                                )
+                            }
+                            .clickable(role = Role.Button, onClick = onCopy)
+                            .padding(horizontal = canvas.dp(base * 0.6f), vertical = canvas.dp(base * 0.3f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        BasicText(
+                            t("promo.copy"),
+                            style = TextStyle(color = ink, fontSize = canvas.sp(base), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
+                element.note?.let { note ->
+                    BasicText(
+                        note,
+                        style = TextStyle(color = ink.copy(alpha = 0.8f), fontSize = canvas.sp(base * 0.8f), textAlign = TextAlign.Center),
+                    )
+                }
+            }
+            // The toast, over the card's top inline-end corner: it takes no room, so the ticket does not move.
+            AnimatedVisibility(
+                visible = status != null,
+                modifier = Modifier.align(Alignment.TopEnd).padding(canvas.dp(canvas.h(0.006))),
+                enter = if (reduced) EnterTransition.None else fadeIn() + slideInVertically { -it / 2 } + scaleIn(initialScale = 0.9f),
+                exit = ExitTransition.None,
+            ) {
                 BasicText(
-                    element.code,
-                    style = TextStyle(
-                        color = ink,
-                        fontSize = canvas.sp(chipFont),
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 0.08.em,
-                        textAlign = TextAlign.Center,
-                    ),
+                    status?.text.orEmpty(),
+                    style = TextStyle(color = card, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.Bold, lineHeight = 1.2.em),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(ink)
+                        .padding(horizontal = canvas.dp(base * 0.9f * 0.8f), vertical = canvas.dp(base * 0.35f * 0.8f))
+                        .semantics { liveRegion = LiveRegionMode.Polite },
                     maxLines = 1,
                     softWrap = false,
                 )
             }
-        }
-        element.note?.let { note ->
-            BasicText(
-                note,
-                style = TextStyle(color = ink.copy(alpha = 0.8f), fontSize = canvas.sp(base * 0.8f), textAlign = TextAlign.Center),
-            )
-        }
-        Box(
-            Modifier
-                .defaultMinSize(minWidth = MinTarget, minHeight = MinTarget)
-                .clip(RoundedCornerShape(50))
-                .border(canvas.dp(edge), ink, RoundedCornerShape(50))
-                .clickable(role = Role.Button, onClick = onCopy)
-                .padding(horizontal = canvas.dp(base * 1.4f), vertical = canvas.dp(base * 0.5f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            BasicText(
-                t("promo.copy"),
-                style = TextStyle(color = ink, fontSize = canvas.sp(base), fontWeight = FontWeight.Bold),
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-        // The toast: the confirmation for two seconds, in the card's ink inverted, announced through its live region.
-        AnimatedVisibility(
-            visible = status != null,
-            enter = if (reduced) EnterTransition.None else fadeIn() + slideInVertically(),
-            exit = if (reduced) ExitTransition.None else fadeOut() + slideOutVertically(),
-        ) {
-            val text = status?.text.orEmpty()
-            BasicText(
-                text,
-                style = TextStyle(color = card, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(ink)
-                    .padding(horizontal = canvas.dp(base * 0.9f), vertical = canvas.dp(base * 0.4f))
-                    .semantics { liveRegion = LiveRegionMode.Polite },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }

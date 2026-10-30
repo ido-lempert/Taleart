@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -34,6 +37,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -43,6 +47,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -149,6 +154,9 @@ internal class TaleResponder(
 
 // ---- Results (pure; the same wording as the Web SDK) ------------------------------------------
 
+/** The tag of the share's fill inside a poll or quiz choice that shows its result. */
+internal const val CHOICE_FILL_TAG = "taleart.choiceFill"
+
 /** A choice's share as a whole percentage from 0 to 100; 0 for a result that is no choice result. */
 internal fun percentOf(result: ResponseResult?, id: String): Int {
     val choice = (result as? ChoiceResult)?.choices?.firstOrNull { it.id == id } ?: return 0
@@ -197,7 +205,8 @@ internal fun reactionCount(result: ResponseResult?, emoji: String): Int =
 /** The minimum tap target, 48 dp (WCAG 2.5.5). */
 internal val MinTarget: Dp = 48.dp
 
-// The card every interactive element draws on: a title, the question, then its controls and a live line.
+// The card every interactive element draws on: a title, the question, then its controls and a live line. A reaction's
+// card is the one that casts no shadow (`.ta-reaction`; the poll's and the rating's `.ta-poll` do).
 @Composable
 internal fun CardColumn(
     title: String?,
@@ -205,17 +214,25 @@ internal fun CardColumn(
     dark: Boolean?,
     canvas: CanvasMetrics,
     modifier: Modifier,
+    shadowed: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val (card, ink) = cardColors(dark)
     val base = canvas.h(CARD_FONT)
+    val shape = RoundedCornerShape(canvas.dp(canvas.h(CARD_RADIUS)))
     Column(
         modifier
-            .clip(RoundedCornerShape(canvas.dp(canvas.h(CARD_RADIUS))))
+            // The web's card shadow, `0 1cqh 3cqh -1.6cqh` in the ink at 35 %: a soft lift under the card.
+            .then(
+                if (shadowed) Modifier.shadow(canvas.dp(canvas.h(0.01)), shape, ambientColor = ink.copy(alpha = 0.35f), spotColor = ink.copy(alpha = 0.35f))
+                else Modifier,
+            )
+            .clip(shape)
             .background(card)
             .padding(canvas.dp(canvas.h(CARD_PADDING)))
             .semantics { contentDescription = question },
-        verticalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.012))),
+        // The card's content sits in the middle of its box (`justify-content: center`), as the web's card does.
+        verticalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.012)), Alignment.CenterVertically),
     ) {
         title?.let {
             BasicText(
@@ -233,15 +250,11 @@ internal fun CardColumn(
     }
 }
 
-// The line the live region says (`aria-live="polite"`): the result, a refusal or a preview's note.
+// The line the live region says (`aria-live="polite"`): the result, a refusal or a preview's note. Like the web's
+// visually hidden `.ta-sr` line it is said, never drawn: the options already show the result, and a sentence in the card
+// would be clipped. A 1 dp node carries it as its description.
 @Composable
-internal fun LiveLine(text: String, ink: Color, canvas: CanvasMetrics) {
-    BasicText(
-        text,
-        style = TextStyle(color = ink, fontSize = canvas.sp(canvas.h(CARD_FONT) * 0.8f), fontWeight = FontWeight.SemiBold),
-        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-    )
-}
+internal fun LiveLine(text: String, ink: Color, canvas: CanvasMetrics) = SpokenLine(text)
 
 // The line screen readers say and nothing draws (the web SDK's visually hidden live region): a reaction's counts
 // read out in one sentence would be a long clipped line on screen. A 1 dp node carries it as its description.
@@ -430,7 +443,7 @@ private fun ChoiceCardElement(
                 EmbedHeader(state, ink, canvas)
                 ChoiceButtons(state, choices, dark, canvas, reduced, ChoiceShape.Card)
             }
-            PollView.Inline -> ChoiceButtons(state, choices, dark, canvas, reduced, ChoiceShape.Compact)
+            PollView.Inline -> InlineView(state, choices, dark, canvas, reduced)
             PollView.ThisOrThat -> if (choices.size == 2) {
                 ThisOrThatView(state, choices[0], choices[1], canvas, reduced)
             } else {
@@ -474,7 +487,7 @@ internal enum class ChoiceShape { Pill, Card, Compact }
 // spring), the quiz's mark (a glyph and words as well as colour, and a shake on a wrong answer). Selected is
 // the visitor's choice (it pops once); a disabled button is one that took no press.
 @Composable
-private fun ChoiceButton(
+internal fun ChoiceButton(
     label: String,
     percent: Int?,
     selected: Boolean,
@@ -485,14 +498,15 @@ private fun ChoiceButton(
     reduced: Boolean,
     shape: ChoiceShape,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
     val t = LocalTaleartContext.current.translate
     val (_, ink) = cardColors(dark)
     val base = canvas.h(CARD_FONT)
     val radius = when (shape) {
         ChoiceShape.Pill -> RoundedCornerShape(50)
-        ChoiceShape.Card -> RoundedCornerShape(canvas.dp(canvas.h(0.018)))
-        ChoiceShape.Compact -> RoundedCornerShape(canvas.dp(canvas.h(0.012)))
+        ChoiceShape.Card -> RoundedCornerShape(canvas.dp(base * 0.8f))
+        ChoiceShape.Compact -> RoundedCornerShape(50)
     }
     val palette = rememberThemeColors()
     // As the Web SDK: a card drawn light or dark on purpose uses that card's mark; an automatic one the scheme's.
@@ -508,7 +522,7 @@ private fun ChoiceButton(
     }
     val glyph = when (mark) {
         Mark.Right -> "✓"
-        Mark.Wrong -> "✗"
+        Mark.Wrong -> "\u2715"
         null -> ""
     }
     val fill = rememberFill((percent ?: 0) / 100f, reduced)
@@ -518,18 +532,21 @@ private fun ChoiceButton(
         append(label).append(markWord)
         if (percent != null) append(", ").append(percent).append('%')
     }
+    // The web's border: 0.25cqh at 35 % of the ink while idle, 0.5cqh in the ink once chosen, in the mark's colour on a mark.
     val edge = canvas.h(0.0025)
+    val borderColor = if (mark != null) markColor else if (selected) ink else ink.copy(alpha = 0.35f)
+    // Min height max(2.4em, 44px) (2.8em in the embed), never under the 48 dp target.
+    val minHeight = maxOf(canvas.dp(base * if (shape == ChoiceShape.Card) 2.8f else 2.4f), MinTarget)
     Box(
-        Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = MinTarget)
+        modifier
+            .defaultMinSize(minHeight = minHeight)
             .graphicsLayer {
                 translationX = shake * density
                 scaleX = pop
                 scaleY = pop
             }
             .clip(radius)
-            .border(canvas.dp(if (selected || mark != null) edge * 2 else edge), if (mark != null) markColor else ink, radius)
+            .border(canvas.dp(if (selected || mark != null) edge * 2 else edge), borderColor, radius)
             .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 contentDescription = spoken
@@ -538,23 +555,28 @@ private fun ChoiceButton(
         contentAlignment = Alignment.CenterStart,
     ) {
         if (percent != null) {
-            Box(
-                Modifier
-                    .fillMaxWidth(fill)
-                    // The button's own height, not the column's: a fill that takes the free height pushed the other options out.
-                    .matchParentSize()
-                    .background(ink.copy(alpha = 0.22f)),
-            )
+            // The button's own box, not the column's (a fill that takes the free height pushed the other options out); inside it
+            // the fill is the share's width from the start. (A fraction width followed by matchParentSize drew it full width.)
+            Box(Modifier.matchParentSize()) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(fill.coerceIn(0f, 1f))
+                        .background(markColor.copy(alpha = 0.22f))
+                        .testTag(CHOICE_FILL_TAG),
+                )
+            }
         }
         Row(
-            Modifier.padding(horizontal = canvas.dp(base * 0.9f), vertical = canvas.dp(base * if (shape == ChoiceShape.Compact) 0.35f else 0.5f)),
+            Modifier.padding(horizontal = canvas.dp(base * if (shape == ChoiceShape.Compact) 1.0f else 0.9f), vertical = canvas.dp(base * if (shape == ChoiceShape.Compact) 0.3f else 0.4f)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.5f)),
         ) {
             BasicText(
                 label,
                 style = TextStyle(color = ink, fontSize = canvas.sp(base), fontWeight = FontWeight.SemiBold),
-                modifier = Modifier.weight(1f),
+                // A compact pill is as wide as its label (`inline-size: auto`); the others fill their row.
+                modifier = if (shape == ChoiceShape.Compact) Modifier else Modifier.weight(1f),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -590,10 +612,10 @@ internal fun ratingLeft(value: Float, width: Float, rtl: Boolean = false): Float
 }
 
 /**
- * The emoji thumb's size as a share of its base size: it grows with the value, from 0.8 at 0 to 1.3 at 100
- * (the thumb grows as the rating does).
+ * The emoji thumb's size in ems of the card: it grows with the value, from 1.6em at 0 to 2.8em at 100
+ * (`calc(1.6em + var(--ta-v) * 0.012em)`, the thumb grows as the rating does).
  */
-internal fun ratingThumbScale(value: Float): Float = 0.8f + 0.5f * value.coerceIn(0f, 100f) / 100f
+internal fun ratingThumbEm(value: Float): Float = 1.6f + 0.012f * value.coerceIn(0f, 100f)
 
 /**
  * The Rating's value after a key: arrows and Page keys step by 10, Home and End go to the ends. The arrow
@@ -660,16 +682,17 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
         }
     }
 
-    val thumbBase = canvas.h(CARD_FONT) * 1.8f
     // The track runs from its start edge (the left, or the right in right to left) to its end edge.
     val rtl = LocalHostLayoutDirection.current == LayoutDirection.Rtl
-    val thumbPx = thumbBase * ratingThumbScale(value)
+    val thumbPx = base * ratingThumbEm(value)
     CardColumn(element.title, element.question, element.dark, canvas, modifier) {
         // The track: its bar, the fill to the value, the average once rated, and the emoji thumb.
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(MinTarget)
+                // `margin: 0 1.2em; block-size: max(2.4em, 44px)`, never under the 48 dp target.
+                .padding(horizontal = canvas.dp(base * 1.2f))
+                .height(maxOf(canvas.dp(base * 2.4f), MinTarget))
                 .onSizeChanged { width = it.width }
                 .semantics {
                     contentDescription = t("rating.sliderLabel")
@@ -717,23 +740,27 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
                     .fillMaxWidth()
                     .height(canvas.dp(base * 0.6f))
                     .clearAndSetSemantics { }
-                    .background(ink.copy(alpha = 0.2f)),
+                    .background(ink.copy(alpha = 0.2f), RoundedCornerShape(50)),
             )
             Box(
                 Modifier
                     .fillMaxWidth(value.coerceIn(0f, 100f) / 100f)
                     .height(canvas.dp(base * 0.6f))
                     .clearAndSetSemantics { }
-                    .background(ink.copy(alpha = 0.6f)),
+                    .background(ink.copy(alpha = 0.6f), RoundedCornerShape(50)),
             )
             result?.let { r ->
+                // The average mark: 0.3em by 1.6em, rounded, with a halo (`0 0 0 .12em` in the ink at 30 %).
+                val halo = base * 0.12f
                 Box(
                     Modifier
-                        .offset { IntOffset((ratingLeft(r.average.toFloat(), width.toFloat(), rtl) - base * 0.15f).roundToInt(), 0) }
-                        .width(canvas.dp(base * 0.3f))
-                        .height(canvas.dp(base * 1.4f))
+                        .offset { IntOffset((ratingLeft(r.average.toFloat(), width.toFloat(), rtl) - (base * 0.15f + halo)).roundToInt(), 0) }
+                        .width(canvas.dp(base * 0.3f + 2 * halo))
+                        .height(canvas.dp(base * 1.6f + 2 * halo))
                         .clearAndSetSemantics { }
-                        .background(ink),
+                        .background(ink.copy(alpha = 0.3f), RoundedCornerShape(50))
+                        .padding(canvas.dp(halo))
+                        .background(ink, RoundedCornerShape(50)),
                 )
             }
             BasicText(
@@ -758,6 +785,7 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
  * taps one; the emoji rises from its button and fades, and the row then shows each emoji's count with the
  * tapped one selected, and the counts are said in the live line. No second tap is taken.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMetrics, responder: ElementResponder?, modifier: Modifier) {
     val t = LocalTaleartContext.current.translate
@@ -775,7 +803,7 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
     val result = answer?.result
     val (_, ink) = cardColors(element.dark)
     val base = canvas.h(CARD_FONT)
-    val emojiPx = canvas.h(CARD_FONT) * 2f
+    val emojiPx = base * 2f
 
     fun press(emoji: String) {
         if (locked || busy) return
@@ -799,23 +827,27 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
         }
     }
 
-    CardColumn(element.title, element.question, element.dark, canvas, modifier) {
-        Row(
+    CardColumn(element.title, element.question, element.dark, canvas, modifier, shadowed = false) {
+        // `.ta-reaction-row`: wrapping, centred, a gap of 1cqh.
+        FlowRow(
             Modifier.fillMaxWidth().selectableGroup(),
-            horizontalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.5f), Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.01)), Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(canvas.dp(canvas.h(0.01))),
         ) {
             for (emoji in element.emojis) {
                 val pressed = shown == emoji
                 val count = if (result != null) reactionCount(result, emoji) else null
                 val spoken = if (count != null) "$emoji, ${t("reaction.count", mapOf("count" to count))}" else emoji
-                val shape = RoundedCornerShape(canvas.dp(canvas.h(0.02)))
+                val shape = RoundedCornerShape(canvas.dp(base))
                 val pop = rememberPop(pressed, reduced)
                 Box(contentAlignment = Alignment.TopCenter) {
                     Column(
                         Modifier
-                            .defaultMinSize(minWidth = MinTarget, minHeight = MinTarget)
+                            .defaultMinSize(minWidth = maxOf(canvas.dp(base * 3.4f), MinTarget), minHeight = MinTarget)
                             .graphicsLayer { scaleX = pop; scaleY = pop }
                             .clip(shape)
+                            // A pressed emoji fills the ink at 30 %.
+                            .background(if (pressed) ink.copy(alpha = 0.3f) else Color.Transparent, shape)
                             .border(canvas.dp(canvas.h(if (pressed) 0.005 else 0.0025)), ink, shape)
                             .clickable(enabled = !locked && !busy, role = Role.Button) { press(emoji) }
                             .semantics(mergeDescendants = true) {
@@ -823,19 +855,22 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
                                 contentDescription = spoken
                                 if (locked) disabled()
                             }
-                            .padding(horizontal = canvas.dp(base * 0.4f), vertical = canvas.dp(base * 0.3f)),
+                            .padding(horizontal = canvas.dp(base * 0.5f), vertical = canvas.dp(base * 0.3f)),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        BasicText(emoji, style = TextStyle(fontSize = canvas.sp(emojiPx * 0.6f), textAlign = TextAlign.Center), softWrap = false, maxLines = 1)
-                        if (count != null) {
-                            BasicText("$count", style = TextStyle(color = ink, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.Bold), modifier = Modifier.clearAndSetSemantics { })
+                        BasicText(emoji, style = TextStyle(fontSize = canvas.sp(emojiPx), textAlign = TextAlign.Center), softWrap = false, maxLines = 1)
+                        // The count's line is kept before the result (`min-height: 1.2em`), so the buttons do not grow when it comes.
+                        Box(Modifier.height(canvas.dp(base * 0.8f * 1.2f)).clearAndSetSemantics { }, contentAlignment = Alignment.Center) {
+                            if (count != null) {
+                                LeftToRight { BasicText("$count", style = TextStyle(color = ink, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.Bold)) }
+                            }
                         }
                     }
                     if (risen == emoji) {
                         RisingEmoji(restart = taps, reduced = reduced) { progress ->
                             BasicText(
                                 emoji,
-                                style = TextStyle(fontSize = canvas.sp(emojiPx * 0.5f), textAlign = TextAlign.Center),
+                                style = TextStyle(fontSize = canvas.sp(base * 1.6f), textAlign = TextAlign.Center),
                                 softWrap = false,
                                 maxLines = 1,
                                 modifier = Modifier

@@ -3,6 +3,7 @@ package site.lempert.taleart.sdk.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.currentCompositionLocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,6 +92,9 @@ internal class ViewerModalController(
 @Composable
 internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, onBack: () -> Unit, content: @Composable () -> Unit) {
     val current by rememberUpdatedState(content)
+    // The modal is a composition of its own: the zone's locals (its context with the listener, tracker and the zone's
+    // responses, the layout direction, the lifecycle) are carried over into it, as an Android dialog window carries them.
+    val outer = currentCompositionLocalContext
     val dismiss by rememberUpdatedState(onDismissRequest)
     // The modal's view takes a moment to reach the screen (Compose sets up its canvas first): the
     // viewer waits for it before it opens and its tale starts.
@@ -106,7 +110,9 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
         // A transparent Compose view over a clear modal: the viewer draws its own backdrop and opens and
         // closes with its own motion over the app (story 9.9), so UIKit presents it without a transition.
         val compose = ComposeUIViewController(configure = { opaque = false }) {
-            CompositionLocalProvider(LocalViewerAppeared provides appeared) { current() }
+            CompositionLocalProvider(outer) {
+                CompositionLocalProvider(LocalViewerAppeared provides appeared) { current() }
+            }
         }
         val modal = ViewerModalController(compose, onDismissedFromOutside = failed, onAppeared = { appeared.value = true })
         modal.modalPresentationStyle = UIModalPresentationOverFullScreen

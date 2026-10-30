@@ -217,10 +217,21 @@ class PollViewTest {
 
     @Test
     fun theThumbGrowsWithTheRating() {
-        assertTrue(ratingThumbScale(0f) < ratingThumbScale(50f))
-        assertTrue(ratingThumbScale(50f) < ratingThumbScale(100f))
-        assertEquals(0.8f, ratingThumbScale(0f), 0.001f)
-        assertEquals(1.3f, ratingThumbScale(100f), 0.001f)
+        assertTrue(ratingThumbEm(0f) < ratingThumbEm(50f))
+        assertTrue(ratingThumbEm(50f) < ratingThumbEm(100f))
+        // The web's `calc(1.6em + var(--ta-v) * 0.012em)`: 1.6em at the start, 2.8em at the end.
+        assertEquals(1.6f, ratingThumbEm(0f), 0.001f)
+        assertEquals(2.2f, ratingThumbEm(50f), 0.001f)
+        assertEquals(2.8f, ratingThumbEm(100f), 0.001f)
+    }
+
+    @Test
+    fun theInlineStackShadesTheSegmentsLikeTheWeb() {
+        // `color-mix(in srgb, currentColor max(35, 80 - i * 35)%, transparent)`.
+        assertEquals(0.80f, stackAlpha(0), 0.001f)
+        assertEquals(0.45f, stackAlpha(1), 0.001f)
+        assertEquals(0.35f, stackAlpha(2), 0.001f)
+        assertEquals(0.35f, stackAlpha(5), 0.001f)
     }
 
     @Test

@@ -14,9 +14,9 @@ internal const val STACK_VISIBLE_COVERS = 4
 /** Most tale segments a poster draws at its top (one per tale, up to this many). */
 internal const val POSTER_MAX_SEGMENTS = 8
 
-/** A poster card's width and height in dp: 3:5, a portrait card. */
-internal const val POSTER_WIDTH_DP = 120
-internal const val POSTER_HEIGHT_DP = 200
+/** A poster card's width and height in dp, the Web SDK's 112 by 188 px (a portrait card). */
+internal const val POSTER_WIDTH_DP = 112
+internal const val POSTER_HEIGHT_DP = 188
 
 /** How many groups a stack draws as covers. */
 internal fun stackVisibleCount(groups: Int): Int = min(max(groups, 0), STACK_VISIBLE_COVERS)
@@ -49,30 +49,16 @@ internal fun stackCoverDp(size: BarSize): Int = when (size) {
     BarSize.Large -> 56
 }
 
-/** How many placeholders a layout's skeleton draws while its zone loads (covers, pills or cards). */
+/** How many placeholders a layout's skeleton draws while its zone loads (`SKELETON_ITEMS` in the Web SDK: covers, pills or cards). */
 internal fun skeletonCount(layout: BarLayout): Int = when (layout) {
-    BarLayout.Ring -> 4
-    BarLayout.Chip -> 3
-    BarLayout.Poster -> 3
-    BarLayout.Stack -> 3
+    BarLayout.Ring -> 5
+    BarLayout.Chip -> 4
+    BarLayout.Poster -> 4
+    BarLayout.Stack -> 1
 }
 
-/** The colours a sweep brush of the ring is made of: up to three, then the first again so the turn closes. */
-internal fun ringSweepColors(colors: List<Color>): List<Color> =
-    if (colors.size <= 1) colors else colors.take(3) + colors.first()
-
-/**
- * The colour of a chip's unseen dot: the theme's accent when it stands out (3:1 or more) on the card, else the
- * theme's live colour, so the dot is seen on a white accent too.
- */
-internal fun accentDotColor(accent: Color, ground: Color, live: Color): Color {
-    fun contrast(other: Color): Double {
-        val a = relativeLuminance(other)
-        val b = relativeLuminance(ground)
-        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
-    }
-    return if (contrast(accent) >= 3.0) accent else live
-}
+/** The colours of the ring's gradient, in the order the Web SDK's `linear-gradient(45deg, ...)` has them: up to three. */
+internal fun ringSweepColors(colors: List<Color>): List<Color> = colors.take(3)
 
 /**
  * The settings a zone's bar was last drawn with, by the zone's key, in memory only (the SDK keeps no zone between

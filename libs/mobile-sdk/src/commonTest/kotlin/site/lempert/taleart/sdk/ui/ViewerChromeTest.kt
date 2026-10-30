@@ -28,6 +28,23 @@ class ViewerChromeTest {
     fun `a control's touch target is at least 48 dp and its disc fits inside it`() {
         assertTrue(CONTROL_TOUCH_DP >= 48, "Android's 48 dp, above iOS's 44 pt")
         assertTrue(CONTROL_DISC_DP <= CONTROL_TOUCH_DP)
+        // The web's `.control`: a 44 px disc with a 24 px icon.
+        assertEquals(44, CONTROL_DISC_DP)
+        assertEquals(24, CONTROL_ICON_DP)
+    }
+
+    @Test
+    fun `a tale's content rises 24 dp and grows from 96 percent while fading in and stays put under reduced motion`() {
+        val (alpha0, rise0, scale0) = taleEntrance(0f, reducedMotion = false)
+        assertEquals(0f, alpha0)
+        assertEquals(24f, rise0)
+        assertEquals(0.96f, scale0)
+        val (alphaEnd, riseEnd, scaleEnd) = taleEntrance(1f, reducedMotion = false)
+        assertEquals(1f, alphaEnd)
+        assertEquals(0f, riseEnd)
+        assertEquals(1f, scaleEnd)
+        assertEquals(Triple(1f, 0f, 1f), taleEntrance(0f, reducedMotion = true))
+        assertEquals(700, TALE_ENTER_MS)
     }
 
     @Test

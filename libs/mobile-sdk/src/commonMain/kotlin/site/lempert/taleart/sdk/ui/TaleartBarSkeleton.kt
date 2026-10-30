@@ -9,6 +9,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,7 +59,7 @@ internal fun BarSkeleton(
 ) {
     val palette = TaleartTheme.DEFAULT.colors(titleStyle.color, rememberPrefersDarkScheme())
     val loading = translate("bar.loading")
-    val colors = SkeletonColors(base = palette.title.copy(alpha = 0.10f), highlight = palette.title.copy(alpha = 0.22f))
+    val colors = SkeletonColors(base = palette.ink.copy(alpha = 0.08f), highlight = palette.ink.copy(alpha = 0.16f), pill = palette.ink.copy(alpha = 0.06f), paper = palette.paper)
     val root = modifier
         .fillMaxWidth()
         .testTag(BAR_SKELETON_TAG)
@@ -84,11 +86,11 @@ private fun AnimatedSkeleton(settings: BarSettings, colors: SkeletonColors, root
     SkeletonLayout(settings, colors, sweep, root)
 }
 
-private class SkeletonColors(val base: Color, val highlight: Color)
+/** The shimmer's two inks (ink at 8 % and 16 %), the pills' ground (ink at 6 %) and the stack covers' paper border. */
+private class SkeletonColors(val base: Color, val highlight: Color, val pill: Color, val paper: Color)
 
 @Composable
 private fun SkeletonLayout(settings: BarSettings, colors: SkeletonColors, sweep: Float, root: Modifier) {
-    val gap = settings.gap.dp
     val edge = settings.size.edgeDp
     val shape: Shape = if (settings.shape == BarShape.Circle) CircleShape else RoundedCornerShape(maxOf(0, edge / 4).dp)
     when (settings.layout) {
@@ -107,29 +109,32 @@ private fun SkeletonLayout(settings: BarSettings, colors: SkeletonColors, sweep:
                 }
             }
         }
-        BarLayout.Chip -> Row(
-            root.padding(4.dp).horizontalScroll(rememberScrollState()),
+        BarLayout.Chip -> FlowRow(
+            root.padding(4.dp),
             horizontalArrangement = barArrangement(settings),
+            verticalArrangement = Arrangement.spacedBy(settings.gap.dp),
         ) {
             val cover = chipCoverDp(settings.size)
             repeat(skeletonCount(BarLayout.Chip)) {
-                Row(
-                    Modifier
-                        .sizeIn(minHeight = 48.dp)
-                        .width(110.dp)
-                        .clip(RoundedCornerShape(50))
-                        .skeleton(sweep, colors)
-                        .padding(start = 4.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(Modifier.size(cover.dp).clip(CircleShape).skeletonInside(sweep, colors))
-                    if (settings.showTitles) TitleLine(sweep, colors)
+                // The 44 dp pill in the 48 dp touch target the chip has.
+                Box(Modifier.sizeIn(minHeight = 48.dp), contentAlignment = Alignment.Center) {
+                    Row(
+                        Modifier
+                            .sizeIn(minHeight = CHIP_PILL_DP.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(colors.pill)
+                            .padding(start = 4.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(Modifier.size(cover.dp).clip(CircleShape).skeleton(sweep, colors))
+                        if (settings.showTitles) TitleLine(sweep, colors, width = 72)
+                    }
                 }
             }
         }
         BarLayout.Poster -> Row(
-            root.padding(4.dp).horizontalScroll(rememberScrollState()),
+            root.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = POSTER_ROW_PAD_DP.dp),
             horizontalArrangement = barArrangement(settings),
         ) {
             repeat(skeletonCount(BarLayout.Poster)) {
@@ -144,51 +149,58 @@ private fun SkeletonLayout(settings: BarSettings, colors: SkeletonColors, sweep:
         BarLayout.Stack -> {
             val stackEdge = stackCoverDp(settings.size)
             val step = stackEdge - STACK_OVERLAP_DP
-            Column(
-                root.padding(4.dp).sizeIn(minHeight = 48.dp),
-                horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(STACK_CAPTION_GAP_DP.dp),
-            ) {
-                val count = skeletonCount(BarLayout.Stack)
-                Box(Modifier.width((stackEdge + (count - 1) * step).dp).height(stackEdge.dp)) {
-                    for (index in 0 until count) {
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .padding(start = (index * step).dp)
-                                .size(stackEdge.dp)
-                                .clip(CircleShape)
-                                .skeleton(sweep, colors),
-                        )
+            Row(root.padding(4.dp)) {
+                repeat(skeletonCount(BarLayout.Stack)) {
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(STACK_RADIUS_DP.dp))
+                            .background(colors.pill)
+                            .sizeIn(minHeight = STACK_MIN_DP.dp)
+                            .padding(start = STACK_PAD_START_DP.dp, end = STACK_PAD_END_DP.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(STACK_GAP_DP.dp),
+                    ) {
+                        val covers = STACK_VISIBLE_COVERS
+                        Box(Modifier.width((stackEdge + (covers - 1) * step).dp).height(stackEdge.dp)) {
+                            for (index in 0 until covers) {
+                                Box(
+                                    Modifier
+                                        .align(Alignment.CenterStart)
+                                        .padding(start = (index * step).dp)
+                                        .size(stackEdge.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.paper)
+                                        .padding(STACK_BORDER_DP.dp)
+                                        .clip(CircleShape)
+                                        .skeleton(sweep, colors),
+                                )
+                            }
+                        }
+                        Box(Modifier.height(18.dp), contentAlignment = Alignment.CenterStart) { TitleLine(sweep, colors, width = 72) }
                     }
                 }
-                Box(Modifier.height(18.dp), contentAlignment = Alignment.CenterStart) { TitleLine(sweep, colors, width = 96) }
             }
         }
     }
 }
 
-// A title's placeholder: a short bar in the title's 16dp line.
+// A title's placeholder: a square-ended line, 44 dp wide (or [width]) and 8 dp high, in the title's 16 dp line.
 @Composable
-private fun TitleLine(sweep: Float, colors: SkeletonColors, width: Int = 56) {
+private fun TitleLine(sweep: Float, colors: SkeletonColors, width: Int = 44) {
     Box(Modifier.height(16.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.width(width.dp).height(10.dp).clip(RoundedCornerShape(50)).skeletonInside(sweep, colors))
+        Box(Modifier.width(width.dp).height(8.dp).skeleton(sweep, colors))
     }
 }
 
-// A placeholder filled with the base colour and a lighter band sweeping across it.
+// A placeholder filled with the base ink and a lighter band sweeping across it (the Web SDK's 200 % wide gradient).
 private fun Modifier.skeleton(sweep: Float, colors: SkeletonColors): Modifier = this.drawBehind { sweepBand(sweep, colors) }
 
-// The same, for a placeholder inside another one (its shape is clipped by the parent's clip).
-private fun Modifier.skeletonInside(sweep: Float, colors: SkeletonColors): Modifier = this.drawBehind { sweepBand(sweep, colors) }
-
 private fun DrawScope.sweepBand(sweep: Float, colors: SkeletonColors) {
-    drawRect(colors.base)
     val w = size.width
     val x = -w + 2f * w * sweep
     drawRect(
         Brush.linearGradient(
-            colors = listOf(Color.Transparent, colors.highlight, Color.Transparent),
+            colors = listOf(colors.base, colors.highlight, colors.base),
             start = Offset(x, 0f),
             end = Offset(x + w, 0f),
         ),

@@ -180,6 +180,19 @@ class TaleartBannerVariantsUiTest : ComposeUiTestBase() {
         onAllNodesWithText("Watch stories").fetchSemanticsNodes().let { assertTrue(it.isNotEmpty()) }
     }
 
+    // At phone width the coverflow's centre card is small: its caption keeps only a small inset (the wide slide's 64 dp
+    // for the arrows left a name no room, so it broke mid-word) and its button stays inside the card.
+    @Test
+    fun aSmallCardKeepsASmallInsetAndItsButtonInsideTheCard() = runComposeUiTest {
+        screen(zone(zoneJson(banner("""{"variant":"coverflow","autoplay":false}"""), groupsJson("Summer", "Winter", "Trips"))))
+
+        val card = px(BANNER_SLIDE_TAG)
+        val button = unclipped(onAllNodesWithText("Watch stories", useUnmergedTree = true).fetchSemanticsNodes().first())
+        val name = unclipped(onAllNodesWithText("Summer", useUnmergedTree = true).fetchSemanticsNodes().first())
+        assertTrue(button.bottom <= card.bottom + 1f, "the button lies inside the card: ${button.bottom} vs ${card.bottom}")
+        assertTrue(name.left - card.left <= 20f, "the name starts near the card's edge: ${name.left - card.left}")
+    }
+
     @Test
     fun coverflowNextMovesToTheNeighbourAndATapOnItShowsIt() = runComposeUiTest {
         screen(zone(zoneJson(banner("""{"variant":"coverflow","autoplay":false}"""), groupsJson("A", "B", "C"))))
@@ -284,17 +297,38 @@ class TaleartBannerVariantsUiTest : ComposeUiTestBase() {
     // ---- sticky -------------------------------------------------------------------------------------
 
     @Test
-    fun stickyIsOneCompactCardWithoutDotsOrArrowsAndIgnoresTheAspectRatio() = runComposeUiTest {
+    fun stickyIsOneBarWithArrowsButWithoutDotsAndIgnoresTheAspectRatio() = runComposeUiTest {
         screen(zone(zoneJson(banner("""{"variant":"sticky","showDots":true,"aspectRatio":"1:1"}"""), groupsJson("Compact", "Other"))))
 
         assertEquals("sticky", variantShown())
         assertEquals("Compact", slideName())
         assertEquals(0, count(BANNER_DOT_TAG))
         assertEquals(0, count(BANNER_VIEWPORT_TAG))
-        onAllNodesWithContentDescription("Next slide").fetchSemanticsNodes().let { assertEquals(0, it.size) }
-        // A slim card: well under the 1:1 viewport it would be.
+        // The previous and next buttons are there for two slides, each 44 dp in a 48 dp target.
+        onAllNodesWithContentDescription("Next slide").fetchSemanticsNodes().let { assertEquals(1, it.size) }
+        onAllNodesWithContentDescription("Previous slide").fetchSemanticsNodes().let { assertEquals(1, it.size) }
+        // A slim bar: 64 dp and its 6 dp padding, well under the 1:1 viewport it would be.
         val card = px(BANNER_TAG)
-        assertTrue(card.bottom - card.top < 160f, "$card")
+        assertEquals(76f, card.bottom - card.top, 0.5f, "$card")
+        assertEquals(0, onAllNodesWithText("Watch stories").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun stickyOfOneSlideHasNoArrows() = runComposeUiTest {
+        screen(zone(zoneJson(banner("""{"variant":"sticky"}"""), groupsJson("Alone"))))
+        onAllNodesWithContentDescription("Next slide").fetchSemanticsNodes().let { assertEquals(0, it.size) }
+        assertEquals(1, count(BANNER_DISMISS_TAG))
+    }
+
+    @Test
+    fun stickyNextAndPreviousButtonsMoveBetweenTheSlides() = runComposeUiTest {
+        screen(zone(zoneJson(banner("""{"variant":"sticky","autoplay":false}"""), groupsJson("One", "Two"))))
+        onNodeWithContentDescription("Next slide").performClick()
+        advance(1_000)
+        assertEquals("two", shown())
+        onNodeWithContentDescription("Previous slide").performClick()
+        advance(1_000)
+        assertEquals("one", shown())
     }
 
     @Test

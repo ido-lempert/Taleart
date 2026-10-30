@@ -8,6 +8,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -20,6 +26,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +43,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -122,8 +130,9 @@ private fun Modifier.placedAbsolutely(x: Int, y: Int): Modifier = layout { measu
     layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(x, y) }
 }
 
-// The divider's VS marker: a round chip over the seam, 48 dp across. Its test tag places it in tests.
-private val DividerSize: Dp = 48.dp
+// The divider's VS marker: a round chip over the seam, 3.2em of its own 0.9em text across (2.88 of the card's em),
+// as the web's `.ta-vs`. It takes no touch. Its test tag places it in tests.
+private const val DIVIDER_EM = 3.2f * 0.9f
 
 /** The test tag of the this-or-that divider (the marker's place on the seam). */
 internal const val DIVIDER_TAG = "poll-divider"
@@ -140,7 +149,8 @@ internal fun ColumnScope.ThisOrThatView(state: ChoiceState, first: Choice, secon
     val rtl = LocalHostLayoutDirection.current == LayoutDirection.Rtl
     val share = rememberFill(thisOrThatPercentA(state.result, first, second) / 100f, reduced)
     val density = LocalDensity.current
-    val dividerPx = with(density) { DividerSize.toPx() }
+    val dividerSize: Dp = canvas.dp(canvas.h(CARD_FONT) * DIVIDER_EM)
+    val dividerPx = with(density) { dividerSize.toPx() }
     val shape = RoundedCornerShape(canvas.dp(canvas.h(0.018)))
     BoxWithConstraints(
         Modifier
@@ -158,10 +168,12 @@ internal fun ColumnScope.ThisOrThatView(state: ChoiceState, first: Choice, secon
         val centre = dividerCenterX((share * 100f).roundToInt(), width, rtl)
         // Placed at an absolute place in pixels: its centre is the seam, already worked out from the left edge.
         Box(Modifier.fillMaxSize().placedAbsolutely((centre - dividerPx / 2f).roundToInt(), (height / 2f - dividerPx / 2f).roundToInt())) {
-            Box(Modifier.size(DividerSize).testTag(DIVIDER_TAG)) {
+            Box(Modifier.size(dividerSize).testTag(DIVIDER_TAG)) {
                 Box(
                     Modifier
                         .fillMaxSize()
+                        // `0 .4em 1em -.4em` in the ink at 50 %.
+                        .shadow(canvas.dp(canvas.h(CARD_FONT) * 0.4f), CircleShape, ambientColor = palette.ink.copy(alpha = 0.5f), spotColor = palette.ink.copy(alpha = 0.5f))
                         .clip(RoundedCornerShape(50))
                         .background(palette.paper)
                         .clearAndSetSemantics { },
@@ -169,7 +181,7 @@ internal fun ColumnScope.ThisOrThatView(state: ChoiceState, first: Choice, secon
                 ) {
                     BasicText(
                         "VS",
-                        style = TextStyle(color = palette.ink, fontSize = canvas.sp(canvas.h(CARD_FONT) * 0.8f), fontWeight = FontWeight.ExtraBold),
+                        style = TextStyle(color = palette.ink, fontSize = canvas.sp(canvas.h(CARD_FONT) * 0.9f), fontWeight = FontWeight.ExtraBold),
                         softWrap = false,
                         maxLines = 1,
                     )
@@ -177,6 +189,24 @@ internal fun ColumnScope.ThisOrThatView(state: ChoiceState, first: Choice, secon
             }
         }
     }
+}
+
+/**
+ * A this-or-that half's share figure ("40%"). It is 2.4em, and steps down in size when its half is narrower than that (the 40 %
+ * half on a phone, or a half at its 12 % minimum), as the web's container-relative size shrinks with its box: the figure is
+ * never cut at the box's edge. [onLayout] reports its text layout (tests read the overflow and the size from it).
+ */
+@Composable
+internal fun ShareFigure(percent: Int, color: Color, base: Float, canvas: CanvasMetrics, onLayout: (TextLayoutResult) -> Unit = {}) {
+    BasicText(
+        "$percent%",
+        style = TextStyle(color = color, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center),
+        softWrap = false,
+        maxLines = 1,
+        onTextLayout = onLayout,
+        autoSize = TextAutoSize.StepBased(minFontSize = canvas.sp(base * 0.9f), maxFontSize = canvas.sp(base * 2.4f), stepSize = canvas.sp(base * 0.1f)),
+        modifier = Modifier.fillMaxWidth().clearAndSetSemantics { },
+    )
 }
 
 // The smallest share a half keeps, so an option at 0 % still has a visible, tappable half.
@@ -211,13 +241,21 @@ private fun RowScope.Half(
                 selected = isSelected
                 if (!enabled) disabled()
             }
-            .padding(canvas.dp(base * 0.6f)),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = canvas.dp(base * 0.8f), vertical = canvas.dp(base)),
+        // The web aligns a half's content to the bottom, centred across.
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.3f))) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.2f))) {
             BasicText(
                 choice.label,
-                style = TextStyle(color = text, fontSize = canvas.sp(base * 1.1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+                style = TextStyle(
+                    color = text,
+                    fontSize = canvas.sp(base * 1.1f),
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    // The chosen option is underlined, not ringed: a ring would show its corners outside the rounded box.
+                    textDecoration = if (isSelected) TextDecoration.Underline else null,
+                ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.clearAndSetSemantics { },
@@ -225,13 +263,7 @@ private fun RowScope.Half(
             if (percent != null) {
                 // The share reads left to right in any direction: the number, then its sign.
                 LeftToRight {
-                    BasicText(
-                        "$percent%",
-                        style = TextStyle(color = text, fontSize = canvas.sp(base * 2.2f), fontWeight = FontWeight.ExtraBold),
-                        softWrap = false,
-                        maxLines = 1,
-                        modifier = Modifier.clearAndSetSemantics { },
-                    )
+                    ShareFigure(percent, text, base, canvas)
                 }
             }
         }
@@ -240,7 +272,7 @@ private fun RowScope.Half(
 
 /**
  * Grid (`view` grid): two big tiles side by side, each in its option's colour with the label, and once voted
- * the option's share. The chosen tile is ringed and pops once; each tile is a radio button, 48 dp at least.
+ * the option's share. The chosen tile's label is underlined and it pops once; each tile is a radio button, 48 dp at least.
  */
 @Composable
 internal fun ColumnScope.GridView(state: ChoiceState, choices: List<Choice>, canvas: CanvasMetrics, reduced: Boolean) {
@@ -267,9 +299,9 @@ private fun RowScope.Tile(choice: Choice, fill: Color, state: ChoiceState, canva
     val isSelected = state.shown == choice.id
     val enabled = !state.locked && !state.busy
     val pop = rememberPop(isSelected, reduced)
+    val share = rememberFill((percent ?: 0) / 100f, reduced)
     val base = canvas.h(CARD_FONT)
     val shape = RoundedCornerShape(canvas.dp(canvas.h(0.018)))
-    val ring = canvas.dp(canvas.h(0.0035))
     val spoken = if (percent != null) "${choice.label}, $percent%" else choice.label
     Box(
         Modifier
@@ -278,20 +310,29 @@ private fun RowScope.Tile(choice: Choice, fill: Color, state: ChoiceState, canva
             .graphicsLayer { scaleX = pop; scaleY = pop }
             .clip(shape)
             .background(fill)
-            .border(if (isSelected) ring else 0.dp, text, shape)
             .selectable(selected = isSelected, enabled = enabled, role = Role.RadioButton, onClick = { state.press(choice) })
             .semantics(mergeDescendants = true) {
                 contentDescription = spoken
                 selected = isSelected
                 if (!enabled) disabled()
-            }
-            .padding(canvas.dp(base * 0.6f)),
-        contentAlignment = Alignment.Center,
+            },
+        // Content sits at the bottom, on the start edge (the web's `.ta-tile`).
+        contentAlignment = Alignment.BottomStart,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.2f))) {
+        if (percent != null) {
+            // The share fill (`.ta-poll-fill`): the tile's text colour at 22 %, from the start edge.
+            Box(Modifier.fillMaxWidth(share).matchParentSize().background(text.copy(alpha = 0.22f)))
+        }
+        Column(Modifier.padding(canvas.dp(canvas.h(0.012)))) {
             BasicText(
                 choice.label,
-                style = TextStyle(color = text, fontSize = canvas.sp(base * 1.1f), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+                style = TextStyle(
+                    color = text,
+                    fontSize = canvas.sp(base * 1.05f),
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Start,
+                    textDecoration = if (isSelected) TextDecoration.Underline else null,
+                ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.clearAndSetSemantics { },
@@ -300,7 +341,7 @@ private fun RowScope.Tile(choice: Choice, fill: Color, state: ChoiceState, canva
                 LeftToRight {
                     BasicText(
                         "$percent%",
-                        style = TextStyle(color = text, fontSize = canvas.sp(base * 2.2f), fontWeight = FontWeight.ExtraBold),
+                        style = TextStyle(color = text, fontSize = canvas.sp(base * 1.8f), fontWeight = FontWeight.ExtraBold, lineHeight = canvas.sp(base * 1.8f)),
                         softWrap = false,
                         maxLines = 1,
                         modifier = Modifier.clearAndSetSemantics { },
@@ -310,3 +351,80 @@ private fun RowScope.Tile(choice: Choice, fill: Color, state: ChoiceState, canva
         }
     }
 }
+
+/**
+ * Inline (`view` inline): the options as compact pills in a wrapping row; once the visitor answered, a stacked bar
+ * of the shares (the card's ink at 80 %, 45 %, 35 % ... by option, 2 px apart) with a legend under it, the
+ * visitor's choice in bold. Like the web, the pills give way to the bar.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun InlineView(state: ChoiceState, choices: List<Choice>, dark: Boolean?, canvas: CanvasMetrics, reduced: Boolean) {
+    val (_, ink) = cardColors(dark)
+    val base = canvas.h(CARD_FONT)
+    if (state.shown == null) {
+        FlowRow(
+            Modifier.fillMaxWidth().selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.6f)),
+            verticalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.6f)),
+        ) {
+            for (choice in choices) {
+                ChoiceButton(
+                    label = choice.label,
+                    percent = null,
+                    selected = false,
+                    mark = null,
+                    enabled = !state.locked && !state.busy,
+                    dark = dark,
+                    canvas = canvas,
+                    reduced = reduced,
+                    shape = ChoiceShape.Compact,
+                    onClick = { state.press(choice) },
+                    modifier = Modifier,
+                )
+            }
+        }
+        return
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.5f))) {
+        // The stack: `block-size: 1.2cqh; min-block-size: 10px`, 2 px between the segments.
+        Row(
+            Modifier.fillMaxWidth().height(maxOf(canvas.dp(canvas.h(0.012)), 10.dp)).clip(RoundedCornerShape(50)),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            var used = 0f
+            choices.forEachIndexed { index, choice ->
+                val percent = percentOf(state.result, choice.id)
+                val share = rememberFill(percent / 100f, reduced)
+                used += percent / 100f
+                if (percent > 0) {
+                    Box(Modifier.weight(max(share, 0.001f)).fillMaxHeight().background(ink.copy(alpha = stackAlpha(index))))
+                }
+            }
+            if (used < 1f) Box(Modifier.weight(max(1f - used, 0.001f)).fillMaxHeight())
+        }
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(canvas.dp(base * 1.2f * 0.8f)),
+            verticalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.4f * 0.8f)),
+        ) {
+            for (choice in choices) {
+                val percent = percentOf(state.result, choice.id)
+                val mine = state.shown == choice.id
+                Row(
+                    Modifier.semantics(mergeDescendants = true) { contentDescription = "${choice.label}, $percent%" },
+                    horizontalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.4f * 0.8f)),
+                ) {
+                    val style = TextStyle(color = ink, fontSize = canvas.sp(base * 0.8f), fontWeight = if (mine) FontWeight.ExtraBold else FontWeight.Normal)
+                    BasicText(choice.label, style = style, modifier = Modifier.clearAndSetSemantics { })
+                    LeftToRight {
+                        BasicText("$percent%", style = style.copy(fontWeight = if (mine) FontWeight.ExtraBold else FontWeight.Bold), modifier = Modifier.clearAndSetSemantics { })
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The ink's alpha of the [index]th segment of the inline stack: 80 %, 45 %, then 35 % (`max(35, 80 - 35 i)`). */
+internal fun stackAlpha(index: Int): Float = max(35, 80 - index * 35) / 100f

@@ -57,6 +57,14 @@ data class DebugSettings(val apiUrl: String, val zoneKey: String) {
  * `taller.bannerVariant` (`carousel`, `coverflow`, `peek`, `deck`, `sticky` or `strip`: the variant the zone's banner
  * is drawn in), and `taller.pollView` (`sticker`, `embed`, `this-or-that`, `grid` or `inline`: the view every poll of the
  * zone's tales is drawn in, whatever the document's own `view`). An unset key keeps the SDK's default.
+ *
+ * `taller.zoneOnly` (`true`) shows only the zone on a plain page: no title, Settings, Reload line, group list or spinner,
+ * as the Web SDK's bare sample page does, so a screenshot or a clip frames the SDK's own output. The timed actions act on
+ * the screen without a tap, so a clip needs no finger: [DebugAction]s run in this order, each [autoDelayMs] (default 700 ms)
+ * after the one before, the first that long after the zone is shown: `taller.autoOpenItem=<index>` (opens the zone's
+ * item at that index, as a tap does), `taller.autoVote=<index>` (the choice at that index of the poll or quiz on the
+ * tale), `taller.autoPress=<index>` (the emoji at that index of a reaction), `taller.autoCopy=true` (the promo code's
+ * Copy) and `taller.autoSwipeNext=true` (the viewer's Next tale, which at the last tale of a group goes on to the next group).
  */
 data class TallerDebugOptions(
     val autoOpenGroup: Int? = null,
@@ -68,6 +76,13 @@ data class TallerDebugOptions(
     val barLayout: BarLayout? = null,
     val bannerVariant: BannerVariant? = null,
     val pollView: String? = null,
+    val zoneOnly: Boolean = false,
+    val autoOpenItem: Int? = null,
+    val autoVote: Int? = null,
+    val autoPress: Int? = null,
+    val autoCopy: Boolean = false,
+    val autoSwipeNext: Boolean = false,
+    val autoDelayMs: Long = DEFAULT_AUTO_DELAY_MS,
 ) {
     companion object {
         const val AUTO_OPEN_GROUP = "taller.autoOpenGroup"
@@ -79,6 +94,16 @@ data class TallerDebugOptions(
         const val BAR_LAYOUT = "taller.barLayout"
         const val BANNER_VARIANT = "taller.bannerVariant"
         const val POLL_VIEW = "taller.pollView"
+        const val ZONE_ONLY = "taller.zoneOnly"
+        const val AUTO_OPEN_ITEM = "taller.autoOpenItem"
+        const val AUTO_VOTE = "taller.autoVote"
+        const val AUTO_PRESS = "taller.autoPress"
+        const val AUTO_COPY = "taller.autoCopy"
+        const val AUTO_SWIPE_NEXT = "taller.autoSwipeNext"
+        const val AUTO_DELAY_MS = "taller.autoDelayMs"
+
+        /** The wait before each timed action, in milliseconds, when `taller.autoDelayMs` is not set. */
+        const val DEFAULT_AUTO_DELAY_MS = 700L
 
         fun load(store: KeyValueStore, extras: Map<String, String> = emptyMap()): TallerDebugOptions {
             fun read(key: String): String? = (extras[key] ?: store.get(key))?.trim()?.takeIf { it.isNotEmpty() }
@@ -92,10 +117,19 @@ data class TallerDebugOptions(
                 barLayout = read(BAR_LAYOUT)?.let(::barLayoutNamed),
                 bannerVariant = read(BANNER_VARIANT)?.let(::bannerVariantNamed),
                 pollView = read(POLL_VIEW)?.let(::pollViewNamed),
+                zoneOnly = read(ZONE_ONLY).isTrue(),
+                autoOpenItem = read(AUTO_OPEN_ITEM)?.toIntOrNull()?.takeIf { it >= 0 },
+                autoVote = read(AUTO_VOTE)?.toIntOrNull()?.takeIf { it >= 0 },
+                autoPress = read(AUTO_PRESS)?.toIntOrNull()?.takeIf { it >= 0 },
+                autoCopy = read(AUTO_COPY).isTrue(),
+                autoSwipeNext = read(AUTO_SWIPE_NEXT).isTrue(),
+                autoDelayMs = read(AUTO_DELAY_MS)?.toLongOrNull()?.coerceIn(0L, 60_000L) ?: DEFAULT_AUTO_DELAY_MS,
             )
         }
     }
 }
+
+private fun String?.isTrue(): Boolean = this?.lowercase() == "true"
 
 /** A frequency cap as the debug option names it: `once`, `daily`, `weekly` or a view count from 1 to 50; null for `none` or anything else. */
 fun frequencyRule(value: String): FrequencyRule? = when (value.trim().lowercase()) {

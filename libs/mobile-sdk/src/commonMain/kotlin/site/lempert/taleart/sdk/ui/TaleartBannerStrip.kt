@@ -1,14 +1,14 @@
 package site.lempert.taleart.sdk.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,7 +37,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -47,7 +47,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -109,7 +108,10 @@ internal fun StripBanner(
     BoxWithConstraints(
         modifier
             .fillMaxWidth()
-            .clipToBounds()
+            // The banner's 8dp margin, then the strip: the surface colour and the corner radius (`.b-strip`).
+            .padding(vertical = 8.dp)
+            .clip(RoundedCornerShape((theme.cornerRadius ?: STRIP_DEFAULT_RADIUS).dp))
+            .background(palette.surface)
             .testTag(BANNER_TAG)
             .semantics {
                 contentDescription = translate("banner.label")
@@ -131,7 +133,7 @@ internal fun StripBanner(
             },
     ) {
         if (reducedMotion) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = STRIP_PAD_DP.dp)) {
                 StripItems(slides, palette, titleStyle, loader, translate, tagged = true) { onClick(it) }
             }
         } else {
@@ -157,7 +159,7 @@ private fun BoxWithConstraintsScope.StripMarquee(
         Modifier
             .wrapContentWidth(Alignment.Start, unbounded = true)
             .offset { IntOffset(stripOffsetPx(elapsedNanos, copyWidth), 0) }
-            .padding(vertical = 12.dp),
+            .padding(vertical = STRIP_PAD_DP.dp),
     ) {
         Row(Modifier.defaultMinSize(minWidth = viewport).onSizeChanged { copyWidth = it.width }) {
             StripItems(slides, palette, titleStyle, loader, translate, tagged = true, open = open)
@@ -168,7 +170,8 @@ private fun BoxWithConstraintsScope.StripMarquee(
     }
 }
 
-// One copy of the items: a cover in a ring, the name, at least 48dp high to touch.
+// One copy of the items: a round cover (36dp) and the name in a pill at least 44dp high (48dp to touch), 24dp apart,
+// the copy padded 12dp at both ends.
 @Composable
 private fun StripItems(
     slides: List<DeliveryTaleGroup>,
@@ -179,32 +182,27 @@ private fun StripItems(
     tagged: Boolean,
     open: (DeliveryTaleGroup) -> Unit,
 ) {
-    slides.forEach { group ->
-        val item = if (tagged) Modifier.testTag(BANNER_STRIP_ITEM_TAG).semantics { contentDescription = group.name } else Modifier
-        Row(
-            item
-                .heightIn(min = 48.dp)
-                .clickable(role = Role.Button) { open(group) }
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box40(palette) { SlideMedia(group, loader, palette.surface) }
-            Spacer(Modifier.width(10.dp))
-            BasicText(group.name, style = titleStyle.copy(color = palette.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold))
-            Spacer(Modifier.width(24.dp))
+    Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        slides.forEach { group ->
+            val item = if (tagged) Modifier.testTag(BANNER_STRIP_ITEM_TAG).semantics { contentDescription = group.name } else Modifier
+            Row(
+                item
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(50))
+                    .clickable(role = Role.Button) { open(group) }
+                    .padding(start = 4.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(36.dp).clip(CircleShape)) { SlideMedia(group, loader, palette.surface) }
+                Spacer(Modifier.width(10.dp))
+                // The host's font and weight, in the title colour (`font: inherit; color: var(--ta-title, inherit)`).
+                BasicText(group.name, style = titleStyle.copy(color = palette.title, fontSize = 16.sp), maxLines = 1)
+            }
         }
     }
 }
 
-// The round cover of a strip item, 40dp with a ring of the muted colour.
-@Composable
-private fun Box40(palette: ThemeColors, content: @Composable () -> Unit) {
-    Box(
-        Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .border(BorderStroke(2.dp, palette.muted), CircleShape),
-    ) {
-        content()
-    }
-}
+// The strip's default corner radius, and the room above and below its items: 2dp and the 48dp target make the Web SDK's
+// 4px around 44px.
+private const val STRIP_DEFAULT_RADIUS = 12
+private const val STRIP_PAD_DP = 2

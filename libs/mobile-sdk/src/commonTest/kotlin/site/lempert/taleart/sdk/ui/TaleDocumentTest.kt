@@ -290,4 +290,14 @@ class TaleDocumentTest {
         // A space is refused by the contract's rule.
         assertEquals(emptyList(), button.elements)
     }
+
+    @Test
+    fun aButtonWithoutARadiusIsTheFullPillAndANumericRadiusReplacesIt() {
+        val look = { props: String -> (doc(element("button", props)).elements.single() as DocumentElement.Button).look }
+        assertNull(look("""{"label":"Go","href":"https://example.com/"}""").radius)
+        assertNull(look("""{"label":"Go","href":"https://example.com/","radius":"big"}""").radius)
+        assertEquals(0.0, look("""{"label":"Go","href":"https://example.com/","radius":0}""").radius)
+        assertEquals(0.05, look("""{"label":"Go","href":"https://example.com/","radius":0.05}""").radius)
+        assertEquals(0.0, look("""{"label":"Go","href":"https://example.com/","radius":2}""").radius, "out of range: the contract fallback")
+    }
 }

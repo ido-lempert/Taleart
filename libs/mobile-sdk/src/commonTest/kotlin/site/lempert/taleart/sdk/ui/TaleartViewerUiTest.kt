@@ -346,6 +346,33 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         assertEquals(listOf(summer), closed)
     }
 
+    // A drag along the rating's slider moves the slider; it does not turn the page to the next group.
+    @Test
+    fun draggingTheRatingSliderDoesNotSwipeTheViewer() = runComposeUiTest {
+        val rated = readZone(
+            Json.parseToJsonElement(
+                """{"id":"z","name":"Z","slug":"z","frame":{"id":"f","type":"bar","settings":{}},"taleGroups":[
+                {"id":"a","name":"A","tales":[{"id":"a1","title":"A1","document":{"version":1,"canvas":{"background":{"type":"color","color":"#112233"}},"durationMs":60000,
+                  "elements":[{"id":"r","type":"rating","box":{"x":0.05,"y":0.4,"w":0.9,"h":0.3,"rotation":0},"a11y":{},"props":{"question":"Rate?","emoji":"*","theme":"light"}}]}}]},
+                {"id":"b","name":"B","tales":[{"id":"b1","title":"B1"}]}]}""",
+            ) as JsonObject,
+        )
+        open("a", rated.taleGroups)
+
+        val slider = onNodeWithContentDescription("Your rating")
+        slider.performTouchInput {
+            down(Offset(width * 0.3f, height / 2f))
+            repeat(12) {
+                moveBy(Offset(width * 0.04f, 0f))
+                advance(30)
+            }
+            up()
+        }
+        settle()
+        assertEquals("a/0", tale())
+        assertTrue(slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current > 0.6f, "the slider followed the drag")
+    }
+
     @Test
     fun theCloseButtonCloses() = runComposeUiTest {
         open(winter)

@@ -4,6 +4,8 @@ import site.lempert.taleart.sdk.storage.deviceKeyValueStoreOrNull
 import site.lempert.taleart.sdk.recordFrequencyView
 import site.lempert.taleart.sdk.analytics.AnalyticsEventType
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
@@ -125,15 +127,16 @@ const val VIEWER_STAGE_TAG = "taleart-viewer-stage"
 
 /**
  * How far the top bar reaches below the safe area, where the canvas starts: 12 dp padding, the 3 dp
- * progress, 6 dp, the 48 dp controls, rounded up.
+ * progress, the 12 dp head gap, the 48 dp controls, rounded up.
  */
-internal val VIEWER_TOP_BAR_HEIGHT = 72.dp
+internal val VIEWER_TOP_BAR_HEIGHT = 76.dp
 
 /** A control's touch target (`CONTROL_TOUCH_DP`): 48 dp, above both Android's 48 dp and iOS's 44 pt. */
 internal const val CONTROL_TOUCH_DP = 48
 
-/** A control's visible disc (the canvas's 40 px round button), inside its touch target. */
-internal const val CONTROL_DISC_DP = 40
+/** A control's visible disc (the web's `.control`, 44 px), inside its touch target, and the icon in it (24 px). */
+internal const val CONTROL_DISC_DP = 44
+internal const val CONTROL_ICON_DP = 24
 
 /** How far a control is scaled while pressed (the canvas's active state: 0.94, on a spring). Reduced motion keeps it still. */
 internal const val CONTROL_PRESSED_SCALE = 0.94f
@@ -190,9 +193,24 @@ const val HOLD_MIN_MS = 250L
 // white ink in both colour schemes: it must read over any picture. The rest of the viewer takes its
 // ground and ink from ThemeColors (the card of the resolved scheme, its ink, the accent).
 private val TRACK = InkDark.copy(alpha = 0.35f)
-private val CONTROL_BACKGROUND = CardDark.copy(alpha = 0.6f)
+private val CONTROL_BACKGROUND = CardDark.copy(alpha = 0.45f)
 private val NAME_BACKGROUND = CardDark.copy(alpha = 0.8f)
-private val TOP_SHADE = Brush.verticalGradient(listOf(CardDark.copy(alpha = 0.7f), Color.Transparent))
+private val TOP_SHADE = Brush.verticalGradient(listOf(CardDark.copy(alpha = 0.6f), Color.Transparent))
+
+// The head's gap under the progress segments, and the scrim's reach below the head (the web's `.head` margin and `.top` padding).
+private val HEAD_GAP = 12.dp
+private val TOP_SCRIM_REACH = 40.dp
+
+/** The entrance of a tale's content (`taleart-enter`): it rises [TALE_ENTER_RISE_DP] and grows from [TALE_ENTER_FROM_SCALE] while fading in, over [TALE_ENTER_MS]. */
+internal const val TALE_ENTER_MS = 700
+internal const val TALE_ENTER_RISE_DP = 24
+internal const val TALE_ENTER_FROM_SCALE = 0.96f
+
+/** How far the entrance has come at [progress] (0 to 1, eased): the content's opacity, its drop in dp and its scale. Complete under reduced motion. */
+internal fun taleEntrance(progress: Float, reducedMotion: Boolean): Triple<Float, Float, Float> {
+    val p = if (reducedMotion) 1f else progress.coerceIn(0f, 1f)
+    return Triple(p, TALE_ENTER_RISE_DP * (1f - p), TALE_ENTER_FROM_SCALE + (1f - TALE_ENTER_FROM_SCALE) * p)
+}
 
 // The segments: 3 dp high, rounded to their own height, with 4 dp between them (the canvas's `.segs`).
 private val SEGMENT_HEIGHT = 3.dp
@@ -475,7 +493,7 @@ internal fun ViewerContent(
             }
             .drawBehind {
                 val pulled = (dragDown.value / size.height).coerceIn(0f, 1f)
-                drawRect(colors.paper.copy(alpha = 1f - 0.6f * pulled))
+                drawRect(viewerGround().copy(alpha = 1f - 0.6f * pulled))
             }
             .testTag(VIEWER_TAG)
             .semantics {
@@ -535,7 +553,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
     val t = LocalTaleartContext.current.translate
     val scope = rememberCoroutineScope()
     val dir = if (rtl) -1 else 1
-    val ground = rememberThemeColors().paper
+    val ground = viewerGround()
     // The released drag settling now, if any: a new touch lands it at once.
     val settling = remember(motion) { arrayOfNulls<Job>(1) }
     Box(
@@ -569,6 +587,8 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                             // A second finger (a pinch) makes the press neither a tap, a hold nor a swipe.
                             if (event.changes.any { it.id != down.id && it.pressed }) joined = true
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            // A control on the tale took the movement (the rating's slider drag): the page does not follow it.
+                            if (change.pressed && change.isConsumed && change.position != change.previousPosition) joined = true
                             velocity.addPosition(change.uptimeMillis, change.position)
                             val dy = change.position.y - down.position.y
                             val dx = change.position.x - down.position.x
@@ -676,6 +696,12 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
     }
 }
 
+/**
+ * The ground behind the tale: the dark card colour, as the Web SDK's viewer on a phone has it (`--ta-dark`), whatever the
+ * colour scheme. A tale whose picture is narrower than the screen (a tall phone) letterboxes on it, never on a white strip.
+ */
+internal fun viewerGround(): Color = CardDark
+
 // A cube's face darkens as it turns away, as a face out of the light.
 private fun Modifier.faceShade(ground: Color, position: () -> Float): Modifier = drawWithContent {
     drawContent()
@@ -781,7 +807,7 @@ internal fun TalePage(
             )
             null -> Unit
         }
-        view.canvas?.let { canvas -> CanvasBox(canvas, loader, elementLayer) }
+        view.canvas?.let { canvas -> CanvasBox(canvas, loader, enters = true, elementLayer = elementLayer) }
     }
 }
 
@@ -807,8 +833,26 @@ internal fun documentVideoPlayback(state: TaleViewerState): DocumentVideoPlaybac
 // The document's canvas: 9:16, as large as fits inside the screen's safe area, centred
 // (`.ta-area` inside `env(safe-area-inset-*)`, `.ta-canvas`), named by the tale.
 @Composable
-private fun CanvasBox(canvas: TaleCanvas, loader: ImageLoader, elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.Center) {
+private fun CanvasBox(canvas: TaleCanvas, loader: ImageLoader, enters: Boolean = false, elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit) {
+    // A live tale's content comes in (`.frame .ta-area`), not the still beside it during a transition; never under reduced motion.
+    val reduced = rememberTaleReducedMotion()
+    val entrance = remember { Animatable(if (enters && !reduced) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (entrance.value < 1f) entrance.animateTo(1f, tween(TALE_ENTER_MS, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)))
+    }
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .graphicsLayer {
+                val (alpha, rise, scale) = taleEntrance(entrance.value, reduced)
+                this.alpha = alpha
+                translationY = rise * density
+                scaleX = scale
+                scaleY = scale
+            },
+        contentAlignment = Alignment.Center,
+    ) {
         val w = if (maxWidth * 16f / 9f <= maxHeight) maxWidth else maxHeight * 9f / 16f
         Box(
             Modifier
@@ -870,7 +914,7 @@ private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: android
             .fillMaxWidth()
             .background(TOP_SHADE)
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(start = 12.dp, end = 12.dp, top = 12.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = TOP_SCRIM_REACH),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             val count = state.group.tales.size
@@ -883,7 +927,7 @@ private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: android
                 Segment(fill, accent, Modifier.weight(1f))
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(top = HEAD_GAP), verticalAlignment = Alignment.CenterVertically) {
             // The group chip takes the room the controls leave, and ellipsizes in it.
             Box(Modifier.weight(1f).padding(end = 8.dp)) {
                 BasicText(
@@ -924,7 +968,7 @@ private fun Segment(fill: Float, accent: Color, modifier: Modifier) {
     }
 }
 
-// A round control: a 40 dp disc with a 20 dp icon, in a 48 dp touch target. It scales to 0.94 on a spring
+// A round control: a 44 dp disc with a 24 dp icon, in a 48 dp touch target. It scales to 0.94 on a spring
 // while pressed (not under reduced motion) and shows a 2 dp ring in the accent when it has keyboard focus.
 @Composable
 private fun Control(label: String, icon: String, accent: Color, reducedMotion: Boolean, onClick: () -> Unit) {
@@ -966,7 +1010,7 @@ private fun Control(label: String, icon: String, accent: Color, reducedMotion: B
                 .then(if (focused) Modifier.border(2.dp, accent, CircleShape) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(Modifier.size(20.dp)) {
+            Canvas(Modifier.size(CONTROL_ICON_DP.dp)) {
                 val factor = size.width / 24f
                 scale(factor, factor, pivot = androidx.compose.ui.geometry.Offset.Zero) {
                     drawPath(path, ink)

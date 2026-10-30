@@ -111,18 +111,17 @@ import {
         </p>
         <pre tabindex="0" role="region" aria-label="Compose TaleartZone"><code>{{ composeZone }}</code></pre>
         <figure class="native-figure native-shot">
-          <img
-            src="images/android-shot-zone.png"
-            width="720"
-            height="1280"
-            loading="lazy"
-            alt="Screenshot of the TaleArt sample app on Android: a bar of three round covers in gradient rings, with Hebrew group names under them (קיץ בים, חורף בעיר and טיול בהרים), below the app’s title and Settings button."
-          />
-          <figcaption class="muted">
-            The bar in the TaleArt sample app (taller) on Android, a real screenshot. The lines below it are the sample
-            app's own debug text, not part of the SDK.
-          </figcaption>
-        </figure>
+      <img
+        src="images/android-shot-zone.png"
+        width="720"
+        height="262"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android showing only the zone: a bar of round covers in gradient rings with the group names Summer, New arrivals and Winter under them, and a fourth cover cut off at the screen edge, on a plain light page."
+      />
+      <figcaption class="muted">
+        The bar in the TaleArt sample app (taller) on Android, a real screenshot taken on an emulator. The sample app shows only the zone here (its <code>taller.zoneOnly</code> debug option), so the picture holds nothing but the SDK's own output. The row scrolls sideways, so the fourth cover is cut off at the screen edge.
+      </figcaption>
+    </figure>
       </li>
 
       <li>
@@ -231,18 +230,17 @@ import {
           English default there.
         </p>
         <figure class="native-figure native-shot">
-          <img
-            src="images/android-shot-viewer-he.png"
-            width="720"
-            height="1280"
-            loading="lazy"
-            alt="Screenshot of the TaleArt sample app's viewer on Android, open on a Hebrew group: a right-to-left Hebrew headline, text and call-to-action button over an illustrated slide, with the group name in a chip and pause and close buttons."
-          />
-          <figcaption class="muted">
-            A Hebrew tale in the sample app's viewer (taller), a real screenshot. The group name and the caption are right
-            to left. The viewer's buttons are icons in this shot, so it does not show their localised labels.
-          </figcaption>
-        </figure>
+      <img
+        src="images/android-shot-viewer-he.png"
+        width="720"
+        height="1232"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app's viewer on Android with the Hebrew locale and right-to-left layout, open on a Hebrew group: a pale sun over a sea gradient, the group name in a chip on the right, the close and pause buttons on the left, and two progress bars."
+      />
+      <figcaption class="muted">
+        A Hebrew group in the sample app's viewer (taller), a real screenshot taken on an emulator. The group name and the controls sit by right-to-left rules. The viewer's buttons are icons in this shot, so it does not show their localised labels.
+      </figcaption>
+    </figure>
       </li>
 
       <li>
@@ -261,28 +259,29 @@ import {
           or the local network; allow it, then reload.
         </p>
         <figure class="native-figure native-shot">
-          <img
-            src="images/android-shot-viewer.png"
-            width="720"
-            height="1280"
-            loading="lazy"
-            alt="Screenshot of the TaleArt sample app's viewer on Android, open on the Summer sale group: a Summer sale poster slide with a headline, a line of text and a Shop the sale button, with a group chip, pause and close buttons and four progress bars."
-          />
-          <figcaption class="muted">A tale open in the viewer, a real screenshot of the TaleArt sample app (taller).</figcaption>
-        </figure>
+      <img
+        src="images/android-shot-viewer.png"
+        width="720"
+        height="1232"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app's viewer on Android, open on the group Summer: a pale sun over a gradient of sand and sea, the group name in a dark chip at the top left, the pause and close buttons at the top right and two progress bars along the top."
+      />
+      <figcaption class="muted">
+        A tale open in the viewer, a real screenshot taken on an emulator. The viewer is running (the Pause button shows, not Play), and the first of the group's two progress bars is filling.
+      </figcaption>
+    </figure>
         <figure class="native-figure native-shot">
-          <img
-            src="images/android-shot-settings.png"
-            width="720"
-            height="1280"
-            loading="lazy"
-            alt="Screenshot of the TaleArt sample app's debug settings screen on Android, not an SDK screen: an API URL field, a zone key field with the key partly masked, and Load and Cancel buttons."
-          />
-          <figcaption class="muted">
-            The settings screen of the TaleArt sample app (taller), not an SDK screen. It is where the sample app takes its
-            API URL and zone key. The key is partly masked here.
-          </figcaption>
-        </figure>
+      <img
+        src="images/android-shot-settings.png"
+        width="720"
+        height="1232"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app's debug settings screen on Android, not an SDK screen: an API URL field, a zone key field that shows only its first eight characters, tak_demo, followed by dots, and Load and Cancel buttons."
+      />
+      <figcaption class="muted">
+        The settings screen of the TaleArt sample app (taller), not an SDK screen. It is where the sample app takes its API URL and zone key. The key is masked after its first eight characters in this picture.
+      </figcaption>
+    </figure>
       </li>
     </ol>
 
@@ -297,14 +296,13 @@ import {
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-fallback.png"
-        width="506"
-        height="900"
+        width="720"
+        height="225"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android when its zone cannot be read: the title and Settings button, then the message 'Stories could not be loaded.' with a Try again button under it."
+        alt="Screenshot of the TaleArt sample app on Android when its zone cannot be read: on a plain page, the centred message 'Stories could not be loaded.' with a Try again button under it."
       />
       <figcaption class="muted">
-        The fallback message in the sample app (taller) on Android, a real screenshot. The sample points at a closed port
-        to make the read fail; the zone's address is shown below the message.
+        The fallback message in the sample app (taller) on Android, a real screenshot taken on an emulator. The sample app asks for a key the stand-in API refuses, and shows only the zone (its <code>taller.zoneOnly</code> debug option), so the message and the button are all there is.
       </figcaption>
     </figure>
 
@@ -318,27 +316,25 @@ import {
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-frequency-before.png"
-        width="506"
-        height="900"
+        width="720"
+        height="262"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with a frequency cap of once, before any view: the zone bar shows three round covers in gradient rings, with the group names קיץ בים, חורף בעיר and טיול בהרים under them."
+        alt="Screenshot of the TaleArt sample app on Android with a frequency cap of once, before any view: the zone bar shows three round covers in gradient rings, labelled Morning, Afternoon and Evening."
       />
       <figcaption class="muted">
-        The zone bar before the viewer has opened a group, with the cap set to once (a real screenshot). The lines under
-        the bar are the sample app's own debug text.
+        The zone bar before the viewer has opened a group, with the cap set to once (<code>taller.frequency</code> in the sample app), a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-frequency-after.png"
-        width="506"
-        height="900"
+        width="720"
+        height="262"
         loading="lazy"
-        alt="Screenshot of the same TaleArt sample app on Android after the group קיץ בים was viewed once and the app opened again: the zone bar shows only two covers, חורף בעיר and טיול בהרים, and the first group is gone."
+        alt="Screenshot of the same TaleArt sample app on Android after the group Morning was viewed once and the app opened again: the zone bar shows only two covers, Afternoon and Evening, and the first group is gone."
       />
       <figcaption class="muted">
-        The same zone after the viewer had opened the first group, קיץ בים, once: the group has left the bar, and the other
-        two stay (a real screenshot).
+        The same zone after the viewer had opened the first group, Morning, once: the group has left the bar and the other two stay (a real screenshot taken on an emulator).
       </figcaption>
     </figure>
 
@@ -375,78 +371,69 @@ import {
       <img
         src="images/android-shot-bar-ring.png"
         width="720"
-        height="1280"
+        height="262"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with the bar in the ring layout: three round covers in gradient rings, with Hebrew group names under them, below the app’s title and Settings button."
+        alt="Screenshot of the TaleArt sample app on Android with the bar in the ring layout: round covers in gradient rings with the group names Summer, New arrivals and Winter under them, and a fourth cover cut off at the edge."
       />
       <figcaption class="muted">
-        The ring layout, the default. The sample app (taller) sets the layout with its <code>taller.barLayout</code> debug option; a real screenshot.
+        The ring layout, the default. The sample app (taller) sets the layout with its <code>taller.barLayout</code> debug option and shows only the zone; a real screenshot taken on an emulator. Its zone has six groups, and the row scrolls sideways.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-bar-chip.png"
         width="720"
-        height="1280"
+        height="427"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with the bar in the chip layout: three pills, each with a round cover, a Hebrew group name and a purple dot for a group not yet seen, one pill under another on this narrow screen."
+        alt="Screenshot of the TaleArt sample app on Android with the bar in the chip layout: six pills, each with a round cover, the group name (Summer, New arrivals, Winter, Trips, Food, Music) and a small ring for a group not yet seen, two pills to a row on this narrow screen."
       />
       <figcaption class="muted">
-        The chip layout, a real screenshot of the sample app (taller). On a narrow screen each pill wraps onto its own row.
+        The chip layout, a real screenshot taken on an emulator. On a narrow screen the pills wrap onto several rows.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-bar-poster.png"
         width="720"
-        height="1280"
+        height="565"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with the bar in the poster layout: portrait cards, each with its group’s picture, a white title and “2 stories” over a dark scrim, a bar for each tale along the top, and the third card cut off at the edge because the row scrolls sideways."
+        alt="Screenshot of the TaleArt sample app on Android with the bar in the poster layout: tall cards, each with its group's picture, a white title and a line such as '2 stories' over a dark scrim, a bar for each tale along the top, and the third card cut off at the edge because the row scrolls sideways."
       />
       <figcaption class="muted">
-        The poster layout, a real screenshot of the sample app (taller). Each group in the sample zone has two tales.
+        The poster layout, a real screenshot taken on an emulator. Each group's card shows a bar for each of its tales.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-bar-stack.png"
         width="720"
-        height="1280"
+        height="231"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with the bar in the stack layout: four overlapping round covers and a +1 bubble for the fifth group, with “5 new stories” under them."
+        alt="Screenshot of the TaleArt sample app on Android with the bar in the stack layout: one rounded pill holding four overlapping round covers and a +2 bubble for the other groups, with the line '6 new stories' beside them."
       />
       <figcaption class="muted">
-        The stack layout, a real screenshot of the sample app (taller). The zone has five groups, so the fifth one is in the +1 bubble.
+        The stack layout, a real screenshot taken on an emulator. The zone has six groups, so two of them are in the +2 bubble.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-bar-loading.png"
         width="720"
-        height="1280"
+        height="259"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android while its zone is still being read: three grey round placeholders with a short bar under each, a shimmer across them, and a spinner below."
+        alt="Screenshot of the TaleArt sample app on Android while its zone is still being read: round grey placeholders with a short grey bar under each, in the footprint of the ring layout."
       />
       <figcaption class="muted">
-        The loading skeleton while the sample app’s zone is read, a real screenshot taken before the zone arrived. It uses the footprint of the ring layout on the first read.
+        The loading skeleton while the zone is read, a real screenshot taken on an emulator before the zone arrived (the stand-in API held the answer back). It uses the footprint of the ring layout on the first read.
       </figcaption>
     </figure>
 
     <figure class="native-figure native-shot">
-      <video
-        muted
-        loop
-        playsinline
-        controls
-        preload="metadata"
-        poster="images/android-shot-bar-ring.png"
-        width="720"
-        height="1280"
-      >
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-viewer.png" width="360" height="616">
         <source src="images/android-clip-ring.mp4" type="video/mp4" />
       </video>
       <figcaption class="muted">
-        The ring layout's gradient ring turning around an unseen group, a short recording of the sample app on Android.
+        The ring bar for a moment, then a tap on the second group opens it, the progress runs, a swipe turns to the next group and Close returns to the bar, now with the groups seen gray. A recording of the sample app (taller) on an Android emulator, set up with its <code>taller.zoneOnly</code> and <code>taller.autoOpenItem</code> debug options. It is under 8 seconds.
       </figcaption>
     </figure>
 
@@ -484,89 +471,80 @@ import {
       <img
         src="images/android-shot-banner-carousel.png"
         width="720"
-        height="1280"
+        height="494"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with a banner in the carousel variant: the Hebrew group Summer sea title and a Watch stories button over the cover, with the arrows at the edges and the dots below."
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the carousel variant: the group name Summer and a Watch stories button over the cover, previous and next arrows at the edges, and a row of dots below."
       />
       <figcaption class="muted">
-        The carousel: the Hebrew group name and a Watch stories button on a dark scrim over the shown cover, the previous and next buttons on the edges, and the pause button and dots under it., a real screenshot of the sample app’s banner zone.
+        The carousel: the group name and a Watch stories button on a dark scrim over the shown cover, the previous and next buttons on the edges and the dots under it; a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-banner-coverflow.png"
         width="720"
-        height="1280"
+        height="494"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with a banner in the coverflow variant: the front card with the name and button, and the dimmed cards at both sides."
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the coverflow variant: the front card with the name Summer and a Watch stories button, and the covers of the neighbouring groups behind it at both sides."
       />
       <figcaption class="muted">
-        Coverflow: the shown group in front, its neighbours on both sides turned away and dimmed., a real screenshot of the sample app’s banner zone.
+        Coverflow: the shown group in front, its neighbours at both sides; a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-banner-peek.png"
         width="720"
-        height="1280"
+        height="494"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with a banner in the peek variant: the middle card with the neighbours cut off at the left and right edges."
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the peek variant: the middle card with the name Summer and a Watch stories button, and the neighbours cut off at the left and right edges."
       />
       <figcaption class="muted">
-        Peek: the shown group in the middle, the neighbours cut off at the edges., a real screenshot of the sample app’s banner zone.
+        Peek: the shown group in the middle, the neighbours cut off at the edges; a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-banner-deck.png"
         width="720"
-        height="1280"
+        height="494"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with a banner in the deck variant: the front card of a fan of cards, with two more behind it at each side."
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the deck variant: the front card with the name Summer and a Watch stories button, and a fan of cards behind it."
       />
       <figcaption class="muted">
-        Deck: the groups fanned out behind the front card., a real screenshot of the sample app’s banner zone.
+        Deck: the groups fanned out behind the front card; a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-banner-sticky.png"
         width="720"
-        height="1280"
+        height="239"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with a banner in the sticky variant: a compact white card with a thumbnail, the group name, Watch stories and a dismiss cross, at the top of the sample app’s content."
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the sticky variant: a full-width white bar with a previous and a next button, a round cover, the group name Summer and a dismiss cross."
       />
       <figcaption class="muted">
-        Sticky: a compact card of the shown group at the bottom of its space, with its dismiss button., a real screenshot of the sample app’s banner zone.
+        Sticky: a full-width bar for the shown group, with the previous and next buttons, a round cover, the name and a dismiss button; a real screenshot taken on an emulator. At the foot of an edge-to-edge screen the bar pads itself by the navigation bar, inside its own background.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-banner-strip.png"
         width="720"
-        height="1280"
+        height="207"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on Android with a banner in the strip variant: the group names and round covers scrolling across the line, one of them cut off at the edge."
+        alt="Screenshot of the TaleArt sample app on Android with a banner in the strip variant: group names and round covers (Winter, Trips, Food) running across a soft grey strip, the first cut off at the left edge."
       />
       <figcaption class="muted">
-        Strip: the groups scrolling as a marquee, covers and names moving toward the start of the line., a real screenshot of the sample app’s banner zone.
+        Strip: the groups scrolling as a marquee, covers and names moving toward the start of the line; a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
-      <video
-        muted
-        loop
-        playsinline
-        controls
-        preload="metadata"
-        poster="images/android-shot-banner-coverflow.png"
-        width="720"
-        height="1280"
-      >
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-banner-coverflow.png" width="360" height="248">
         <source src="images/android-clip-banner-coverflow.mp4" type="video/mp4" />
       </video>
       <figcaption class="muted">
-        The coverflow moving on the sample app, a short clip (under 5 seconds) of a real recording. It stays still under reduced motion.
+        What you see: the coverflow advances by itself to the second group, a tap on the next arrow shows the third and stops the slide show, and the dots follow each change. A recording of the sample app (taller) on an Android emulator, under 8 seconds. It stays still under reduced motion.
       </figcaption>
     </figure>
 
@@ -583,7 +561,7 @@ import {
     <h2 id="components">Countdowns and promo codes</h2>
     <p>
       A tale can hold a countdown: the days, hours, minutes and seconds left to a moment in UTC, then its ended text. A
-      tale can also hold a promo code: the code in a chip, with a Copy button. Add either in the dashboard, as you add any
+      tale can also hold a promo code: the code on a ticket, with a Copy stub beside it. Add either in the dashboard, as you add any
       element of a tale; the SDK draws it as the web SDK does. The countdown counts on the device's clock, so a visitor with
       a wrong clock sees a wrong time. A promo code is visible to every visitor, so it is not a secret.
     </p>
@@ -595,45 +573,73 @@ import {
     </p>
     <h3 id="component-promo">Promo code</h3>
     <p>
-      Set the code: 1 to 32 letters, digits, <code>_</code> or <code>-</code>. Copy puts it on the clipboard and the status
-      line says Copied for two seconds; when the clipboard refuses, it says Could not copy. A copy reaches your listener as
+      Set the code: 1 to 32 letters, digits, <code>_</code> or <code>-</code>. Copy puts it on the clipboard and a toast
+      over the card's top corner says Copied for four seconds; when the clipboard refuses, it says Could not copy. A copy reaches your listener as
       <code>onComponentEvent</code> with <code>event.action</code> "copied" and the code as <code>event.component.value</code>.
     </p>
     <pre tabindex="0" role="region" aria-label="Countdown and promo code events"><code>{{ androidComponents }}</code></pre>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-countdown.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample countdown on Android over a dark picture: a dark card reading 'Drop goes live in' with 02 days, 07 hours, 12 minutes and 56 seconds in large figures, each in a tile with its unit below."
+        alt="Screenshot of a TaleArt sample countdown on Android over a sunset picture: a white card reading 'Sale ends in' with 02 Days, 05 Hours, 39 Min and a seconds figure in large digits, each in a grey tile with its unit below."
       />
       <figcaption class="muted">
-        A countdown in the sample app's viewer (taller) on Android, a real screenshot. The figures flip as they tick on the device's clock.
+        A countdown in the sample app's viewer (taller) on Android, a real screenshot taken on an emulator. The figures flip as they tick on the device's clock.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-countdown.png" width="360" height="616">
+        <source src="images/android-clip-countdown.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        What you see: the viewer opens on the countdown and its seconds tile flips each second for about four seconds. A recording of the sample app (taller) with its <code>taller.autoOpenItem</code> debug option.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-promo.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample promo code on Android over a teal picture: a white ticket card titled 'Summer sale' with the code SUNNY25 in a dashed chip, the note 'Once per visitor' and a Copy button."
+        alt="Screenshot of a TaleArt sample promo code on Android over a teal picture of a gift: a white card titled 'Your welcome gift' with a ticket that holds the code SUMMER25 and a Copy stub, and the note '20% off sandals, until Sunday' under it, the ticket centred in the card."
       />
       <figcaption class="muted">
-        A promo code in the sample app's viewer (taller) on Android, before a copy, a real screenshot.
+        A promo code in the sample app's viewer (taller) on Android, before a copy, a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-promo-copied.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The same promo code card on Android after Copy was tapped: the code is on the clipboard, and Android shows its own clipboard confirmation with the code at the foot of the screen."
+        alt="The same promo code card on Android just after Copy was tapped: a dark 'Copied' toast sits over the card's top corner."
       />
       <figcaption class="muted">
-        The same promo code after Copy, a real screenshot. The code is on the clipboard; the Android system adds its own confirmation at the foot of the screen.
+        The same promo code after Copy, a real screenshot taken on an emulator. The toast shows for four seconds. The code is on the clipboard; Android's own clipboard preview, which it adds at the foot of the screen, was swiped away before the picture was taken.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-clip-promo-poster.png"
+        width="720"
+        height="460"
+        loading="lazy"
+        alt="A close-up of the promo code card on Android just after Copy: the card's top, the ticket with the code SUMMER25 and the Copy stub, and a dark Copied toast over the card's top corner."
+      />
+      <figcaption class="muted">
+        The Copied toast in close-up, a real screenshot cropped above the foot of the screen (where Android shows its own clipboard preview), with the promo card a little higher in the zone than in the picture above so that the preview stays clear of it. It is also the poster of the clip below.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-clip-promo-poster.png" width="360" height="230">
+        <source src="images/android-clip-promo.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        What you see: the Copy stub is pressed and a Copied toast shows over the card's corner for about four seconds. A recording of the sample app (taller) with its <code>taller.autoCopy</code> debug option, cropped above the foot of the screen where Android shows its own clipboard preview.
       </figcaption>
     </figure>
 
@@ -651,26 +657,25 @@ import {
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample poll on Android over a teal picture: the question 'Where would you go this summer?' with two answer buttons, Beach and Mountains, both with emoji, before any vote."
+        alt="Screenshot of a TaleArt sample poll on Android over a sunrise picture: the title 'Quick poll', the question 'Tea or coffee?' and two answer buttons, Tea and Coffee, before any vote."
       />
       <figcaption class="muted">
-        A poll before the visitor votes, in the sample app's viewer (taller) on Android, a real screenshot.
+        A poll before the visitor votes, in the sample app's viewer (taller) on Android, a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll-answered.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The same poll on Android after a vote for Beach: both options keep their place, Beach shows 100 percent and is selected, Mountains shows 0 percent, and the card reads 'You voted Beach.'"
+        alt="The same poll on Android after a vote for Tea: Tea is selected and shows 61 percent, Coffee shows 39 percent, each with a bar filled to its share."
       />
       <figcaption class="muted">
-        After a vote each option shows its share and the vote is selected; the line under the options is the result in words
-        (a real screenshot).
+        After a vote each option shows its share as a filled bar and the vote is selected. The result is also said to screen readers, as text that is never drawn (a real screenshot taken on an emulator).
       </figcaption>
     </figure>
     <h3 id="answer-poll-views">Poll views</h3>
@@ -693,75 +698,111 @@ import {
       </tbody>
     </table>
     <p>
-      The embed, this-or-that and grid views are shown before a vote and after one. The voted images are real taps on the
-      sample app: a vote for Beach in each view.
+      The embed, this-or-that, grid and inline views are shown before a vote and after one. The voted images are real votes in
+      the sample app: a vote for Midnight in each view.
     </p>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll-view-embed.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of the embed poll view on Android: a card with the question 'Where would you go this summer?', the line 'Results appear after you vote', and two option rows, Beach and Mountains, before a vote."
+        alt="Screenshot of the embed poll view on Android: a card with the title Poll, the question 'Which colourway next?', the line 'Results appear after you vote' and two option rows, Midnight and Coral, before a vote."
       />
-      <figcaption class="muted">The embed view before a vote, in the sample app's viewer (taller), a real screenshot.</figcaption>
+      <figcaption class="muted">
+        The embed view before a vote, in the sample app's viewer (taller), a real screenshot taken on an emulator.
+      </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll-view-embed-voted.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The embed view on Android after a vote for Beach: the header reads 681 votes, the rows show Beach at 61 percent with a filled bar and Mountains at 39 percent, and the card reads 'You voted Beach.'"
+        alt="The embed view on Android after a vote for Midnight: the header reads '101 votes', the rows show Midnight at 58 percent, selected, and Coral at 42 percent, each with a bar filled to its share."
       />
-      <figcaption class="muted">The embed view after a vote: its header counts the votes and each row shows its share (a real screenshot).</figcaption>
+      <figcaption class="muted">
+        The embed view after a vote: its header counts the votes and each row shows its share (a real screenshot taken on an emulator).
+      </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll-view-this-or-that.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of the this-or-that poll view on Android: the question 'Where would you go this summer?' over two equal halves, a teal half for Beach and an orange half for Mountains, with a VS mark on the seam, before a vote."
+        alt="Screenshot of the this-or-that poll view on Android: the question 'Which colourway next?' over two equal halves, a blue half for Midnight and a coral half for Coral, with a VS mark on the seam, before a vote."
       />
-      <figcaption class="muted">The this-or-that view before a vote: two equal halves, each in its option's colour (a real screenshot).</figcaption>
+      <figcaption class="muted">
+        The this-or-that view before a vote: two equal halves, each in its option's colour (a real screenshot taken on an emulator).
+      </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll-view-this-or-that-voted.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The this-or-that view on Android after a vote for Beach: the teal half takes 61 percent of the card and the orange half 39 percent, the VS mark sits on the seam between them, and the card reads 'You voted Beach.'"
+        alt="The this-or-that view on Android after a vote for Midnight: the blue half takes 60 percent of the card and the coral half 40 percent, the VS mark sits on the seam."
       />
-      <figcaption class="muted">The this-or-that view after a vote: the seam moves to the vote's share (a real screenshot).</figcaption>
+      <figcaption class="muted">
+        The this-or-that view after a vote: the seam moves to the vote's share (a real screenshot taken on an emulator).
+      </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll-view-grid.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of the grid poll view on Android: two large tiles side by side, Beach in teal and Mountains in orange, under the question, before a vote."
+        alt="Screenshot of the grid poll view on Android: two large tiles side by side under the question, Midnight in blue and Coral in coral, before a vote."
       />
-      <figcaption class="muted">The grid view before a vote: two large tiles (a real screenshot).</figcaption>
+      <figcaption class="muted">
+        The grid view before a vote: two large tiles (a real screenshot taken on an emulator).
+      </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-poll-view-grid-voted.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The grid view on Android after a vote for Beach: each tile shows its share, Beach at 61 percent and Mountains at 39 percent, and the card reads 'You voted Beach.'"
+        alt="The grid view on Android after a vote for Midnight: each tile shows its share, Midnight at 55 percent and Coral at 45 percent."
       />
-      <figcaption class="muted">The grid view after a vote: each tile shows its share (a real screenshot).</figcaption>
+      <figcaption class="muted">
+        The grid view after a vote: each tile shows its share (a real screenshot taken on an emulator).
+      </figcaption>
     </figure>
     <figure class="native-figure native-shot">
-      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-poll-view-this-or-that.png" width="506" height="900">
+      <img
+        src="images/android-shot-poll-view-inline.png"
+        width="720"
+        height="1232"
+        loading="lazy"
+        alt="Screenshot of the inline poll view on Android: the question 'Which colourway next?' and two compact pills, Midnight and Coral, in a short card near the foot of the tale, before a vote."
+      />
+      <figcaption class="muted">
+        The inline view before a vote: compact pills in a row (a real screenshot taken on an emulator). The card grows to fit the pills' 48 dp touch targets when its box in the dashboard is shorter.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-view-inline-voted.png"
+        width="720"
+        height="1232"
+        loading="lazy"
+        alt="The inline view on Android after a vote for Midnight: the pills give way to a stacked bar split at 52 and 48 percent, with the legend 'Midnight 52% Coral 48%' under it."
+      />
+      <figcaption class="muted">
+        The inline view after a vote: a stacked bar of the shares with a legend, the vote in bold (a real screenshot taken on an emulator).
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-poll-view-this-or-that.png" width="360" height="616">
         <source src="images/android-clip-poll-this-or-that.mp4" type="video/mp4" />
       </video>
       <figcaption class="muted">
-        The this-or-that view on Android for a few seconds: a tap on Beach, and the halves move to the vote's share (a short recording of the sample app).
+        What you see: the tale opens on the this-or-that poll, a vote for Midnight follows, and the halves move to the vote's share, which then holds for three seconds. A recording of the sample app (taller), driven by its <code>taller.autoOpenItem</code> and <code>taller.autoVote</code> debug options.
       </figcaption>
     </figure>
     <h3 id="answer-quiz">Quiz</h3>
@@ -773,34 +814,33 @@ import {
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-quiz.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample quiz on Android over a violet picture: the question 'Which planet has the most moons?' with three answer buttons, Mars, Saturn and Earth, before an answer."
+        alt="Screenshot of a TaleArt sample quiz on Android over a sky picture with clouds: the title Quiz, the question 'What is the capital of France?' and three answer buttons, Paris, Lyon and Nice, before an answer."
       />
       <figcaption class="muted">
-        A quiz before the visitor answers, in the sample app's viewer (taller) on Android, a real screenshot.
+        A quiz before the visitor answers, in the sample app's viewer (taller) on Android, a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-quiz-answered.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The same quiz on Android after the visitor picked Saturn: all three answers stay in place, Saturn is outlined in green with a tick and 100 percent, Mars and Earth show 0 percent, and the card reads 'Right! You answered Saturn.'"
+        alt="The same quiz on Android after the visitor picked Lyon, a wrong answer: Paris is outlined in green with a tick and 73 percent, Lyon is outlined in red with a cross and 19 percent, Nice shows 8 percent, ."
       />
       <figcaption class="muted">
-        A right answer is marked with a tick and its share, and the line under the answers says so in words (a real
-        screenshot).
+        A wrong answer is marked with a cross and the right one with a tick, each with its share. The marks are read to screen readers as words too (a real screenshot taken on an emulator).
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
-      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-quiz.png" width="506" height="900">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-quiz.png" width="360" height="616">
         <source src="images/android-clip-quiz.mp4" type="video/mp4" />
       </video>
       <figcaption class="muted">
-        A quiz on Android for a few seconds: a wrong answer, and the right one is marked at once (a short recording of the sample app).
+        What you see: the quiz opens, a wrong answer (Lyon) is picked, that answer shakes, the wrong and the right ones are marked, and the result holds for three seconds. A recording of the sample app (taller) with its <code>taller.autoVote</code> debug option.
       </figcaption>
     </figure>
     <h3 id="answer-rating">Rating</h3>
@@ -811,25 +851,33 @@ import {
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-rating.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample rating on Android over an orange picture: the question 'How hot is this summer?' with a slider whose thumb is a flame emoji, set to the middle, before a rating."
+        alt="Screenshot of a TaleArt sample rating on Android over a night sky with a moon: a dark card titled 'Rate us' with the question 'How was your visit?' and a slider whose thumb is a star, set to the middle, before a rating."
       />
       <figcaption class="muted">
-        A rating before the visitor sends one, in the sample app's viewer (taller) on Android, a real screenshot.
+        A rating before the visitor sends one, in the sample app's viewer (taller) on Android, a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-rating-answered.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The same rating on Android after the visitor let go near 81: the thumb sits near the end of the track, the average marker shows on the track, and the card reads 'Average 67 from 3 ratings.'"
+        alt="The same rating on Android after the visitor tapped near 90: the star thumb sits near 90 percent of the track, a small mark shows the average at 78 percent, and the line under the track reads 'Average 78 from 213 ratings'."
       />
       <figcaption class="muted">
-        The rating once sent: the thumb is the visitor's own rating, and the marker and the line under the track show the average of all ratings (a real screenshot).
+        The rating once sent: the thumb is the visitor's own rating, and the line under the track shows the average of all ratings (a real screenshot taken on an emulator).
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-rating.png" width="360" height="616">
+        <source src="images/android-clip-rating.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        What you see: the star is dragged along the track and let go, and the average of all ratings shows. A recording of the sample app (taller); the drag is a swipe sent from the computer.
       </figcaption>
     </figure>
     <h3 id="answer-reaction">Reaction</h3>
@@ -839,25 +887,33 @@ import {
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-reaction.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample reaction on Android over a magenta picture: the question 'How does this make you feel?' with a row of four emoji buttons, heart, laughing face, surprised face and fire, before a tap."
+        alt="Screenshot of a TaleArt sample reaction on Android over fireworks on a night sky: a white card titled 'Your reaction' with the question 'How do you feel?' and three emoji buttons, a heart, a laughing face and a surprised face, before a tap."
       />
       <figcaption class="muted">
-        A reaction row before a tap, in the sample app's viewer (taller) on Android, a real screenshot.
+        A reaction row before a tap, in the sample app's viewer (taller) on Android, a real screenshot taken on an emulator.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-reaction-answered.png"
-        width="506"
-        height="900"
+        width="720"
+        height="1232"
         loading="lazy"
-        alt="The same reaction row on Android after a tap on the fire emoji: the fire button is outlined as selected and shows a count of 1, and the other emoji show 0."
+        alt="The same reaction row on Android after a tap on the heart: the heart button is outlined as selected and shows a count of 129, and the laughing and surprised faces show 41 and 17."
       />
       <figcaption class="muted">
-        After a tap the tapped emoji is selected and every emoji shows its count (a real screenshot).
+        After a tap the tapped emoji is selected and every emoji shows its count (a real screenshot taken on an emulator).
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-reaction.png" width="360" height="616">
+        <source src="images/android-clip-reaction.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        What you see: the heart is tapped, rises from its button, and every emoji then shows its count. A recording of the sample app (taller) with its <code>taller.autoPress</code> debug option.
       </figcaption>
     </figure>
     <p>
@@ -879,26 +935,24 @@ import {
       <img
         src="images/android-shot-rtl-bar.png"
         width="720"
-        height="1280"
+        height="266"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app's bar on Android with a Hebrew locale and right-to-left layout: three round covers in gradient rings with Hebrew group names under them, the first group on the right."
+        alt="Screenshot of the TaleArt sample app's bar on Android with a Hebrew locale and right-to-left layout: round covers in gradient rings with Hebrew group names under them, the first group on the right and the row running to the left."
       />
       <figcaption class="muted">
-        The bar with the Hebrew locale and <code>layoutDirection</code> set to <code>rtl</code>, a real screenshot of the
-        TaleArt sample app (taller). The first group is on the right; the app's own screen stays left to right.
+        The bar with the Hebrew locale and <code>layoutDirection</code> set to <code>rtl</code>, a real screenshot taken on an emulator. The first group is on the right.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
       <img
         src="images/android-shot-rtl-viewer.png"
         width="720"
-        height="1280"
+        height="1232"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app's viewer on Android in right-to-left layout: the Hebrew group name chip on the right, pause and close buttons on the left, and the progress bar of the first tale filling from the right."
+        alt="Screenshot of the TaleArt sample app's viewer on Android in right-to-left layout, on the second tale of a Hebrew group: the group name chip on the right, the pause and close buttons on the left, and the progress bars, the first full and the second filling, starting from the right."
       />
       <figcaption class="muted">
-        The viewer in the same setup, a real screenshot: the first tale's progress fills from the right, and the group
-        name sits at the start of the line.
+        The viewer in the same setup, a real screenshot taken on an emulator: the progress fills from the right, and the group name sits at the start of the line.
       </figcaption>
     </figure>
 

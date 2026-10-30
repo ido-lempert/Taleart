@@ -1,5 +1,6 @@
 package site.lempert.taleart.sdk.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Rect
@@ -146,6 +147,15 @@ class TaleartBarLayoutUiTest : ComposeUiTestBase() {
     }
 
     @Test
+    fun aChipsPillIs44DpHighInsideItsTouchTargetAndSeenOnesLoseTheirDot() = runComposeUiTest {
+        setContent { Bar(BarSettings(layout = BarLayout.Chip), groups(2), seen = setOf("Winter")) }
+        // The 48 dp target holds the 44 dp pill; only the unseen chip has a dot.
+        assertEquals(listOf(48f, 48f), onAllNodesWithTag(BAR_ITEM_TAG).fetchSemanticsNodes().map { it.boundsInRoot.height })
+        assertEquals(1, dots())
+        assertEquals(listOf(8f), onAllNodesWithTag(BAR_DOT_TAG, useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot.height })
+    }
+
+    @Test
     fun posterHasOneCardPerGroupAndCaptionsItsTales() = runComposeUiTest {
         setContent { Bar(BarSettings(layout = BarLayout.Poster), groups(3, tales = 2)) }
         assertEquals(listOf("Summer, 2 stories", "Winter, 2 stories", "Spring, 2 stories"), labels())
@@ -169,7 +179,9 @@ class TaleartBarLayoutUiTest : ComposeUiTestBase() {
     fun posterIgnoresTheSizeSetting() = runComposeUiTest {
         setContent { Bar(BarSettings(layout = BarLayout.Poster, size = BarSize.Large), groups(2)) }
         val large = onAllNodesWithTag(BAR_ITEM_TAG).fetchSemanticsNodes().map { it.boundsInRoot.width }
-        assertEquals(listOf(120f, 120f), large)
+        assertEquals(listOf(112f, 112f), large)
+        val heights = onAllNodesWithTag(BAR_ITEM_TAG).fetchSemanticsNodes().map { it.boundsInRoot.height }
+        assertEquals(listOf(188f, 188f), heights)
     }
 
     @Test
@@ -185,6 +197,15 @@ class TaleartBarLayoutUiTest : ComposeUiTestBase() {
         assertEquals(listOf("Summer, 3 new stories"), labels())
         // The stack draws its covers, not titles.
         assertTrue(titles().isEmpty())
+    }
+
+    @Test
+    fun stackIsOnePillOfAtLeast60DpWithTheCaptionBesideTheCovers() = runComposeUiTest {
+        setContent { Bar(BarSettings(layout = BarLayout.Stack, size = BarSize.Small), groups(3)) }
+        val pill = onNodeWithTag(BAR_ITEM_TAG).fetchSemanticsNode().boundsInRoot
+        assertEquals(60f, pill.height)
+        // The caption is beside the covers: the pill is wider than 24 + three covers (40 + 2 x 26) + 12 + 14 plus the caption.
+        assertTrue(pill.width > 142f, "pill $pill")
     }
 
     @Test
@@ -244,13 +265,10 @@ class TaleartBarLayoutUiTest : ComposeUiTestBase() {
 
     @Test
     fun theSkeletonHasTheHeightOfEachLayoutsBar() {
-        // Chips wrap by their titles' width, which differs by platform: the chip cases use two short groups, one row on
-        // every platform, as the skeleton's single row of pills.
+        // Chips wrap by their titles' width, which differs by platform: the chip skeleton has its own test.
         val cases = listOf(
             BarSettings(layout = BarLayout.Ring) to 3,
             BarSettings(layout = BarLayout.Ring, size = BarSize.Small, showTitles = false) to 3,
-            BarSettings(layout = BarLayout.Chip) to 2,
-            BarSettings(layout = BarLayout.Chip, size = BarSize.Large) to 2,
             BarSettings(layout = BarLayout.Poster) to 3,
             BarSettings(layout = BarLayout.Stack, size = BarSize.Small) to 3,
             BarSettings(layout = BarLayout.Stack, size = BarSize.Large) to 3,
@@ -262,6 +280,26 @@ class TaleartBarLayoutUiTest : ComposeUiTestBase() {
             }
             assertEquals(bar, skeleton, 0.5f, "${settings.layout} ${settings.size} titles ${settings.showTitles}")
         }
+    }
+
+    @Test
+    fun theSkeletonDrawsTheWebCountOfItemsPerLayout() = runComposeUiTest {
+        // Ring 5 and poster 4 in a scrolling row, chip 4 in a wrapping one, stack one pill of four covers.
+        setContent {
+            Column {
+                for (layout in BarLayout.entries) {
+                    BarSkeleton(BarSettings(layout = layout), TextStyle.Default, defaultTranslate, reducedMotion = true, modifier = Modifier.width(360.dp))
+                }
+            }
+        }
+        val nodes = onAllNodesWithTag(BAR_SKELETON_TAG).fetchSemanticsNodes()
+        assertEquals(4, nodes.size)
+        // The chip skeleton is rows of 48 dp pills with the default 12 dp gap, plus the 4 dp padding of both sides.
+        val chip = nodes[1].boundsInRoot.height
+        val rows = (chip - 8f + 12f) / (48f + 12f)
+        assertEquals(rows.toInt().toFloat(), rows, 0.01f, "chip skeleton height $chip")
+        // The poster skeleton keeps the 32 dp above and below the cards for their shadows.
+        assertEquals(188f + 2 * 32f, nodes[2].boundsInRoot.height)
     }
 
     private fun heightOf(tag: String, content: @Composable () -> Unit): Float = boundsOf(tag, content).height

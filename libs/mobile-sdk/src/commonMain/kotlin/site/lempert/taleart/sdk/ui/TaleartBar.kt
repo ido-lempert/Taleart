@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
@@ -51,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -308,21 +310,21 @@ private fun RingBar(items: BarItems, maxWidth: Dp) {
 
 /**
  * A group's cover in its ring, in the ring's state: none (the cover alone), seen (the seen colour, still), a solid
- * ring, or the sweep of the theme's colours: turning around the frame while unseen, still under reduced motion.
+ * ring, or the gradient of the theme's colours: turning around the frame while unseen, still under reduced motion.
  */
 @Composable
 internal fun ItemCover(group: DeliveryTaleGroup, isSeen: Boolean, size: Modifier, shape: Shape, coverShape: Shape, items: BarItems) {
     val look = items.look
     when {
         look.none -> Cover(group, coverShape, look, items.loader, size)
-        isSeen -> Ring(size, shape, SolidColor(look.seenColor), look, group, items, coverShape)
-        look.solidRing -> Ring(size, shape, SolidColor(look.ringColors.firstOrNull() ?: look.seenColor), look, group, items, coverShape)
-        look.reducedMotion -> Ring(size, shape, Brush.sweepGradient(ringSweepColors(look.ringColors)), look, group, items, coverShape)
+        isSeen -> Ring(size, shape, listOf(look.seenColor), look, group, items, coverShape)
+        look.solidRing -> Ring(size, shape, listOf(look.ringColors.firstOrNull() ?: look.seenColor), look, group, items, coverShape)
+        look.reducedMotion -> Ring(size, shape, ringSweepColors(look.ringColors), look, group, items, coverShape)
         else -> SpinningRing(size, shape, look, group, items, coverShape)
     }
 }
 
-// An unseen ring turns: its sweep of the theme's colours goes once round every RING_SPIN_MS, around the frame only.
+// An unseen ring turns: its gradient of the theme's colours goes once round every RING_SPIN_MS, around the frame only.
 @Composable
 private fun SpinningRing(
     size: Modifier,
@@ -339,38 +341,46 @@ private fun SpinningRing(
         animationSpec = infiniteRepeatable(tween(RING_SPIN_MS, easing = LinearEasing)),
         label = "barRingTurn",
     )
-    Ring(size, shape, Brush.sweepGradient(ringSweepColors(look.ringColors)), look, group, items, coverShape, turn)
+    Ring(size, shape, ringSweepColors(look.ringColors), look, group, items, coverShape, turn)
 }
 
-// A ring: [brush] filling [shape] around the cover, turned by [angle] degrees about the ring's centre.
+// A ring: [colors] (one is a solid fill) filling [shape] around the cover, turned by [angle] degrees about the ring's centre.
 @Composable
 private fun Ring(
     size: Modifier,
     shape: Shape,
-    brush: Brush,
+    colors: List<Color>,
     look: BarLook,
     group: DeliveryTaleGroup,
     items: BarItems,
     coverShape: Shape,
     angle: Float = 0f,
 ) {
-    Box(
-        size.drawBehind {
-            rotate(angle, Offset(this.size.width / 2f, this.size.height / 2f)) {
-                fillShape(shape, brush)
-            }
-        },
-    ) {
+    Box(size.drawBehind { fillRing(shape, colors, angle) }) {
         Cover(group, coverShape, look, items.loader, Modifier.padding(look.ringWidth.dp))
     }
 }
 
-// Fills [shape] over the whole of this draw scope with [brush] (a circle, a rounded square or any other outline).
-private fun DrawScope.fillShape(shape: Shape, brush: Brush) {
-    when (val outline = shape.createOutline(size, layoutDirection, this)) {
-        is Outline.Rectangle -> drawRect(brush)
-        is Outline.Rounded -> drawPath(Path().apply { addRoundRect(outline.roundRect) }, brush)
-        is Outline.Generic -> drawPath(outline.path, brush)
+// Fills [shape] over the whole of this draw scope as the Web SDK's ring does: a `linear-gradient(45deg, ...)` on a
+// square twice the ring's, so it covers the ring at every angle, turned by [angle] about the centre and clipped to the shape.
+private fun DrawScope.fillRing(shape: Shape, colors: List<Color>, angle: Float) {
+    val w = size.width
+    val h = size.height
+    val path = when (val outline = shape.createOutline(size, layoutDirection, this)) {
+        is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+        is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+        is Outline.Generic -> outline.path
+    }
+    clipPath(path) {
+        if (colors.size < 2) {
+            drawRect(SolidColor(colors.firstOrNull() ?: Color.Transparent))
+        } else {
+            // The 45 degree line runs from the bottom start corner of the doubled square to its top end corner.
+            val brush = Brush.linearGradient(colors, start = Offset(-w / 2f, h * 1.5f), end = Offset(w * 1.5f, -h / 2f))
+            rotate(angle, Offset(w / 2f, h / 2f)) {
+                drawRect(brush, topLeft = Offset(-w / 2f, -h / 2f), size = Size(w * 2f, h * 2f))
+            }
+        }
     }
 }
 

@@ -469,7 +469,7 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'banner.showGroup', english: 'Show {name}', note: 'A slide’s control, to open its group.' },
   { key: 'banner.stopRotation', english: 'Stop automatic slide show', note: 'The autoplay control, while it plays.' },
   { key: 'banner.startRotation', english: 'Start automatic slide show', note: 'The autoplay control, while it is paused.' },
-  { key: 'banner.watch', english: 'Watch stories', note: 'The call to action on a slide, and the sticky banner’s subtitle.' },
+  { key: 'banner.watch', english: 'Watch stories', note: 'The call to action on a slide.' },
   { key: 'banner.dismiss', english: 'Dismiss', note: 'The sticky banner’s dismiss button; it hides the banner for the rest of the app’s run.' },
   { key: 'bar.seen', english: '{name}, seen', note: 'A bar item that the viewer has shown.' },
   { key: 'bar.loading', english: 'Loading stories', note: 'The bar’s loading skeleton, announced while the zone is read.' },
@@ -485,8 +485,8 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'countdown.hours', english: 'Hours', note: 'The unit under a countdown’s hours.' },
   { key: 'countdown.minutes', english: 'Min', note: 'The unit under a countdown’s minutes.' },
   { key: 'countdown.seconds', english: 'Sec', note: 'The unit under a countdown’s seconds.' },
-  { key: 'promo.copy', english: 'Copy', note: 'The Copy button of a promo code.' },
-  { key: 'promo.copied', english: 'Copied', note: 'The status line after the code reached the clipboard; it clears after two seconds.' },
+  { key: 'promo.copy', english: 'Copy', note: 'The Copy stub of a promo code.' },
+  { key: 'promo.copied', english: 'Copied', note: 'The toast after the code reached the clipboard; it clears after four seconds.' },
   { key: 'promo.copyFailed', english: 'Could not copy. Select the code and copy it yourself.', note: 'The status line when the clipboard refused the code.' },
   { key: 'poll.voted', english: 'You voted {label}.', note: 'The live line after a vote, before the shares.' },
   { key: 'poll.chose', english: 'You chose {label}.', note: 'The live line after a press in a preview, before the note.' },
@@ -549,9 +549,9 @@ export interface BarLayoutRow {
 /** The bar layouts, as the guides and the references list them (`BarLayout` in BarSettings.kt). */
 export const BAR_LAYOUTS: readonly BarLayoutRow[] = [
   { layout: 'ring', use: 'The default. Each cover sits in a gradient ring with its title under it; the ring turns while a group is unseen and stays grey once it is seen.', ignored: 'None.' },
-  { layout: 'chip', use: 'A pill per group: a round cover, its title, and a dot while the group is unseen. The pills wrap onto more rows.', ignored: 'shape. The size sets the cover (28, 32 or 40 dp).' },
-  { layout: 'poster', use: 'A portrait card per group: the cover fills it, with the title and the tale count under a dark scrim, and a segment for each tale along the top.', ignored: 'shape and size. The card is 3:5 and has a fixed corner radius.' },
-  { layout: 'stack', use: 'The groups overlap in one collapsed button: up to four round covers and a +N bubble for the rest, with the count of unseen groups. The button opens the first unseen group.', ignored: 'shape, showTitles, alignment and gap. The size sets the covers (40, 48 or 56 dp).' },
+  { layout: 'chip', use: 'A pill per group: a round cover, its title, and a dot while the group is unseen (the seen pill is muted and has no dot). The pills wrap onto more rows.', ignored: 'shape. The size sets the cover (28, 32 or 40 dp).' },
+  { layout: 'poster', use: 'A portrait card per group: the cover fills it, with the title and the tale count under a dark scrim, and a segment for each tale along the top.', ignored: 'shape and size. The card is 112 by 188 dp and has a fixed corner radius.' },
+  { layout: 'stack', use: 'The groups overlap in one collapsed pill: up to four round covers and a +N bubble for the rest, with the count of unseen groups beside them. The pill opens the first unseen group.', ignored: 'shape, showTitles, alignment and gap. The size sets the covers (40, 48 or 56 dp).' },
 ];
 
 /** The bar display’s settings, as the references list them (`BarSettings` in BarSettings.kt; the schema’s defaults). */
@@ -577,7 +577,7 @@ export const BANNER_VARIANTS: readonly BannerVariantRow[] = [
   { variant: 'coverflow', use: 'The current slide in front, its neighbours turned away at the sides, the far ones smaller and fainter. Swipe, or tap a neighbour.', ignored: 'None.' },
   { variant: 'peek', use: 'The current slide in the middle with the neighbours showing at the edges, like a pager with padding.', ignored: 'None.' },
   { variant: 'deck', use: 'The slides fanned out like a hand of cards. The front card opens its group; a tap on a card behind it brings that card forward.', ignored: 'None.' },
-  { variant: 'sticky', use: 'A compact card of the current slide, pinned to the bottom of the space its host gives it and clear of the system’s bottom bar, with a 48 dp dismiss button. Dismissed, it stays hidden until the app restarts.', ignored: 'aspectRatio, showDots and loop. It always loops.' },
+  { variant: 'sticky', use: 'A full-width bar on the card colour, pinned to the bottom of the space its host gives it and clear of the system’s bottom bar: previous and next buttons, the current slide’s round cover and name, and a dismiss button (all 44 dp, 48 dp to touch). Dismissed, it stays hidden until the app restarts.', ignored: 'aspectRatio, showDots and loop. It always loops.' },
   { variant: 'strip', use: 'A continuous marquee of the groups’ covers and names, scrolling at a fixed speed (about 18 seconds a loop) toward the start of the line. A press pauses it; under reduced motion it stops and can be scrolled sideways.', ignored: 'aspectRatio, showDots, loop, autoplay and intervalSeconds.' },
 ];
 

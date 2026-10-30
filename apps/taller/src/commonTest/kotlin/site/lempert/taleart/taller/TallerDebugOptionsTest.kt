@@ -185,4 +185,55 @@ class TallerDebugOptionsTest {
             TallerStrings.bar.getValue("he").keys,
         )
     }
+
+    @Test
+    fun readsTheZoneOnlyPageAndTheTimedActions() {
+        val store = InMemoryStore(
+            mapOf(
+                TallerDebugOptions.ZONE_ONLY to "True",
+                TallerDebugOptions.AUTO_OPEN_ITEM to "2",
+                TallerDebugOptions.AUTO_VOTE to "1",
+                TallerDebugOptions.AUTO_PRESS to "0",
+                TallerDebugOptions.AUTO_COPY to "true",
+                TallerDebugOptions.AUTO_SWIPE_NEXT to "true",
+                TallerDebugOptions.AUTO_DELAY_MS to "1200",
+            ),
+        )
+        val debug = TallerDebugOptions.load(store)
+        assertTrue(debug.zoneOnly)
+        assertEquals(1200L, debug.autoDelayMs)
+        assertEquals(
+            listOf(
+                DebugAction(DebugActionKind.OpenItem, 2),
+                DebugAction(DebugActionKind.Vote, 1),
+                DebugAction(DebugActionKind.Press, 0),
+                DebugAction(DebugActionKind.Copy),
+                DebugAction(DebugActionKind.SwipeNext),
+            ),
+            debug.actions,
+        )
+    }
+
+    @Test
+    fun theTimedActionsAreOffByDefaultAndWaitSevenHundredMilliseconds() {
+        val debug = TallerDebugOptions.load(InMemoryStore())
+        assertFalse(debug.zoneOnly)
+        assertEquals(emptyList(), debug.actions)
+        assertEquals(700L, debug.autoDelayMs)
+    }
+
+    @Test
+    fun launchExtrasWinForTheTimedActionsAndBadValuesAreIgnored() {
+        val store = InMemoryStore(mapOf(TallerDebugOptions.AUTO_VOTE to "0", TallerDebugOptions.AUTO_COPY to "yes"))
+        val debug = TallerDebugOptions.load(
+            store,
+            mapOf(TallerDebugOptions.AUTO_VOTE to "1", TallerDebugOptions.AUTO_PRESS to "-1", TallerDebugOptions.AUTO_DELAY_MS to "fast", TallerDebugOptions.ZONE_ONLY to "false"),
+        )
+        assertEquals(1, debug.autoVote)
+        assertNull(debug.autoPress)
+        assertFalse(debug.autoCopy)
+        assertFalse(debug.zoneOnly)
+        assertEquals(700L, debug.autoDelayMs)
+        assertEquals(60_000L, TallerDebugOptions.load(InMemoryStore(mapOf(TallerDebugOptions.AUTO_DELAY_MS to "999999"))).autoDelayMs)
+    }
 }

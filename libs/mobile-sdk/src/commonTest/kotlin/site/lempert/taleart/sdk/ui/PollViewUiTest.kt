@@ -8,10 +8,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -72,6 +76,30 @@ class PollViewUiTest : ComposeUiTestBase() {
 
     private fun ComposeUiTest.boundsOf(description: String): Rect = onNodeWithContentDescription(description).fetchSemanticsNode().boundsInRoot
 
+    // -- the card grows ---------------------------------------------------------------------------------
+
+    // A card's box is its minimum height: the inline poll's pills (48 dp targets) in a short box were cut off by the card.
+    @Test
+    fun anInlinePollInAShortBoxGrowsToShowItsPills() = runComposeUiTest {
+        val short = poll("inline").replace(""""h":1""", """"h":0.05""")
+        drawn(layerOf(short), null)
+        waitForIdle()
+        val card = onNodeWithTag(DOCUMENT_ELEMENT_TAG, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val pill = boundsOf("Tea")
+        assertTrue(card.height > 380f * 0.05f * density.density, "the card is taller than its 5 % box")
+        assertTrue(pill.bottom <= card.bottom + 1f, "the pills lie inside the card")
+    }
+
+    // The other views fill their box (the halves, the tiles): only the inline poll grows, the rest keep the box's height.
+    @Test
+    fun aThisOrThatPollKeepsItsBoxHeight() = runComposeUiTest {
+        val boxed = poll("this-or-that", colors = true).replace(""""h":1""", """"h":0.4""")
+        drawn(layerOf(boxed), null)
+        waitForIdle()
+        val card = onNodeWithTag(DOCUMENT_ELEMENT_TAG, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertEquals(380f * 0.4f * density.density, card.height, 2f)
+    }
+
     // -- this-or-that -------------------------------------------------------------------------------
 
     @Test
@@ -113,6 +141,23 @@ class PollViewUiTest : ComposeUiTestBase() {
         assertEquals(seam, (marker.left + marker.right) / 2f, 2f)
     }
 
+    // A half narrower than its share figure (the 40 % half on a phone, or one at its 12 % minimum) cut the figure at the box's edge;
+    // the figure now steps down in size until it fits its half, and keeps its full 2.4em in a wide one.
+    @Test
+    fun aShareFigureStepsDownToFitItsHalf() = runComposeUiTest {
+        var wide: TextLayoutResult? = null
+        var narrow: TextLayoutResult? = null
+        setContent {
+            val canvas = CanvasMetrics(300f, 380f, LocalDensity.current)
+            Box(Modifier.size(300.dp, 100.dp)) { ShareFigure(40, Color.Black, canvas.h(CARD_FONT), canvas) { wide = it } }
+            Box(Modifier.size(34.dp, 100.dp)) { ShareFigure(40, Color.Black, canvas.h(CARD_FONT), canvas) { narrow = it } }
+        }
+        waitForIdle()
+        assertTrue(wide != null && narrow != null)
+        assertTrue(!wide!!.didOverflowWidth && !narrow!!.didOverflowWidth, "neither is cut at its box's edge")
+        assertTrue(narrow!!.size.width < wide!!.size.width, "the narrow half's figure is drawn smaller")
+    }
+
     @Test
     fun thisOrThatHalvesAreEqualBeforeAVote() = runComposeUiTest {
         drawn(layerOf(poll("this-or-that")), responder = null)
@@ -128,7 +173,7 @@ class PollViewUiTest : ComposeUiTestBase() {
         waitForIdle()
         onNodeWithContentDescription("Tea").performClick()
         waitForIdle()
-        onNodeWithText("Votes are not recorded in the preview.", substring = true).assertIsDisplayed()
+        onNodeWithContentDescription("Votes are not recorded in the preview.", substring = true).assertIsDisplayed()
     }
 
     // -- grid -------------------------------------------------------------------------------------
@@ -171,6 +216,29 @@ class PollViewUiTest : ComposeUiTestBase() {
     @Test
     fun anInlinePollDrawsCompactRowsWithTheirShares() = runComposeUiTest {
         drawn(layerOf(poll("inline")), votedTea, rtl = true)
+        waitForIdle()
+        onNodeWithContentDescription("Tea, 60%").assertIsDisplayed()
+        onNodeWithContentDescription("Coffee, 40%").assertIsDisplayed()
+    }
+
+    @Test
+    fun anInlinePollIsPillsInOneWrappingRowBeforeTheVoteAndTheBarWithItsLegendAfter() = runComposeUiTest {
+        drawn(layerOf(poll("inline")), responder = null)
+        waitForIdle()
+        val tea = boundsOf("Tea")
+        val coffee = boundsOf("Coffee")
+        assertEquals(tea.top, coffee.top, 1f, "the pills share a row")
+        assertTrue(tea.right <= coffee.left, "the pills sit side by side, not stacked full width")
+        onNodeWithContentDescription("Tea").performClick()
+        waitForIdle()
+        // Once answered the pills give way to the stacked bar and its legend (a preview records nothing: 0 % each).
+        assertTrue(onAllNodesWithContentDescription("Tea").fetchSemanticsNodes().isEmpty())
+        onNodeWithContentDescription("Tea, 0%").assertIsDisplayed()
+    }
+
+    @Test
+    fun aVotedInlinePollKeepsTheLegendInOneLinePerOptionWithTheirShares() = runComposeUiTest {
+        drawn(layerOf(poll("inline")), votedTea)
         waitForIdle()
         onNodeWithContentDescription("Tea, 60%").assertIsDisplayed()
         onNodeWithContentDescription("Coffee, 40%").assertIsDisplayed()

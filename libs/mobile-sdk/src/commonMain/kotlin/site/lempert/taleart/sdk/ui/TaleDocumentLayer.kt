@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -160,7 +162,9 @@ internal class CanvasMetrics(val width: Float, val height: Float, val density: D
 }
 
 // The element's place on the canvas: its box, its layer in the z-order, its rotation, and its place in the reading order.
-private fun Modifier.placed(element: DocumentElement, index: Int, canvas: CanvasMetrics, rotate: Boolean = true): Modifier {
+// [growsDown]: the inline poll takes its box's height as a minimum and grows with its content, as the web's card does: its
+// 48 dp touch targets can need more than a small box (its pills were cut off).
+private fun Modifier.placed(element: DocumentElement, index: Int, canvas: CanvasMetrics, rotate: Boolean = true, growsDown: Boolean = false): Modifier {
     val box = element.box
     val x = (box.x * canvas.width).roundToInt()
     val y = (box.y * canvas.height).roundToInt()
@@ -169,7 +173,10 @@ private fun Modifier.placed(element: DocumentElement, index: Int, canvas: Canvas
     return this
         .zIndex(element.layer.toFloat())
         .offset { IntOffset(x, y) }
-        .requiredSize(canvas.dp(w.toFloat()), canvas.dp(h.toFloat()))
+        .then(
+            if (growsDown) Modifier.requiredWidth(canvas.dp(w.toFloat())).requiredHeightIn(min = canvas.dp(h.toFloat()))
+            else Modifier.requiredSize(canvas.dp(w.toFloat()), canvas.dp(h.toFloat())),
+        )
         .then(if (rotate && box.rotation != 0.0) Modifier.graphicsLayer { rotationZ = box.rotation.toFloat() } else Modifier)
         .testTag(DOCUMENT_ELEMENT_TAG)
         .semantics {
@@ -195,7 +202,9 @@ private fun Element(
     val player = LocalTaleVideoPlayer.current ?: remember { platformTaleVideoPlayer() }
     // A native video view that draws its own look takes no Compose rotation.
     val native = element is DocumentElement.Video && player.drawsDocumentVideoLook
-    val placed = Modifier.placed(element, index, canvas, rotate = !native)
+    // Only the inline poll: the other cards' views fill their box's height (a tile, a half), which an open-ended box would stretch.
+    val card = element is DocumentElement.Poll && element.view == PollView.Inline
+    val placed = Modifier.placed(element, index, canvas, rotate = !native, growsDown = card)
     // Decorative elements are hidden from assistive technology (a link never is).
     val hidden = if (element.decorative) Modifier.clearAndSetSemantics { } else Modifier
     when (element) {
@@ -495,7 +504,7 @@ private fun ButtonElement(element: DocumentElement.Button, canvas: CanvasMetrics
     val look = element.look
     val fontPx = canvas.h(buttonFontSize(element.box))
     val fill = parseHexColor(look.fill) ?: InkDark
-    val shape = RoundedCornerShape(canvas.dp(canvas.h(look.radius)))
+    val shape = look.radius?.let { RoundedCornerShape(canvas.dp(canvas.h(it))) } ?: RoundedCornerShape(50)
     val edge = canvas.h(BUTTON_OUTLINE_WIDTH)
     Box(
         modifier

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,8 +32,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -113,9 +116,17 @@ fun App(
     // A saved zone loads as the app opens.
     LaunchedEffect(Unit) { load(settings) }
 
+    // The timed actions of the debug options (clips without a finger) start once the zone is shown.
+    val shownZone = controller.zone
+    LaunchedEffect(shownZone != null, options) {
+        if (shownZone != null) runDebugActions(options, shownZone.taleGroups.map { it.name })
+    }
+
     MaterialTheme {
         Box(Modifier.fillMaxSize()) {
-            Column(
+            if (options.zoneOnly && !showSettings && settings.complete) {
+                ZoneOnlyScreen(settings, controller, seen, options)
+            } else Column(
                 modifier = Modifier
                     .background(MaterialTheme.colorScheme.surface)
                     .safeContentPadding()
@@ -152,6 +163,37 @@ fun App(
             // The debug option that opens the viewer at start: the group's tale, stepped to from its first.
             if (!showSettings) AutoOpenViewer(controller.zone?.let { if (options.redrawsZone) options.drawn(it) else it }, options)
         }
+    }
+}
+
+/**
+ * The page of `taller.zoneOnly`: the zone alone on a plain light page with the host's margin, as the Web SDK's bare sample
+ * page has it (a screenshot or a clip then frames the SDK's own output). Tapping an item opens the SDK's viewer as always.
+ */
+@Composable
+private fun ZoneOnlyScreen(settings: DebugSettings, controller: TaleartZoneController, seen: SeenGroups, options: TallerDebugOptions) {
+    val page = Color(0xFFF5F5F7)
+    val ink = Color(0xFF1D1D1F)
+    val titleStyle = TextStyle(color = ink, fontFamily = LocalTextStyle.current.fontFamily)
+    val shown = if (options.redrawsZone) controller.zone?.let { options.drawn(it) } else null
+    Box(Modifier.fillMaxSize().background(page).safeDrawingPadding().padding(24.dp).testTag("zone-only")) {
+        if (shown != null) {
+            TaleartZone(shown, modifier = Modifier.testTag("zone-display"), seenGroups = seen, titleStyle = titleStyle, zoneKey = settings.zoneKey)
+        } else {
+            TaleartZone(controller, modifier = Modifier.testTag("zone-display"), seenGroups = seen, titleStyle = titleStyle)
+        }
+    }
+}
+
+/**
+ * Runs the options' timed actions in order, each [TallerDebugOptions.autoDelayMs] after the one before; one whose control
+ * is not on screen yet is tried again every 250 ms for up to 10 s, then skipped.
+ */
+private suspend fun runDebugActions(options: TallerDebugOptions, groupNames: List<String>) {
+    for (action in options.actions) {
+        delay(options.autoDelayMs)
+        var tries = 0
+        while (!performDebugAction(action, groupNames) && tries++ < 40) delay(250)
     }
 }
 

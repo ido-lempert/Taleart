@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -77,8 +78,8 @@ class InteractiveUiTest : ComposeUiTestBase() {
         }
         waitForIdle()
         onNodeWithContentDescription("Tea").performClick()
-        waitUntil("the result", 5_000) { onAllNodesWithText("You voted Tea.").fetchSemanticsNodes().isNotEmpty() }
-        // The shares are on the buttons; the full announcement is said by a polite live region, never drawn as a line.
+        waitUntil("the result", 5_000) { onAllNodesWithContentDescription("You voted Tea.").fetchSemanticsNodes().isNotEmpty() }
+        // The shares are on the buttons; the result is said by a polite live region (its text is the node's description), never drawn as a line.
         assertTrue(onAllNodesWithText("You voted Tea. Tea 67%, Coffee 33%").fetchSemanticsNodes().isEmpty())
         onAllNodesWithContentDescription("You voted Tea. Tea 67%, Coffee 33%").onFirst()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
@@ -91,6 +92,25 @@ class InteractiveUiTest : ComposeUiTestBase() {
         assertEquals(listOf("poll:tea"), responder.sent)
     }
 
+    // The share's fill is as wide as the share (a fill that always filled the button showed every option as 100 %).
+    @Test
+    fun aChoicesFillIsAsWideAsItsShare() = runComposeUiTest {
+        val responder = FakeResponder(answered("tea", ChoiceResult(4, listOf(ChoiceCount("tea", 3, 75), ChoiceCount("coffee", 1, 25)))))
+        setContent {
+            CompositionLocalProvider(LocalElementResponder provides responder) {
+                Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layerOf(element("poll", pollProps)).elements.let { DocumentLayer(it, ReadingDirection.Ltr) }) }
+            }
+        }
+        waitForIdle()
+        onNodeWithContentDescription("Tea").performClick()
+        waitUntil("the result", 5_000) { onAllNodesWithContentDescription("You voted Tea.").fetchSemanticsNodes().isNotEmpty() }
+        waitUntil("the fills settle", 5_000) {
+            val fills = onAllNodesWithTag(CHOICE_FILL_TAG, useUnmergedTree = true).fetchSemanticsNodes().map { it.size.width }
+            val buttons = listOf("Tea, 75%", "Coffee, 25%").map { onNodeWithContentDescription(it).fetchSemanticsNode().size.width }
+            fills.size == 2 && fills[1] > 0 && kotlin.math.abs(fills[0] - buttons[0] * 0.75) < buttons[0] * 0.03 && kotlin.math.abs(fills[1] - buttons[1] * 0.25) < buttons[1] * 0.03
+        }
+    }
+
     @Test
     fun aRefusedVoteSaysSoAndLeavesTheOptionsOpen() = runComposeUiTest {
         val responder = FakeResponder(ResponseOutcome.Failed("no", 422))
@@ -101,7 +121,7 @@ class InteractiveUiTest : ComposeUiTestBase() {
         }
         waitForIdle()
         onNodeWithContentDescription("Tea").performClick()
-        waitUntil("the failure", 5_000) { onAllNodesWithText("Your vote could not be sent. Try again.").fetchSemanticsNodes().isNotEmpty() }
+        waitUntil("the failure", 5_000) { onAllNodesWithContentDescription("Your vote could not be sent. Try again.").fetchSemanticsNodes().isNotEmpty() }
         onNodeWithContentDescription("Tea").assertIsEnabled()
         onNodeWithContentDescription("Coffee").assertIsEnabled()
     }
@@ -129,7 +149,7 @@ class InteractiveUiTest : ComposeUiTestBase() {
         }
         waitForIdle()
         onNodeWithContentDescription("Tea").performClick()
-        waitUntil("the preview note", 5_000) { onAllNodesWithText("You chose Tea. Votes are not recorded in the preview.").fetchSemanticsNodes().isNotEmpty() }
+        waitUntil("the preview note", 5_000) { onAllNodesWithContentDescription("You chose Tea. Votes are not recorded in the preview.").fetchSemanticsNodes().isNotEmpty() }
         assertTrue(responder.sent.isEmpty(), "no request in a preview")
     }
 
@@ -145,7 +165,7 @@ class InteractiveUiTest : ComposeUiTestBase() {
         waitForIdle()
         onNodeWithContentDescription("3").performClick()
         waitUntil("the wrong answer", 5_000) {
-            onAllNodesWithText("Wrong: you answered 3. The correct answer is 4.").fetchSemanticsNodes().isNotEmpty()
+            onAllNodesWithContentDescription("Wrong: you answered 3. The correct answer is 4.").fetchSemanticsNodes().isNotEmpty()
         }
         assertTrue(onAllNodesWithText("Wrong: you answered 3. The correct answer is 4. 3 100%, 4 0%").fetchSemanticsNodes().isEmpty())
         onAllNodesWithContentDescription("Wrong: you answered 3. The correct answer is 4. 3 100%, 4 0%").onFirst()

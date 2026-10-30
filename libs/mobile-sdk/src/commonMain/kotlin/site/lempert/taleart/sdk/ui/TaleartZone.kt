@@ -198,20 +198,22 @@ private fun FailurePlaceholder(fallback: (@Composable () -> Unit)?, onRetry: () 
     }
     if (TaleartSdk.config.fallback != FallbackMode.Message) return
     val translate = LocalTaleartContext.current.translate
+    // The web's `currentColor`: the text colour the theme gives the host (its title colour), for the text and the retry border.
+    val current = rememberThemeColors().title
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp).testTag(FAILED_TAG),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        BasicText(translate("load.failed"), style = TextStyle(textAlign = TextAlign.Center))
+        BasicText(translate("load.failed"), style = TextStyle(color = current, textAlign = TextAlign.Center))
         Box(
             Modifier
                 .clip(RoundedCornerShape(50))
-                .border(1.dp, rememberThemeColors().muted, RoundedCornerShape(50))
+                .border(1.dp, current, RoundedCornerShape(50))
                 .clickable(role = Role.Button, onClick = onRetry)
                 .padding(horizontal = 14.dp, vertical = 6.dp),
         ) {
-            BasicText(translate("load.retry"))
+            BasicText(translate("load.retry"), style = TextStyle(color = current))
         }
     }
 }

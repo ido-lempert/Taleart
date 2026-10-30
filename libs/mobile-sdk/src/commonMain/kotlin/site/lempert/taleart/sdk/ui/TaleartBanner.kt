@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -122,7 +123,7 @@ fun bannerDotLabel(name: String, translate: Translate = defaultTranslate): Strin
 fun bannerRotationLabel(rotating: Boolean, translate: Translate = defaultTranslate): String =
     if (rotating) translate("banner.stopRotation") else translate("banner.startRotation")
 
-/** The call to action on a slide, and the sticky banner's subtitle. */
+/** The call to action on a slide. */
 fun bannerWatchLabel(translate: Translate = defaultTranslate): String = translate("banner.watch")
 
 /** The sticky banner's dismiss button's name. */
@@ -130,20 +131,30 @@ fun bannerDismissLabel(translate: Translate = defaultTranslate): String = transl
 
 // The banner's fixed look (BANNER_STYLES in the Web SDK) comes from the theme's palette.
 private const val DEFAULT_RADIUS = 12
-private const val ROUND_BUTTON_DP = 48
-private const val TITLE_SP = 26
 
-// A slide shorter than this (in dp) gets the compact title.
-private const val COMPACT_TITLE_DP = 150
+// A round control is 44dp (`.b-btn`) in a 48dp touch target.
+internal const val ROUND_BUTTON_DP = 44
+internal const val ROUND_TARGET_DP = 48
 
-// The start inset of a slide's title when the previous button is there: the button (48dp) and its 8dp margin.
-private const val ARROW_CLEAR_DP = 64
+// The room a slide's caption keeps at both inline edges: clear of the previous and next buttons.
+private const val CAPTION_INSET_DP = 64
+private const val NARROW_CAPTION_INSET_DP = 14
+private const val WIDE_SLIDE_DP = 280
 
-private object BannerIcons {
+// A previous or next button sits 8dp from its edge: 6dp for the 48dp target around the 44dp disc.
+internal const val ARROW_EDGE_DP = 6
+
+// The slide title's size: 4.5 % of the slide's width, from 18 to 30 (`clamp(18px, 4.5cqi, 30px)`).
+private const val TITLE_MIN_SP = 18f
+private const val TITLE_MAX_SP = 30f
+private const val TITLE_WIDTH_SHARE = 0.045f
+
+internal object BannerIcons {
     const val PREV = "M15.4 7.4 14 6l-6 6 6 6 1.4-1.4-4.6-4.6z"
     const val NEXT = "M8.6 16.6 10 18l6-6-6-6-1.4 1.4 4.6 4.6z"
     const val PAUSE = "M6 5h4v14H6zM14 5h4v14h-4z"
     const val PLAY = "M7 4.5v15L19.5 12z"
+    const val CLOSE = "M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6z"
 }
 
 /**
@@ -154,7 +165,7 @@ private object BannerIcons {
  * [BannerVariant]'s: coverflow, peek and deck show the slides beside the shown one; sticky is a compact
  * bar pinned to the bottom of its host, dismissible for the rest of the process; strip is a marquee.
  *
- * Carousel, coverflow, peek and deck have previous and next buttons (48dp), swipe, dots (the shown
+ * Carousel, coverflow, peek and deck have previous and next buttons (44dp in a 48dp target), swipe, dots (the shown
  * one a longer pill that grows from the start edge) and autoplay as the settings say. A tap on the
  * shown slide calls [onGroupClick] with its group. Autoplay runs only with the `autoplay` setting, two
  * or more slides and no preference for reduced motion ([reducedMotion], followed live); an interaction
@@ -235,8 +246,6 @@ internal class BannerViewContext(
     val loader: ImageLoader,
     val rtl: Boolean,
     val translate: Translate,
-    /** True when the previous and next buttons sit on the slides' start and end edges (more than one slide). */
-    val arrows: Boolean,
     /** A tap on a slide: the playback stops, and the group opens. */
     val open: (DeliveryTaleGroup) -> Unit,
 )
@@ -273,7 +282,6 @@ private fun SlideBanner(
         loader = rememberCoverImageLoader(),
         rtl = rtl,
         translate = translate,
-        arrows = count > 1,
         open = { group -> playback.interact(); onClick(group) },
     )
     val rotating = playback.rotating
@@ -317,7 +325,7 @@ private fun SlideBanner(
                     icon = BannerIcons.PREV,
                     mirrored = rtl,
                     disabled = !playback.loop && playback.index == 0,
-                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).then(playback.stopsOnFocus),
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = ARROW_EDGE_DP.dp).then(playback.stopsOnFocus),
                 ) {
                     playback.interact()
                     playback.step(-1)
@@ -328,7 +336,7 @@ private fun SlideBanner(
                     icon = BannerIcons.NEXT,
                     mirrored = rtl,
                     disabled = playback.atEnd,
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).then(playback.stopsOnFocus),
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = ARROW_EDGE_DP.dp).then(playback.stopsOnFocus),
                 ) {
                     playback.interact()
                     playback.step(1)
@@ -436,47 +444,43 @@ internal fun neighbourModifier(playback: BannerPlayback, n: Int): Modifier =
 internal fun SlideContent(group: DeliveryTaleGroup, view: BannerViewContext, showTitle: Boolean) {
     Box(Modifier.fillMaxSize()) {
         SlideMedia(group, view.loader, view.palette.surface)
-        if (showTitle) SlideTitle(group.name, view.palette, view.titleStyle, view.translate, view.arrows)
+        if (showTitle) SlideTitle(group.name, view.titleStyle, view.translate)
     }
 }
 
-// The name and a "Watch stories" button over the foot of the slide, on a scrim of a neutral the colour
-// scheme owns (the ink on light, the card ground on dark) with the text picked for contrast on it. A small
-// card (the coverflow's, the deck's, the peek's) keeps both in less room: smaller type and tighter spacing.
+// The name and a "Watch stories" button over the foot of the slide, on a scrim of the card's dark (85 % at the foot,
+// clear at the top, as tall as the caption), in the card's light: the same on every colour scheme, as the Web SDK's
+// `.b-caption`. The button is light with dark text. A small card (the coverflow's, the deck's, the peek's) keeps the
+// same caption; its title shrinks with its width down to 18sp.
 @Composable
-private fun SlideTitle(name: String, palette: ThemeColors, titleStyle: TextStyle, translate: Translate, arrows: Boolean) {
-    val scrim = if (palette.dark) palette.paper else palette.ink
-    val onScrim = onAccentColor(scrim)
-    BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to scrim.copy(alpha = 0.85f))),
-        contentAlignment = Alignment.BottomStart,
-    ) {
-        val compact = maxHeight < COMPACT_TITLE_DP.dp
+private fun SlideTitle(name: String, titleStyle: TextStyle, translate: Translate) {
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
+        val titleSize = (maxWidth.value * TITLE_WIDTH_SHARE).coerceIn(TITLE_MIN_SP, TITLE_MAX_SP)
+        // The wide slide keeps room for the arrows at its sides; a small card (a coverflow's centre, a deck's) has none over it.
+        val inset = if (maxWidth >= WIDE_SLIDE_DP.dp) CAPTION_INSET_DP.dp else NARROW_CAPTION_INSET_DP.dp
         Column(
-            // Clear of the previous button, which sits on the start edge.
-            Modifier.padding(
-                start = if (arrows) ARROW_CLEAR_DP.dp else if (compact) 10.dp else 16.dp,
-                end = if (compact) 10.dp else 16.dp,
-                top = if (compact) 8.dp else 24.dp,
-                bottom = if (compact) 10.dp else 16.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp),
+            Modifier
+                .fillMaxWidth()
+                // Taller than a small card is allowed (the fade above the text then runs off its top): the name and the
+                // button stay at the foot instead of the button being pushed out under the card's edge.
+                .wrapContentHeight(align = Alignment.Bottom, unbounded = true)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, CardDark.copy(alpha = 0.85f))))
+                .padding(start = inset, end = inset, top = 48.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             BasicText(
                 name,
-                style = titleStyle.copy(color = onScrim, fontSize = (if (compact) 16 else TITLE_SP).sp, fontWeight = FontWeight.ExtraBold),
+                style = titleStyle.copy(color = CardLight, fontSize = titleSize.sp, lineHeight = (titleSize * 1.1f).sp, fontWeight = FontWeight.ExtraBold),
             )
             Box(
                 Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(palette.accent)
-                    .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 4.dp else 8.dp),
+                    .background(CardLight)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 BasicText(
                     bannerWatchLabel(translate),
-                    style = TextStyle(color = palette.onAccent, fontSize = (if (compact) 11 else 14).sp, fontWeight = FontWeight.SemiBold),
+                    style = TextStyle(color = CardDark, fontSize = 14.sp, lineHeight = 16.8.sp, fontWeight = FontWeight.SemiBold),
                 )
             }
         }
@@ -500,10 +504,10 @@ internal fun SlideMedia(group: DeliveryTaleGroup, loader: ImageLoader, surface: 
     }
 }
 
-// A round control with a 24dp icon (`.b-btn` in the Web SDK), 48dp to touch. A disabled one (aria-disabled)
+// A round control of 44dp with a 24dp icon (`.b-btn` in the Web SDK), in a 48dp target. A disabled one (aria-disabled)
 // stays a button, dimmed, whose tap still counts as an interaction.
 @Composable
-private fun RoundButton(
+internal fun RoundButton(
     colors: ThemeColors,
     label: String,
     icon: String,
@@ -515,11 +519,9 @@ private fun RoundButton(
     val path = remember(icon) { PathParser().parsePathString(icon).toPath() }
     Box(
         modifier
-            .size(ROUND_BUTTON_DP.dp)
+            .size(ROUND_TARGET_DP.dp)
             .alpha(if (disabled) 0.4f else 1f)
             .clip(CircleShape)
-            .background(colors.paper.copy(alpha = 0.92f))
-            .border(1.dp, colors.muted, CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics {
                 contentDescription = label
@@ -527,10 +529,19 @@ private fun RoundButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(24.dp)) {
-            val factor = size.width / 24f
-            scale(if (mirrored) -factor else factor, factor, pivot = Offset(if (mirrored) size.width / 2f else 0f, 0f)) {
-                drawPath(path, colors.ink)
+        Box(
+            Modifier
+                .size(ROUND_BUTTON_DP.dp)
+                .clip(CircleShape)
+                .background(colors.paper.copy(alpha = 0.92f))
+                .border(1.dp, colors.muted, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(24.dp)) {
+                val factor = size.width / 24f
+                scale(if (mirrored) -factor else factor, factor, pivot = Offset(if (mirrored) size.width / 2f else 0f, 0f)) {
+                    drawPath(path, colors.ink)
+                }
             }
         }
     }
