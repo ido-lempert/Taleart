@@ -1681,7 +1681,12 @@ docs-root {
     left: 0;
     z-index: 35;
     width: min(20rem, 88vw);
-    height: auto;
+    /* A fixed grid item with align-self: start shrinks to its content; pin it to the full panel height so it fills and scrolls. */
+    align-self: stretch;
+    height: calc(100vh - 3.5rem);
+    height: calc(100dvh - 3.5rem);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 1rem 0.875rem 2rem;
     background: var(--bg);
     border-right: 1px solid var(--line);

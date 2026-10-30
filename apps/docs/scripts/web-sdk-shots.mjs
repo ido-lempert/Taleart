@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 
 const REACTION_ONLY = process.argv.includes('--reaction');
+const COMPONENTS_ONLY = process.argv.includes('--components');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
 const imagesDir = join(root, 'apps/docs/public/images');
@@ -133,17 +134,32 @@ const KEYS = {
   features: 'tak_DemoFeaturesKey00000000001',
   frequency: 'tak_DemoFrequencyKey000000001',
   reaction: 'tak_DemoReactionKey000000000001',
+  components: 'tak_DemoComponentsKey0000001',
+  banner31: 'tak_DemoBannerWideKey00000001',
+  banner11: 'tak_DemoBannerSquareKey00001',
+  bannerPlain: 'tak_DemoBannerPlainKey000001',
+  barSquare: 'tak_DemoBarSquareKey0000001',
+  barLarge: 'tak_DemoBarLargeKey00000001',
+};
+// Display settings per sample zone (a missing field takes its default); the banners stay still for the shots.
+const SETTINGS = {
+  banner: { autoplay: false },
+  banner31: { aspectRatio: '3:1', autoplay: false },
+  banner11: { aspectRatio: '1:1', autoplay: false },
+  bannerPlain: { autoplay: false, showDots: false },
+  barSquare: { shape: 'rounded-square', showTitles: false, alignment: 'center' },
+  barLarge: { size: 'large', gap: 20 },
 };
 // Not in KEYS: the stand-in refuses it, so a zone with this key cannot load (the failure shots).
 const REFUSED_KEY = 'tak_RevokedDemoKey00000000001';
 
 function zoneFor(kind) {
-  const frameType = kind === 'banner' ? 'banner' : 'bar';
+  const frameType = kind.startsWith('banner') ? 'banner' : 'bar';
   return {
     id: 'z-home-top',
     name: 'Home – top',
     slug: 'home-top',
-    frame: { id: 'f-home-top', type: frameType, settings: {} },
+    frame: { id: 'f-home-top', type: frameType, settings: SETTINGS[kind] ?? {} },
     taleGroups: GROUPS.map((g) => ({
       id: g.id,
       name: g.name,
@@ -203,6 +219,12 @@ const HOSTS = {
 <taleart-view zone-key="${REFUSED_KEY}" fallback="message"></taleart-view>`,
     }),
   '/reaction.html': () => page({ kind: 'reaction' }),
+  '/components.html': () => page({ kind: 'components' }),
+  '/banner-wide.html': () => page({ kind: 'banner31' }),
+  '/banner-square.html': () => page({ kind: 'banner11' }),
+  '/banner-plain.html': () => page({ kind: 'bannerPlain' }),
+  '/bar-square.html': () => page({ kind: 'barSquare' }),
+  '/bar-large.html': () => page({ kind: 'barLarge' }),
   '/he.html': () =>
     page({
       lang: 'he-IL',
@@ -522,6 +544,49 @@ function reactionZone() {
     },
   ]);
 }
+
+// The components demo: one tale per interactive component, and one with the display elements (text, buttons, emoji, shape).
+const POLL_ID = '00000000-0000-4000-8000-0000000000f1';
+const QUIZ_ID = '00000000-0000-4000-8000-0000000000f2';
+const RATING_ID = '00000000-0000-4000-8000-0000000000f3';
+const CARD_BOX = { x: 0.08, y: 0.5, w: 0.84, h: 0.34, rotation: 0 };
+const POLL_OPTIONS = [
+  { id: 'tea', label: 'Tea' },
+  { id: 'coffee', label: 'Coffee' },
+];
+const QUIZ_ANSWERS = [
+  { id: 'a', label: 'Paris' },
+  { id: 'b', label: 'Lyon' },
+  { id: 'c', label: 'Nice' },
+];
+function componentsZone() {
+  const display = [
+    { id: 'e-text', type: 'text', box: { x: 0.08, y: 0.1, w: 0.84, h: 0.14, rotation: 0 }, a11y: {}, props: { text: 'Summer is here', font: { source: 'system', stack: 'rounded' }, size: 0.05, weight: 'bold', color: '#FFFFFF', align: 'center', background: 'none' } },
+    { id: 'e-emoji', type: 'emoji', box: { x: 0.38, y: 0.26, w: 0.24, h: 0.14, rotation: 0 }, a11y: {}, props: { emoji: '\u2600\uFE0F' } },
+    { id: 'e-shape', type: 'shape', box: { x: 0.12, y: 0.44, w: 0.76, h: 0.005, rotation: 0 }, a11y: { decorative: true }, props: { shape: 'rectangle', fill: '#FFFFFF', opacity: 0.8 } },
+    { id: 'e-button', type: 'button', box: { x: 0.14, y: 0.5, w: 0.72, h: 0.08, rotation: 0 }, a11y: {}, props: { label: 'Shop the sale', href: 'https://example.com/sale', newTab: true, variant: 'filled', color: '#1F1235', fill: '#FFD166', radius: 0.04 } },
+    { id: 'e-outline', type: 'button', box: { x: 0.14, y: 0.62, w: 0.72, h: 0.08, rotation: 0 }, a11y: {}, props: { label: 'See all shoes', href: 'https://example.com/shoes', newTab: true, variant: 'outline', color: '#FFFFFF', fill: '#FFFFFF', radius: 0.04 } },
+    { id: 'e-swipe', type: 'swipe-up', box: { x: 0.2, y: 0.88, w: 0.6, h: 0.1, rotation: 0 }, a11y: {}, props: { label: 'Read the story', href: 'https://example.com/story', newTab: true, color: '#1F1235', background: '#FFFFFF' } },
+  ];
+  return demoZone('bar', [
+    { id: 'g-poll', name: 'Poll', tales: [demoTale('t-poll', 'Poll', 'morning', [{ id: POLL_ID, type: 'poll', box: CARD_BOX, a11y: {}, props: { title: 'Quick poll', question: 'Tea or coffee?', options: POLL_OPTIONS, theme: 'light' } }])] },
+    { id: 'g-quiz', name: 'Quiz', tales: [demoTale('t-quiz', 'Quiz', 'afternoon', [{ id: QUIZ_ID, type: 'quiz', box: { ...CARD_BOX, y: 0.44, h: 0.42 }, a11y: {}, props: { title: 'Quiz', question: 'What is the capital of France?', answers: QUIZ_ANSWERS, correctAnswerId: 'a', theme: 'light' } }])] },
+    { id: 'g-rating', name: 'Rating', tales: [demoTale('t-rating', 'Rating', 'evening', [{ id: RATING_ID, type: 'rating', box: { ...CARD_BOX, h: 0.3 }, a11y: {}, props: { title: 'Rate us', question: 'How was your visit?', emoji: '\u2B50', theme: 'dark' } }])] },
+    { id: 'g-display', name: 'Elements', tales: [demoTale('t-display', 'Elements', 'sale', display)] },
+  ]);
+}
+// The stand-in for a vote: a poll or a quiz answer counts against a fixed starting split; a rating against fixed totals.
+function choiceResult(options, seed, picked) {
+  const counts = options.map((o, i) => ({ id: o.id, count: seed[i] + (o.id === picked ? 1 : 0) }));
+  const total = counts.reduce((n, c) => n + c.count, 0);
+  return { total, choices: counts.map((c) => ({ ...c, percent: Math.round((c.count / total) * 100) })) };
+}
+function componentResult(body) {
+  if (body.elementId === POLL_ID) return choiceResult(POLL_OPTIONS, [61, 39], body.value);
+  if (body.elementId === QUIZ_ID) return choiceResult(QUIZ_ANSWERS, [74, 18, 8], body.value);
+  if (body.elementId === RATING_ID) return { total: 213, average: 78 };
+  return null;
+}
 function frequencyZone() {
   return demoZone('bar', [
     { id: 'g-morning', name: 'Morning', tales: [demoTale('t-morning', 'Morning', 'morning')] },
@@ -550,7 +615,7 @@ async function startServer() {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       const kind = Object.keys(KEYS).find((k) => KEYS[k] === key);
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
-      const zone = kind === 'hebrew' ? localisedZone() : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : zoneFor(kind);
+      const zone = kind === 'hebrew' ? localisedZone() : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
       return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(zone));
     }
     if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
@@ -558,6 +623,8 @@ async function startServer() {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       if (!Object.values(KEYS).includes(key)) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
       const body = JSON.parse(await readBody(req));
+      const fixed = componentResult(body);
+      if (fixed) return void res.writeHead(201, JSON_HEADERS).end(JSON.stringify({ elementId: body.elementId, value: body.value, recorded: true, result: fixed }));
       const id = `${body.taleId}:${body.elementId}`;
       const counts = REACTION_COUNTS.get(id) ?? new Map(REACTION_SEED);
       counts.set(body.value, (counts.get(body.value) ?? 0) + 1);
@@ -616,9 +683,70 @@ async function main() {
     written.push('web-shot-reaction-answered.png');
     if (REACTION_ONLY) return;
 
+    // Interactive components and display elements, each in its own tale, as the visitor sees them in the viewer.
+    const comps = await browser.newContext({ viewport: { width: 390, height: 700 }, deviceScaleFactor: 2, locale: 'en-US' });
+    const openGroup = async (name, selector) => {
+      const page = await comps.newPage();
+      await page.goto(`${origin}/components.html`);
+      await ready(page, 'button.item');
+      await page.waitForLoadState('networkidle');
+      await page.getByRole('button', { name, exact: true }).click();
+      await page.waitForFunction((sel) => document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel), selector);
+      await page.waitForTimeout(900);
+      return page;
+    };
+    const save = async (page, name) => {
+      await page.screenshot({ path: join(imagesDir, name) });
+      written.push(name);
+    };
+    let p = await openGroup('Poll', '.ta-poll-opt');
+    await save(p, 'web-shot-poll.png');
+    await p.locator('taleart-view .ta-poll-opt').first().click();
+    await p.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-poll-pct'));
+    await p.waitForTimeout(900);
+    await save(p, 'web-shot-poll-answered.png');
+
+    p = await openGroup('Quiz', '.ta-poll-opt');
+    await save(p, 'web-shot-quiz.png');
+    await p.locator('taleart-view .ta-poll-opt').nth(1).click();
+    await p.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-quiz-right'));
+    await p.waitForTimeout(900);
+    await save(p, 'web-shot-quiz-answered.png');
+
+    p = await openGroup('Rating', '[role="slider"]');
+    await save(p, 'web-shot-rating.png');
+    await p.locator('taleart-view [role="slider"]').focus();
+    for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowRight');
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-rate-avg')?.getAttribute('style'));
+    await p.waitForTimeout(900);
+    await save(p, 'web-shot-rating-answered.png');
+
+    p = await openGroup('Elements', '.ta-swipe');
+    await save(p, 'web-shot-elements.png');
+
+    // Display variants: banner aspect ratios and dots, bar shape and size.
+    const variants = await browser.newContext({ viewport: { width: 560, height: 640 }, deviceScaleFactor: 2, locale: 'en-US' });
+    for (const [file, wait, out] of [
+      ['banner-wide', '[aria-roledescription="carousel"]', 'web-display-banner-wide.png'],
+      ['banner-square', '[aria-roledescription="carousel"]', 'web-display-banner-square.png'],
+      ['banner-plain', '[aria-roledescription="carousel"]', 'web-display-banner-plain.png'],
+      ['bar-square', 'button.item', 'web-display-bar-square.png'],
+      ['bar-large', 'button.item', 'web-display-bar-large.png'],
+    ]) {
+      const v = await variants.newPage();
+      await v.goto(`${origin}/${file}.html`);
+      await ready(v, wait);
+      await v.waitForLoadState('networkidle');
+      await v.waitForTimeout(500);
+      await v.locator('main').screenshot({ path: join(imagesDir, out) });
+      written.push(out);
+    }
+    if (COMPONENTS_ONLY) return;
+
     // Bar: the zone as a host page places it, cropped to the page's display.
     const desktop = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'en-US' });
-    let p = await desktop.newPage();
+    p = await desktop.newPage();
     await p.goto(`${origin}/bar.html`);
     await ready(p, 'button.item');
     await p.waitForLoadState('networkidle');

@@ -50,6 +50,19 @@ import { RouterLink } from '@angular/router';
 </tbody>
 </table></div>
 
+<h2 id="what-the-visitor-sees">What the visitor sees</h2>
+<p>These are real screenshots of the Web SDK in the viewer at phone size, with sample tales. The same components look the same in the Android and iOS SDKs.</p>
+<h3 id="poll-view">Poll</h3>
+<figure><img src="images/web-shot-poll.png" alt="The Poll group in the viewer: a white card on a sunrise picture with the title Quick poll, the question Tea or coffee? and two outlined buttons, Tea and Coffee." width="780" height="1400" /><figcaption>A poll before the visitor votes.</figcaption></figure>
+<figure><img src="images/web-shot-poll-answered.png" alt="The same poll after a tap on Tea: each button fills with its share, Tea 61% and Coffee 39%, and the chosen button has a thicker border." width="780" height="1400" /><figcaption>After a vote each option shows its share, and the visitor's choice is marked.</figcaption></figure>
+<h3 id="quiz-view">Quiz</h3>
+<figure><img src="images/web-shot-quiz.png" alt="A quiz card on a blue sky picture with the title Quiz, the question What is the capital of France? and three outlined answers: Paris, Lyon and Nice." width="780" height="1400" /><figcaption>A quiz before the visitor answers.</figcaption></figure>
+<figure><img src="images/web-shot-quiz-answered.png" alt="The same quiz after a tap on Lyon: Paris is marked correct with a green check and 73%, Lyon is marked wrong with a red cross and 19%, and Nice shows 8%." width="780" height="1400" /><figcaption>With a correct answer set, the correct answer is marked, and a wrong choice too. Marks are a glyph and a colour, so they do not rely on colour alone.</figcaption></figure>
+<h3 id="rating-view">Rating</h3>
+<figure><img src="images/web-shot-rating.png" alt="A dark rating card on a night picture with the title Rate us, the question How was your visit? and a slider with a star on its thumb." width="780" height="1400" /><figcaption>A rating: the visitor drags the emoji along the slider, or uses the arrow keys and Enter.</figcaption></figure>
+<figure><img src="images/web-shot-rating-answered.png" alt="The same card after rating: the slider keeps the visitor's value, a mark shows the average, and the text reads Average 78 from 213 ratings." width="780" height="1400" /><figcaption>After rating, the card shows the average and how many people rated.</figcaption></figure>
+<p>Countdown, promo code and reaction are shown in their own sections below.</p>
+
 <h2 id="in-tale-studio">In Tale Studio</h2>
 <p>Countdown, promo code and reaction are in the <strong>Interactive</strong> group of the Elements palette, with poll, rating and quiz.</p>
 <p><img class="guide-img" src="images/studio-shot-palette.png" width="223" height="509" alt="The Elements palette's Interactive group: Poll, Rating and Quiz in the first row, and in the second row Countdown, Promo code and Reaction, each with its icon." /></p>

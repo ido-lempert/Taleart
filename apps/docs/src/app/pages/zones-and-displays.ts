@@ -53,6 +53,10 @@ import { RouterLink } from '@angular/router';
 </tr>
 </tbody>
 </table></div>
+<p>The default bar is round, medium and titled. Here the shape is <strong>Rounded square</strong>, titles are off and the items sit in the centre:</p>
+<p><img class="guide-img" src="images/web-display-bar-square.png" width="1120" height="284" alt="A stories bar with four rounded-square covers centred in the row, with no titles under them." /></p>
+<p>Here the size is <strong>Large</strong> and the gap is 20 pixels:</p>
+<p><img class="guide-img" src="images/web-display-bar-large.png" width="1120" height="316" alt="A stories bar with four large round covers titled Summer, New arrivals, Winter and Trips." /></p>
 <h3 id="promo-banner">Promo banner</h3>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
 <thead>
@@ -84,6 +88,13 @@ import { RouterLink } from '@angular/router';
 </tr>
 </tbody>
 </table></div>
+<p>A banner shows one group at a time as a slide, with previous and next arrows and a dot per slide. Here are three ways it can look. The aspect ratio <strong>3:1</strong> gives a wide strip:</p>
+<p><img class="guide-img" src="images/web-display-banner-wide.png" width="1120" height="526" alt="A wide 3:1 banner with a slide, previous and next arrows and four dots, the first one filled." /></p>
+<p>The aspect ratio <strong>1:1</strong> gives a square card:</p>
+<p><img class="guide-img" src="images/web-display-banner-square.png" width="1120" height="1208" alt="A square 1:1 banner with a large slide, arrows and four dots." /></p>
+<p>With <strong>Dots</strong> off the banner keeps its arrows and hides the position dots:</p>
+<p><img class="guide-img" src="images/web-display-banner-plain.png" width="1120" height="704" alt="A 16:9 banner with arrows and no dots under it." /></p>
+<p>Autoplay moves to the next slide by itself after the interval, and stops when the visitor interacts with the banner or prefers reduced motion. These screenshots were taken with autoplay off so each one holds still.</p>
 <p>Colours, ring style and fonts are not display settings. They come from the <a routerLink="/theme-and-fonts">theme</a>.</p>
 <h2 id="several-zones-on-one-page">Several zones on one page</h2>
 <p>One script tag serves every zone on a page. Each zone has its own zone key, so add one <code>&lt;taleart-view&gt;</code> element per zone, each with its key.</p>
