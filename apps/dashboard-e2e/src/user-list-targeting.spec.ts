@@ -161,9 +161,15 @@ test.describe.serial('user-list targeting (epic targeting story 5.4)', () => {
     const sdk = await (await fetch(`${apiOrigin}/sdk/v1/taleart.js`)).text();
     const server: Server = createServer((req, res) => {
       const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+      const chunk = /^\/sdk\/([\w.-]+\.js)$/.exec(path)?.[1];
       if (path === '/') res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
       else if (path === '/sdk/index.js') res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(sdk);
-      else res.writeHead(404).end();
+      else if (chunk) {
+        // The SDK loads its lazy chunks next to itself; the API serves them under /sdk/v1/.
+        void fetch(`${apiOrigin}/sdk/v1/${chunk}`).then(async (r) =>
+          res.writeHead(r.status, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(await r.text()),
+        );
+      } else res.writeHead(404).end();
     });
     await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
