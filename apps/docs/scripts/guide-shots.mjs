@@ -25,7 +25,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import pg from 'pg';
 import { chromium } from 'playwright';
 import { e2eDatabase } from '../../dashboard-e2e/scripts/e2e-database.mjs';
-import { e2eSdk } from '../../dashboard-e2e/scripts/e2e-sdk.mjs';
+import { copySdkFiles, e2eSdk } from '../../dashboard-e2e/scripts/e2e-sdk.mjs';
 
 const root = resolve(import.meta.dirname, '../../..');
 const imagesDir = join(root, 'apps/docs/public/guides/images');
@@ -509,7 +509,7 @@ async function main() {
   const sdk = e2eSdk(root);
   rmSync(sdk.dir, { recursive: true, force: true });
   mkdirSync(sdk.dir, { recursive: true });
-  copyFileSync(sdk.builtBundle, sdk.bundleFile);
+  copySdkFiles(sdk);
   if (!existsSync(join(dashboardDir, 'index.csr.html'))) throw new Error(`${dashboardDir} has no build: run dashboard:build:development`);
 
   const apiEnv = {

@@ -1,6 +1,6 @@
 // Renders the Web SDK's own output for the docs' Web guide (not shipped: a script for the docs' images).
 //
-// Serves the built SDK (dist/libs/web-sdk, run `pnpm nx run web-sdk:build` first) and a sample zone from a
+// Serves the built SDK (dist/libs/web-sdk, run `pnpm nx run web-sdk:build` first; its entry and chunks) and a sample zone from a
 // local server, which stands in for the Delivery API (GET /delivery/v1/zone, media under /media/), then loads
 // host pages with <taleart-view> in headless Chromium and writes screenshots to apps/docs/public/images.
 //
@@ -677,6 +677,9 @@ async function startServer() {
     if (req.method === 'OPTIONS') return void res.writeHead(204).end();
     const send = (type, body) => res.writeHead(200, { 'Content-Type': type }).end(body);
     if (url.pathname === '/sdk/v1/taleart.js') return send('text/javascript; charset=utf-8', await readFile(join(sdkDir, 'index.js')));
+    // The chunks the entry imports by name (the viewer, split off by the build), served as the API serves them.
+    const sdkChunk = /^\/sdk\/v1\/([a-z][a-z0-9]*-[A-Za-z0-9_-]+\.js)$/.exec(url.pathname);
+    if (sdkChunk) return send('text/javascript; charset=utf-8', await readFile(join(sdkDir, sdkChunk[1])));
     if (url.pathname === '/delivery/v1/zone') {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       const kind = Object.keys(KEYS).find((k) => KEYS[k] === key);

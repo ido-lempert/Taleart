@@ -39,11 +39,15 @@ export function readChunks(dir) {
   const files = readdirSync(dir)
     .filter((name) => name.endsWith('.js'))
     .sort((a, b) => (a === ENTRY_CHUNK ? -1 : b === ENTRY_CHUNK ? 1 : a.localeCompare(b)));
+  // The chunks the entry imports by name are loaded with the page; the others on the viewer's first open.
+  const entryFile = join(dir, ENTRY_CHUNK);
+  const entryCode = existsSync(entryFile) ? readFileSync(entryFile, 'utf8') : '';
   return files.map((name) => {
     const code = readFileSync(join(dir, name), 'utf8');
     const level9 = gzipped(code, 9);
     const level6 = gzipped(code, 6);
-    return { name, gzipped: Math.max(level9, level6), level9, level6, modules: report[name] ?? null };
+    const loadedByPage = name === ENTRY_CHUNK || entryCode.includes(`./${name}`);
+    return { name, gzipped: Math.max(level9, level6), level9, level6, modules: report[name] ?? null, loadedByPage };
   });
 }
 
@@ -76,7 +80,8 @@ export function judge(chunks) {
   const total = chunks.reduce((sum, c) => sum + c.gzipped, 0);
   for (const c of chunks) {
     const levels = c.level9 === undefined ? '' : `; level 9 ${kb(c.level9)}, level 6 ${kb(c.level6)}`;
-    lines.push(`  ${c.name}: ${kb(c.gzipped)} gzipped (${c === entry ? 'loaded by the page' : 'loaded on first open'}${levels})`);
+    const when = c === entry || c.loadedByPage ? 'loaded by the page' : 'loaded on first open';
+    lines.push(`  ${c.name}: ${kb(c.gzipped)} gzipped (${when}${levels})`);
   }
   lines.push(`  all chunks: ${kb(total)} gzipped (budget ${kb(BUNDLE_LIMIT_BYTES)})`);
   if (chunks.length === 1) {

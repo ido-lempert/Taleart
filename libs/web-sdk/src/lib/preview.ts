@@ -128,6 +128,10 @@ function release(video: HTMLVideoElement): void {
 // changed tale without starting over.
 class PreviewViewer extends TaleViewer {
   protected override renderOptions = { inertLinks: true };
+  // The preview brings its own styles (the viewer's phone styles, see the constructor), never the wide-screen deck.
+  protected override styles(): string {
+    return '';
+  }
   /** True once the person asked for sound: the tale's own video then plays with it, as for visitors. */
   sound = false;
   private quiet = false; // a redraw: the live region does not say the tale again

@@ -7,6 +7,7 @@ import {
   type TaleElementType,
 } from '@taleart/contract';
 import { defaultTranslate, type Translate } from '../i18n';
+import { canvasColor } from './canvas-color';
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
 import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type ComponentFire, type RenderContext } from './media';
 import { COUNTDOWN_STYLES, renderCountdown } from './countdown';
@@ -169,11 +170,7 @@ function isPlaceable(element: unknown): element is DeliveryTaleElement {
   );
 }
 
-/** The document's canvas colour when it is a valid `#RRGGBB` or `#RRGGBBAA`, else null. */
-export function canvasColor(doc: DeliveryTaleDocument): string | null {
-  const color = doc.canvas?.background?.color;
-  return typeof color === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(color) ? color : null;
-}
+export { canvasColor } from './canvas-color';
 
 /** How a document is rendered over its tale. */
 export interface DocumentRenderOptions {

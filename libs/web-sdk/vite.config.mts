@@ -6,6 +6,13 @@ import dts from 'vite-plugin-dts';
 
 const outDir = path.join(import.meta.dirname, '../../dist/libs/web-sdk');
 
+// The modules of the viewer chunk: the viewer, and the tale documents' renderers (the modules only the
+// viewer draws with). The module the entry imports, bar.ts's canvas colour and media, stay in core.
+const VIEWER_CHUNK =
+  /libs\/web-sdk\/src\/lib\/(viewer\.ts|document\/(renderer|links|poll|quiz|rating|reaction|countdown|promo-code|shapes|text|fonts)\.ts)$/;
+// The rest of the SDK and its contract, in one chunk; the entry (index.ts) stays on its own.
+const CORE_CHUNK = /libs\/(web-sdk\/src\/lib|contract\/src\/lib)\//;
+
 /** Copies the package manifest, README and the repository's LICENSE next to the bundle, for npm to publish. */
 function copyPackageFiles(): Plugin {
   return {
@@ -114,11 +121,29 @@ export default defineConfig(() => ({
       entry: 'src/index.ts',
       name: 'TaleartWebSdk',
       fileName: 'index',
-      formats: ['es' as const, 'umd' as const],
     },
     rolldownOptions: {
       // External packages that should not be bundled into your library.
       external: [],
+      // One output per format: the ES build splits the viewer off (see VIEWER_CHUNK); the UMD build is a
+      // single file, as UMD has no chunks, so the viewer is inlined into it.
+      output: [
+        {
+          format: 'es',
+          entryFileNames: 'index.js',
+          chunkFileNames: '[name]-[hash].js',
+          // The viewer (and the tale documents it draws) is a chunk of its own, loaded on the first open
+          // (AD-16, viewer-loader.ts); everything else the SDK needs is in `core`, which both the entry
+          // and the viewer chunk import, so the page and the viewer share one copy of the SDK's state.
+          codeSplitting: {
+            groups: [
+              { name: 'viewer', test: VIEWER_CHUNK },
+              { name: 'core', test: CORE_CHUNK },
+            ],
+          },
+        },
+        { format: 'umd', name: 'TaleartWebSdk', entryFileNames: 'index.umd.cjs', codeSplitting: false },
+      ],
     },
   },
   test: {

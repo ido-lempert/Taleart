@@ -3,7 +3,8 @@ import { coverMedia, REDUCED_MOTION_QUERY } from './bar';
 import { coverSettled } from './first-content';
 import { defaultTranslate, type Translate } from './i18n';
 import { isRtl } from './direction';
-import { setIcon, SWIPE_MIN_PX } from './viewer';
+import { setIcon } from './icon';
+import { SWIPE_MIN_PX } from './swipe';
 
 /** The frame type this renderer draws (AD-5). */
 export const BANNER_FRAME_TYPE = 'banner';

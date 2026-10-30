@@ -139,6 +139,7 @@ describe('TaleartElement', () => {
     // The display and, once open, the viewer sit inside the themed wrapper, so they inherit it.
     expect(themed?.querySelector('.bar')).not.toBeNull();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     expect(themed?.querySelector('dialog.viewer')).not.toBeNull();
     // The style text holds only the SDK's own rules, never a theme value.
     expect(el.shadowRoot?.querySelector('style')?.textContent).not.toContain('#0055ff');
@@ -254,6 +255,7 @@ describe('TaleartElement', () => {
     it('restyles an open viewer, which sits inside the themed wrapper', async () => {
       const el = await mount();
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       const dialog = el.shadowRoot?.querySelector('.taleart dialog.viewer');
       expect(dialog).not.toBeNull();
       el.theme = { accentColor: '#ffcc00' };
@@ -553,6 +555,7 @@ describe('TaleartElement', () => {
   it('opens the group of an activated bar item in the full-screen viewer', async () => {
     const el = await mount();
     items(el)[1].click();
+    await vi.dynamicImportSettled();
     const dialog = el.shadowRoot?.querySelector('dialog');
     expect(dialog?.hasAttribute('open')).toBe(true);
     expect(dialog?.getAttribute('aria-label')).toBe('Winter');
@@ -563,16 +566,20 @@ describe('TaleartElement', () => {
   it('opens nothing for a group without tales', async () => {
     const el = await mount();
     expect(() => items(el)[2].click()).not.toThrow();
+    await vi.dynamicImportSettled();
     expect(el.shadowRoot?.querySelector('dialog')).toBeNull();
   });
 
   it('returns focus to the bar item of the group shown last when the viewer closes', async () => {
     const el = await mount();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
     dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    await vi.dynamicImportSettled();
     expect(dialog.getAttribute('aria-label')).toBe('Winter');
     dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await vi.dynamicImportSettled();
     expect(dialog.hasAttribute('open')).toBe(false);
     expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
   });
@@ -581,7 +588,9 @@ describe('TaleartElement', () => {
     const el = await mount();
     expect(items(el).some((b) => b.hasAttribute('data-seen'))).toBe(false);
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     el.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Close"]')?.click();
+    await vi.dynamicImportSettled();
     expect(items(el)[0].hasAttribute('data-seen')).toBe(true);
     el.remove();
 
@@ -606,6 +615,7 @@ describe('TaleartElement', () => {
   it('closes an open viewer when the element is removed', async () => {
     const el = await mount();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     el.remove();
     expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
   });
@@ -613,6 +623,7 @@ describe('TaleartElement', () => {
   it('moves focus to the matching item of the new bar when a reload closes the open viewer', async () => {
     const el = await mount();
     items(el)[1].click();
+    await vi.dynamicImportSettled();
     el.zoneKey = OTHER_KEY;
     await settle();
     expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
@@ -623,6 +634,7 @@ describe('TaleartElement', () => {
   it('moves focus to the first item when the reloaded bar no longer has the group', async () => {
     const el = await mount();
     items(el)[1].click();
+    await vi.dynamicImportSettled();
     fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: [zone.taleGroups[0], zone.taleGroups[2]] }));
     el.zoneKey = OTHER_KEY;
     await settle();
@@ -864,10 +876,12 @@ describe('TaleartElement', () => {
       withBanner({ id: 'f2', type: 'banner', settings: {} });
       const el = await mount();
       slideButtons(el)[1].click();
+      await vi.dynamicImportSettled();
       const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
       expect(dialog.hasAttribute('open')).toBe(true);
       expect(dialog.getAttribute('aria-label')).toBe('Winter');
       dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await vi.dynamicImportSettled();
       expect(dialog.hasAttribute('open')).toBe(false);
       expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
     });
@@ -876,10 +890,13 @@ describe('TaleartElement', () => {
       withBanner({ id: 'f2', type: 'banner', settings: {} });
       const el = await mount();
       slideButtons(el)[0].click();
+      await vi.dynamicImportSettled();
       const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
       dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await vi.dynamicImportSettled();
       expect(dialog.getAttribute('aria-label')).toBe('Winter');
       dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await vi.dynamicImportSettled();
       expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
       expect(slideButtons(el)[1].closest('.b-slide')?.hasAttribute('inert')).toBe(false);
     });
@@ -888,6 +905,7 @@ describe('TaleartElement', () => {
       withBanner({ id: 'f1', type: 'bar', settings: {} });
       const el = await mount();
       items(el)[1].click();
+      await vi.dynamicImportSettled();
       expect(el.shadowRoot?.querySelector('dialog')?.hasAttribute('open')).toBe(true);
       el.zoneKey = OTHER_KEY;
       await settle();
@@ -900,6 +918,7 @@ describe('TaleartElement', () => {
       withBanner({ id: 'f2', type: 'banner', settings: {} });
       const el = await mount();
       slideButtons(el)[1].click();
+      await vi.dynamicImportSettled();
       el.zoneKey = OTHER_KEY;
       await settle();
       expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
@@ -1127,6 +1146,7 @@ describe('TaleartElement', () => {
 
         const root = el.shadowRoot as ShadowRoot;
         root.querySelector('.bar img.cover')?.dispatchEvent(new Event('load'));
+        await vi.dynamicImportSettled();
         await vi.advanceTimersByTimeAsync(50);
         // The mark waits for the next animation frame (jsdom's own clock).
         await new Promise((done) => requestAnimationFrame(() => done(undefined)));
@@ -1147,6 +1167,7 @@ describe('TaleartElement', () => {
         const cover = root.querySelector('.bar img.cover');
         el.remove();
         cover?.dispatchEvent(new Event('load'));
+        await vi.dynamicImportSettled();
         await vi.advanceTimersByTimeAsync(5000);
         expect(held.getAttribute('src')).toBeNull();
         expect(marks(FIRST_CONTENT_MARK)).toBe(0);
@@ -1173,6 +1194,7 @@ describe('TaleartElement', () => {
       expect(barVideo.getAttribute('src')).toBeNull();
       expect(marks(FIRST_CONTENT_MARK)).toBe(0);
       barImage.dispatchEvent(new Event('load'));
+      await vi.dynamicImportSettled();
       await paint();
       expect(barVideo.getAttribute('src')).toBe(`${API}/media/tales/b.mp4#t=0.001`);
       expect(barVideo.hasAttribute('fetchpriority')).toBe(false);
@@ -1269,6 +1291,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       init({ strings: { he: { 'viewer.close': 'סגור' } } });
       const el = await mount({ 'api-url': API, 'zone-key': SITE, locale: 'he' });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       const close = el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close');
       expect(close?.getAttribute('aria-label')).toBe('סגור');
     });
@@ -1279,6 +1302,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       el.strings = { he: { 'viewer.close': 'יציאה' } };
       await settle();
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       expect(el.shadowRoot?.querySelector('dialog.viewer .close')?.getAttribute('aria-label')).toBe('יציאה');
     });
 
@@ -1286,7 +1310,9 @@ describe('TaleartElement: strings, hooks and events', () => {
       init({ locale: 'he', strings: { he: { 'bar.seen': '{name}, נצפה' } } });
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close')?.click();
+      await vi.dynamicImportSettled();
       expect(items(el)[0].getAttribute('aria-label')).toBe('Summer, נצפה');
     });
   });
@@ -1373,6 +1399,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       const events = recordEvents();
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       const dialog = el.shadowRoot?.querySelector<HTMLDialogElement>('dialog.viewer');
       expect(names(events).filter((n) => n !== 'groupImpression')).toEqual(['loaded', 'presented', 'taleShown']);
       expect(ofName(events, 'presented')[0]).toMatchObject({ group: { id: 'ga', name: 'Summer', index: 0 } });
@@ -1381,8 +1408,10 @@ describe('TaleartElement: strings, hooks and events', () => {
         tale: { id: 't1', index: 0, title: 'Beach' },
       });
       dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await vi.dynamicImportSettled();
       expect(ofName(events, 'taleShown').at(-1)).toMatchObject({ tale: { id: 't1b', index: 1, title: 'Sun' } });
       dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await vi.dynamicImportSettled();
       expect(ofName(events, 'dismissed')).toEqual([
         { name: 'dismissed', zoneKeyPrefix: 'tak_test', zoneSlug: 'home', group: { id: 'ga', name: 'Summer', index: 0 } },
       ]);
@@ -1399,6 +1428,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       };
       init({ hooks: { onPresented: () => calls.push('global') } });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       expect(calls).toEqual(['element', 'global']);
       expect(errorSpy).toHaveBeenCalled();
       expect(el.shadowRoot?.querySelector('dialog.viewer')?.hasAttribute('open')).toBe(true);
@@ -1415,7 +1445,9 @@ describe('TaleartElement: strings, hooks and events', () => {
       const events = recordEvents();
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-poll-opt')?.click();
+      await vi.dynamicImportSettled();
       await settle();
       expect(ofName(events, 'userInteracted')).toEqual([
         {
@@ -1461,6 +1493,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       const events = recordEvents();
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       expect(ofName(events, 'componentEvent')).toEqual([
         { name: 'componentEvent', ...base, component: 'countdown', action: 'ended' },
       ]);
@@ -1474,7 +1507,9 @@ describe('TaleartElement: strings, hooks and events', () => {
       const events = recordEvents();
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-promo-copy')?.click();
+      await vi.dynamicImportSettled();
       await settle();
       expect(writeText).toHaveBeenCalledWith('SPRING26');
       expect(ofName(events, 'componentEvent')).toEqual([
@@ -1484,6 +1519,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       events.length = 0;
       Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => Promise.reject(new Error('no'))) }, configurable: true });
       el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-promo-copy')?.click();
+      await vi.dynamicImportSettled();
       await settle();
       expect(ofName(events, 'componentEvent')).toEqual([]);
     });
@@ -1497,7 +1533,9 @@ describe('TaleartElement: strings, hooks and events', () => {
       const events = recordEvents();
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .ta-poll-opt')?.click();
+      await vi.dynamicImportSettled();
       await settle();
       expect(names(events)).toEqual(expect.arrayContaining(['userInteracted', 'componentEvent']));
       expect(ofName(events, 'componentEvent')).toEqual([
@@ -1522,7 +1560,9 @@ describe('TaleartElement: strings, hooks and events', () => {
       const events = recordEvents();
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       el.shadowRoot?.querySelectorAll<HTMLButtonElement>('dialog.viewer .ta-reaction-btn')[1]?.click();
+      await vi.dynamicImportSettled();
       await settle();
       expect(names(events)).toEqual(expect.arrayContaining(['userInteracted', 'componentEvent']));
       expect(ofName(events, 'userInteracted')).toEqual([
@@ -1550,6 +1590,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       const global: unknown[] = [];
       init({ hooks: { onComponentEvent: (e) => global.push(e) } });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       const expected = { name: 'componentEvent', ...base, component: 'countdown', action: 'ended' };
       expect(own).toEqual([expected]);
       expect(global).toEqual([expected]);
@@ -1563,6 +1604,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       fetchMock.mockImplementation(async () => respond(200, zoneWith([button()])));
       const el = await mount({ 'api-url': API, 'zone-key': SITE });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       const link = el.shadowRoot?.querySelector<HTMLAnchorElement>('dialog.viewer a.ta-button');
       if (!link) throw new Error('the button link is not rendered');
       return link;
@@ -1575,6 +1617,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       link.addEventListener('click', () => order.push('navigation'));
       init({ hooks: { onActionClicked: () => order.push('hook'), onEvent: (e) => events.push(e) } });
       link.click();
+      await vi.dynamicImportSettled();
       expect(order).toEqual(['hook', 'navigation']);
       expect(ofName(events, 'actionClicked')).toMatchObject([
         {
@@ -1594,6 +1637,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       link.addEventListener('click', (e) => seen.push(e.defaultPrevented));
       init({ hooks: { onActionClicked: (e) => e.preventDefault() } });
       const notCanceled = link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await vi.dynamicImportSettled();
       expect(notCanceled).toBe(false);
       expect(seen).toEqual([true]);
     });
@@ -1603,6 +1647,7 @@ describe('TaleartElement: strings, hooks and events', () => {
       const el = document.querySelector(TALEART_ELEMENT_TAG) as TaleartElement;
       el.addEventListener('taleart:action-clicked', (e) => e.preventDefault());
       const notCanceled = link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await vi.dynamicImportSettled();
       expect(notCanceled).toBe(false);
     });
   });
@@ -1611,7 +1656,9 @@ describe('TaleartElement: strings, hooks and events', () => {
     const events = recordEvents();
     const el = await mount({ 'api-url': API, 'zone-key': SITE });
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close')?.click();
+    await vi.dynamicImportSettled();
     expect(names(events)).toEqual(expect.arrayContaining(['loaded', 'presented', 'taleShown', 'dismissed']));
     expect(JSON.stringify(events)).not.toContain('testkey');
     expect(JSON.stringify(events)).not.toContain(SITE);
@@ -1718,6 +1765,7 @@ describe('TaleartElement: fallback, retry and frequency cap (QW1, QW3)', () => {
       const el = await mount({ 'api-url': API, 'zone-key': SITE, fallback: 'message' });
       fetchMock.mockImplementation(async () => respond(200, zone));
       el.shadowRoot?.querySelector<HTMLButtonElement>('button')?.click();
+      await vi.dynamicImportSettled();
       await settle();
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(el.hasAttribute('data-state')).toBe(false);
@@ -1776,9 +1824,12 @@ describe('TaleartElement: fallback, retry and frequency cap (QW1, QW3)', () => {
     it('counts one view per group entered, not one per tale stepped through', async () => {
       const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: '3' });
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       const dialog = el.shadowRoot?.querySelector('dialog.viewer') as HTMLElement;
       for (let step = 0; step < 4; step++) dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await vi.dynamicImportSettled();
       dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await vi.dynamicImportSettled();
       const views = JSON.parse(localStorage.getItem('taleart.views') ?? '{}') as Record<string, number[]>;
       expect(views['ga']).toHaveLength(1);
       for (const times of Object.values(views)) expect(times).toHaveLength(1);
@@ -1788,7 +1839,9 @@ describe('TaleartElement: fallback, retry and frequency cap (QW1, QW3)', () => {
       const el = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'once' });
       expect(items(el)).toHaveLength(3);
       items(el)[0].click();
+      await vi.dynamicImportSettled();
       el.shadowRoot?.querySelector<HTMLButtonElement>('dialog.viewer .close')?.click();
+      await vi.dynamicImportSettled();
       expect(JSON.parse(localStorage.getItem('taleart.views') ?? '{}')).toMatchObject({ ga: [expect.any(Number)] });
       el.remove();
       const again = await mount({ 'api-url': API, 'zone-key': SITE, frequency: 'once' });

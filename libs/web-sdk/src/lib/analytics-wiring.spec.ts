@@ -157,35 +157,42 @@ describe('analytics on the element (Web SDK)', () => {
   it('reports an open, then a view of the tale shown, when the viewer opens a group', async () => {
     const el = await mount();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toEqual([event('open', 'ga'), event('view', 'ga', 't1')]);
   });
 
   it('reports a view of each tale the viewer steps to', async () => {
     const el = await mount();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     el.shadowRoot?.querySelector<HTMLDialogElement>('dialog.viewer')?.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
     );
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toEqual([event('open', 'ga'), event('view', 'ga', 't1'), event('view', 'ga', 't1b')]);
   });
 
   it('reports a click whether or not the host cancels the navigation', async () => {
     const el = await mount();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     const link = el.shadowRoot?.querySelector<HTMLAnchorElement>('dialog.viewer a.ta-button');
     if (!link) throw new Error('the button link is not rendered');
     init({ hooks: { onActionClicked: (e) => e.preventDefault() } });
     link.click();
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toContainEqual(event('click', 'ga', 't1'));
   });
 
   it('reports a click the host does not cancel', async () => {
     const el = await mount();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     const link = el.shadowRoot?.querySelector<HTMLAnchorElement>('dialog.viewer a.ta-button');
     if (!link) throw new Error('the button link is not rendered');
     link.addEventListener('click', (e) => e.preventDefault());
     link.click();
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toContainEqual(event('click', 'ga', 't1'));
   });
 
@@ -193,6 +200,7 @@ describe('analytics on the element (Web SDK)', () => {
     init({ analytics: true });
     const el = await mount({ 'api-url': API, 'zone-key': KEY, analytics: 'off' });
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toEqual([]);
     expect(beacon).not.toHaveBeenCalled();
   });
@@ -201,10 +209,12 @@ describe('analytics on the element (Web SDK)', () => {
     init({ analytics: false });
     const off = await mount();
     items(off)[0].click();
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toEqual([]);
     off.remove();
     const on = await mount({ 'api-url': API, 'zone-key': KEY, analytics: 'on' });
     items(on)[0].click();
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toEqual([event('open', 'ga'), event('view', 'ga', 't1')]);
   });
 
@@ -212,6 +222,7 @@ describe('analytics on the element (Web SDK)', () => {
     init({ analytics: false });
     const el = await mount({ 'api-url': API, 'zone-key': KEY, analytics: 'yes' });
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     expect(hideAndCollect()).toHaveLength(2);
   });
 
@@ -247,6 +258,7 @@ describe('analytics on the element (Web SDK)', () => {
     init({ externalUserId: 'user-secret-42', tags: ['vip-tag'] });
     const el = await mount();
     items(el)[0].click();
+    await vi.dynamicImportSettled();
     const sent = hideAndCollect();
     expect(sent).toHaveLength(2);
     const text = JSON.stringify(sent) + beacon.mock.calls.map((call) => call[1]).join('');

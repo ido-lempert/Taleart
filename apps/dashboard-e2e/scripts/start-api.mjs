@@ -6,12 +6,12 @@
 // TRUST_PROXY…). Media go to a new temporary folder. Playwright starts this as a web server (see
 // playwright.config.mts).
 import { spawn } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import pg from 'pg';
 import { e2eDatabase } from './e2e-database.mjs';
-import { e2eSdk } from './e2e-sdk.mjs';
+import { copySdkFiles, e2eSdk } from './e2e-sdk.mjs';
 
 const root = resolve(import.meta.dirname, '../../..');
 let database;
@@ -34,7 +34,7 @@ try {
 const sdk = e2eSdk(root);
 rmSync(sdk.dir, { recursive: true, force: true });
 mkdirSync(sdk.dir, { recursive: true });
-copyFileSync(sdk.builtBundle, sdk.bundleFile);
+copySdkFiles(sdk);
 
 const env = {
   PATH: process.env.PATH ?? '',

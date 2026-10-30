@@ -1,7 +1,7 @@
 // Checks that the API build carries what it serves under /sdk/v1 (epic UX rework R13): the Web SDK
 // bundle (copied from dist/libs/web-sdk, built first as an implicit dependency) and the test page.
 // Run by `nx run api:check-sdk-assets`, after the build.
-import { readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const dist = resolve(import.meta.dirname, '../../../dist/apps/api');
@@ -20,6 +20,22 @@ try {
   }
 } catch {
   // Said above.
+}
+// Every chunk of the bundle (the viewer, split off by the build) must be there, as the entry imports it by name.
+for (const chunk of readdirSync(resolve(import.meta.dirname, '../../../dist/libs/web-sdk')).filter((f) =>
+  /^[a-z][a-z0-9]*-.+\.js$/.test(f),
+)) {
+  try {
+    if (
+      !readFileSync(join(dist, 'web-sdk', chunk)).equals(
+        readFileSync(resolve(import.meta.dirname, '../../../dist/libs/web-sdk', chunk)),
+      )
+    ) {
+      failures.push(`web-sdk/${chunk} differs from dist/libs/web-sdk/${chunk}: the SDK was built after the API`);
+    }
+  } catch {
+    failures.push(`web-sdk/${chunk} is missing: the entry imports it`);
+  }
 }
 for (const extra of ['sdk-pages/test-page.d.ts']) {
   try {

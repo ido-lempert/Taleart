@@ -41,8 +41,8 @@ describe('the performance page', () => {
     expect(SDK_BUDGET.umdGzipKb).toBeLessThanOrEqual(SDK_BUDGET.budgetKb);
   });
 
-  it('states the request budget: one script, one zone call, no third-party calls', () => {
-    expect(row('Script requests')).toEqual(['Script requests per page', '1', '1']);
+  it('states the request budget: two scripts (the entry and its core chunk), one zone call, no third-party calls', () => {
+    expect(row('Script requests')).toEqual(['Script requests per page', '2', '2']);
     expect(row('Zone requests')).toEqual(['Zone requests per zone', '1', '1']);
     expect(row('Third-party requests')).toEqual(['Third-party requests', 'None', 'None']);
   });

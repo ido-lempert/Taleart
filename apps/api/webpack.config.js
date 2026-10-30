@@ -48,7 +48,8 @@ module.exports = {
         // The test page (epic UX rework R13), and the Web SDK bundle it and host pages load
         // (web-sdk is an implicit dependency, so its build runs first).
         { input: './src/sdk-pages', glob: 'test-page.{html,js,css}', output: 'sdk-pages' },
-        { input: '../../dist/libs/web-sdk', glob: 'index.js', output: 'web-sdk' },
+        // The entry and its chunks (the viewer, split off by the build): the entry imports them by name.
+        { input: '../../dist/libs/web-sdk', glob: '*.js', output: 'web-sdk' },
       ],
       optimization: false,
       outputHashing: 'none',

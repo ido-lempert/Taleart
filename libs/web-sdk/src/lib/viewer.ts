@@ -7,6 +7,7 @@ import {
   type DeliveryTaleElement,
   type DeliveryTaleGroup,
 } from '@taleart/contract';
+import { setIcon } from './icon';
 import { prefersReducedMotion, stillCover } from './bar';
 import { defaultTranslate, type Translate } from './i18n';
 import { isRtl } from './direction';
@@ -14,6 +15,7 @@ import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOptions } from './document/renderer';
 import type { ResponseClient } from './responses';
+import { SWIPE_MIN_PX } from './swipe';
 import type { ComponentFire, LinkAction } from './document/media';
 
 /** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
@@ -21,11 +23,7 @@ export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
 
 /** A document's video that makes no progress for this long while it should play ends its tale. */
 export const VIDEO_STALL_MS = 5000;
-/**
- * Travel that makes a pointer gesture a swipe: horizontally between groups, and upwards to open
- * the tale's swipe-up link (epic Tale Studio R7).
- */
-export const SWIPE_MIN_PX = 50;
+export { SWIPE_MIN_PX };
 /**
  * The swipe up that opens a tale's swipe-up link is a flick: released within this time, and
  * travelling at least {@link SWIPE_UP_MIN_PX} or {@link SWIPE_UP_MIN_SHARE} of the stage's height,
@@ -59,14 +57,16 @@ function isWide(): boolean {
 }
 
 /**
- * Full-screen viewer look, on black. The project's theme (R9) sets the font
- * and the accent (progress fill and control icons) through the `--ta-*`
- * custom properties; without a theme font it keeps `system-ui`. The font is
- * set on its own, never through the `font` shorthand, so a value the browser
- * refuses cannot drop the size and line height. TaleArt's default accent is
- * white, 21:1 on black.
- * Controls are 44 px targets. These are the viewer's styles on a phone-sized screen; the wide-screen
- * deck ({@link VIEWER_WIDE_STYLES}) and the document's styles come with them in {@link VIEWER_STYLES}.
+ * The viewer's look (end-user redesign P3a), from the owner's canvas (Viewer.dc.html) minus its parallax
+ * layers: every colour is a theme token (`--ta-dark`, `--ta-dark-ink`, `--ta-paper`, `--ta-ink`,
+ * `--ta-accent`, `--ta-on-accent`, `--ta-radius`), so the theme and the colour scheme apply. The
+ * player's own surface is dark in both schemes (the tale's media is its ground); the room around a
+ * card on a wide screen follows the scheme (paper and ink). Segments are 3 px bars with a linear fill
+ * over each tale's `durationMs`; the controls are 44 px targets, springs on hover and press, and every
+ * motion stops under `prefers-reduced-motion`. Logical properties throughout: a right-to-left page
+ * mirrors the arrows, the fill and the deck (see the `data-rtl` rules).
+ * On a phone-sized screen the viewer is the tale, edge to edge; the wide-screen deck is in
+ * {@link VIEWER_WIDE_STYLES}, and the document's styles come with them in {@link VIEWER_STYLES}.
  */
 export const VIEWER_BASE_STYLES = `
 .viewer {
@@ -95,8 +95,10 @@ export const VIEWER_BASE_STYLES = `
 .viewer:focus { outline: none; }
 .viewer::backdrop { background: var(--ta-dark); overflow: hidden; overscroll-behavior: contain; }
 .frame { position: relative; width: 100%; max-width: 56.25vh; height: 100%; margin: 0 auto; }
-.stage { position: absolute; inset: 0; }
+.stage { position: absolute; inset: 0; background: var(--ta-dark); }
 .media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+/* A picture still loading, or a tale without media: a quiet tone, not a flash of the dark. */
+img.media { background: color-mix(in srgb, var(--ta-dark-ink) 6%, var(--ta-dark)); }
 span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dark)); }
 .zone {
   position: absolute;
@@ -115,23 +117,21 @@ span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dar
   position: absolute;
   top: 0;
   inset-inline: 0;
-  padding: 8px;
-  background: linear-gradient(color-mix(in srgb, var(--ta-dark) 70%, transparent), transparent);
+  padding: 12px 12px 40px;
+  background: linear-gradient(color-mix(in srgb, var(--ta-dark) 60%, transparent), transparent);
   pointer-events: none;
 }
+/* The progress bars: 3 px, rounded, a track in the ink colour; the fill is the accent. */
 .segments { display: flex; gap: 4px; }
-.segment { flex: 1; height: 3px; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, var(--ta-dark-ink) 40%, transparent); }
-.fill { display: block; height: 100%; background: var(--ta-accent, var(--ta-dark-ink)); transform-origin: left; transform: scaleX(0); }
+.segment { flex: 1; height: 3px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--ta-dark-ink) 35%, transparent); }
+.fill { display: block; height: 100%; border-radius: inherit; background: var(--ta-accent, var(--ta-dark-ink)); transform-origin: left; transform: scaleX(0); }
 /* transform-origin takes no logical keyword: right to left, the progress grows from the right (handoff 3.2). */
 .viewer[data-rtl] .fill { transform-origin: right; }
 .done .fill { transform: none; }
 .fill.timed { animation: taleart-fill var(--taleart-duration) linear forwards; }
 .viewer[data-paused] .fill { animation-play-state: paused; }
 @keyframes taleart-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@media (prefers-reduced-motion: reduce) {
-  .fill.timed { animation: none; transform: none; }
-}
-.head { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.head { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .name {
   unicode-bidi: plaintext;
   flex: 0 1 auto;
@@ -139,10 +139,13 @@ span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dar
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 2px 10px;
-  border-radius: 12px;
+  padding: 6px 12px;
+  border-radius: 99px;
   background: color-mix(in srgb, var(--ta-dark) 80%, transparent);
-  font-weight: 600;
+  color: var(--ta-dark-ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 .pause { margin-inline-start: auto; }
 .pause[hidden] + .close { margin-inline-start: auto; }
@@ -156,14 +159,22 @@ span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dar
   padding: 0;
   /* Transparent, so forced colours draw the button's edge. */
   border: 1px solid transparent;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--ta-dark) 60%, transparent);
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ta-dark) 45%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   color: var(--ta-accent, var(--ta-dark-ink));
   cursor: pointer;
   pointer-events: auto;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s;
 }
+.control:hover { background: color-mix(in srgb, var(--ta-dark) 70%, transparent); transform: scale(1.06); }
+.control:active { transform: scale(0.94); }
 .control:focus-visible { outline: 2px solid var(--ta-dark-ink); outline-offset: 0; box-shadow: 0 0 0 5px var(--ta-dark); }
 .control svg { width: 24px; height: 24px; fill: currentColor; }
+/* The tale's own content comes in on each tale: rising and fading, as the tale is drawn (not the media). */
+.frame .ta-area { animation: taleart-enter 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes taleart-enter { from { opacity: 0; transform: translateY(24px) scale(0.96); } to { opacity: 1; transform: none; } }
 .sr-only {
   position: absolute;
   width: 1px;
@@ -180,17 +191,28 @@ span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dar
   .fill { forced-color-adjust: none; background: CanvasText; }
 }
 .side, .nav, .chip { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .fill.timed { animation: none; transform: none; }
+  .frame .ta-area { animation: none; }
+  .control, .control:hover, .control:active { transition: none; transform: none; }
+}
 `;
 
-/** The viewer on a wide screen: the card in the middle, the deck beside it, arrows and group chips. */
+/**
+ * The viewer on a wide screen: the card in the middle, the deck beside it (the other tales of the group,
+ * smaller and dimmed), arrows by the card and the neighbouring groups as chips below the corners. The
+ * card is 9:16, with the radius of the theme (`--ta-radius`, 24 px by default) and a soft shadow; the room
+ * around it is the paper of the colour scheme.
+ */
 const VIEWER_WIDE_STYLES = `
 @media ${WIDE_QUERY} {
   .viewer {
     --card-w: min(calc(88vh * 9 / 16), 36vw);
     --card-h: calc(var(--card-w) * 16 / 9);
-    background: var(--ta-dark);
+    background: var(--ta-paper);
+    color: var(--ta-ink);
   }
-  .viewer::backdrop { background: var(--ta-dark); }
+  .viewer::backdrop { background: var(--ta-paper); }
   .frame, .side {
     position: absolute;
     top: calc(50% - var(--card-h) / 2);
@@ -199,15 +221,42 @@ const VIEWER_WIDE_STYLES = `
     max-width: none;
     height: var(--card-h);
     margin: 0;
-    border-radius: 12px;
+    border-radius: var(--ta-radius, 24px);
     overflow: hidden;
   }
-  .frame { z-index: 2; background: var(--ta-dark); }
-  .side { display: block; z-index: 1; background: var(--ta-dark); cursor: pointer; filter: ${SIDE_FILTER}; }
+  .frame {
+    z-index: 2;
+    background: var(--ta-dark);
+    box-shadow: 0 40px 80px -30px color-mix(in srgb, var(--ta-dark) 85%, transparent), 0 0 0 1px color-mix(in srgb, var(--ta-ink) 12%, transparent);
+  }
+  .side {
+    display: block;
+    z-index: 1;
+    background: var(--ta-paper);
+    cursor: pointer;
+    filter: ${SIDE_FILTER};
+    transition: filter 0.3s;
+  }
   .side:hover { filter: brightness(0.6); }
   .side .ta-cta, .side .ta-interactive { pointer-events: none; }
-  .nav { display: grid; position: absolute; top: calc(50% - 22px); z-index: 3; }
-  .nav.prev { inset-inline-start: calc(50% - var(--card-w) / 2 - 56px); }
+  .nav {
+    display: grid;
+    position: absolute;
+    top: calc(50% - 24px);
+    z-index: 3;
+    width: 48px;
+    height: 48px;
+    border: 1px solid color-mix(in srgb, var(--ta-ink) 20%, transparent);
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--ta-ink) 8%, transparent);
+    color: var(--ta-ink);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    transition: background-color 0.2s, color 0.2s, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .nav:hover { background: var(--ta-accent); color: var(--ta-on-accent); transform: scale(1.08); }
+  .nav:active { transform: scale(0.94); }
+  .nav.prev { inset-inline-start: calc(50% - var(--card-w) / 2 - 60px); }
   .nav.next { inset-inline-start: calc(50% + var(--card-w) / 2 + 12px); }
   .chip {
     display: flex;
@@ -221,7 +270,7 @@ const VIEWER_WIDE_STYLES = `
     padding: 0;
     border: 0;
     background: none;
-    color: var(--ta-dark-ink);
+    color: var(--ta-ink);
     font: inherit;
     text-align: start;
     cursor: pointer;
@@ -230,7 +279,7 @@ const VIEWER_WIDE_STYLES = `
   .chip.prev { inset-inline-start: 24px; }
   .chip.next { inset-inline-end: 24px; align-items: flex-end; }
   .chip:focus-visible { outline: none; }
-  .chip:focus-visible .chip-body { outline: 2px solid var(--ta-dark-ink); outline-offset: 2px; }
+  .chip:focus-visible .chip-body { outline: 2px solid var(--ta-ink); outline-offset: 2px; }
   .chip-label { font-size: 12px; font-weight: 600; opacity: 0.8; }
   .chip-body {
     display: flex;
@@ -238,23 +287,29 @@ const VIEWER_WIDE_STYLES = `
     gap: 10px;
     max-width: 100%;
     box-sizing: border-box;
-    padding: 10px 14px;
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--ta-dark-ink) 8%, transparent);
+    padding-block: 6px;
+    padding-inline: 6px 14px;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--ta-ink) 8%, transparent);
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s;
   }
-  .chip:hover .chip-body { background: color-mix(in srgb, var(--ta-dark-ink) 14%, transparent); }
+  .chip:hover .chip-body { background: color-mix(in srgb, var(--ta-ink) 14%, transparent); transform: scale(1.04); }
   .chip-cover {
     flex: none;
     width: 40px;
     height: 40px;
     border-radius: 50%;
     object-fit: cover;
-    background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dark));
-    box-shadow: 0 0 0 2px var(--ta-dark-ink);
+    background: color-mix(in srgb, var(--ta-ink) 14%, var(--ta-paper));
+    box-shadow: 0 0 0 2px var(--ta-paper);
   }
-  .chip-name { unicode-bidi: plaintext; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-name { unicode-bidi: plaintext; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
   .chip svg, .nav svg { flex: none; width: 20px; height: 20px; fill: currentColor; }
   .viewer[data-rtl] .chip svg, .viewer[data-rtl] .nav svg { transform: scaleX(-1); }
+  @media (prefers-reduced-motion: reduce) {
+    .side, .nav, .chip-body { transition: none; }
+    .nav:hover, .nav:active, .chip:hover .chip-body { transform: none; }
+  }
 }
 `;
 
@@ -317,9 +372,7 @@ function inText(e: Event): boolean {
   return !!(e.target as Element | null)?.closest?.('.ta-text');
 }
 
-export function setIcon(button: HTMLElement, path: string): void {
-  button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
-}
+export { setIcon };
 
 export interface TaleViewerOptions {
   /** Called whenever a tale of a group shows (the group is viewed). */
@@ -481,6 +534,11 @@ export class TaleViewer {
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
     dialog.focus();
+  }
+
+  /** The stylesheet the viewer's dialog is drawn with, added to the root when the dialog is built. */
+  protected styles(): string {
+    return VIEWER_STYLES;
   }
 
   /** True while the viewer keeps the page from scrolling under it (it covers the page). */
@@ -661,6 +719,13 @@ export class TaleViewer {
       if (!dialog.open) this.close();
     });
 
+    // The viewer's styles come with it: the module loads on the first open (viewer-loader.ts).
+    const styles = this.styles();
+    if (styles) {
+      const style = document.createElement('style');
+      style.textContent = styles;
+      this.root.appendChild(style);
+    }
     this.root.appendChild(dialog);
     this.dialog = dialog;
     this.parts = { frame, segments, name, pause, stage, top, status, chipPrev, chipNext };

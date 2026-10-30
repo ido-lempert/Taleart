@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { mkdir, readdir, readFile, rename, stat, unlink, utimes, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gzip as gzipCallback } from 'node:zlib';
 import {
@@ -108,6 +108,11 @@ const HASH = /^[A-Za-z0-9_-]{16}$/;
 // A kept build in the builds folder, and a temporary file being written there.
 const BUILD_FILE = /^taleart\.[A-Za-z0-9_-]{16}\.js$/;
 const TEMP_FILE = /^\.taleart\.[A-Za-z0-9_-]{16}\..+\.tmp$/;
+// A chunk of the bundle, split off the entry by the build (`core-<hash>.js`, `viewer-<hash>.js`): the
+// entry imports it by that name, so it is served by that name, from the current build or a kept one.
+const CHUNK = /^[a-z][a-z0-9]*-[A-Za-z0-9_-]+\.js$/;
+// A chunk kept with its build in the builds folder: `taleart.<hash>.<chunk>`.
+const BUILD_CHUNK = /^taleart\.([A-Za-z0-9_-]{16})\.([a-z][a-z0-9]*-[A-Za-z0-9_-]+\.js)$/;
 // A temporary file older than this was left by a process that stopped while writing it.
 const STALE_TEMP_MS = 10 * 60 * 1000;
 
@@ -120,9 +125,17 @@ export interface SdkBuilds {
    * newest, then the folder is cut to the newest `keep` builds, never removing this one. Never
    * rejects: a failure is told to `warn`.
    */
-  record(file: ServedFile): Promise<void>;
+  record(file: ServedFile, chunks?: ServedChunk[]): Promise<void>;
   /** A kept build by its hash, or null: not kept, evicted, or its bytes no longer match the hash. */
   read(hash: string): Promise<ServedFile | null>;
+  /** A chunk of a kept build by its name, or null when no kept build has it. */
+  readChunk(name: string): Promise<ServedFile | null>;
+}
+
+/** A chunk of the bundle, by its name in the bundle's folder (`core-<hash>.js`). */
+export interface ServedChunk {
+  name: string;
+  file: ServedFile;
 }
 
 /**
@@ -147,16 +160,17 @@ export function sdkBuilds(
   // One reader per kept build that was asked for, at most `keep`, dropped when it reads as gone:
   // probing hashes adds nothing.
   const readers = new Map<string, () => Promise<ServedFile | null>>();
+  // One reader per chunk file of a kept build, read again only when the file changes.
+  const chunkReaders = new Map<string, () => Promise<ServedFile | null>>();
   // One write at a time, in order; and modification times that only grow, within this process.
   let queue: Promise<void> = Promise.resolve();
   let lastTime = 0;
 
-  async function write(folder: string, file: ServedFile): Promise<void> {
-    await mkdir(folder, { recursive: true });
-    const name = `taleart.${file.hash}.js`;
-    const temp = join(folder, `.taleart.${file.hash}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+  // Writes `body` to `folder` as `name`, whole (a temporary file, then a rename), made the newest.
+  async function place(folder: string, name: string, hash: string, body: Buffer): Promise<void> {
+    const temp = join(folder, `.taleart.${hash}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
     try {
-      await writeFile(temp, file.body, { flag: 'wx' });
+      await writeFile(temp, body, { flag: 'wx' });
       lastTime = Math.max(Date.now(), lastTime + 1);
       const at = new Date(lastTime);
       await utimes(temp, at, at);
@@ -165,6 +179,15 @@ export function sdkBuilds(
       await unlink(temp).catch(() => undefined);
       throw err;
     }
+  }
+
+  async function write(folder: string, file: ServedFile, chunks: ServedChunk[]): Promise<void> {
+    await mkdir(folder, { recursive: true });
+    const name = `taleart.${file.hash}.js`;
+    await place(folder, name, file.hash, file.body);
+    // The chunks go in after the entry: a build is whole once its entry is there. Their names are
+    // content-hashed, and each is kept under the build's hash, so a pinned page loads its own chunks.
+    for (const chunk of chunks) await place(folder, `taleart.${file.hash}.${chunk.name}`, file.hash, chunk.file.body);
     await prune(folder, name);
   }
 
@@ -186,23 +209,51 @@ export function sdkBuilds(
     }
     // The current build is one of the `keep`: the newest others fill the rest.
     builds.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.name < b.name ? -1 : 1));
-    for (const { name } of builds.slice(Math.max(0, keep - 1))) {
+    const evicted = builds.slice(Math.max(0, keep - 1));
+    for (const { name } of evicted) {
       await unlink(join(folder, name)).catch((err) => {
         if (!isMissing(err)) throw err;
       });
       readers.delete(name.slice('taleart.'.length, -'.js'.length));
     }
+    // A chunk goes with its build: the chunks of a build no longer kept are removed.
+    const kept = new Set(
+      [current, ...builds.slice(0, Math.max(0, keep - 1)).map((b) => b.name)].map((n) =>
+        n.slice('taleart.'.length, 'taleart.'.length + 16),
+      ),
+    );
+    for (const name of await readdir(folder)) {
+      const chunk = BUILD_CHUNK.exec(name);
+      if (chunk && !kept.has(chunk[1] ?? '')) await unlink(join(folder, name)).catch(() => undefined);
+    }
   }
 
   return {
-    record(file) {
+    record(file, chunks = []) {
       if (!dir) return Promise.resolve();
       const folder = dir;
       const done = queue
-        .then(() => write(folder, file))
+        .then(() => write(folder, file, chunks))
         .catch((err) => warn(`Web SDK builds in ${folder}: build ${file.hash} was not kept`, err));
       queue = done;
       return done;
+    },
+    async readChunk(name) {
+      if (!dir || !CHUNK.test(name)) return null;
+      // A chunk of the build kept under the same name: the newest such, as the builds' own order.
+      const entries = (await readdir(dir).catch(() => [] as string[])).filter(
+        (entry) => BUILD_CHUNK.exec(entry)?.[2] === name,
+      );
+      const entry = entries.sort((a, b) => a.localeCompare(b))[0];
+      if (!entry) return null;
+      let reader = chunkReaders.get(entry);
+      if (!reader) {
+        reader = servedFile(join(dir, entry));
+        chunkReaders.set(entry, reader);
+      }
+      const file = await reader();
+      if (!file) chunkReaders.delete(entry);
+      return file;
     },
     async read(hash) {
       if (!dir || !HASH.test(hash)) return null;
@@ -228,6 +279,8 @@ export interface SdkSource {
   current(): Promise<ServedFile | null>;
   /** The current build when the hash is its own, else a kept one, else null. */
   pinned(hash: string): Promise<ServedFile | null>;
+  /** A chunk of the bundle by its name: from the current build's folder, else from a kept build; else null. */
+  chunk(name: string): Promise<ServedFile | null>;
 }
 
 /** How long the bundle file must stay unchanged before its build is kept for pinned URLs. */
@@ -245,6 +298,9 @@ export function sdkSource(
   stableMs = SDK_STABLE_MS,
 ): SdkSource {
   const read = servedFile(bundleFile);
+  // The bundle's folder holds its chunks, which the build serves by name.
+  const folder = dirname(bundleFile);
+  const chunkReaders = new Map<string, () => Promise<ServedFile | null>>();
   let recorded: ServedFile | null = null;
   let waiting: ReturnType<typeof setTimeout> | null = null;
   const current = async (): Promise<ServedFile | null> => {
@@ -253,7 +309,7 @@ export function sdkSource(
       const age = Date.now() - (file.mtimeMs ?? 0);
       if (age >= stableMs) {
         recorded = file;
-        void builds.record(file);
+        void siblingChunks(folder).then((chunks) => builds.record(file, chunks));
       } else if (!waiting) {
         waiting = setTimeout(() => {
           waiting = null;
@@ -270,7 +326,31 @@ export function sdkSource(
       const file = await current();
       return file && file.hash === hash ? file : builds.read(hash);
     },
+    async chunk(name) {
+      if (!CHUNK.test(name)) return null;
+      let reader = chunkReaders.get(name);
+      if (!reader) {
+        reader = servedFile(join(folder, name));
+        chunkReaders.set(name, reader);
+      }
+      const file = await reader();
+      if (file) return file;
+      chunkReaders.delete(name);
+      return builds.readChunk(name);
+    },
   };
+}
+
+/** The chunks of the bundle's folder, as the build keeps them (each read whole), by name. */
+async function siblingChunks(folder: string): Promise<ServedChunk[]> {
+  const names = (await readdir(folder).catch(() => [] as string[])).filter((name) => CHUNK.test(name));
+  const chunks = await Promise.all(
+    names.map(async (name) => {
+      const file = await servedFile(join(folder, name))();
+      return file ? { name, file } : null;
+    }),
+  );
+  return chunks.filter((chunk): chunk is ServedChunk => chunk !== null);
 }
 
 const gzipAsync = promisify(gzipCallback);
@@ -425,6 +505,15 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, sdk: SdkSource 
 
   router.get('/:name', async (req, res, next) => {
     try {
+      if (CHUNK.test(req.params.name) && !Object.prototype.hasOwnProperty.call(PAGE_FILES, req.params.name)) {
+        // A chunk of the bundle, named by its content: the current build's, or a kept build's.
+        const file = await sdk.chunk(req.params.name);
+        if (!file) {
+          res.set('Cache-Control', 'no-store');
+          return notFound(res);
+        }
+        return await sendBundle(req, res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
+      }
       const pinned = PINNED.exec(req.params.name);
       if (pinned) {
         // The current build or one of the last ones kept (story 8.21); any other hash is unknown.

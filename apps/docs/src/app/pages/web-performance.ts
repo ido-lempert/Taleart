@@ -32,7 +32,7 @@ import { SDK_BUDGET } from './sdk-budget.generated';
         </thead>
         <tbody>
           <tr>
-            <td>ES module build (<code>index.js</code>), gzipped</td>
+            <td>ES module build (all its chunks: <code>index.js</code>, <code>core</code> and <code>viewer</code>), gzipped</td>
             <td>{{ budgetKb }} KB</td>
             <td>{{ esmKb }} KB</td>
           </tr>
@@ -43,8 +43,8 @@ import { SDK_BUDGET } from './sdk-budget.generated';
           </tr>
           <tr>
             <td>Script requests per page</td>
-            <td>1</td>
-            <td>1</td>
+            <td>2</td>
+            <td>2</td>
           </tr>
           <tr>
             <td>Zone requests per zone</td>
@@ -60,8 +60,11 @@ import { SDK_BUDGET } from './sdk-budget.generated';
       </table>
     </div>
     <p>
-      The budget covers all of the SDK's script, gzipped. Each zone adds one request to the TaleArt API, and the page
-      makes no call to any other host. Pictures load as described below.
+      The budget covers all of the SDK's script, gzipped. The page loads two script files: <code>index.js</code> and the
+      <code>core</code> chunk it imports, which together stay under the budget. The viewer and the renderers of tale
+      documents are a third chunk, which the SDK loads the first time a visitor opens a group, so the bar or the banner
+      shows without it; the UMD build is one file that includes the viewer. Each zone adds one request to the TaleArt
+      API, and the page makes no call to any other host. Pictures load as described below.
     </p>
 
     <h2 id="loading">Loading rules</h2>

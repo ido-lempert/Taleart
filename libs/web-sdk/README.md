@@ -47,7 +47,8 @@ page that places it.
 The Install tab also has a Copy button and an "Open test page" link (below).
 
 - **Where the SDK comes from.** The TaleArt API serves this package's ES build at `<api-url>/sdk/v1/taleart.js`: the
-  API build copies `dist/libs/web-sdk/index.js` next to its `main.js` (`WEB_SDK_FILE` names another file). The `v1`
+  API build copies `dist/libs/web-sdk/*.js` (the entry `index.js` and its chunks, the viewer's among them) next to its
+  `main.js` (`WEB_SDK_FILE` names the entry). The chunks are served under the same path by their names. The `v1`
   follows the Delivery API's version: the bundle there always reads `/delivery/v1`. A deploy replaces it at the same
   URL; it is cached for five minutes, and a running API serves a rebuilt file at once. Deploy a new file atomically:
   write it elsewhere on the same disk, then rename it over the old one (the API reads again a file that changes while
@@ -693,17 +694,18 @@ below:
 | Budget | Limit | Checked by |
 | --- | --- | --- |
 | The SDK's ES chunks together, gzipped | at most 50 KB | `web-sdk:size`, `sdk-sample:perf` |
-| The chunk the page loads (`index.js`), gzipped | at most 40 KB, else the viewer splits out | `web-sdk:size`, `sdk-sample:perf` |
+| The entry the page loads (`index.js`), gzipped | at most 40 KB | `web-sdk:size`, `sdk-sample:perf` |
 | First zone content, cold, p75 | at most 1.5 s | `sdk-sample:perf` |
 | First tale frame of a 20-element tale with a project font, from the tap, p75 | at most 1 s | `sdk-sample:perf` |
 | Font requests by a page whose tales use no project font | none | `sdk-sample:perf` |
 | Project font | after the first tale frame, only when its tale opens | `sdk-sample:perf` |
 
-Past 40 KB gzipped, the viewer and the document renderers move to a chunk the SDK loads when the viewer first opens
-(AD-16), and `web-sdk:size` reports both chunks. Until then the SDK is one chunk, and the check reports what that split
-would move, as lower bounds (from `dist/libs/web-sdk-modules.json`, the module report the build writes beside the
-package; it is not published). Sizes are measured at gzip level 9 (what the API sends) and level 6 (most servers' and
-CDNs' default), and judged on the larger. The split also needs the API to serve the second chunk under `/sdk/v1` and the UMD build to keep working.
+The SDK is split (AD-16): the entry `index.js` is a few hundred bytes that imports `core-<hash>.js` (the SDK and its
+contract, about 15 KB gzipped), so the page loads two scripts; the viewer and the document renderers are `viewer-<hash>.js`
+(about 27 KB gzipped), which the SDK imports the first time a visitor opens a group. The UMD build (`index.umd.cjs`) is one
+file with the viewer inside. `web-sdk:size` reports every chunk and judges the entry and the total; the API serves each
+chunk under `/sdk/v1` by its name, and keeps the chunks of each pinned build with that build. Sizes are measured at gzip
+level 9 (what the API sends) and level 6 (most servers' and CDNs' default), and judged on the larger.
 
 ### Measuring
 

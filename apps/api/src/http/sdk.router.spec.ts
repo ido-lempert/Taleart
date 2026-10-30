@@ -599,6 +599,108 @@ describe('pinned URLs of earlier builds (story 8.21)', () => {
   });
 });
 
+describe('chunks of the bundle (AD-16): served by name, and kept with the build that imports them', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'taleart-sdk-chunks-'));
+  const bundleFile = join(dir, 'taleart.js');
+  const buildsDir = join(dir, 'builds');
+  const servers: Server[] = [];
+
+  async function start(kept = 2): Promise<string> {
+    const server = createApp(
+      unused as Pool,
+      unused as FrameTypeRegistry,
+      unused as MediaStorage,
+      { verifier: unused as PasskeyVerifier },
+      { publicApiUrl: 'https://api.example.com' },
+      undefined,
+      undefined,
+      { rateLimit: null },
+      { bundleFile, buildsDir, buildsKept: kept, warn: () => undefined, stableMs: 0 },
+    ).listen(0);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+
+  // A build of the SDK: its entry imports its viewer chunk, which lies beside it in the bundle's folder.
+  // Returns the entry's pinned path and the chunk's name.
+  function build(tag: string): { pinned: string; chunk: string; hash: string } {
+    const chunk = `viewer-${tag.repeat(8).slice(0, 8)}.js`;
+    const entry = Buffer.from(
+      `import { v } from "./${chunk}";\nexport const build = ${JSON.stringify(tag)};\nexport { v };\n`,
+    );
+    writeFileSync(bundleFile, entry);
+    writeFileSync(join(dir, chunk), `export const v = ${JSON.stringify(`viewer ${tag}`)};\n`);
+    const file = toServedFile(entry);
+    return { pinned: `/sdk/v1/taleart.${file.hash}.js`, chunk, hash: file.hash };
+  }
+  const kept = () => (existsSync(buildsDir) ? readdirSync(buildsDir).sort() : []);
+  const status = async (url: string) => (await fetch(url)).status;
+
+  beforeEach(() => {
+    rmSync(buildsDir, { recursive: true, force: true });
+  });
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('serves the chunk of the current build by its name, immutable, and nothing that is not a chunk', async () => {
+    const a = build('a');
+    const origin = await start();
+    expect(await (await fetch(`${origin}/sdk/v1/taleart.js`)).text()).toContain('./viewer-aaaaaaaa.js');
+    const res = await fetch(`${origin}/sdk/v1/${a.chunk}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(res.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
+    expect(await res.text()).toContain('viewer a');
+    for (const path of [
+      'viewer-missing.js',
+      'index.js',
+      'Viewer-aaaaaaaa.js',
+      '..-x.js',
+      'viewer-aaaaaaaa.js.map',
+      'viewer-%2E%2E.js',
+    ]) {
+      expect(await status(`${origin}/sdk/v1/${path}`), path).toBe(404);
+    }
+  });
+
+  it('keeps each build with its chunks, serves an old pinned build its own chunk, and drops both when the build is evicted', async () => {
+    const a = build('a');
+    const origin = await start(2);
+    expect(await (await fetch(`${origin}/sdk/v1/taleart.js`)).text()).toContain('viewer-aaaaaaaa');
+    await expect.poll(kept).toContain(`taleart.${a.hash}.js`);
+    expect(kept()).toContain(`taleart.${a.hash}.${a.chunk}`);
+
+    // The chunk leaves the bundle's folder (as a deploy replaces it): the kept build still has it.
+    rmSync(join(dir, a.chunk));
+    expect(await status(`${origin}/sdk/v1/${a.chunk}`)).toBe(200);
+
+    const b = build('b');
+    expect(await (await fetch(`${origin}/sdk/v1/taleart.js`)).text()).toContain('viewer-bbbbbbbb');
+    await expect.poll(kept).toContain(`taleart.${b.hash}.js`);
+    expect(await status(`${origin}${a.pinned}`)).toBe(200);
+    expect(await status(`${origin}/sdk/v1/${a.chunk}`)).toBe(200);
+    rmSync(join(dir, b.chunk));
+
+    const c = build('c');
+    expect(await (await fetch(`${origin}/sdk/v1/taleart.js`)).text()).toContain('viewer-cccccccc');
+    await expect.poll(kept).toContain(`taleart.${c.hash}.${c.chunk}`);
+    // A (the oldest) is evicted with its chunk; B stays, with its chunk.
+    await expect.poll(() => kept().some((name) => name === `taleart.${a.hash}.js`)).toBe(false);
+    expect(kept()).not.toContain(`taleart.${a.hash}.${a.chunk}`);
+    expect(kept()).toContain(`taleart.${b.hash}.${b.chunk}`);
+    expect(await status(`${origin}/sdk/v1/${a.chunk}`)).toBe(404);
+    expect(await status(`${origin}/sdk/v1/${b.chunk}`)).toBe(200);
+  });
+});
+
 describe('servedFile while the file is being written', () => {
   const body = Buffer.from('export const whole = true;\n');
   const file = '/sdk/taleart.js';

@@ -29,7 +29,7 @@
           ]
         },
         {
-          "dependentTasksOutputFiles": "**/web-sdk/index.js",
+          "dependentTasksOutputFiles": "**/web-sdk/*.js",
           "transitive": false
         }
       ]

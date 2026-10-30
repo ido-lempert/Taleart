@@ -22,6 +22,9 @@ Owner decision (2026-10-30): scope = **everything**: tokens, RTL, restyle of vie
 - **P6 Poll + stickers:** restyle quiz/rating/reaction/countdown/promo; poll views via element prop `view`: `sticker` (default), `embed`, `this-or-that`, `grid`, `inline`; CTA sticker restyle (button/swipe-up). Same surfaces.
 - **P7 Verification:** full test suites, docs build, a11y checks, LTR/RTL x light/dark screenshots matrix for each component (web), native screenshots on simulator/emulator via the taller app where feasible.
 
+## Short motion clips in the docs (owner approved 2026-10-30, part of P7)
+6 to 8 clips, each <= 8 s and <= 300 KB, only for motion: rings, poll fill, quiz, rating, reaction, countdown, banner, viewer. Web: WebM recorded by Playwright (`recordVideo`) from a mode in apps/docs/scripts/web-sdk-shots.mjs. Native: MP4 straight from `adb screenrecord` / `xcrun simctl io recordVideo` (no ffmpeg on this machine; no conversion). In the page: `<video muted loop playsinline controls preload="metadata" poster="<existing png>">`, no autoplay under `prefers-reduced-motion`, alt-style caption, widths/heights like the images; docs-assets spec extended for videos (existence + size cap). Retake clips with the screenshots after any look change.
+
 ## Standing rule: dependent screens (owner, 2026-10-30)
 Every look change to a component also updates every screen built on it, in the same phase: docs screenshots (retake with apps/docs/scripts), dashboard live previews and Tale Studio canvas, the taller sample app and its native screenshots, e2e/a11y baselines, and guide text that describes the look. Find consumers by grep; the phase report lists what was refreshed.
 

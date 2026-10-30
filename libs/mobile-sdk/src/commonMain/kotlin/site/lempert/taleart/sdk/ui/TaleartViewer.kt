@@ -4,8 +4,15 @@ import site.lempert.taleart.sdk.storage.deviceKeyValueStoreOrNull
 import site.lempert.taleart.sdk.recordFrequencyView
 import site.lempert.taleart.sdk.analytics.AnalyticsEventType
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.SideEffect
@@ -29,7 +36,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -118,10 +124,23 @@ const val VIEWER_SEGMENT_TAG = "taleart-viewer-segment"
 const val VIEWER_STAGE_TAG = "taleart-viewer-stage"
 
 /**
- * How far the top bar reaches below the safe area, where the canvas starts: 8 dp padding, the 3 dp
- * progress, 8 dp, the 44 dp controls and 8 dp padding, rounded up.
+ * How far the top bar reaches below the safe area, where the canvas starts: 12 dp padding, the 3 dp
+ * progress, 6 dp, the 48 dp controls, rounded up.
  */
 internal val VIEWER_TOP_BAR_HEIGHT = 72.dp
+
+/** A control's touch target (`CONTROL_TOUCH_DP`): 48 dp, above both Android's 48 dp and iOS's 44 pt. */
+internal const val CONTROL_TOUCH_DP = 48
+
+/** A control's visible disc (the canvas's 40 px round button), inside its touch target. */
+internal const val CONTROL_DISC_DP = 40
+
+/** How far a control is scaled while pressed (the canvas's active state: 0.94, on a spring). Reduced motion keeps it still. */
+internal const val CONTROL_PRESSED_SCALE = 0.94f
+
+/** The scale of a control: [CONTROL_PRESSED_SCALE] while pressed, unless reduced motion keeps it in place. */
+internal fun controlScale(pressed: Boolean, reducedMotion: Boolean): Float =
+    if (pressed && !reducedMotion) CONTROL_PRESSED_SCALE else 1f
 
 /** Test tag of the current tale's 9:16 canvas. */
 const val VIEWER_CANVAS_TAG = "taleart-viewer-canvas"
@@ -167,11 +186,16 @@ internal const val MAX_FRAME_STEP_MS = 1_000L
 /** A press at least this long is a hold (pause), not a tap (step) (`HOLD_MIN_MS`). */
 const val HOLD_MIN_MS = 250L
 
-// The viewer's fixed look (VIEWER_BASE_STYLES in the Web SDK).
-private val TRACK = InkDark.copy(alpha = 0.4f)
+// The viewer's chrome sits over the tale's own media, so it keeps the scheme's dark card as its scrim and
+// white ink in both colour schemes: it must read over any picture. The rest of the viewer takes its
+// ground and ink from ThemeColors (the card of the resolved scheme, its ink, the accent).
+private val TRACK = InkDark.copy(alpha = 0.35f)
 private val CONTROL_BACKGROUND = CardDark.copy(alpha = 0.6f)
 private val NAME_BACKGROUND = CardDark.copy(alpha = 0.8f)
 private val TOP_SHADE = Brush.verticalGradient(listOf(CardDark.copy(alpha = 0.7f), Color.Transparent))
+
+// The segments: 3 dp high, rounded to their own height, with 4 dp between them (the canvas's `.segs`).
+private val SEGMENT_HEIGHT = 3.dp
 
 private object Icons {
     const val PAUSE = "M6 5h4v14H6zM14 5h4v14h-4z"
@@ -432,6 +456,7 @@ internal fun ViewerContent(
     }
 
     val accent = parseHexColor(theme.accentColor) ?: InkDark
+    val colors = rememberThemeColors()
     val font = rememberFontFamily(theme.fontFamily)
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -450,7 +475,7 @@ internal fun ViewerContent(
             }
             .drawBehind {
                 val pulled = (dragDown.value / size.height).coerceIn(0f, 1f)
-                drawRect(CardDark.copy(alpha = 1f - 0.6f * pulled))
+                drawRect(colors.paper.copy(alpha = 1f - 0.6f * pulled))
             }
             .testTag(VIEWER_TAG)
             .semantics {
@@ -510,6 +535,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
     val t = LocalTaleartContext.current.translate
     val scope = rememberCoroutineScope()
     val dir = if (rtl) -1 else 1
+    val ground = rememberThemeColors().paper
     // The released drag settling now, if any: a new touch lands it at once.
     val settling = remember(motion) { arrayOfNulls<Job>(1) }
     Box(
@@ -623,9 +649,9 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                         .testTag(VIEWER_NEIGHBOR_TAG)
                         .clearAndSetSemantics { }
                         .graphicsLayer { cubeFace(motion.offset + neighbor.side) }
-                        .faceShade { motion.offset + neighbor.side },
+                        .faceShade(ground) { motion.offset + neighbor.side },
                 ) {
-                    TalePreview(neighbor.view, themeFont)
+                    TalePreview(neighbor.view, themeFont, ground)
                 }
             }
         }
@@ -643,7 +669,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                         scaleY = scale
                     }
                 }
-                .faceShade { motion.offset },
+                .faceShade(ground) { motion.offset },
         ) {
             key(state.shows) { TalePage(state, themeFont = themeFont) }
         }
@@ -651,10 +677,10 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
 }
 
 // A cube's face darkens as it turns away, as a face out of the light.
-private fun Modifier.faceShade(position: () -> Float): Modifier = drawWithContent {
+private fun Modifier.faceShade(ground: Color, position: () -> Float): Modifier = drawWithContent {
     drawContent()
     val p = abs(position()).coerceIn(0f, 1f)
-    if (p > 0f) drawRect(CardDark.copy(alpha = 0.5f * p))
+    if (p > 0f) drawRect(ground.copy(alpha = 0.5f * p))
 }
 
 /**
@@ -663,12 +689,12 @@ private fun Modifier.faceShade(position: () -> Float): Modifier = drawWithConten
  * the cube) and with its links inert. Nothing in it plays.
  */
 @Composable
-private fun TalePreview(view: TaleView, themeFont: String?) {
+private fun TalePreview(view: TaleView, themeFont: String?, ground: Color) {
     val loader = rememberCoverImageLoader()
     Box(
         Modifier
             .fillMaxSize()
-            .background(view.stageColor?.let(::parseHexColor) ?: CardDark),
+            .background(view.stageColor?.let(::parseHexColor) ?: ground),
         contentAlignment = Alignment.Center,
     ) {
         when (val media = view.media) {
@@ -844,7 +870,7 @@ private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: android
             .fillMaxWidth()
             .background(TOP_SHADE)
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(8.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             val count = state.group.tales.size
@@ -857,41 +883,40 @@ private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: android
                 Segment(fill, accent, Modifier.weight(1f))
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            // The name takes the room the controls leave, and ellipsizes in it.
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // The group chip takes the room the controls leave, and ellipsizes in it.
             Box(Modifier.weight(1f).padding(end = 8.dp)) {
                 BasicText(
                     state.group.name,
-                    style = TextStyle(color = InkDark, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, fontFamily = font),
+                    style = TextStyle(color = InkDark, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, fontFamily = font),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(NAME_BACKGROUND)
-                        .padding(horizontal = 10.dp, vertical = 2.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 )
             }
             // Under reduced motion the Pause button shows only for a video, which plays from it.
             if (!state.reducedMotion || state.view.runsOnVideo) {
-                Control(if (state.paused) t("viewer.play") else t("viewer.pause"), if (state.paused) Icons.PLAY else Icons.PAUSE, accent) { state.togglePause() }
-                Spacer(Modifier.width(8.dp))
+                Control(if (state.paused) t("viewer.play") else t("viewer.pause"), if (state.paused) Icons.PLAY else Icons.PAUSE, accent, state.reducedMotion) { state.togglePause() }
             }
-            Control(t("viewer.close"), Icons.CLOSE, accent) { state.close() }
+            Control(t("viewer.close"), Icons.CLOSE, accent, state.reducedMotion) { state.close() }
         }
     }
 }
 
 @Composable
 private fun Segment(fill: Float, accent: Color, modifier: Modifier) {
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(
         modifier
-            .height(3.dp)
-            .clip(RoundedCornerShape(2.dp))
+            .height(SEGMENT_HEIGHT)
+            .clip(RoundedCornerShape(SEGMENT_HEIGHT))
             .background(TRACK)
             .testTag(VIEWER_SEGMENT_TAG)
             .semantics { segmentFill = fill },
     ) {
-        val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
         Canvas(Modifier.matchParentSize()) {
             val w = size.width * fill
             drawRect(accent, topLeft = androidx.compose.ui.geometry.Offset(segmentFillLeft(w, size.width, rtl), 0f), size = Size(w, size.height))
@@ -899,23 +924,53 @@ private fun Segment(fill: Float, accent: Color, modifier: Modifier) {
     }
 }
 
-// A 44dp round control with a 24dp icon in the accent colour.
+// A round control: a 40 dp disc with a 20 dp icon, in a 48 dp touch target. It scales to 0.94 on a spring
+// while pressed (not under reduced motion) and shows a 2 dp ring in the accent when it has keyboard focus.
 @Composable
-private fun Control(label: String, icon: String, accent: Color, onClick: () -> Unit) {
+private fun Control(label: String, icon: String, accent: Color, reducedMotion: Boolean, onClick: () -> Unit) {
     val path = remember(icon) { PathParser().parsePathString(icon).toPath() }
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = controlScale(pressed, reducedMotion),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "viewer control press",
+    )
+    var focused by remember { mutableStateOf(false) }
+    // The icon is the accent, lightened only when it would not read at 4.5:1 on the dark scrim.
+    val ink = readableOn(accent, CardDark)
     Box(
         Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(CONTROL_BACKGROUND)
-            .clickable(role = Role.Button, onClickLabel = null, onClick = onClick)
+            .size(CONTROL_TOUCH_DP.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(
+                interactionSource = source,
+                indication = null,
+                enabled = true,
+                onClickLabel = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(24.dp)) {
-            val factor = size.width / 24f
-            scale(factor, factor, pivot = androidx.compose.ui.geometry.Offset.Zero) {
-                drawPath(path, accent)
+        Box(
+            Modifier
+                .size(CONTROL_DISC_DP.dp)
+                .graphicsLayer {
+                    scaleX = pressScale
+                    scaleY = pressScale
+                }
+                .clip(CircleShape)
+                .background(CONTROL_BACKGROUND)
+                .then(if (focused) Modifier.border(2.dp, accent, CircleShape) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(20.dp)) {
+                val factor = size.width / 24f
+                scale(factor, factor, pivot = androidx.compose.ui.geometry.Offset.Zero) {
+                    drawPath(path, ink)
+                }
             }
         }
     }

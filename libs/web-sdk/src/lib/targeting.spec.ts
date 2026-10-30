@@ -128,12 +128,14 @@ describe('setTags (epic targeting R2)', () => {
 
   describe('with the viewer open', () => {
     const viewerDialog = (el: TaleartElement) => el.shadowRoot?.querySelector<HTMLDialogElement>('dialog.viewer');
-    const openGroup = (el: TaleartElement, id: string) =>
+    const openGroup = async (el: TaleartElement, id: string) => {
       el.shadowRoot?.querySelector<HTMLButtonElement>(`button.item[data-tale-group-id="${id}"]`)?.click();
+      await vi.dynamicImportSettled();
+    };
 
     it('keeps it open while its group still matches, and shows the new groups once it closes', async () => {
       const el = await mount();
-      openGroup(el, 'C');
+      await openGroup(el, 'C');
       const dialog = viewerDialog(el);
       expect(dialog?.hasAttribute('open')).toBe(true);
       expect(dialog?.getAttribute('aria-label')).toBe('C');
@@ -145,6 +147,7 @@ describe('setTags (epic targeting R2)', () => {
       expect(shown(el)).toEqual(['A', 'B', 'C', 'D']);
 
       dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await vi.dynamicImportSettled();
       expect(shown(el)).toEqual(['C', 'D']);
       expect(el.shadowRoot?.activeElement?.getAttribute('data-tale-group-id')).toBe('C');
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -152,7 +155,7 @@ describe('setTags (epic targeting R2)', () => {
 
     it('closes it when its group no longer matches, and focuses the display', async () => {
       const el = await mount();
-      openGroup(el, 'C');
+      await openGroup(el, 'C');
       expect(viewerDialog(el)?.hasAttribute('open')).toBe(true);
 
       setTags(['summer']);
@@ -163,19 +166,19 @@ describe('setTags (epic targeting R2)', () => {
 
     it('shows a group again once the tags match it again, and it opens', async () => {
       const el = await mount();
-      openGroup(el, 'C');
+      await openGroup(el, 'C');
       setTags(['summer']);
       expect(shown(el)).toEqual(['A', 'D']);
       setTags(['vip']);
       expect(shown(el)).toEqual(['C', 'D']);
-      openGroup(el, 'C');
+      await openGroup(el, 'C');
       expect(viewerDialog(el)?.getAttribute('aria-label')).toBe('C');
       expect(viewerDialog(el)?.hasAttribute('open')).toBe(true);
     });
 
     it('closes it after all when tags change again so that its group no longer matches', async () => {
       const el = await mount();
-      openGroup(el, 'C');
+      await openGroup(el, 'C');
       setTags(['vip']);
       expect(viewerDialog(el)?.hasAttribute('open')).toBe(true);
       setTags(['summer']);

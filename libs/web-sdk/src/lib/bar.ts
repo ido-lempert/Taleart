@@ -1,6 +1,6 @@
 import type { BarSettings, DeliveryTaleGroup } from '@taleart/contract';
 import { mediaUrl } from './document/media';
-import { canvasColor } from './document/renderer';
+import { canvasColor } from './document/canvas-color';
 import { defaultTranslate, type Translate } from './i18n';
 import { replaceCover, setCanvasSource, setSource } from './first-content';
 

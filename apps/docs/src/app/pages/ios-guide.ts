@@ -339,7 +339,7 @@ import {
         width="415"
         height="900"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample tale on iOS over a sale picture: a white card reading 'Sale ends in' with a countdown of 02 days, 05 hours, 01 minute and 29 seconds."
+        alt="Screenshot of a TaleArt sample tale on iOS over a sale picture: a white card reading 'Sale ends in' with the days, hours, minutes and seconds left to its end in large figures, each with its unit below."
       />
       <figcaption class="muted">
         A countdown in the sample app's viewer (taller) on iOS, a real screenshot.

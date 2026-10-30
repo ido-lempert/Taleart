@@ -41,7 +41,7 @@ import { createTranslate, type StringsConfig, type Translate } from './i18n';
 import type { Theme, ViewerProperties, ViewerPropertyValue } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride, THEME_SCHEME_STYLES } from './theme';
-import { TaleViewer, VIEWER_STYLES } from './viewer';
+import { LazyTaleViewer } from './viewer-loader';
 
 export const TALEART_ELEMENT_TAG = 'taleart-view';
 
@@ -267,7 +267,7 @@ export class TaleartElement extends ElementBase {
   // Bumped on every load, so only the latest response renders.
   private loadId = 0;
   private scheduled = false;
-  private viewer: TaleViewer | null = null;
+  private viewer: LazyTaleViewer | null = null;
   // Where the viewer's interactive components send responses: the zone last read.
   private responses: ReturnType<typeof responseClient> | null = null;
   private view: DisplayView | null = null;
@@ -787,7 +787,7 @@ export class TaleartElement extends ElementBase {
     let barItems: Map<string, HTMLButtonElement> | null = null;
     // The display's item or slide of the group shown last takes focus back when the viewer closes.
     let view: DisplayView | null = null;
-    const viewer = new TaleViewer(themed, zone.taleGroups, {
+    const viewer = new LazyTaleViewer(themed, zone.taleGroups, {
       onGroupShown: (groupId) => {
         markGroupSeen(groupId);
         if (this.viewCounted !== groupId) {
@@ -898,7 +898,7 @@ export class TaleartElement extends ElementBase {
     this.view = view;
     if (!view) return;
     const style = document.createElement('style');
-    style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES + VIEWER_STYLES;
+    style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES;
     this.viewer = viewer;
     themed.replaceChildren(view.element);
     this.root.replaceChildren(style, themed);

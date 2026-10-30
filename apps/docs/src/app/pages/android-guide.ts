@@ -376,7 +376,7 @@ import {
         width="506"
         height="900"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample tale on Android over a sale picture: a white card reading 'Sale ends in' with a countdown of 02 days, 04 hours, 49 minutes and 03 seconds, in large figures with their units below."
+        alt="Screenshot of a TaleArt sample tale on Android over a sale picture: a white card reading 'Sale ends in' with the days, hours, minutes and seconds left to its end in large figures, each with its unit below."
       />
       <figcaption class="muted">
         A countdown in the sample app's viewer (taller) on Android, a real screenshot. The figures tick on the device's clock.

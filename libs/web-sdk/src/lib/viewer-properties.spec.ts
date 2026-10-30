@@ -254,7 +254,9 @@ describe('viewer properties (Web SDK)', () => {
     const el = await mount();
     // Open a group and close it, then hide the page: the analytics events go out by beacon.
     el.shadowRoot?.querySelector<HTMLButtonElement>('button.item')?.click();
+    await vi.dynamicImportSettled();
     window.dispatchEvent(new Event('pagehide'));
+    await vi.dynamicImportSettled();
 
     const sent = [
       ...fetchMock.mock.calls.map(([url, init]) => [String(url), JSON.stringify(init ?? {})].join('\n')),
