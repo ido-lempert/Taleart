@@ -56,14 +56,15 @@ internal val LocalTaleClock = staticCompositionLocalOf<() -> Instant> { { Clock.
 /** Puts a promo code on the clipboard: the platform's, unless a test sets its own. */
 internal val LocalClipboardCopy = staticCompositionLocalOf<(String) -> Boolean> { { text: String -> copyToClipboard(text) } }
 
-// The card's colours: white with near-black text, or near-black with white text.
-private val CardLight = Color(0xFFFFFFFF)
-private val InkLight = Color(0xFF111827)
-private val CardDark = Color(0xFF111827)
-private val InkDark = Color(0xFFFFFFFF)
-
-/** The card's and text's colours for a theme. */
-internal fun cardColors(dark: Boolean): Pair<Color, Color> = if (dark) CardDark to InkDark else CardLight to InkLight
+/**
+ * The card's and text's colours: the element's own light or dark card (its `theme` prop), else the colour
+ * scheme's (`Auto` follows the host, `Light` and `Dark` force it). White with near-black text, or the reverse.
+ */
+@Composable
+internal fun cardColors(dark: Boolean?): Pair<Color, Color> {
+    val on = dark ?: rememberThemeColors().dark
+    return if (on) CardDark to InkDark else CardLight to InkLight
+}
 
 /** The card's corner radius and padding, as the web's `.ta-poll`. */
 internal const val CARD_RADIUS = 0.018

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import {
   checkThemeContrast,
+  COLOR_SCHEMES,
   CORNER_RADIUS_RANGE,
   cleanThemeSettings,
   contrastRatio,
@@ -36,6 +37,16 @@ describe('theme', () => {
     expect(DEFAULT_THEME.ringColors).toEqual(['#ea580c', '#db2777', '#7c3aed']);
   });
 
+  it('defaults the colour scheme to auto, the live ring to the last ring colour, and the quiz colours to AA on both backgrounds', () => {
+    expect(DEFAULT_THEME).toMatchObject({ colorScheme: 'auto', liveColor: null, successColor: '#047857', errorColor: '#b91c1c' });
+    // Both quiz colours clear 4.5:1 on white. On the dark background (#12111f) they do not (about 3.4:1
+    // and 2.9:1), so the dashboard warns about the defaults on a dark background.
+    for (const color of [DEFAULT_THEME.successColor, DEFAULT_THEME.errorColor]) {
+      expect(contrastRatio(color, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(color, '#12111f')).toBeLessThan(4.5);
+    }
+  });
+
   it('passes WCAG 2.2 AA with the default theme, on white where the background is the host page', () => {
     expect(themeSettingsError(DEFAULT_THEME)).toBeNull();
     expect(themeContrastIssues(DEFAULT_THEME)).toEqual([]);
@@ -54,6 +65,12 @@ describe('theme', () => {
     expect(themeSettingsError({ fontFamily: 'default-font, revert-ish' })).toBeNull();
   });
 
+  it('accepts the colour scheme, a live colour, and the quiz colours', () => {
+    for (const colorScheme of ['auto', 'light', 'dark']) expect(themeSettingsError({ colorScheme })).toBeNull();
+    expect(themeSettingsError({ liveColor: null })).toBeNull();
+    expect(themeSettingsError({ liveColor: '#FF00AA', successColor: '#0a7d4f', errorColor: '#c00000' })).toBeNull();
+  });
+
   it.each([
     [{ titleColor: 'red' }, "theme.titleColor must be a colour as #rrggbb, or null for the host page's"],
     [{ titleColor: 'transparent' }, "theme.titleColor must be a colour as #rrggbb, or null for the host page's"],
@@ -62,6 +79,15 @@ describe('theme', () => {
     [{ backgroundColor: '#fff' }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
     [{ backgroundColor: null }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
     [{ backgroundColor: 'Transparent ' }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
+    [{ colorScheme: 'system' }, 'theme.colorScheme must be one of: auto, light, dark'],
+    [{ colorScheme: null }, 'theme.colorScheme must be one of: auto, light, dark'],
+    [{ colorScheme: 'Dark' }, 'theme.colorScheme must be one of: auto, light, dark'],
+    [{ liveColor: 'red' }, 'theme.liveColor must be a colour as #rrggbb, or null for the last ring colour'],
+    [{ liveColor: '#fff' }, 'theme.liveColor must be a colour as #rrggbb, or null for the last ring colour'],
+    [{ successColor: null }, 'theme.successColor must be a colour as #rrggbb'],
+    [{ successColor: 'green' }, 'theme.successColor must be a colour as #rrggbb'],
+    [{ errorColor: '#fff' }, 'theme.errorColor must be a colour as #rrggbb'],
+    [{ errorColor: 'red;}' }, 'theme.errorColor must be a colour as #rrggbb'],
     [{ accentColor: 'url(x)' }, 'theme.accentColor must be a colour as #rrggbb'],
     [{ accentColor: 'transparent' }, 'theme.accentColor must be a colour as #rrggbb'],
     [{ seenRingColor: null }, 'theme.seenRingColor must be a colour as #rrggbb'],
@@ -139,6 +165,16 @@ describe('theme', () => {
     expect(resolved).toEqual({ ...DEFAULT_THEME, ringStyle: 'solid', cornerRadius: 0 });
     expect(resolveTheme({ titleColor: null, backgroundColor: '#000000' })).toEqual({ ...DEFAULT_THEME, backgroundColor: '#000000' });
     expect(cleanThemeSettings({ ringStyle: 'solid', ringWidth: 9, extra: 1 })).toEqual({ ringStyle: 'solid' });
+    // Stored themes from before the colour fields read back with their defaults.
+    expect(resolveTheme({ ringStyle: 'solid' })).toMatchObject({ colorScheme: 'auto', liveColor: null, successColor: '#047857', errorColor: '#b91c1c' });
+    expect(resolveTheme({ colorScheme: 'sepia', liveColor: 'red', successColor: null })).toEqual(DEFAULT_THEME);
+    expect(resolveTheme({ colorScheme: 'dark', liveColor: '#00ff00', errorColor: '#111111' })).toMatchObject({
+      colorScheme: 'dark',
+      liveColor: '#00ff00',
+      errorColor: '#111111',
+      successColor: '#047857',
+    });
+    expect(cleanThemeSettings({ colorScheme: 'sepia', liveColor: '#00ff00' })).toEqual({ liveColor: '#00ff00' });
   });
 
   it('keeps exactly the ring colours it checked, from a Proxy, a custom iterator or a sparse array', () => {
@@ -232,6 +268,8 @@ describe('theme schema in the OpenAPI document', () => {
     const defaults = Object.fromEntries(Object.entries(settings.properties).map(([k, v]) => [k, v['default']]));
     expect(defaults).toEqual(DEFAULT_THEME);
     expect(schemas['RingStyle']['enum']).toEqual(RING_STYLES);
+    expect(schemas['ColorScheme']['enum']).toEqual(COLOR_SCHEMES);
+    expect(schemas['Theme']['required']).toEqual(THEME_FIELDS);
     expect(schemas['ThemeColor']['pattern']).toBe(THEME_COLOR_PATTERN.source);
     const p = settings.properties;
     expect(p['titleColor']['pattern']).toBe(THEME_COLOR_PATTERN.source);
@@ -247,6 +285,9 @@ describe('theme schema in the OpenAPI document', () => {
     expect(p['fontFamily']['pattern']).toBe(FONT_FAMILY_PATTERN.source);
     expect(p['fontFamily']['maxLength']).toBe(MAX_FONT_FAMILY_LENGTH);
     expect(p['fontFamily']['type']).toEqual(['string', 'null']);
+    expect(p['liveColor']['pattern']).toBe(THEME_COLOR_PATTERN.source);
+    expect(p['liveColor']['type']).toEqual(['string', 'null']);
+    expect(p['colorScheme']['$ref']).toBe('#/components/schemas/ColorScheme');
   });
 
   it('agrees with the validator on sample values through the OpenAPI patterns', () => {

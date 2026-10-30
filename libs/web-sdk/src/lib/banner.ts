@@ -66,7 +66,7 @@ export const BANNER_STYLES = `
   overflow: hidden;
   aspect-ratio: 16 / 9;
   border-radius: var(--ta-radius, 12px);
-  background: #e5e7eb;
+  background: var(--ta-surface, transparent);
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
@@ -95,8 +95,8 @@ export const BANNER_STYLES = `
   pointer-events: none;
   -webkit-user-drag: none;
 }
-span.b-media { background: #e5e7eb; }
-.b-open:focus-visible { outline: 3px solid #111827; outline-offset: -5px; box-shadow: inset 0 0 0 5px #fff; }
+span.b-media { background: var(--ta-surface, transparent); }
+.b-open:focus-visible { outline: 3px solid var(--ta-ink); outline-offset: -5px; box-shadow: inset 0 0 0 5px var(--ta-paper); }
 .b-btn {
   position: absolute;
   z-index: 1;
@@ -105,15 +105,15 @@ span.b-media { background: #e5e7eb; }
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid #6b7280;
+  border: 1px solid var(--ta-muted);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92);
-  color: #111827;
+  background: color-mix(in srgb, var(--ta-paper) 92%, transparent);
+  color: var(--ta-ink);
   cursor: pointer;
 }
 .b-btn[hidden] { display: none; }
 .b-btn svg { width: 24px; height: 24px; fill: currentColor; }
-.b-btn:focus-visible { outline: 3px solid #111827; outline-offset: 1px; box-shadow: 0 0 0 5px #fff; }
+.b-btn:focus-visible { outline: 3px solid var(--ta-ink); outline-offset: 1px; box-shadow: 0 0 0 5px var(--ta-paper); }
 .b-btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 .b-prev, .b-next { top: 50%; margin-top: -22px; }
 .b-prev { inset-inline-start: 8px; }
@@ -134,7 +134,7 @@ span.b-media { background: #e5e7eb; }
   color: inherit;
   cursor: pointer;
 }
-.b-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+.b-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ta-muted); }
 /* With a theme title colour, dots are rings of it, filled for the slide shown. */
 .taleart[data-title] .b-dot::before {
   box-sizing: border-box;
@@ -146,7 +146,7 @@ span.b-media { background: #e5e7eb; }
 /* The shown slide's dot takes the theme title colour, else the host page's text colour, so it shows on a dark page too. */
 .b-dot[aria-current="true"]::before,
 .taleart[data-title] .b-dot[aria-current="true"]::before { width: 12px; height: 12px; background: var(--ta-title, currentColor); }
-.b-dot:focus-visible { outline: 2px solid #111827; outline-offset: -2px; box-shadow: inset 0 0 0 4px #fff; border-radius: 50%; }
+.b-dot:focus-visible { outline: 2px solid var(--ta-ink); outline-offset: -2px; box-shadow: inset 0 0 0 4px var(--ta-paper); border-radius: 50%; }
 @media (forced-colors: active) {
   .b-dot::before, .taleart[data-title] .b-dot::before { forced-color-adjust: none; background: GrayText; border: 0; }
   .b-dot[aria-current="true"]::before, .taleart[data-title] .b-dot[aria-current="true"]::before { background: CanvasText; }

@@ -7205,6 +7205,15 @@
           "none"
         ]
       },
+      "ColorScheme": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "light",
+          "dark"
+        ],
+        "description": "Which colour scheme the SDK draws: `auto` follows the host page's `prefers-color-scheme`, `light` and `dark` always draw that one."
+      },
       "ThemeSettings": {
         "type": "object",
         "description": "The fields of a theme a project sets; a field left out takes TaleArt's default, which keeps the look host pages had before themes: a transparent background, and the title colour, font and corner radius of the host page or the frame (`null`). Validated by `themeSettingsError` in `libs/contract`.",
@@ -7278,6 +7287,29 @@
             "$ref": "#/components/schemas/ThemeColor",
             "default": "#ffffff",
             "description": "The viewer's progress and button icons."
+          },
+          "colorScheme": {
+            "$ref": "#/components/schemas/ColorScheme",
+            "default": "auto"
+          },
+          "liveColor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "default": null,
+            "description": "The ring of a live tale as `#rrggbb`; null takes the last of `ringColors`."
+          },
+          "successColor": {
+            "$ref": "#/components/schemas/ThemeColor",
+            "default": "#047857",
+            "description": "The text and mark of a correct quiz answer. Needs 4.5:1 on light and dark backgrounds."
+          },
+          "errorColor": {
+            "$ref": "#/components/schemas/ThemeColor",
+            "default": "#b91c1c",
+            "description": "The text and mark of a wrong quiz answer. Needs 4.5:1 on light and dark backgrounds."
           }
         }
       },
@@ -7293,7 +7325,11 @@
           "fontFamily",
           "titleColor",
           "backgroundColor",
-          "accentColor"
+          "accentColor",
+          "colorScheme",
+          "liveColor",
+          "successColor",
+          "errorColor"
         ],
         "additionalProperties": false,
         "properties": {
@@ -7340,6 +7376,22 @@
             "type": "string"
           },
           "accentColor": {
+            "$ref": "#/components/schemas/ThemeColor"
+          },
+          "colorScheme": {
+            "$ref": "#/components/schemas/ColorScheme"
+          },
+          "liveColor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "successColor": {
+            "$ref": "#/components/schemas/ThemeColor"
+          },
+          "errorColor": {
             "$ref": "#/components/schemas/ThemeColor"
           }
         }

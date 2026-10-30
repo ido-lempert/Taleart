@@ -2,7 +2,7 @@ import type { DeliveryTaleDocument, DeliveryTaleElement, DeliveryTaleGroup } fro
 import { TaleViewer } from '../viewer';
 import type { ResponseClient, StoredResponse } from '../responses';
 import { createTranslate } from '../i18n';
-import { renderPoll, resultMessage } from './poll';
+import { cardClass, renderPoll, resultMessage } from './poll';
 import { ELEMENT_RENDERERS, renderTaleDocument } from './renderer';
 
 // Epic interactive components story 4.1: the poll renderer (R2, R10, C7, C9, C11; AD-16).
@@ -243,5 +243,12 @@ describe('TaleViewer with a poll (C7)', () => {
     }
     expect(position()).toBe('1');
     expect(fake.send).not.toHaveBeenCalled();
+  });
+  it('draws a card that follows the colour scheme unless the element says light or dark', () => {
+    expect(cardClass(undefined)).toBe('ta-poll-light ta-poll-auto');
+    expect(cardClass('light')).toBe('ta-poll-light');
+    expect(cardClass('dark')).toBe('ta-poll-dark');
+    expect(renderPoll(poll({ theme: undefined }), { reducedMotion: false })?.classList).toContain('ta-poll-auto');
+    expect(renderPoll(poll({ theme: 'dark' }), { reducedMotion: false })?.classList).not.toContain('ta-poll-auto');
   });
 });

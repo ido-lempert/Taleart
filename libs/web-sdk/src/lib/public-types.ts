@@ -5,6 +5,9 @@
 /** How a group's ring is drawn (R9). */
 export type RingStyle = 'gradient' | 'solid' | 'none';
 
+/** Which colour scheme the display draws: `auto` follows the host page's `prefers-color-scheme`. */
+export type ColorScheme = 'auto' | 'light' | 'dark';
+
 /** A full theme (R9): the project's theme as the Delivery API sends it, every field filled. */
 export interface Theme {
   ringStyle: RingStyle;
@@ -24,4 +27,12 @@ export interface Theme {
   backgroundColor: string;
   /** `#rrggbb`. */
   accentColor: string;
+  /** `auto` (the default) follows the host page's colour scheme. */
+  colorScheme: ColorScheme;
+  /** `#rrggbb`; `null` takes the last ring colour (the live badge). */
+  liveColor: string | null;
+  /** `#rrggbb`: a right quiz answer. */
+  successColor: string;
+  /** `#rrggbb`: a wrong quiz answer. */
+  errorColor: string;
 }

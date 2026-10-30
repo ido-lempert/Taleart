@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Poll</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0A0918}
+a{color:#9B7BFF}a:hover{color:#C4B2FF}
+.ta{--bg:#0A0918;--s1:#13112A;--s2:#1C1A38;--s3:#2A2650;--line:rgba(255,255,255,.08);--ink:#F4F3FF;--mute:#A9A6C4;--shadow:0 1px 0 rgba(255,255,255,.05) inset,0 30px 60px -30px rgba(0,0,0,.7);font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.ta.light{--bg:#F6F5FB;--s1:#FFFFFF;--s2:#F0EEF8;--s3:#E2DFF0;--line:rgba(18,17,31,.08);--ink:#12111F;--mute:#5C5A72;--shadow:0 1px 2px rgba(18,17,31,.06),0 30px 60px -30px rgba(40,20,120,.25)}
+.disp{font-family:'Inter Tight','Inter',system-ui,sans-serif;letter-spacing:-.02em}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:600}
+.card{background:var(--s1);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow)}
+.hd{display:flex;justify-content:space-between;align-items:baseline}
+.hd b{font-size:15px}.hd span{font-size:12px;color:var(--mute)}
+.opt{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:46px;padding:0 16px;border-radius:14px;border:1px solid var(--line);background:var(--s2);color:var(--ink);font:600 14px 'Inter',sans-serif;cursor:pointer;text-align:left;transition:transform .2s cubic-bezier(.34,1.56,.64,1),border-color .2s}
+.opt:hover{transform:translateY(-2px);border-color:rgba(155,123,255,.6)}
+.opt:active{transform:scale(.97)}
+.opt:focus-visible,.tile:focus-visible,.half:focus-visible,.pill:focus-visible{outline:2px solid #9B7BFF;outline-offset:3px}
+.opt .fillb{position:absolute;left:0;top:0;bottom:0;border-radius:inherit;transition:width 1s cubic-bezier(.16,1,.3,1);opacity:.35}
+.opt.sel{border-color:#9B7BFF;box-shadow:0 0 0 1px #9B7BFF,0 10px 30px -10px rgba(79,29,252,.7)}
+.opt.done{cursor:default}.opt.done:hover{transform:none}
+.opt>span{position:relative;display:flex;align-items:center;gap:10px}
+.sw{width:18px;height:18px;border-radius:6px;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
+.pct{font-variant-numeric:tabular-nums;font-weight:700}
+.pop{animation:pop .5s cubic-bezier(.34,1.56,.64,1)}
+.fadein{animation:fadein .6s .2s both}
+.phone{width:340px;height:700px;border-radius:50px;background:#05040D;padding:11px;box-sizing:border-box;box-shadow:0 0 0 1px rgba(255,255,255,.1),0 60px 120px -40px rgba(255,90,54,.45),0 40px 80px -30px rgba(0,0,0,.8)}
+.screen{width:100%;height:100%;border-radius:40px;overflow:hidden;position:relative;background:#FF5A36}
+.seg{display:flex;gap:4px}.seg i{flex:1;height:3px;border-radius:9px;background:rgba(255,255,255,.4)}
+.glassc{background:rgba(255,255,255,.16);backdrop-filter:blur(18px) saturate(140%);border:1px solid rgba(255,255,255,.3);border-radius:24px;padding:18px;color:#fff;box-shadow:0 30px 60px -20px rgba(80,10,0,.6)}
+.sopt{position:relative;overflow:hidden;width:100%;min-height:46px;border-radius:99px;border:0;background:#fff;color:#12111F;font:700 14px 'Inter',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:0 18px;transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
+.sopt:hover{transform:scale(1.02)}
+.sopt.done{background:rgba(255,255,255,.22);color:#fff;cursor:default}
+.sopt .fillb{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.9);transition:width 1s cubic-bezier(.16,1,.3,1)}
+.sopt.done .fillb{background:rgba(255,255,255,.28)}
+.sopt.done.sel .fillb{background:#fff}
+.sopt.done.sel{color:#12111F}
+.sopt>span{position:relative;display:flex;align-items:center;gap:8px}
+.half{position:relative;flex:1;border:0;padding:0;cursor:pointer;overflow:hidden;transition:flex-grow 1s cubic-bezier(.16,1,.3,1);color:#fff;font:inherit;display:flex;align-items:flex-end;justify-content:center}
+.half:hover .hl{transform:scale(1.06)}
+.hl{position:absolute;border-radius:50%;width:180px;height:180px;transition:transform .6s cubic-bezier(.16,1,.3,1)}
+.vs{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%;background:var(--s1);color:var(--ink);display:flex;align-items:center;justify-content:center;font:800 14px 'Inter Tight',sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:2;transition:left 1s cubic-bezier(.16,1,.3,1)}
+.tile{position:relative;border:0;padding:0;border-radius:18px;overflow:hidden;cursor:pointer;min-height:100px;transition:transform .3s cubic-bezier(.34,1.56,.64,1);font:inherit}
+.tile:hover{transform:translateY(-3px) rotate(-.5deg)}
+.tile .ov{position:absolute;inset:0;background:rgba(10,9,24,.55);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;gap:2px;transition:opacity .5s}
+.tile.sel{box-shadow:0 0 0 3px #9B7BFF,0 20px 40px -14px rgba(79,29,252,.8)}
+.pill{min-height:40px;padding:0 16px;border-radius:99px;border:1px solid var(--line);background:var(--s2);color:var(--ink);font:600 13px 'Inter',sans-serif;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
+.pill:hover{transform:translateY(-2px)}
+.stackbar{display:flex;height:12px;border-radius:99px;overflow:hidden;gap:2px}
+.stackbar i{display:block;height:100%;transition:width 1.1s cubic-bezier(.16,1,.3,1)}
+.sbtn{font:600 13px 'Inter',sans-serif;padding:8px 14px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--mute);cursor:pointer;min-height:36px}
+.check{width:20px;height:20px;border-radius:50%;background:#4F1DFC;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){*,*::before{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div class="ta {{themeCls}}" style="width: 1440px; height: 1100px; box-sizing: border-box; padding: 56px 64px; display: flex; flex-direction: column; gap: 22px">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="eyebrow">Poll · one question, five presentations</div>
+      <h1 class="disp" style="margin: 0; font-size: 44px; font-weight: 800; line-height: 1.05">Vote, then watch it move.</h1>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center">
+      <span style="font-size: 13px; color: var(--mute)">Every variant is live. Tap to vote.</span>
+      <button class="sbtn" onClick="{{reset}}">Reset votes</button>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 24px; flex-grow: 1; min-height: 0">
+    <div style="width: 360px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>A · In-story sticker</b><span>9:16 · glass over cover</span></div>
+      <div class="phone">
+        <div class="screen">
+          <div style="position: absolute; border-radius: 50%; width: 420px; height: 420px; right: -180px; top: -120px; background: #FFC2A8"></div>
+          <div style="position: absolute; border-radius: 50%; width: 260px; height: 260px; left: -90px; bottom: -60px; background: #B3261E; opacity: .7"></div>
+          <div style="position: absolute; left: 14px; right: 14px; top: 16px; display: flex; flex-direction: column; gap: 12px">
+            <div class="seg"><i style="background: #fff"></i><i style="background: #fff"></i><i></i><i></i><i></i></div>
+            <div style="display: flex; align-items: center; gap: 8px; color: #fff">
+              <span style="width: 30px; height: 30px; border-radius: 50%; background: #fff; display: block; box-shadow: inset 0 0 0 3px #FF5A36"></span>
+              <span style="font-size: 13px; font-weight: 700">Summer sale</span><span style="font-size: 12px; opacity: .8">· 2h</span>
+            </div>
+          </div>
+          <div style="position: absolute; left: 18px; right: 18px; top: 190px">
+            <div class="glassc" style="display: flex; flex-direction: column; gap: 10px">
+              <span style="font-size: 11px; font-weight: 700; letter-spacing: .14em; opacity: .9">POLL</span>
+              <span class="disp" style="font-size: 22px; font-weight: 800; line-height: 1.1">{{question}}</span>
+              <sc-for list="{{a}}" as="o" hint-placeholder-count="4">
+                <button class="sopt {{o.cls}}" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}">
+                  <i class="fillb" style="width: {{o.w}}"></i>
+                  <span>{{o.label}}<sc-if value="{{o.sel}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></sc-if></span>
+                  <sc-if value="{{aVoted}}" hint-placeholder-val="{{false}}"><span class="pct fadein">{{o.pct}}</span></sc-if>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+      <div class="card" style="padding: 22px; display: grid; grid-template-columns: 1fr 1.2fr; gap: 28px; align-items: center">
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <div class="hd" style="justify-content: flex-start; gap: 10px"><b>B · Web embed</b><span>blog, PDP, newsletter landing</span></div>
+          <span class="disp" style="font-size: 32px; font-weight: 800; line-height: 1.05">{{question}}</span>
+          <span style="font-size: 14px; color: var(--mute)">{{bTotal}} votes · results appear after you vote</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{b}}" as="o" hint-placeholder-count="4">
+            <button class="opt {{o.cls}}" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}">
+              <i class="fillb" style="width: {{o.w}}; background: {{o.color}}"></i>
+              <span><i class="sw" style="background: {{o.color}}"></i>{{o.label}}<sc-if value="{{o.sel}}" hint-placeholder-val="{{false}}"><i class="check"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></i></sc-if></span>
+              <sc-if value="{{bVoted}}" hint-placeholder-val="{{false}}"><span class="pct fadein">{{o.pct}}</span></sc-if>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px">
+        <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+          <div class="hd"><b>C · This or that</b><span>2 options · split screen</span></div>
+          <span style="font-size: 17px; font-weight: 700">Midnight or Coral?</span>
+          <div style="display: flex; height: 190px; border-radius: 18px; overflow: hidden; position: relative">
+            <button class="half" style="background: #1E1B4B; flex-grow: {{cGrowA}}" onClick="{{cPickA}}" aria-pressed="{{cPressedA}}">
+              <span class="hl" style="background: #4F1DFC; left: -40px; top: -60px"></span>
+              <span style="position: relative; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 2px">
+                <sc-if value="{{cVoted}}" hint-placeholder-val="{{false}}"><span class="disp fadein" style="font-size: 34px; font-weight: 800">{{cPctA}}</span></sc-if>
+                <span style="font-size: 14px; font-weight: 700">Midnight</span>
+              </span>
+            </button>
+            <button class="half" style="background: #FF6F61; flex-grow: {{cGrowB}}" onClick="{{cPickB}}" aria-pressed="{{cPressedB}}">
+              <span class="hl" style="background: #FFC2A8; right: -40px; top: -60px"></span>
+              <span style="position: relative; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 2px">
+                <sc-if value="{{cVoted}}" hint-placeholder-val="{{false}}"><span class="disp fadein" style="font-size: 34px; font-weight: 800">{{cPctB}}</span></sc-if>
+                <span style="font-size: 14px; font-weight: 700">Coral</span>
+              </span>
+            </button>
+            <span class="vs" style="left: {{cVsLeft}}">VS</span>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+          <div class="hd"><b>D · Image grid</b><span>visual options · 2×2</span></div>
+          <span style="font-size: 17px; font-weight: 700">{{question}}</span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; height: 190px">
+            <sc-for list="{{d}}" as="o" hint-placeholder-count="4">
+              <button class="tile {{o.cls}}" style="background: {{o.color}}" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" aria-label="{{o.label}}">
+                <span style="position: absolute; border-radius: 50%; width: 120px; height: 120px; right: -40px; top: -50px; background: rgba(255,255,255,.22)"></span>
+                <sc-if value="{{dVoted}}" hint-placeholder-val="{{false}}">
+                  <span class="ov fadein"><span class="disp" style="font-size: 26px; font-weight: 800">{{o.pct}}</span><span style="font-size: 12px; font-weight: 600">{{o.label}}</span></span>
+                </sc-if>
+                <sc-if value="{{dOpen}}" hint-placeholder-val="{{true}}">
+                  <span style="position: absolute; left: 10px; bottom: 10px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 99px; background: rgba(255,255,255,.85); color: #12111F">{{o.label}}</span>
+                </sc-if>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="padding: 18px 22px; display: flex; flex-direction: column; gap: 12px">
+        <div class="hd"><b>E · Compact inline</b><span>in a feed or below a banner · one line, collapses to a stacked bar</span></div>
+        <div style="display: flex; align-items: center; gap: 18px; flex-wrap: wrap">
+          <span style="font-size: 15px; font-weight: 700">{{question}}</span>
+          <sc-if value="{{eOpen}}" hint-placeholder-val="{{true}}">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap">
+              <sc-for list="{{e}}" as="o" hint-placeholder-count="4">
+                <button class="pill" onClick="{{o.pick}}"><i class="sw" style="background: {{o.color}}; width: 12px; height: 12px; border-radius: 4px"></i>{{o.label}}</button>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{eVoted}}" hint-placeholder-val="{{false}}">
+            <div class="fadein" style="flex: 1 1 360px; display: flex; flex-direction: column; gap: 8px">
+              <div class="stackbar">
+                <sc-for list="{{e}}" as="o" hint-placeholder-count="4"><i style="width: {{o.pct}}; background: {{o.color}}"></i></sc-for>
+              </div>
+              <div style="display: flex; gap: 16px; font-size: 12px; color: var(--mute)">
+                <sc-for list="{{e}}" as="o" hint-placeholder-count="4"><span style="display: inline-flex; gap: 6px; align-items: center"><i class="sw" style="background: {{o.color}}; width: 10px; height: 10px; border-radius: 3px"></i>{{o.label}} {{o.pct}}</span></sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { a: null, b: null, c: null, d: null, e: null };
+  }
+  build(key) {
+    const opts = [
+      { id: 'midnight', label: 'Midnight', color: '#3B2FC9', base: 412 },
+      { id: 'coral', label: 'Coral', color: '#FF6F61', base: 268 },
+      { id: 'sage', label: 'Sage', color: '#7E9C6E', base: 190 },
+      { id: 'sand', label: 'Sand', color: '#D9B98A', base: 130 }
+    ];
+    const voted = this.state[key];
+    const total = opts.reduce((s, o) => s + o.base, 0) + (voted ? 1 : 0);
+    return opts.map((o) => {
+      const n = o.base + (voted === o.id ? 1 : 0);
+      const pct = Math.round((n / total) * 100) + '%';
+      const sel = voted === o.id;
+      return {
+        ...o,
+        pct,
+        w: voted ? pct : '0%',
+        sel,
+        pressed: sel ? 'true' : 'false',
+        cls: (voted ? 'done ' : '') + (sel ? 'sel pop' : ''),
+        pick: () => { if (!this.state[key]) this.setState({ [key]: o.id }); }
+      };
+    });
+  }
+  renderVals() {
+    const s = this.state;
+    const cA = 520 + (s.c === 'midnight' ? 1 : 0);
+    const cB = 480 + (s.c === 'coral' ? 1 : 0);
+    const pa = Math.round((cA / (cA + cB)) * 100);
+    return {
+      themeCls: (this.props.theme ?? 'dark') === 'light' ? 'light' : '',
+      question: 'Which colourway should we drop next?',
+      a: this.build('a'), aVoted: !!s.a,
+      b: this.build('b'), bVoted: !!s.b, bTotal: 1000 + (s.b ? 1 : 0),
+      d: this.build('d'), dVoted: !!s.d, dOpen: !s.d,
+      e: this.build('e'), eVoted: !!s.e, eOpen: !s.e,
+      cVoted: !!s.c,
+      cPctA: pa + '%', cPctB: (100 - pa) + '%',
+      cGrowA: s.c ? pa : 50, cGrowB: s.c ? 100 - pa : 50,
+      cVsLeft: s.c ? pa + '%' : '50%',
+      cPressedA: s.c === 'midnight' ? 'true' : 'false',
+      cPressedB: s.c === 'coral' ? 'true' : 'false',
+      cPickA: () => { if (!this.state.c) this.setState({ c: 'midnight' }); },
+      cPickB: () => { if (!this.state.c) this.setState({ c: 'coral' }); },
+      reset: () => this.setState({ a: null, b: null, c: null, d: null, e: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

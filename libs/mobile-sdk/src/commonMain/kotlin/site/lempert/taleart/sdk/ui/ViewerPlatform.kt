@@ -34,6 +34,13 @@ internal expect fun FullScreenViewer(
 internal expect fun rememberPrefersReducedMotion(): Boolean
 
 /**
+ * True when the host's light or dark setting is dark: the colour scheme `auto` follows it (the theme's
+ * `colorScheme`). Android's night mode; iOS's user interface style, read when composed.
+ */
+@Composable
+internal expect fun rememberPrefersDarkScheme(): Boolean
+
+/**
  * Says [text] through the platform's screen reader where a live region does not: on iOS a
  * VoiceOver announcement; on Android the viewer's live region carries it to TalkBack.
  */

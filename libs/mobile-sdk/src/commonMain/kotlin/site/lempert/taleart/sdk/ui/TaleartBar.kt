@@ -61,10 +61,8 @@ const val BAR_ITEM_TAG = "taleart-bar-item"
 /** Test tag of the bar's row. */
 const val BAR_TAG = "taleart-bar"
 
-// The bar's fixed look (BAR_STYLES in the Web SDK): the neutral cover behind a picture, the cover's
-// edge when the theme has no background colour, the gap between ring and title, the title's type.
-private val COVER_PLACEHOLDER = Color(0xFFE5E7EB)
-private val COVER_EDGE = Color.White
+// The bar's fixed look (BAR_STYLES in the Web SDK) comes from the theme's palette: the surface behind a
+// picture, the cover's edge (the background, else the card ground), the title's colour.
 private const val DEFAULT_RING_WIDTH = 2
 
 /** The title a bar item shows under its cover; accessibility services never read it (the item's name does). */
@@ -101,6 +99,7 @@ fun TaleartBar(
     // Each group is an impression once per render (the groups list is the render's), when its item is first composed.
     val impressed = remember(groups) { mutableSetOf<String>() }
     val edge = settings.size.edgeDp
+    val palette = theme.colors(titleStyle.color, rememberPrefersDarkScheme())
     val none = theme.ringStyle == RingStyle.None
     val ringWidth = if (none) 0 else theme.ringWidth
     val ringBrush: Brush = when {
@@ -108,9 +107,9 @@ fun TaleartBar(
         theme.ringStyle == RingStyle.Solid || theme.ringColors.size == 1 -> SolidColor(parseHexColor(theme.ringColors.first()) ?: Color.Transparent)
         else -> gradient45(theme.ringColors.mapNotNull(::parseHexColor))
     }
-    val seenBrush: Brush = SolidColor(if (none) Color.Transparent else parseHexColor(theme.seenRingColor) ?: Color.Gray)
+    val seenBrush: Brush = SolidColor(if (none) Color.Transparent else parseHexColor(theme.seenRingColor) ?: palette.muted)
     val background = parseHexColor(theme.backgroundColor)
-    val coverEdge = background ?: COVER_EDGE
+    val coverEdge = palette.gap
     // A rounded square's radius: the theme's, else a quarter of the item; the cover's sits inside the ring.
     val radius = theme.cornerRadius ?: (edge / 4)
     val ringShape: Shape = if (settings.shape == BarShape.Circle) CircleShape else RoundedCornerShape(radius.dp)
@@ -118,7 +117,7 @@ fun TaleartBar(
         if (settings.shape == BarShape.Circle) CircleShape else RoundedCornerShape(maxOf(0, radius - (if (none) 0 else theme.ringWidth)).dp)
     val title = titleStyle.merge(
         TextStyle(
-            color = parseHexColor(theme.titleColor) ?: titleStyle.color.takeOrElse(Color.Black),
+            color = palette.title,
             fontFamily = rememberFontFamily(theme.fontFamily) ?: titleStyle.fontFamily,
             fontSize = 12.sp,
             lineHeight = 16.sp,
@@ -166,7 +165,7 @@ fun TaleartBar(
                             .background(if (isSeen) seenBrush else ringBrush)
                             .padding(ringWidth.dp),
                     ) {
-                        Cover(group, coverShape, coverEdge, loader)
+                        Cover(group, coverShape, coverEdge, loader, palette.surface)
                     }
                     if (settings.showTitles) {
                         BasicText(
@@ -185,9 +184,9 @@ fun TaleartBar(
 }
 
 @Composable
-private fun Cover(group: DeliveryTaleGroup, shape: Shape, edge: Color, loader: ImageLoader) {
+private fun Cover(group: DeliveryTaleGroup, shape: Shape, edge: Color, loader: ImageLoader, surface: Color) {
     val source = remember(group) { coverSource(group) }
-    val placeholder = (source as? CoverSource.Placeholder)?.color?.let(::parseHexColor) ?: COVER_PLACEHOLDER
+    val placeholder = (source as? CoverSource.Placeholder)?.color?.let(::parseHexColor) ?: surface
     // A cover's image loads over the neutral placeholder; a failed load leaves the placeholder.
     Box(
         Modifier

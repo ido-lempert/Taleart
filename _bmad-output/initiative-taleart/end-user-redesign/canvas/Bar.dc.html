@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TaleGroup bar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0A0918}
+a{color:#9B7BFF}a:hover{color:#C4B2FF}
+.ta{--bg:#0A0918;--s1:#13112A;--s2:#1C1A38;--s3:#2A2650;--line:rgba(255,255,255,.08);--ink:#F4F3FF;--mute:#A9A6C4;--seen:#3B3858;--ring:conic-gradient(from 0deg,#1365FC,#4F1DFC,#7710FB,#E040FB,#22D3EE,#1365FC);--shadow:0 1px 0 rgba(255,255,255,.05) inset,0 30px 60px -30px rgba(0,0,0,.7);font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.ta.light{--bg:#F6F5FB;--s1:#FFFFFF;--s2:#F0EEF8;--s3:#E2DFF0;--line:rgba(18,17,31,.08);--ink:#12111F;--mute:#5C5A72;--seen:#CBC8DA;--shadow:0 1px 2px rgba(18,17,31,.06),0 30px 60px -30px rgba(40,20,120,.25)}
+.disp{font-family:'Inter Tight','Inter',system-ui,sans-serif;letter-spacing:-.02em}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:600}
+.card{background:var(--s1);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow)}
+.row{display:flex;gap:16px;align-items:flex-start;overflow:hidden}
+.item{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;padding:0;color:var(--ink);font:inherit;cursor:pointer;flex-shrink:0;position:relative}
+.item:focus-visible{outline:2px solid #9B7BFF;outline-offset:4px;border-radius:12px}
+.item .t{font-size:12px;font-weight:500;max-width:84px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item.seen .t{color:var(--mute)}
+.ring{position:relative;overflow:hidden;border-radius:50%;padding:3px;box-sizing:border-box;isolation:isolate;flex-shrink:0;transition:transform .35s cubic-bezier(.34,1.56,.64,1)}
+.ring::before{content:"";position:absolute;inset:-30%;background:var(--ring);z-index:-1}
+.spin .ring::before{animation:spin 4s linear infinite}
+.seen .ring::before{background:var(--seen);animation:none}
+.live .ring::before{background:conic-gradient(#E0218A,#FF5A36,#FFB020,#E0218A);animation:spin 1.4s linear infinite}
+.item:hover .ring{transform:scale(1.07)}
+.item:active .ring{transform:scale(.94)}
+.ring .in{border-radius:inherit;background:var(--s1);padding:3px;width:100%;height:100%;box-sizing:border-box}
+.ring .cv{border-radius:inherit;width:100%;height:100%;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center}
+.blob{position:absolute;border-radius:50%;width:70%;height:70%;right:-18%;top:-18%;opacity:.9}
+.liveTag{position:absolute;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;letter-spacing:.08em;padding:2px 6px;border-radius:5px;background:#E0218A;color:#fff;box-shadow:0 0 0 2px var(--s1)}
+.sq .ring{border-radius:22px}
+.sq .ring .in{border-radius:20px}
+.sq .ring .cv{border-radius:16px}
+.poster{width:112px;height:188px;border-radius:16px;position:relative;overflow:hidden;flex-shrink:0;border:0;padding:0;cursor:pointer;transition:transform .5s cubic-bezier(.16,1,.3,1),box-shadow .5s;box-shadow:0 18px 30px -18px rgba(0,0,0,.8)}
+.poster:hover{transform:translateY(-8px) rotate(-1.5deg);box-shadow:0 30px 40px -18px rgba(79,29,252,.6)}
+.poster::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 2px rgba(255,255,255,.0);transition:box-shadow .3s}
+.poster.unseen::after{box-shadow:inset 0 0 0 2px #9B7BFF}
+.scrim{position:absolute;inset:auto 0 0 0;height:60%;background:linear-gradient(to top,rgba(10,9,24,.9),rgba(10,9,24,0))}
+.seg{position:absolute;top:8px;left:8px;right:8px;display:flex;gap:3px}
+.seg i{flex:1;height:3px;border-radius:9px;background:rgba(255,255,255,.35)}
+.seg i.on{background:#fff}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:4px 14px 4px 4px;border-radius:99px;background:var(--s2);border:1px solid var(--line);color:var(--ink);font:600 13px 'Inter',sans-serif;min-height:40px;cursor:pointer;flex-shrink:0;transition:background .2s,transform .2s}
+.chip:hover{background:var(--s3);transform:translateY(-1px)}
+.chip.seen{color:var(--mute);background:transparent}
+.dotNew{width:7px;height:7px;border-radius:50%;background:#E040FB;box-shadow:0 0 10px #E040FB}
+.stackAv{width:40px;height:40px;border-radius:50%;border:3px solid var(--s1);margin-left:-14px;position:relative}
+.skel{background:linear-gradient(90deg,var(--s2) 0%,var(--s3) 50%,var(--s2) 100%);background-size:200% 100%;animation:shimmer 1.4s linear infinite}
+.enter{animation:enter .7s cubic-bezier(.16,1,.3,1) both}
+.phone{width:360px;height:780px;border-radius:52px;background:#05040D;padding:12px;box-sizing:border-box;box-shadow:0 0 0 1px rgba(255,255,255,.1),0 60px 120px -40px rgba(79,29,252,.55),0 40px 80px -30px rgba(0,0,0,.8)}
+.screen{width:100%;height:100%;border-radius:42px;overflow:hidden;background:var(--bg);position:relative}
+.sbtn{font:600 13px 'Inter',sans-serif;padding:8px 14px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--mute);cursor:pointer;min-height:36px}
+.sbtn.on{background:#4F1DFC;color:#fff;border-color:#4F1DFC}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+@keyframes enter{from{opacity:0;transform:translateY(14px) scale(.9)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){*,*::before{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div class="ta {{themeCls}} {{spinCls}}" style="width: 1440px; height: 1180px; box-sizing: border-box; padding: 56px 64px; display: flex; gap: 48px">
+  <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="eyebrow">TaleGroup bar · six layouts, one data feed</div>
+      <h1 class="disp" style="margin: 0; font-size: 44px; font-weight: 800; line-height: 1.05">The bar, reimagined.</h1>
+      <div style="display: flex; gap: 8px; align-items: center">
+        <span style="font-size: 13px; color: var(--mute)">Tap a ring to mark it seen:</span>
+        <button class="sbtn" onClick="{{reset}}">Reset seen state</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; justify-content: space-between"><b style="font-size: 15px">A · Ring</b><span style="font-size: 12px; color: var(--mute)">shape: circle · size L · titles on</span></div>
+      <div class="row">
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="7">
+          <button class="item enter {{g.cls}}" style="animation-delay: {{g.delay}}" onClick="{{g.open}}" aria-label="{{g.name}}">
+            <div class="ring" style="width: 80px; height: 80px"><div class="in"><div class="cv" style="background: {{g.c1}}"><div class="blob" style="background: {{g.c2}}"></div>
+              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="position: relative"><path d="{{g.icon}}"></path></svg>
+            </div></div></div>
+            <sc-if value="{{g.live}}" hint-placeholder-val="{{false}}"><span class="liveTag" style="top: 70px">LIVE</span></sc-if>
+            <span class="t">{{g.name}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px">
+      <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between"><b style="font-size: 15px">B · Rounded tile</b><span style="font-size: 12px; color: var(--mute)">size M</span></div>
+        <div class="row" style="gap: 12px">
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="7">
+            <button class="item sq {{g.cls}}" onClick="{{g.open}}" aria-label="{{g.name}}">
+              <div class="ring" style="width: 66px; height: 66px"><div class="in"><div class="cv" style="background: {{g.c1}}"><div class="blob" style="background: {{g.c2}}"></div></div></div></div>
+              <span class="t" style="max-width: 66px">{{g.short}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+      <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between"><b style="font-size: 15px">C · Chips</b><span style="font-size: 12px; color: var(--mute)">headers &amp; nav</span></div>
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="7">
+            <button class="chip {{g.cls}}" onClick="{{g.open}}">
+              <span style="width: 32px; height: 32px; border-radius: 50%; background: {{g.c1}}; position: relative; overflow: hidden; flex-shrink: 0"><span class="blob" style="background: {{g.c2}}"></span></span>
+              {{g.short}}
+              <sc-if value="{{g.unseen}}" hint-placeholder-val="{{true}}"><span class="dotNew"></span></sc-if>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; justify-content: space-between"><b style="font-size: 15px">D · Poster cards</b><span style="font-size: 12px; color: var(--mute)">desktop &amp; editorial · tales shown as segments</span></div>
+      <div class="row" style="gap: 14px; padding: 10px 0 4px">
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="7">
+          <button class="poster {{g.posterCls}}" style="background: {{g.c1}}" onClick="{{g.open}}" aria-label="{{g.name}}">
+            <span class="blob" style="background: {{g.c2}}; width: 120%; height: 55%; right: -45%; top: -8%"></span>
+            <span class="seg"><sc-for list="{{g.segs}}" as="s" hint-placeholder-count="4"><i class="{{s.cls}}"></i></sc-for></span>
+            <span class="scrim"></span>
+            <span style="position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; color: #fff; text-align: left">
+              <span class="disp" style="font-size: 15px; font-weight: 700; line-height: 1.1">{{g.name}}</span>
+              <span style="font-size: 11px; opacity: .85">{{g.count}} stories</span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1.1fr 1fr; gap: 22px">
+      <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between"><b style="font-size: 15px">E · Collapsed stack</b><span style="font-size: 12px; color: var(--mute)">sticky header after scroll</span></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--s2); border-radius: 16px; padding: 10px 14px 10px 24px">
+          <div style="display: flex; align-items: center">
+            <span class="stackAv" style="background: #4F1DFC; margin-left: 0"></span>
+            <span class="stackAv" style="background: #FF5A36"></span>
+            <span class="stackAv" style="background: #E0218A"></span>
+            <span class="stackAv" style="background: var(--s3); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">+4</span>
+          </div>
+          <span style="font-size: 13px; font-weight: 600">{{unseenCount}} new stories</span>
+        </div>
+      </div>
+      <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between"><b style="font-size: 15px">F · Loading</b><span style="font-size: 12px; color: var(--mute)">same footprint, no layout shift</span></div>
+        <div class="row">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><div class="skel" style="width: 56px; height: 56px; border-radius: 50%"></div><div class="skel" style="width: 44px; height: 8px; border-radius: 4px"></div></div>
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><div class="skel" style="width: 56px; height: 56px; border-radius: 50%"></div><div class="skel" style="width: 44px; height: 8px; border-radius: 4px"></div></div>
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><div class="skel" style="width: 56px; height: 56px; border-radius: 50%"></div><div class="skel" style="width: 44px; height: 8px; border-radius: 4px"></div></div>
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><div class="skel" style="width: 56px; height: 56px; border-radius: 50%"></div><div class="skel" style="width: 44px; height: 8px; border-radius: 4px"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="width: 360px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px; padding-top: 8px">
+    <div class="eyebrow">In context · mobile web</div>
+    <div class="phone">
+      <div class="screen">
+        <div style="padding: 54px 18px 12px; display: flex; justify-content: space-between; align-items: center">
+          <span class="disp" style="font-size: 22px; font-weight: 800">[Store]</span>
+          <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 7h12l-1 13H7z"></path><path d="M9 7a3 3 0 0 1 6 0"></path></svg>
+        </div>
+        <div class="row" style="gap: 12px; padding: 4px 18px 14px">
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="5">
+            <button class="item {{g.cls}}" onClick="{{g.open}}" aria-label="{{g.name}}">
+              <div class="ring" style="width: 66px; height: 66px"><div class="in" style="background: var(--bg)"><div class="cv" style="background: {{g.c1}}"><div class="blob" style="background: {{g.c2}}"></div></div></div></div>
+              <span class="t" style="max-width: 66px; font-size: 11px">{{g.short}}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="margin: 0 18px; height: 1px; background: var(--line)"></div>
+        <div style="padding: 18px; display: flex; flex-direction: column; gap: 14px">
+          <div style="height: 200px; border-radius: 22px; background: #FF5A36; position: relative; overflow: hidden">
+            <span class="blob" style="background: #FFC2A8; width: 70%; height: 90%"></span>
+            <div style="position: absolute; left: 18px; bottom: 18px; color: #fff; display: flex; flex-direction: column; gap: 6px">
+              <span style="font-size: 10px; font-weight: 700; letter-spacing: .14em">BANNER ZONE</span>
+              <span class="disp" style="font-size: 26px; font-weight: 800">Summer sale</span>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+            <div style="height: 150px; border-radius: 18px; background: var(--s2)"></div>
+            <div style="height: 150px; border-radius: 18px; background: var(--s2)"></div>
+            <div style="height: 150px; border-radius: 18px; background: var(--s2)"></div>
+            <div style="height: 150px; border-radius: 18px; background: var(--s2)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"spinRings":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { seen: { community: true, tips: true } };
+  }
+  renderVals() {
+    const base = [
+      { id: 'drops', name: 'New drops', short: 'New', c1: '#4F1DFC', c2: '#9B7BFF', count: 6, icon: 'M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M6.3 17.7l2.5-2.5M15.2 8.8l2.5-2.5' },
+      { id: 'live', name: 'Live now', short: 'Live', c1: '#E0218A', c2: '#FF8AC4', count: 1, live: true, icon: 'M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14' },
+      { id: 'sale', name: 'Summer sale', short: 'Sale', c1: '#FF5A36', c2: '#FFC2A8', count: 5, icon: 'M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01' },
+      { id: 'howto', name: 'How-to', short: 'How-to', c1: '#0E9F9E', c2: '#7FE3D9', count: 4, icon: 'M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5zM4 19a2 2 0 0 1 2-2h13' },
+      { id: 'bts', name: 'Behind the scenes', short: 'Studio', c1: '#1365FC', c2: '#8CB6FF', count: 3, icon: 'M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z' },
+      { id: 'community', name: 'Community', short: 'Community', c1: '#D97706', c2: '#FCD34D', count: 4, icon: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7.5M22 21a7 7 0 0 0-5-6.7' },
+      { id: 'tips', name: 'Style tips', short: 'Tips', c1: '#64748B', c2: '#CBD5E1', count: 3, icon: 'M8 3l4 2 4-2 5 4-3 3-2-1v12H8V9L6 10 3 7z' }
+    ];
+    const seen = this.state.seen;
+    const groups = base.map((g, i) => {
+      const isSeen = !!seen[g.id] && !g.live;
+      const segs = [];
+      for (let k = 0; k < g.count; k++) segs.push({ cls: isSeen ? 'on' : (k === 0 ? '' : '') });
+      return {
+        ...g,
+        live: !!g.live,
+        unseen: !isSeen,
+        cls: g.live ? 'live' : (isSeen ? 'seen' : ''),
+        posterCls: isSeen ? '' : 'unseen',
+        segs,
+        delay: (i * 60) + 'ms',
+        open: () => this.setState({ seen: { ...this.state.seen, [g.id]: true } })
+      };
+    });
+    return {
+      themeCls: (this.props.theme ?? 'dark') === 'light' ? 'light' : '',
+      spinCls: (this.props.spinRings ?? true) ? 'spin' : '',
+      groups,
+      unseenCount: groups.filter((g) => g.unseen).length,
+      reset: () => this.setState({ seen: {} })
+    };
+  }
+}
+</script>
+</body>
+</html>

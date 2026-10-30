@@ -1,3 +1,4 @@
+import { cardClass } from './poll';
 import { cleanText, isUtcInstant, LABEL_TEXT_RULE, type DeliveryTaleElement } from '@taleart/contract';
 import { defaultTranslate, type StringKey } from '../i18n';
 import type { RenderContext } from './media';
@@ -96,7 +97,7 @@ export function renderCountdown(element: DeliveryTaleElement, context: RenderCon
     (typeof props.endedText === 'string' ? cleanText(props.endedText, LABEL_TEXT_RULE).trim() : '') || t('countdown.ended');
 
   const card = document.createElement('div');
-  card.className = `ta-el ta-countdown ta-poll-${props.theme === 'dark' ? 'dark' : 'light'}`;
+  card.className = `ta-el ta-countdown ${cardClass(props.theme)}`;
   if (title) {
     card.setAttribute('role', 'group');
     card.setAttribute('aria-label', title);

@@ -5,6 +5,7 @@ import {
   EVENT_FIELDS,
   IOS_FUNCTIONS,
   IOS_ZONE_MEMBERS,
+  NATIVE_THEME_FIELDS,
   LISTENER_HOOKS,
   MAPPING,
   NATIVE_STYLES,
@@ -151,6 +152,32 @@ import {
       </table>
     </div>
 
+    <h2 id="theme">TaleartTheme</h2>
+    <p>The project's theme as the native SDK reads it. The fields and their rules are the Web SDK's (see <a routerLink="/theme-and-fonts">Theme and fonts</a>); a field left out or not valid takes its default.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="theme-caption">
+      <table id="theme-fields">
+        <caption id="theme-caption">TaleartTheme fields</caption>
+        <thead>
+          <tr>
+            <th scope="col">Field</th>
+            <th scope="col">Type</th>
+            <th scope="col">Default</th>
+            <th scope="col">Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of themeFields; track row.name) {
+            <tr>
+              <td><code>{{ row.name }}</code></td>
+              <td><code>{{ row.type }}</code></td>
+              <td>{{ row.def }}</td>
+              <td>{{ row.meaning }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
     <h2 id="listener">TaleartListener and TaleartListenerBase</h2>
     <p>
       The hooks. In Swift, subclass <code>TaleartListenerBase</code> (an open class whose methods do nothing) and override
@@ -274,6 +301,7 @@ export class IosSdkReferencePage {
   protected readonly sdkMembers = TALEART_SDK_MEMBERS;
   protected readonly configFields = CONFIG_FIELDS;
   protected readonly zoneMembers = IOS_ZONE_MEMBERS;
+  protected readonly themeFields = NATIVE_THEME_FIELDS;
   protected readonly functions = IOS_FUNCTIONS;
   protected readonly hooks = LISTENER_HOOKS;
   protected readonly eventFields = EVENT_FIELDS;

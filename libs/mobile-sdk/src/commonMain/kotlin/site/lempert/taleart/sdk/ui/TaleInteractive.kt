@@ -194,7 +194,7 @@ private val MinTarget: Dp = 48.dp
 private fun CardColumn(
     title: String?,
     question: String,
-    dark: Boolean,
+    dark: Boolean?,
     canvas: CanvasMetrics,
     modifier: Modifier,
     content: @Composable () -> Unit,
@@ -304,7 +304,7 @@ private fun ChoiceCardElement(
     type: String,
     title: String?,
     question: String,
-    dark: Boolean,
+    dark: Boolean?,
     choices: List<Choice>,
     quiz: Boolean,
     correctId: String?,
@@ -387,7 +387,7 @@ private fun ChoiceButton(
     selected: Boolean,
     mark: Mark?,
     enabled: Boolean,
-    dark: Boolean,
+    dark: Boolean?,
     canvas: CanvasMetrics,
     onClick: () -> Unit,
 ) {
@@ -395,9 +395,11 @@ private fun ChoiceButton(
     val (_, ink) = cardColors(dark)
     val base = canvas.h(CARD_FONT)
     val shape = RoundedCornerShape(50)
+    val palette = rememberThemeColors()
+    // As the Web SDK: a card drawn light or dark on purpose uses that card's mark; an automatic one the scheme's.
     val markColor = when (mark) {
-        Mark.Right -> if (dark) androidx.compose.ui.graphics.Color(0xFF6EE7B7) else androidx.compose.ui.graphics.Color(0xFF065F46)
-        Mark.Wrong -> if (dark) androidx.compose.ui.graphics.Color(0xFFFCA5A5) else androidx.compose.ui.graphics.Color(0xFF991B1B)
+        Mark.Right -> when (dark) { true -> palette.successOnDark; false -> palette.success; null -> palette.successInk }
+        Mark.Wrong -> when (dark) { true -> palette.errorOnDark; false -> palette.error; null -> palette.errorInk }
         null -> ink
     }
     val markWord = when (mark) {

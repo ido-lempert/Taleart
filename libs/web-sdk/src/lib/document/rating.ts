@@ -1,3 +1,4 @@
+import { cardClass } from './poll';
 import {
   cleanText,
   EMOJI_FONT_STACK,
@@ -45,7 +46,7 @@ export const RATING_STYLES = `
 .ta-rate-avg { width: 0.3em; margin-inline-start: -0.15em; height: 1.4em; border-radius: 999px; background: currentColor; display: none; }
 .ta-rated .ta-rate-avg { display: block; }
 .ta-rated .ta-rate-track { cursor: default; }
-.ta-rate-track:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; border-radius: 999px; }
+.ta-rate-track:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; border-radius: 999px; }
 .ta-rate-out { margin: 0; font-size: 0.85em; font-weight: 600; text-align: center; }
 @media (forced-colors: active) { .ta-rate-track::before, .ta-rate-fill, .ta-rate-avg { background: CanvasText; } }
 `;
@@ -124,7 +125,7 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
     typeof props.emoji === 'string' ? [...cleanText(props.emoji, LABEL_TEXT_RULE)].slice(0, MAX_EMOJI_LENGTH).join('') : '';
   if (!question || !emoji.trim()) return null;
   const card = document.createElement('div');
-  card.className = `ta-el ta-poll ta-interactive ta-rating ta-poll-${props.theme === 'dark' ? 'dark' : 'light'}`;
+  card.className = `ta-el ta-poll ta-interactive ta-rating ${cardClass(props.theme)}`;
   card.setAttribute('role', 'group');
   card.setAttribute('aria-label', question);
   if (typeof props.title === 'string' && props.title.trim()) card.appendChild(text('p', 'ta-poll-title', props.title));

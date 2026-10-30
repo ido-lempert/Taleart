@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, si
 import { RouterLink } from '@angular/router';
 import {
   checkThemeContrast,
+  COLOR_SCHEMES,
   CORNER_RADIUS_RANGE,
   DEFAULT_THEME,
   isThemeColor,
@@ -12,6 +13,7 @@ import {
   THEME_FIELDS,
   themeSettingsError,
   TRANSPARENT,
+  type ColorScheme,
   type RingStyle,
   type Theme,
   type ThemeField,
@@ -20,8 +22,9 @@ import {
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { ThemeService } from '../theme.service';
+import { textContrastWarning, type TextContrastFailure } from './theme-text-contrast';
 
-type ColorKey = 'seenRingColor' | 'titleColor' | 'backgroundColor' | 'accentColor';
+type ColorKey = 'seenRingColor' | 'titleColor' | 'backgroundColor' | 'accentColor' | 'successColor' | 'errorColor';
 type NumberKey = 'ringWidth' | 'cornerRadius';
 
 interface ColorField {
@@ -48,6 +51,8 @@ const COLOR_FIELDS: readonly ColorField[] = [
     host: { label: "Transparent: the host page's background shows through", explicit: '#ffffff' },
   },
   { key: 'accentColor', label: 'Accent colour', hint: "The viewer's progress and buttons." },
+  { key: 'successColor', label: 'Correct answer colour', hint: 'A correct quiz answer, as text and a mark.' },
+  { key: 'errorColor', label: 'Wrong answer colour', hint: 'A wrong quiz answer, as text and a mark.' },
 ];
 
 /** The value a field takes when it is set explicitly after coming from the host page or the frame. */
@@ -55,6 +60,12 @@ const EXPLICIT_FONT = 'system-ui, sans-serif';
 const EXPLICIT_RADIUS = 12;
 
 const RING_STYLE_LABELS: Readonly<Record<RingStyle, string>> = { gradient: 'Gradient', solid: 'Solid', none: 'None' };
+
+const COLOR_SCHEME_LABELS: Readonly<Record<ColorScheme, string>> = {
+  auto: "Auto: follow the visitor's system setting",
+  light: 'Light',
+  dark: 'Dark',
+};
 
 // The field a refusal names (`theme.ringWidth must …`), or '' when it names none.
 function refusedField(message: string): string {
@@ -80,8 +91,10 @@ function isDefault(field: ThemeField, value: unknown): boolean {
  * field each, the ring style and width, the corner radius and the font. The
  * title colour, font, corner radius and background can come from the host
  * page or the frame, as before themes. A warning names every colour pair that
- * fails WCAG 2.2 AA contrast and the pairs it cannot check. Saving sends only
- * the fields the project sets; "Reset to TaleArt default" clears them all.
+ * fails WCAG 2.2 AA contrast and the pairs it cannot check. The colour scheme,
+ * the live colour (which takes the last ring colour until set) and the quiz
+ * answer colours are set here too. Saving sends only the fields the project
+ * sets; "Reset to TaleArt default" clears them all.
  */
 @Component({
   selector: 'app-theme-page',
@@ -158,6 +171,15 @@ function isDefault(field: ThemeField, value: unknown): boolean {
       margin: 0;
       padding-left: var(--space-5);
     }
+    .text-contrast {
+      margin: 0;
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid #fedf89;
+      border-radius: var(--radius-control);
+      background: #fffaeb;
+      color: #93370d;
+      font-size: var(--text-sm);
+    }
     .theme-actions {
       display: flex;
       flex-wrap: wrap;
@@ -182,6 +204,25 @@ function isDefault(field: ThemeField, value: unknown): boolean {
         <h3 class="section__title" id="theme-title">Project theme</h3>
         @if (theme(); as t) {
           <form class="theme-form" (submit)="$event.preventDefault(); save()" novalidate>
+            <fieldset class="theme-group">
+              <legend>Appearance</legend>
+              <div class="field">
+                <label class="field__label" for="theme-colorScheme">Colour scheme</label>
+                <select
+                  id="theme-colorScheme"
+                  class="select"
+                  [attr.aria-invalid]="invalid('colorScheme')"
+                  [attr.aria-describedby]="describedBy('colorScheme', 'theme-colorScheme-hint')"
+                  (change)="set('colorScheme', $any($event.target).value)"
+                >
+                  @for (scheme of colorSchemes; track scheme) {
+                    <option [value]="scheme" [selected]="t.colorScheme === scheme">{{ colorSchemeLabel[scheme] }}</option>
+                  }
+                </select>
+                <span class="field__hint" id="theme-colorScheme-hint">Light and dark draw the SDK's colours for that scheme.</span>
+              </div>
+            </fieldset>
+
             <fieldset class="theme-group">
               <legend>Ring</legend>
               <div class="field">
@@ -297,6 +338,46 @@ function isDefault(field: ThemeField, value: unknown): boolean {
                   </span>
                 </div>
               </div>
+
+              <div class="field">
+                <span class="field__label" id="theme-liveColor-label">Live colour</span>
+                @if (t.liveColor === null) {
+                  <span class="field__hint" id="theme-liveColor-hint">
+                    The ring of a live tale uses the last ring colour ({{ lastRingColor() }}).
+                  </span>
+                  <div>
+                    <button type="button" class="btn btn--secondary btn--sm" (click)="setLiveColor(lastRingColor())">
+                      Set a live colour
+                    </button>
+                  </div>
+                } @else {
+                  <div class="color-field">
+                    <input
+                      type="color"
+                      class="color-swatch"
+                      aria-label="Live colour picker"
+                      [value]="swatch(t.liveColor)"
+                      (input)="setLiveColor($any($event.target).value)"
+                    />
+                    <input
+                      id="theme-liveColor"
+                      class="input"
+                      type="text"
+                      spellcheck="false"
+                      autocomplete="off"
+                      aria-label="Live colour"
+                      [value]="t.liveColor"
+                      [attr.aria-invalid]="invalid('liveColor')"
+                      [attr.aria-describedby]="describedBy('liveColor', 'theme-liveColor-hint')"
+                      (input)="setLiveColor($any($event.target).value)"
+                    />
+                    <button type="button" class="btn btn--ghost btn--sm" (click)="setLiveColor(null)">
+                      Use the last ring colour
+                    </button>
+                  </div>
+                  <span class="field__hint" id="theme-liveColor-hint">A live tale's ring, as #rrggbb.</span>
+                }
+              </div>
             </fieldset>
 
             <fieldset class="theme-group">
@@ -339,6 +420,16 @@ function isDefault(field: ThemeField, value: unknown): boolean {
                       </div>
                     }
                     <span class="field__hint" [id]="'theme-' + field.key + '-hint'">{{ field.hint }}</span>
+                    @if (textWarning(field.key); as failures) {
+                      @if (failures.length > 0) {
+                        <p class="text-contrast" role="status">
+                          Below 4.5:1 on white and on the dark background, so it is hard to read in either colour scheme:
+                          @for (failure of failures; track failure.background; let last = $last) {
+                            {{ failure.background }} {{ failure.ratio.toFixed(2) }}:1{{ last ? '.' : ', ' }}
+                          }
+                        </p>
+                      }
+                    }
                   </div>
                 }
               </div>
@@ -442,6 +533,8 @@ export class ThemePage implements OnInit {
 
   protected readonly colorFields = COLOR_FIELDS;
   protected readonly ringStyles = RING_STYLES;
+  protected readonly colorSchemes = COLOR_SCHEMES;
+  protected readonly colorSchemeLabel = COLOR_SCHEME_LABELS;
   protected readonly ringStyleLabel = RING_STYLE_LABELS;
   protected readonly ringColorsRange = RING_COLORS_RANGE;
   protected readonly ringWidthRange = RING_WIDTH_RANGE;
@@ -519,8 +612,24 @@ export class ThemePage implements OnInit {
     }
   }
 
-  protected set(field: 'ringStyle' | 'fontFamily' | ColorKey, value: string): void {
+  protected set(field: 'ringStyle' | 'colorScheme' | 'fontFamily' | ColorKey, value: string): void {
     this.update(field, (t) => ({ ...t, [field]: value }));
+  }
+
+  /** The live colour: a `#rrggbb` colour, or null for the last ring colour. */
+  protected setLiveColor(value: string | null): void {
+    this.update('liveColor', (t) => ({ ...t, liveColor: value }));
+  }
+
+  /** The last ring colour, which the live colour takes while it is not set. */
+  protected lastRingColor(): string {
+    const colors = this.theme()?.ringColors ?? DEFAULT_THEME.ringColors;
+    return colors[colors.length - 1];
+  }
+
+  /** The warning for a quiz answer colour: only when it is below 4.5:1 on both backgrounds. */
+  protected textWarning(key: ColorKey): TextContrastFailure[] {
+    return key === 'successColor' || key === 'errorColor' ? textContrastWarning(this.theme()?.[key]) : [];
   }
 
   /** Takes a value from the host page or the frame (checked), or sets an explicit one to edit. */

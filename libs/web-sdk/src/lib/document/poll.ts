@@ -24,8 +24,10 @@ export const POLL_STYLES = `
   text-align: start;
   overflow-wrap: anywhere;
 }
-.ta-poll-light { background: #ffffff; color: #111827; }
-.ta-poll-dark { background: #111827; color: #ffffff; }
+.ta-poll-light { background: var(--ta-light); color: var(--ta-light-ink); }
+.ta-poll-dark { background: var(--ta-dark); color: var(--ta-dark-ink); }
+/* No theme prop: the card follows the colour scheme (THEME_SCHEME_STYLES). */
+.ta-poll-auto { background: var(--ta-paper); color: var(--ta-ink); }
 .ta-poll-title { margin: 0; font-size: 0.75em; font-weight: 600; opacity: 0.85; }
 .ta-poll-q { margin: 0; font-weight: 700; font-size: 1.1em; }
 .ta-poll-opt {
@@ -49,7 +51,7 @@ export const POLL_STYLES = `
   -webkit-tap-highlight-color: transparent;
 }
 .ta-poll-opt[aria-disabled='true'] { cursor: default; }
-.ta-poll-opt:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; }
+.ta-poll-opt:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 .ta-poll-fill { position: absolute; inset: 0 auto 0 0; width: 0; opacity: 0.22; background: currentColor; transition: width 0.4s ease-out; }
 .ta-poll-label, .ta-poll-pct { position: relative; }
 .ta-poll-label { flex: 1; }
@@ -57,14 +59,25 @@ export const POLL_STYLES = `
 .ta-poll-mine .ta-poll-fill { opacity: 0.4; }
 @media (forced-colors: active) { .ta-poll-opt { border-color: ButtonText; } .ta-poll-fill { background: Highlight; } }
 .ta-quiz-mark { position: relative; font-weight: 800; }
-.ta-poll-light .ta-quiz-right { --ta-mark: #065f46; }
-.ta-poll-light .ta-quiz-wrong { --ta-mark: #991b1b; }
-.ta-poll-dark .ta-quiz-right { --ta-mark: #6ee7b7; }
-.ta-poll-dark .ta-quiz-wrong { --ta-mark: #fca5a5; }
+.ta-quiz-right { --ta-mark: var(--ta-success-ink); }
+.ta-quiz-wrong { --ta-mark: var(--ta-error-ink); }
+/* A card drawn light or dark on purpose uses that card's ink, not the scheme's (4.5:1 on each). */
+.ta-poll-light:not(.ta-poll-auto) .ta-quiz-right { --ta-mark: var(--ta-success); }
+.ta-poll-light:not(.ta-poll-auto) .ta-quiz-wrong { --ta-mark: var(--ta-error); }
+.ta-poll-dark .ta-quiz-right { --ta-mark: var(--ta-success-on-dark); }
+.ta-poll-dark .ta-quiz-wrong { --ta-mark: var(--ta-error-on-dark); }
 .ta-quiz-right, .ta-quiz-wrong { border-width: 0.5cqh; border-color: var(--ta-mark); }
 .ta-quiz-right .ta-quiz-mark, .ta-quiz-wrong .ta-quiz-mark { color: var(--ta-mark); }
 .ta-quiz-right .ta-poll-fill, .ta-quiz-wrong .ta-poll-fill { opacity: 0.22; }
 `;
+
+/**
+ * The card's colour class: a light or a dark card when the element says so (its `theme` prop), else
+ * one that follows the colour scheme (`ta-poll-auto`, which also keeps `ta-poll-light` for the class's name).
+ */
+export function cardClass(theme: unknown): string {
+  return theme === 'dark' ? 'ta-poll-dark' : theme === 'light' ? 'ta-poll-light' : 'ta-poll-light ta-poll-auto';
+}
 
 /** One choice of a choice card: a poll's option or a quiz's answer. */
 export interface Choice {
@@ -164,7 +177,7 @@ export function renderChoiceCard(element: DeliveryTaleElement, context: RenderCo
   const props = element.props as { title?: unknown; theme?: unknown };
   const { choices, words } = card;
   const root = document.createElement('div');
-  root.className = `ta-el ta-poll ta-interactive ta-poll-${props.theme === 'dark' ? 'dark' : 'light'}`;
+  root.className = `ta-el ta-poll ta-interactive ${cardClass(props.theme)}`;
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', question);
   if (typeof props.title === 'string' && props.title.trim()) root.appendChild(text('p', 'ta-poll-title', props.title));

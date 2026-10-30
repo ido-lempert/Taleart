@@ -2468,6 +2468,11 @@ export interface components {
         ThemeColor: string;
         /** @enum {string} */
         RingStyle: "gradient" | "solid" | "none";
+        /**
+         * @description Which colour scheme the SDK draws: `auto` follows the host page's `prefers-color-scheme`, `light` and `dark` always draw that one.
+         * @enum {string}
+         */
+        ColorScheme: "auto" | "light" | "dark";
         /** @description The fields of a theme a project sets; a field left out takes TaleArt's default, which keeps the look host pages had before themes: a transparent background, and the title colour, font and corner radius of the host page or the frame (`null`). Validated by `themeSettingsError` in `libs/contract`. */
         ThemeSettings: {
             /** @default gradient */
@@ -2513,6 +2518,23 @@ export interface components {
              * @default #ffffff
              */
             accentColor: components["schemas"]["ThemeColor"];
+            /** @default auto */
+            colorScheme: components["schemas"]["ColorScheme"];
+            /**
+             * @description The ring of a live tale as `#rrggbb`; null takes the last of `ringColors`.
+             * @default null
+             */
+            liveColor: string | null;
+            /**
+             * @description The text and mark of a correct quiz answer. Needs 4.5:1 on light and dark backgrounds.
+             * @default #047857
+             */
+            successColor: components["schemas"]["ThemeColor"];
+            /**
+             * @description The text and mark of a wrong quiz answer. Needs 4.5:1 on light and dark backgrounds.
+             * @default #b91c1c
+             */
+            errorColor: components["schemas"]["ThemeColor"];
         };
         /** @description A complete theme, every field present (TaleArt's default where the project sets none); `null` takes the host page's or the frame's own value. */
         Theme: {
@@ -2525,6 +2547,10 @@ export interface components {
             titleColor: string | null;
             backgroundColor: string;
             accentColor: components["schemas"]["ThemeColor"];
+            colorScheme: components["schemas"]["ColorScheme"];
+            liveColor: string | null;
+            successColor: components["schemas"]["ThemeColor"];
+            errorColor: components["schemas"]["ThemeColor"];
         };
         ProjectTheme: {
             /** Format: uuid */
@@ -7034,6 +7060,7 @@ export const setStatusRequestStatusValues: ReadonlyArray<FlattenedDeepRequired<c
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const ringStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["RingStyle"]> = ["gradient", "solid", "none"];
+export const colorSchemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ColorScheme"]> = ["auto", "light", "dark"];
 export const deliveryFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryFont"]["style"]> = ["normal", "italic"];
 export const analyticsPeriodValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AnalyticsPeriod"]> = ["7d", "30d", "90d"];
 export const analyticsEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AnalyticsEventType"]> = ["impression", "open", "view", "click"];

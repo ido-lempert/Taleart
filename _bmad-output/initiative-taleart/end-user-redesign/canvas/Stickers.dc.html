@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Interactive stickers</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0A0918}
+a{color:#9B7BFF}a:hover{color:#C4B2FF}
+.ta{--bg:#0A0918;--s1:#13112A;--s2:#1C1A38;--s3:#2A2650;--line:rgba(255,255,255,.08);--ink:#F4F3FF;--mute:#A9A6C4;--shadow:0 1px 0 rgba(255,255,255,.05) inset,0 30px 60px -30px rgba(0,0,0,.7);font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.ta.light{--bg:#F6F5FB;--s1:#FFFFFF;--s2:#F0EEF8;--s3:#E2DFF0;--line:rgba(18,17,31,.08);--ink:#12111F;--mute:#5C5A72;--shadow:0 1px 2px rgba(18,17,31,.06),0 30px 60px -30px rgba(40,20,120,.25)}
+.disp{font-family:'Inter Tight','Inter',system-ui,sans-serif;letter-spacing:-.02em}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:600}
+.card{background:var(--s1);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow)}
+.hd{display:flex;justify-content:space-between;align-items:baseline}
+.hd b{font-size:15px}.hd span{font-size:12px;color:var(--mute)}
+.stage{flex-grow:1;border-radius:18px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:20px}
+.bl{position:absolute;border-radius:50%}
+.st{position:relative;width:100%;max-width:320px;border-radius:22px;padding:18px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;box-shadow:0 30px 50px -20px rgba(0,0,0,.6)}
+.st.lt{background:#fff;color:#12111F}
+.st.dk{background:#13112A;color:#F4F3FF;border:1px solid rgba(255,255,255,.1)}
+.lab{font-size:11px;font-weight:700;letter-spacing:.14em;opacity:.65}
+.q{font-family:'Inter Tight','Inter',sans-serif;font-size:20px;font-weight:800;line-height:1.15;letter-spacing:-.01em}
+.ans{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:44px;padding:0 14px;border-radius:14px;border:1.5px solid #E2DFF0;background:#F6F5FB;color:#12111F;font:600 14px 'Inter',sans-serif;cursor:pointer;transition:transform .2s cubic-bezier(.34,1.56,.64,1),background .3s,border-color .3s}
+.ans:hover{transform:translateY(-2px)}
+.ans:focus-visible,.rx:focus-visible,.copy:focus-visible,.cta:focus-visible{outline:2px solid #4F1DFC;outline-offset:3px}
+.ans.ok{background:#0F766E;border-color:#0F766E;color:#fff}
+.ans.bad{background:#C2410C;border-color:#C2410C;color:#fff;animation:shake .45s}
+.ans.dim{opacity:.55}
+.ans.ok.pick{animation:pop .5s cubic-bezier(.34,1.56,.64,1)}
+.ico{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.22);display:inline-flex;align-items:center;justify-content:center}
+.burst{position:absolute;width:8px;height:8px;border-radius:2px;pointer-events:none;animation:burst .9s cubic-bezier(.16,1,.3,1) forwards}
+.trk{position:relative;height:14px;border-radius:99px;background:rgba(255,255,255,.14)}
+.trk .f{position:absolute;left:0;top:0;bottom:0;border-radius:inherit;background:linear-gradient(90deg,#FFB020,#FF5A36,#E0218A)}
+.rng{position:absolute;inset:-16px 0;width:100%;opacity:0;cursor:pointer;margin:0}
+.thumb{position:absolute;top:50%;transform:translate(-50%,-50%);pointer-events:none;line-height:1;filter:drop-shadow(0 6px 10px rgba(0,0,0,.45));transition:font-size .2s}
+.avg{position:absolute;top:-6px;bottom:-6px;width:3px;border-radius:3px;background:#fff;box-shadow:0 0 0 2px rgba(19,17,42,.6);transform:translateX(-50%)}
+.rx{position:relative;width:52px;height:52px;border-radius:16px;border:1.5px solid #E2DFF0;background:#F6F5FB;font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
+.rx:hover{transform:translateY(-3px) scale(1.06)}
+.rx:active{transform:scale(.9)}
+.rx.on{border-color:#4F1DFC;background:#EEEBFF}
+.fly{position:absolute;left:50%;top:0;font-size:22px;pointer-events:none;animation:fly 1.1s cubic-bezier(.16,1,.3,1) forwards}
+.digit{min-width:58px;height:70px;border-radius:14px;background:linear-gradient(#1E1B3A 50%,#16142E 50%);color:#fff;font:800 36px 'Inter Tight',sans-serif;font-variant-numeric:tabular-nums;display:flex;align-items:center;justify-content:center;position:relative;box-shadow:0 14px 24px -12px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.08)}
+.digit::after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(0,0,0,.5)}
+.tA{animation:tickA .45s cubic-bezier(.16,1,.3,1)}
+.tB{animation:tickB .45s cubic-bezier(.16,1,.3,1)}
+.unit{font-size:10px;font-weight:700;letter-spacing:.14em;opacity:.65;text-align:center}
+.ticket{position:relative;display:flex;border-radius:20px;overflow:visible;box-shadow:0 30px 50px -20px rgba(0,0,0,.6);width:100%;max-width:330px}
+.ticket .l{flex:1;background:#fff;color:#12111F;border-radius:20px 0 0 20px;padding:18px;display:flex;flex-direction:column;gap:8px}
+.ticket .r{width:96px;background:#4F1DFC;color:#fff;border-radius:0 20px 20px 0;display:flex;align-items:center;justify-content:center;position:relative;border-left:2px dashed rgba(255,255,255,.5)}
+.notch{position:absolute;left:-11px;width:20px;height:20px;border-radius:50%}
+.code{font:800 24px ui-monospace,'SF Mono',monospace;letter-spacing:.12em;padding:8px 12px;border-radius:10px;border:1.5px dashed #C9C4E6;background:#F6F5FB;text-align:center}
+.copy{border:0;background:none;color:#fff;font:700 13px 'Inter',sans-serif;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;min-height:44px;min-width:60px}
+.cta{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 20px;border-radius:99px;font:700 14px 'Inter',sans-serif;text-decoration:none;cursor:pointer;transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
+.cta:hover{transform:translateY(-2px)}
+.chev{animation:bob 1.4s ease-in-out infinite}
+.shine{position:relative;overflow:hidden}
+.shine::after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-60%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);animation:shine 2.8s ease-in-out infinite}
+.sbtn{font:600 13px 'Inter',sans-serif;padding:8px 14px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--mute);cursor:pointer;min-height:36px}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.07)}100%{transform:scale(1)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+@keyframes burst{from{transform:translate(0,0) rotate(0);opacity:1}to{transform:translate(var(--dx),var(--dy)) rotate(260deg);opacity:0}}
+@keyframes fly{0%{transform:translate(-50%,0) scale(.6);opacity:0}15%{opacity:1}100%{transform:translate(calc(-50% + var(--dx)),-90px) scale(1.3);opacity:0}}
+@keyframes tickA{from{transform:rotateX(70deg);opacity:.3}to{transform:none;opacity:1}}
+@keyframes tickB{from{transform:rotateX(70deg);opacity:.3}to{transform:none;opacity:1}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes shine{0%,60%{left:-60%}100%{left:130%}}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div class="ta {{themeCls}}" style="width: 1440px; height: 1100px; box-sizing: border-box; padding: 52px 64px; display: flex; flex-direction: column; gap: 20px">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="eyebrow">Stickers inside a tale · light &amp; dark card themes</div>
+      <h1 class="disp" style="margin: 0; font-size: 44px; font-weight: 800; line-height: 1.05">Every tap gets an answer.</h1>
+    </div>
+    <button class="sbtn" onClick="{{reset}}">Reset all</button>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 20px; flex-grow: 1; min-height: 0">
+    <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>Quiz</b><span>correct · wrong + reveal</span></div>
+      <div class="stage" style="background: #1365FC">
+        <span class="bl" style="background: #8CB6FF; width: 280px; height: 280px; right: -100px; top: -110px"></span>
+        <span class="bl" style="background: #22D3EE; width: 160px; height: 160px; left: -50px; bottom: -60px; opacity: .6"></span>
+        <div class="st lt">
+          <span class="lab">QUIZ</span>
+          <span class="q">What is our classic tee made from?</span>
+          <sc-for list="{{quiz}}" as="o" hint-placeholder-count="3">
+            <button class="ans {{o.cls}}" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}">
+              <span>{{o.label}}</span>
+              <sc-if value="{{o.isOk}}" hint-placeholder-val="{{false}}"><span class="ico"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span></sc-if>
+              <sc-if value="{{o.isBad}}" hint-placeholder-val="{{false}}"><span class="ico"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></sc-if>
+            </button>
+          </sc-for>
+          <sc-if value="{{quizRight}}" hint-placeholder-val="{{false}}">
+            <div style="position: absolute; left: 50%; top: 40%">
+              <sc-for list="{{confetti}}" as="c" hint-placeholder-count="0"><i class="burst" style="background: {{c.color}}; --dx: {{c.dx}}; --dy: {{c.dy}}; animation-delay: {{c.delay}}"></i></sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>Rating</b><span>emoji slider · reveals average</span></div>
+      <div class="stage" style="background: #2A1250">
+        <span class="bl" style="background: #7710FB; width: 300px; height: 300px; left: -120px; top: -140px"></span>
+        <span class="bl" style="background: #E040FB; width: 180px; height: 180px; right: -60px; bottom: -70px; opacity: .6"></span>
+        <div class="st dk">
+          <span class="lab">RATE IT</span>
+          <span class="q">How hyped are you for the drop?</span>
+          <div style="padding: 26px 6px 8px">
+            <div class="trk">
+              <i class="f" style="width: {{rateW}}"></i>
+              <sc-if value="{{rated}}" hint-placeholder-val="{{false}}"><i class="avg" style="left: 64%"></i></sc-if>
+              <span class="thumb" style="left: {{rateW}}; font-size: {{thumbSize}}">🔥</span>
+              <input class="rng" type="range" min="0" max="100" value="{{rate}}" onChange="{{onRate}}" aria-label="Hype rating">
+            </div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 13px; opacity: .85; min-height: 18px">
+            <sc-if value="{{rated}}" hint-placeholder-val="{{false}}"><span>You: <b>{{rate}}</b></span><span>Average: <b>64</b> · 2.1k ratings</span></sc-if>
+            <sc-if value="{{notRated}}" hint-placeholder-val="{{true}}"><span>Drag the flame</span></sc-if>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>Reaction</b><span>tap for counts · emoji float up</span></div>
+      <div class="stage" style="background: #E0218A">
+        <span class="bl" style="background: #FF8AC4; width: 260px; height: 260px; right: -90px; top: -100px"></span>
+        <span class="bl" style="background: #7710FB; width: 180px; height: 180px; left: -60px; bottom: -80px; opacity: .55"></span>
+        <div class="st lt">
+          <span class="lab">REACT</span>
+          <span class="q">Your first look at the new studio?</span>
+          <div style="display: flex; gap: 8px; justify-content: space-between">
+            <sc-for list="{{reacts}}" as="r" hint-placeholder-count="5">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative">
+                <button class="rx {{r.cls}}" onClick="{{r.tap}}" aria-label="React {{r.name}}" aria-pressed="{{r.pressed}}">{{r.e}}
+                  <sc-for list="{{r.flies}}" as="f" hint-placeholder-count="0"><span class="fly" style="--dx: {{f.dx}}">{{r.e}}</span></sc-for>
+                </button>
+                <span style="font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: #5C5A72">{{r.count}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>Countdown</b><span>live · flips every second</span></div>
+      <div class="stage" style="background: #0B0A1A; border: 1px solid var(--line)">
+        <span class="bl" style="background: #4F1DFC; width: 300px; height: 300px; left: 50%; top: 50%; transform: translate(-50%,-50%); opacity: .35; filter: blur(40px)"></span>
+        <div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; color: #fff">
+          <span class="lab" style="opacity: .8">DROP GOES LIVE IN</span>
+          <div style="display: flex; gap: 8px; align-items: flex-start; perspective: 400px">
+            <div style="display: flex; flex-direction: column; gap: 6px"><span class="digit">{{dd}}</span><span class="unit">DAYS</span></div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span class="digit">{{hh}}</span><span class="unit">HRS</span></div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span class="digit">{{mm}}</span><span class="unit">MIN</span></div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span class="digit {{tickCls}}" style="background: linear-gradient(#4F1DFC 50%,#4518E0 50%)">{{ss}}</span><span class="unit">SEC</span></div>
+          </div>
+          <a class="cta" href="#" style="background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2); min-height: 40px; font-size: 13px">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10 21h4"></path></svg>
+            Remind me
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>Promo code</b><span>ticket · one-tap copy</span></div>
+      <div class="stage" style="background: #FF5A36">
+        <span class="bl" style="background: #FFC2A8; width: 300px; height: 300px; right: -120px; top: -120px"></span>
+        <div class="ticket shine">
+          <span class="notch" style="top: -10px; left: auto; right: 86px; background: #FF5A36"></span>
+          <span class="notch" style="bottom: -10px; left: auto; right: 86px; background: #FF5A36"></span>
+          <div class="l">
+            <span class="lab">YOUR CODE</span>
+            <span class="code">SUNNY25</span>
+            <span style="font-size: 12px; color: #5C5A72">[Offer terms go here]</span>
+          </div>
+          <div class="r">
+            <button class="copy" onClick="{{copy}}" aria-label="Copy code">
+              <sc-if value="{{notCopied}}" hint-placeholder-val="{{true}}">
+                <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h10"></path></svg>
+                <span>Copy</span>
+              </sc-if>
+              <sc-if value="{{copied}}" hint-placeholder-val="{{false}}">
+                <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg>
+                <span>Copied</span>
+              </sc-if>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>CTAs</b><span>button · outline · swipe-up</span></div>
+      <div class="stage" style="background: #0E9F9E; flex-direction: column; justify-content: space-between">
+        <span class="bl" style="background: #7FE3D9; width: 280px; height: 280px; left: -110px; top: -120px"></span>
+        <div style="position: relative; display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 280px; padding-top: 6px">
+          <a class="cta shine" href="#" style="background: #fff; color: #0B3B3A">Shop the look
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+          </a>
+          <a class="cta" href="#" style="background: transparent; color: #fff; box-shadow: inset 0 0 0 2px rgba(255,255,255,.85)">Read the guide</a>
+        </div>
+        <a class="cta" href="#" style="position: relative; flex-direction: column; gap: 2px; color: #fff; min-height: 56px; padding: 0">
+          <svg class="chev" aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg>
+          <span style="background: rgba(255,255,255,.2); backdrop-filter: blur(10px); padding: 8px 16px; border-radius: 99px; font-size: 13px">Swipe up to shop</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.endsAt = Date.now() + ((2 * 24 + 7) * 3600 + 13 * 60 + 9) * 1000;
+    this.state = { quiz: null, rate: 30, rated: false, reacts: {}, mine: null, flies: {}, copied: false, now: Date.now() };
+    this.flyId = 0;
+  }
+  componentDidMount() { this.t = setInterval(() => this.setState({ now: Date.now() }), 1000); }
+  componentWillUnmount() { clearInterval(this.t); }
+  renderVals() {
+    const s = this.state;
+    const answers = [
+      { id: 'cotton', label: 'Organic cotton', ok: true },
+      { id: 'linen', label: 'Linen' },
+      { id: 'bamboo', label: 'Bamboo' }
+    ];
+    const quiz = answers.map((a) => {
+      const picked = s.quiz === a.id;
+      let cls = '';
+      if (s.quiz) {
+        if (a.ok) cls = 'ok' + (picked ? ' pick' : '');
+        else if (picked) cls = 'bad';
+        else cls = 'dim';
+      }
+      return { ...a, cls, pressed: picked ? 'true' : 'false', isOk: !!s.quiz && !!a.ok, isBad: picked && !a.ok, pick: () => { if (!this.state.quiz) this.setState({ quiz: a.id }); } };
+    });
+    const palette = ['#4F1DFC', '#E040FB', '#22D3EE', '#FFB020', '#FF5A36'];
+    const confetti = [];
+    for (let i = 0; i < 18; i++) {
+      const ang = (i / 18) * Math.PI * 2;
+      const r = 90 + (i % 3) * 30;
+      confetti.push({ color: palette[i % 5], dx: Math.round(Math.cos(ang) * r) + 'px', dy: Math.round(Math.sin(ang) * r) + 'px', delay: (i % 4) * 30 + 'ms' });
+    }
+    const emojis = [{ e: '❤️', name: 'love', base: 1240 }, { e: '😍', name: 'heart eyes', base: 860 }, { e: '🔥', name: 'fire', base: 712 }, { e: '😂', name: 'laughing', base: 98 }, { e: '😮', name: 'wow', base: 305 }];
+    const reacts = emojis.map((r) => {
+      const n = r.base + (s.reacts[r.name] || 0);
+      return {
+        ...r,
+        count: n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n),
+        cls: s.mine === r.name ? 'on' : '',
+        pressed: s.mine === r.name ? 'true' : 'false',
+        flies: s.flies[r.name] || [],
+        tap: () => {
+          const id = ++this.flyId;
+          const list = (this.state.flies[r.name] || []).concat([{ id, dx: (Math.round(Math.random() * 40) - 20) + 'px' }]);
+          this.setState({ mine: r.name, reacts: { ...this.state.reacts, [r.name]: (this.state.reacts[r.name] || 0) + 1 }, flies: { ...this.state.flies, [r.name]: list } });
+          setTimeout(() => {
+            const cur = (this.state.flies[r.name] || []).filter((f) => f.id !== id);
+            this.setState({ flies: { ...this.state.flies, [r.name]: cur } });
+          }, 1200);
+        }
+      };
+    });
+    const left = Math.max(0, Math.floor((this.endsAt - s.now) / 1000));
+    const pad = (n) => (n < 10 ? '0' : '') + n;
+    return {
+      themeCls: (this.props.theme ?? 'dark') === 'light' ? 'light' : '',
+      quiz,
+      quizRight: s.quiz === 'cotton',
+      confetti,
+      rate: s.rate,
+      rateW: s.rate + '%',
+      thumbSize: (26 + s.rate * 0.16) + 'px',
+      rated: s.rated,
+      notRated: !s.rated,
+      onRate: (ev) => this.setState({ rate: Number(ev.target.value), rated: true }),
+      reacts,
+      dd: pad(Math.floor(left / 86400)),
+      hh: pad(Math.floor((left % 86400) / 3600)),
+      mm: pad(Math.floor((left % 3600) / 60)),
+      ss: pad(left % 60),
+      tickCls: left % 2 ? 'tA' : 'tB',
+      copied: s.copied,
+      notCopied: !s.copied,
+      copy: () => {
+        try { navigator.clipboard && navigator.clipboard.writeText('SUNNY25'); } catch (e) {}
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 2200);
+      },
+      reset: () => this.setState({ quiz: null, rate: 30, rated: false, reacts: {}, mine: null, flies: {}, copied: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

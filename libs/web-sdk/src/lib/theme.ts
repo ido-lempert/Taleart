@@ -20,7 +20,17 @@ export const THEME_DEFAULTS: Readonly<Theme> = {
   titleColor: null,
   backgroundColor: 'transparent',
   accentColor: '#ffffff',
+  colorScheme: 'auto',
+  liveColor: null,
+  successColor: '#047857',
+  errorColor: '#b91c1c',
 };
+
+/**
+ * The two neutral anchors of the colour schemes: a card's ground and its ink, light and dark. Every
+ * neutral the SDK draws comes from these, through the `--ta-*` tokens (never a literal in a component).
+ */
+const SCHEME = { light: '#ffffff', lightInk: '#111827', dark: '#111827', darkInk: '#ffffff' } as const;
 
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 const KEYWORDS = ['inherit', 'initial', 'unset', 'revert', 'revert-layer', 'default'];
@@ -47,6 +57,10 @@ const CHECKS: { readonly [K in keyof Theme]: (value: unknown) => boolean } = {
   titleColor: (v) => v === null || isColor(v),
   backgroundColor: (v) => v === 'transparent' || isColor(v),
   accentColor: isColor,
+  colorScheme: (v) => v === 'auto' || v === 'light' || v === 'dark',
+  liveColor: (v) => v === null || isColor(v),
+  successColor: isColor,
+  errorColor: isColor,
 };
 
 const isRecord = (raw: unknown): raw is Record<string, unknown> =>
@@ -123,19 +137,80 @@ export function readThemeOverride(raw: unknown, source: string): Readonly<Partia
  * again here, silently, so no unchecked value can reach CSS.
  */
 export function themeProperties(raw: unknown, ...overrides: Partial<Theme>[]): Record<string, string> {
-  const theme: Theme = Object.assign(readTheme(raw), ...overrides.map((o) => themeFields(o).fields));
+  return tokensOf(mergedTheme(raw, overrides));
+}
+
+// The theme the delivered theme and the checked overrides make, each field the last set one.
+function mergedTheme(raw: unknown, overrides: readonly Partial<Theme>[]): Theme {
+  return Object.assign(readTheme(raw), ...overrides.map((o) => themeFields(o).fields));
+}
+
+/** The white or the ink colour with the higher contrast against `hex` (WCAG relative luminance). */
+export function onAccent(hex: string): string {
+  const luminance = relativeLuminance(hex);
+  const contrast = (other: number) => (Math.max(luminance, other) + 0.05) / (Math.min(luminance, other) + 0.05);
+  return contrast(relativeLuminance(SCHEME.darkInk)) >= contrast(relativeLuminance(SCHEME.lightInk))
+    ? SCHEME.darkInk
+    : SCHEME.lightInk;
+}
+
+/** The least lightening of `hex` toward white that reads at 4.5:1 on `ground` (`hex` itself when it already does). */
+export function readableOn(hex: string, ground: string): string {
+  if (contrastOf(hex, ground) >= 4.5) return hex;
+  for (let t = 1; t <= 100; t++) {
+    const mixed = mixWhite(hex, t / 100);
+    if (contrastOf(mixed, ground) >= 4.5) return mixed;
+  }
+  return '#ffffff';
+}
+
+function mixWhite(hex: string, t: number): string {
+  return '#' + [0, 2, 4]
+    .map((i) => Math.round(parseInt(hex.slice(1 + i, 3 + i), 16) + (255 - parseInt(hex.slice(1 + i, 3 + i), 16)) * t))
+    .map((c) => c.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function contrastOf(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// The WCAG relative luminance of a `#rrggbb` colour.
+function relativeLuminance(hex: string): number {
+  const channel = (i: number) => {
+    const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+}
+
+// The tokens of a complete theme. Every neutral is a token, and every derived colour is `color-mix`
+// of the title colour (or the host page's, through `currentColor`), so none is a literal in a component.
+function tokensOf(theme: Theme): Record<string, string> {
   const none = theme.ringStyle === 'none';
   const [first] = theme.ringColors;
+  const last = theme.ringColors[theme.ringColors.length - 1];
   const ring =
     none ? 'transparent'
     : theme.ringStyle === 'solid' || theme.ringColors.length === 1 ? first
     : `linear-gradient(45deg, ${theme.ringColors.join(', ')})`;
+  const ink = `var(--ta-title, currentColor)`;
   const props: Record<string, string> = {
     '--ta-ring': ring,
     '--ta-seen': none ? 'transparent' : theme.seenRingColor,
     '--ta-ring-width': `${none ? 0 : theme.ringWidth}px`,
     '--ta-bg': theme.backgroundColor,
     '--ta-accent': theme.accentColor,
+    '--ta-on-accent': onAccent(theme.accentColor),
+    '--ta-live': theme.liveColor ?? last,
+    '--ta-success': theme.successColor,
+    '--ta-error': theme.errorColor,
+    '--ta-success-on-dark': readableOn(theme.successColor, SCHEME.dark),
+    '--ta-error-on-dark': readableOn(theme.errorColor, SCHEME.dark),
+    '--ta-muted': `color-mix(in srgb, ${ink} 65%, transparent)`,
+    '--ta-surface':
+      theme.backgroundColor === 'transparent' ? `color-mix(in srgb, ${ink} 6%, transparent)` : theme.backgroundColor,
   };
   if (theme.backgroundColor !== 'transparent') props['--ta-gap'] = theme.backgroundColor;
   if (theme.cornerRadius !== null) props['--ta-radius'] = `${theme.cornerRadius}px`;
@@ -156,9 +231,36 @@ const OPTIONAL = ['--ta-gap', '--ta-radius', '--ta-font', '--ta-title'];
  * Applying again replaces the previous theme.
  */
 export function applyTheme(target: HTMLElement, raw: unknown, ...overrides: Partial<Theme>[]): void {
-  const props = themeProperties(raw, ...overrides);
+  const theme = mergedTheme(raw, overrides);
+  const props = tokensOf(theme);
   for (const name of OPTIONAL) if (!(name in props)) target.style.removeProperty(name);
   for (const [name, value] of Object.entries(props)) target.style.setProperty(name, value);
   // Marks a theme title colour, which turns the banner dots into rings of it.
   target.toggleAttribute('data-title', '--ta-title' in props);
+  // The colour scheme: `auto` follows the host page's `prefers-color-scheme` (THEME_SCHEME_STYLES).
+  target.setAttribute('data-scheme', theme.colorScheme);
 }
+
+/**
+ * The colour scheme's neutral tokens, on the themed wrapper (`.taleart`). `--ta-paper` and `--ta-ink`
+ * are the ground and the ink of a card in the resolved scheme: light and dark force it through
+ * `data-scheme`, and `auto` (the default) follows the host page's `prefers-color-scheme`. The
+ * `--ta-light*` and `--ta-dark*` pairs are the same two cards whatever the scheme, for a card drawn
+ * light or dark on purpose.
+ */
+export const THEME_SCHEME_STYLES = `
+.taleart {
+  --ta-success-ink: var(--ta-success);
+  --ta-error-ink: var(--ta-error);
+  --ta-light: ${SCHEME.light};
+  --ta-light-ink: ${SCHEME.lightInk};
+  --ta-dark: ${SCHEME.dark};
+  --ta-dark-ink: ${SCHEME.darkInk};
+  --ta-paper: var(--ta-light);
+  --ta-ink: var(--ta-light-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .taleart:not([data-scheme="light"]) { --ta-paper: var(--ta-dark); --ta-ink: var(--ta-dark-ink); --ta-success-ink: var(--ta-success-on-dark); --ta-error-ink: var(--ta-error-on-dark); }
+}
+.taleart[data-scheme="dark"] { --ta-paper: var(--ta-dark); --ta-ink: var(--ta-dark-ink); --ta-success-ink: var(--ta-success-on-dark); --ta-error-ink: var(--ta-error-on-dark); }
+`;

@@ -1,8 +1,18 @@
 import { DEFAULT_THEME, isFontFamily, resolveTheme } from '@taleart/contract';
-import { applyTheme, readTheme, readThemeOverride, THEME_DEFAULTS, themeProperties } from './theme';
+import { applyTheme, onAccent, readableOn, readTheme, readThemeOverride, THEME_DEFAULTS, THEME_SCHEME_STYLES, themeProperties } from './theme';
 import { BANNER_STYLES } from './banner';
 import { BAR_STYLES } from './bar';
 import { VIEWER_STYLES } from './viewer';
+
+
+function contrast(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const c = [0, 2, 4].map((i) => parseInt(hex.slice(1 + i, 3 + i), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
 
 describe('theme', () => {
   it("keeps TaleArt's default theme in step with the contract", () => {
@@ -46,6 +56,13 @@ describe('theme', () => {
     { fontFamily: '-apple-system' },
     { fontFamily: '1font' },
     { fontFamily: 'x'.repeat(201) },
+    { colorScheme: 'sepia' },
+    { colorScheme: 'Dark' },
+    { liveColor: '#fff' },
+    { liveColor: 'transparent' },
+    { successColor: 'green' },
+    { errorColor: null },
+    { errorColor: '#b91c1c;' },
   ])('falls back to the default for %j, as the contract does', (raw) => {
     expect(readTheme(raw)).toEqual(DEFAULT_THEME);
     expect(readTheme(raw)).toEqual(resolveTheme(raw));
@@ -69,6 +86,10 @@ describe('theme', () => {
       titleColor: '#000000',
       backgroundColor: '#fafafa',
       accentColor: '#ffcc00',
+      colorScheme: 'dark',
+      liveColor: '#00ff00',
+      successColor: '#00aa00',
+      errorColor: '#aa0000',
     };
     expect(readTheme(raw)).toEqual(raw);
     expect(readTheme(raw)).toEqual(resolveTheme(raw));
@@ -77,13 +98,20 @@ describe('theme', () => {
   });
 
   it('builds the custom properties, leaving out what the host page or the frame gives', () => {
-    expect(themeProperties({})).toEqual({
+    expect(themeProperties({})).toMatchObject({
       '--ta-ring': 'linear-gradient(45deg, #ea580c, #db2777, #7c3aed)',
       '--ta-seen': '#6b7280',
       '--ta-ring-width': '2px',
       '--ta-bg': 'transparent',
       '--ta-accent': '#ffffff',
+      '--ta-on-accent': '#111827',
+      '--ta-live': '#7c3aed',
+      '--ta-success': '#047857',
+      '--ta-error': '#b91c1c',
+      '--ta-muted': 'color-mix(in srgb, var(--ta-title, currentColor) 65%, transparent)',
+      '--ta-surface': 'color-mix(in srgb, var(--ta-title, currentColor) 6%, transparent)',
     });
+    expect(Object.keys(themeProperties({})).sort()).toEqual(expect.arrayContaining(['--ta-success-on-dark', '--ta-error-on-dark']));
     expect(themeProperties({ titleColor: '#000000', fontFamily: 'Georgia', cornerRadius: 0, backgroundColor: '#fafafa' })).toMatchObject({
       '--ta-title': '#000000',
       '--ta-font': '"Georgia"',
@@ -218,6 +246,86 @@ describe('theme', () => {
       }
       expect(el.style.getPropertyValue('--ta-bg')).toBe('transparent');
       expect(el.hasAttribute('data-title')).toBe(false);
+    });
+  });
+
+  describe('derived tokens and colour schemes', () => {
+    it('derives the muted, surface, live, success and error colours from the theme', () => {
+      const props = themeProperties({ titleColor: '#000000', backgroundColor: '#fafafa', liveColor: '#ff0000' });
+      expect(props['--ta-title']).toBe('#000000');
+      expect(props['--ta-muted']).toBe('color-mix(in srgb, var(--ta-title, currentColor) 65%, transparent)');
+      expect(props['--ta-surface']).toBe('#fafafa');
+      expect(props['--ta-live']).toBe('#ff0000');
+      expect(props['--ta-success']).toBe('#047857');
+      expect(props['--ta-error']).toBe('#b91c1c');
+      // Without a live colour, the last ring colour; a transparent background derives the surface from the title.
+      const ringed = themeProperties({ ringColors: ['#0055ff', '#00aa33'] });
+      expect(ringed['--ta-live']).toBe('#00aa33');
+      expect(ringed['--ta-surface']).toBe('color-mix(in srgb, var(--ta-title, currentColor) 6%, transparent)');
+    });
+
+    it('picks the on-accent colour by contrast: near-black on a light accent, white on a dark one', () => {
+      expect(onAccent('#ffffff')).toBe('#111827');
+      expect(onAccent('#ffff00')).toBe('#111827');
+      expect(onAccent('#111827')).toBe('#ffffff');
+      expect(onAccent('#000080')).toBe('#ffffff');
+      expect(themeProperties({ accentColor: '#000080' })['--ta-on-accent']).toBe('#ffffff');
+    });
+
+    it.each(['#ffffff', '#ffff00', '#111827', '#000080', '#ea580c', '#7c3aed', '#777777'])(
+      'gives %s the one of white and near-black with the higher contrast',
+      (accent) => {
+        const picked = onAccent(accent);
+        const other = picked === '#ffffff' ? '#111827' : '#ffffff';
+        expect(contrast(picked, accent)).toBeGreaterThanOrEqual(contrast(other, accent));
+      },
+    );
+
+    it('keeps the default success and error colours at 4.5:1 or more on white', () => {
+      expect(contrast(THEME_DEFAULTS.successColor, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(THEME_DEFAULTS.errorColor, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('sets the colour scheme as data-scheme, auto by default, and lets an override force it', () => {
+      const el = document.createElement('div');
+      applyTheme(el, {});
+      expect(el.getAttribute('data-scheme')).toBe('auto');
+      applyTheme(el, { colorScheme: 'dark' });
+      expect(el.getAttribute('data-scheme')).toBe('dark');
+      applyTheme(el, { colorScheme: 'dark' }, { colorScheme: 'light' });
+      expect(el.getAttribute('data-scheme')).toBe('light');
+    });
+
+    it('draws the two neutral anchors: a forced scheme by data-scheme, auto by prefers-color-scheme', () => {
+      expect(THEME_SCHEME_STYLES).toContain('@media (prefers-color-scheme: dark)');
+      expect(THEME_SCHEME_STYLES).toContain('.taleart:not([data-scheme="light"]) { --ta-paper: var(--ta-dark);');
+      expect(THEME_SCHEME_STYLES).toContain('.taleart[data-scheme="dark"] { --ta-paper: var(--ta-dark);');
+      expect(THEME_SCHEME_STYLES).not.toMatch(/#[0-9a-fA-F]{3,6}\b[^;]*\bdata-scheme/);
+    });
+
+    it('keeps the quiz marks at 4.5:1 in both schemes: the default colours on white, lightened ones on the dark card', () => {
+      const props = themeProperties({});
+      expect(contrast(THEME_DEFAULTS.successColor, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(THEME_DEFAULTS.errorColor, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(props['--ta-success-on-dark'], '#111827')).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(props['--ta-error-on-dark'], '#111827')).toBeGreaterThanOrEqual(4.5);
+      // A colour that already reads on the dark card is kept as it is.
+      expect(readableOn('#ffcc00', '#111827')).toBe('#ffcc00');
+      expect(themeProperties({ successColor: '#047857' })['--ta-success-on-dark']).toBe(props['--ta-success-on-dark']);
+      expect(THEME_SCHEME_STYLES).toContain('--ta-success-ink: var(--ta-success-on-dark);');
+      expect(THEME_SCHEME_STYLES).toContain('--ta-error-ink: var(--ta-error-on-dark);');
+    });
+
+    it('takes the colour scheme and the new colours from the SDK configuration, checked', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      expect(readThemeOverride({ colorScheme: 'dark', liveColor: null, successColor: '#00aa00' }, 'x')).toEqual({
+        colorScheme: 'dark',
+        liveColor: null,
+        successColor: '#00aa00',
+      });
+      expect(readThemeOverride({ colorScheme: 'sepia', errorColor: 'red' }, 'x')).toEqual({});
+      expect(warn).toHaveBeenCalledTimes(2);
+      warn.mockRestore();
     });
   });
 

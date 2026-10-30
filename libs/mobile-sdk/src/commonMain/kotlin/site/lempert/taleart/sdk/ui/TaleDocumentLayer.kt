@@ -270,7 +270,7 @@ private fun TextElement(element: DocumentElement.Text, canvas: CanvasMetrics, th
     val look = element.look
     val fontPx = canvas.h(look.size)
     val style = TextStyle(
-        color = parseHexColor(look.color) ?: Color.White,
+        color = parseHexColor(look.color) ?: InkDark,
         fontSize = canvas.sp(fontPx),
         fontWeight = FontWeight(look.weight),
         fontStyle = if (look.italic) FontStyle.Italic else FontStyle.Normal,
@@ -288,7 +288,7 @@ private fun TextElement(element: DocumentElement.Text, canvas: CanvasMetrics, th
             else -> TextDirection.Content
         },
     )
-    val background = parseHexColor(look.backgroundColor) ?: Color.Black
+    val background = parseHexColor(look.backgroundColor) ?: CardDark
     val box = look.background == "box"
     val highlight = look.background == "highlight"
     val padPx = when {
@@ -489,7 +489,7 @@ private fun Modifier.link(href: String, label: String, inert: Boolean, component
 private fun ButtonElement(element: DocumentElement.Button, canvas: CanvasMetrics, themeFont: String?, inert: Boolean, modifier: Modifier) {
     val look = element.look
     val fontPx = canvas.h(buttonFontSize(element.box))
-    val fill = parseHexColor(look.fill) ?: Color.White
+    val fill = parseHexColor(look.fill) ?: InkDark
     val shape = RoundedCornerShape(canvas.dp(canvas.h(look.radius)))
     val edge = canvas.h(BUTTON_OUTLINE_WIDTH)
     Box(
@@ -519,7 +519,7 @@ private fun linkFontFamily(themeFont: String?): FontFamily = rememberFontFamily(
 
 // The label of a link: bold, line height 1.2, in [family].
 private fun linkTextStyle(color: String, fontPx: Float, canvas: CanvasMetrics, family: FontFamily) = TextStyle(
-    color = parseHexColor(color) ?: Color.White,
+    color = parseHexColor(color) ?: InkDark,
     fontSize = canvas.sp(fontPx),
     fontWeight = FontWeight.Bold,
     fontFamily = family,
@@ -555,7 +555,7 @@ private fun ImageButtonElement(element: DocumentElement.ImageButton, canvas: Can
 private fun SwipeUpElement(element: DocumentElement.SwipeUp, canvas: CanvasMetrics, themeFont: String?, inert: Boolean, modifier: Modifier) {
     val fontPx = canvas.h(SWIPE_UP_FONT_SIZE)
     val em = { n: Double -> canvas.dp((fontPx * n).toFloat()) }
-    val color = parseHexColor(element.color) ?: Color.White
+    val color = parseHexColor(element.color) ?: InkDark
     BoxWithConstraints(modifier.link(element.href, element.label, inert, ComponentRef(element.id, "swipe-up")), contentAlignment = Alignment.Center) {
         val maxWidth = maxWidth
         Column(

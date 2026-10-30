@@ -41,7 +41,7 @@ import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZO
 import { createTranslate, type StringsConfig, type Translate } from './i18n';
 import type { Theme } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
-import { applyTheme, readThemeOverride } from './theme';
+import { applyTheme, readThemeOverride, THEME_SCHEME_STYLES } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
 
 export const TALEART_ELEMENT_TAG = 'taleart-view';
@@ -877,7 +877,7 @@ export class TaleartElement extends ElementBase {
     this.view = view;
     if (!view) return;
     const style = document.createElement('style');
-    style.textContent = BAR_STYLES + BANNER_STYLES + VIEWER_STYLES;
+    style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES + VIEWER_STYLES;
     this.viewer = viewer;
     themed.replaceChildren(view.element);
     this.root.replaceChildren(style, themed);

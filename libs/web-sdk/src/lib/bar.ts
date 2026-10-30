@@ -100,26 +100,26 @@ export const BAR_STYLES = `
   font: inherit;
   cursor: pointer;
 }
-/* Two colours, so the focus ring shows on any background: white inside, dark outside. */
-.item:focus-visible { outline: 2px solid #111827; outline-offset: 2px; box-shadow: 0 0 0 2px #fff; border-radius: 8px; }
+/* Two tokens, so the focus ring shows on any background: the paper inside, the ink outside. */
+.item:focus-visible { outline: 2px solid var(--ta-ink); outline-offset: 2px; box-shadow: 0 0 0 2px var(--ta-paper); border-radius: 8px; }
 .ring {
   box-sizing: border-box;
   width: var(--ta-size);
   height: var(--ta-size);
   border-radius: 50%;
   padding: var(--ta-ring-width, 2px);
-  background: var(--ta-ring, linear-gradient(45deg, #ea580c, #db2777, #7c3aed));
+  background: var(--ta-ring, var(--ta-muted));
 }
-.item[data-seen] .ring { background: var(--ta-seen, #6b7280); }
+.item[data-seen] .ring { background: var(--ta-seen, var(--ta-muted)); }
 .cover {
   display: block;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  border: 2px solid var(--ta-gap, #fff);
+  border: 2px solid var(--ta-gap, var(--ta-paper));
   object-fit: cover;
-  background: #e5e7eb;
+  background: var(--ta-surface, transparent);
 }
 /* Up to two lines, so a name that fits on one still shows in full with wider text spacing (WCAG 1.4.12). */
 .title {

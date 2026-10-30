@@ -213,8 +213,8 @@ sealed interface DocumentElement {
         val title: String?,
         val endsAt: Instant,
         val endedText: String?,
-        /** The card is dark (`theme` `dark`), else light. */
-        val dark: Boolean,
+        /** The card is dark (`theme` `dark`), light (`light`), or null: it follows the colour scheme. */
+        val dark: Boolean?,
     ) : DocumentElement {
         override val decorative: Boolean get() = false
     }
@@ -227,8 +227,8 @@ sealed interface DocumentElement {
         val title: String?,
         val code: String,
         val note: String?,
-        /** The card is dark (`theme` `dark`), else light. */
-        val dark: Boolean,
+        /** The card is dark (`theme` `dark`), light (`light`), or null: it follows the colour scheme. */
+        val dark: Boolean?,
     ) : DocumentElement {
         override val decorative: Boolean get() = false
     }
@@ -241,8 +241,8 @@ sealed interface DocumentElement {
         val title: String?,
         val question: String,
         val options: List<Choice>,
-        /** The card is dark (`theme` `dark`), else light. */
-        val dark: Boolean,
+        /** The card is dark (`theme` `dark`), light (`light`), or null: it follows the colour scheme. */
+        val dark: Boolean?,
     ) : DocumentElement {
         override val decorative: Boolean get() = false
     }
@@ -256,8 +256,8 @@ sealed interface DocumentElement {
         val question: String,
         val answers: List<Choice>,
         val correctAnswerId: String?,
-        /** The card is dark (`theme` `dark`), else light. */
-        val dark: Boolean,
+        /** The card is dark (`theme` `dark`), light (`light`), or null: it follows the colour scheme. */
+        val dark: Boolean?,
     ) : DocumentElement {
         override val decorative: Boolean get() = false
     }
@@ -270,8 +270,8 @@ sealed interface DocumentElement {
         val title: String?,
         val question: String,
         val emoji: String,
-        /** The card is dark (`theme` `dark`), else light. */
-        val dark: Boolean,
+        /** The card is dark (`theme` `dark`), light (`light`), or null: it follows the colour scheme. */
+        val dark: Boolean?,
     ) : DocumentElement {
         override val decorative: Boolean get() = false
     }
@@ -284,8 +284,8 @@ sealed interface DocumentElement {
         val title: String?,
         val question: String,
         val emojis: List<String>,
-        /** The card is dark (`theme` `dark`), else light. */
-        val dark: Boolean,
+        /** The card is dark (`theme` `dark`), light (`light`), or null: it follows the colour scheme. */
+        val dark: Boolean?,
     ) : DocumentElement {
         override val decorative: Boolean get() = false
     }

@@ -7,6 +7,8 @@
 // Usage: node apps/docs/scripts/web-sdk-shots.mjs
 // With --reaction, only the Reaction shots are written (web-shot-reaction*.png); the other images stay as they are.
 // With --audience, only the audience shots are written (web-audience-*.png): a bar and a banner for two viewers.
+// With --theme, only the colour-scheme pair is written (web-theme-light.png, web-theme-dark.png): the same bar on a light
+// and a dark device (colorScheme light and dark, a dark host page), with the theme left on `auto`.
 import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
@@ -16,6 +18,7 @@ import { chromium } from 'playwright';
 const REACTION_ONLY = process.argv.includes('--reaction');
 const AUDIENCE_ONLY = process.argv.includes('--audience');
 const COMPONENTS_ONLY = process.argv.includes('--components');
+const THEME_ONLY = process.argv.includes('--theme');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
 const imagesDir = join(root, 'apps/docs/public/images');
@@ -219,7 +222,7 @@ function zoneFor(kind) {
 
 // The host pages: the docs' snippet, with the locale variant for Hebrew.
 const SNIPPET_SCRIPT = '<script type="module" src="/sdk/v1/taleart.js"></script>';
-function page({ lang = 'en', dir = 'ltr', kind = 'bar', body = '', script = '' }) {
+function page({ lang = 'en', dir = 'ltr', kind = 'bar', body = '', script = '', dark = false }) {
   return `<!doctype html>
 <html lang="${lang}" dir="${dir}">
 <head>
@@ -227,7 +230,7 @@ function page({ lang = 'en', dir = 'ltr', kind = 'bar', body = '', script = '' }
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Web SDK sample</title>
 <style>
-  body { margin: 0; font-family: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; background: #f5f5f7; color: #1d1d1f; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; background: ${dark ? '#111827' : '#f5f5f7'}; color: ${dark ? '#f9fafb' : '#1d1d1f'}; }
   main { padding: 24px; }
   taleart-view { display: block; min-height: 94px; }
 </style>
@@ -261,6 +264,7 @@ const AUDIENCE_HOSTS = Object.fromEntries(
 const HOSTS = {
   ...AUDIENCE_HOSTS,
   '/bar.html': () => page({ kind: 'bar' }),
+  '/theme-dark.html': () => page({ kind: 'bar', dark: true }),
   '/banner.html': () => page({ kind: 'banner' }),
   '/features.html': () => page({ kind: 'features' }),
   '/frequency.html': () =>
@@ -736,6 +740,36 @@ async function audienceShots(browser, origin, written) {
   }
 }
 
+// The colour-scheme pair: the same bar, on a light and on a dark device (the scheme is the browser's, which
+// `auto` follows), each page's own background.
+async function themeShots(browser, origin, written) {
+  for (const [scheme, path, name] of [
+    ['light', '/bar.html', 'web-theme-light.png'],
+    ['dark', '/theme-dark.html', 'web-theme-dark.png'],
+  ]) {
+    const context = await browser.newContext({
+      viewport: { width: 560, height: 360 },
+      deviceScaleFactor: 2,
+      locale: 'en-US',
+      colorScheme: scheme,
+    });
+    try {
+      const p = await context.newPage();
+      await p.goto(`${origin}${path}`);
+      await p.waitForFunction(
+        (sel) => !!document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel),
+        'button.item',
+        { timeout: 15_000 },
+      );
+      await p.waitForLoadState('networkidle');
+      await p.locator('main').screenshot({ path: join(imagesDir, name) });
+      written.push(name);
+    } finally {
+      await context.close();
+    }
+  }
+}
+
 async function main() {
   await mkdir(imagesDir, { recursive: true });
   const { server, origin } = await startServer();
@@ -746,6 +780,10 @@ async function main() {
   try {
     if (AUDIENCE_ONLY) {
       await audienceShots(browser, origin, written);
+      return;
+    }
+    if (THEME_ONLY) {
+      await themeShots(browser, origin, written);
       return;
     }
     const ready = (p, selector) =>

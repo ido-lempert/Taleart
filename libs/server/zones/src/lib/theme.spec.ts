@@ -21,6 +21,24 @@ describe('project theme', () => {
     expect(theme.resolved).toEqual({ ...DEFAULT_THEME, ringStyle: 'solid' });
   });
 
+  it('reads a theme stored before the colour fields existed with their defaults', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ theme: { ringStyle: 'solid' } }] });
+    const theme = await getProjectTheme({ query } as unknown as Db, projectId);
+    expect(theme.resolved).toMatchObject({
+      colorScheme: 'auto',
+      liveColor: null,
+      successColor: '#047857',
+      errorColor: '#b91c1c',
+    });
+  });
+
+  it('keeps a stored colour scheme and live colour, and drops invalid ones', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ theme: { colorScheme: 'dark', liveColor: 'red', errorColor: '#00ff00' } }] });
+    const theme = await getProjectTheme({ query } as unknown as Db, projectId);
+    expect(theme.theme).toEqual({ colorScheme: 'dark', errorColor: '#00ff00' });
+    expect(theme.resolved).toMatchObject({ colorScheme: 'dark', liveColor: null, errorColor: '#00ff00' });
+  });
+
   it('stores a valid theme and answers it resolved', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
     const settings = { ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0 };

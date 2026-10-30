@@ -115,7 +115,7 @@ export const DOCUMENT_STYLES = `
   line-height: 1.2;
   -webkit-tap-highlight-color: transparent;
 }
-.ta-cta:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; }
+.ta-cta:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 .ta-button { padding: 0 0.8em; text-overflow: ellipsis; }
 .ta-sr {
   position: absolute;

@@ -28,6 +28,8 @@ import platform.UIKit.UIViewAutoresizingFlexibleHeight
 import platform.UIKit.UIViewAutoresizingFlexibleWidth
 import platform.UIKit.UIViewController
 import platform.UIKit.UIWindow
+import platform.UIKit.UIScreen
+import platform.UIKit.UIUserInterfaceStyle
 import platform.UIKit.UIWindowScene
 import platform.UIKit.addChildViewController
 import platform.UIKit.didMoveToParentViewController
@@ -146,6 +148,10 @@ internal fun topViewController(): UIViewController? {
 }
 
 // Reduce Motion, observed: a change while the app runs reaches the banner at once, and the next viewer.
+@Composable
+internal actual fun rememberPrefersDarkScheme(): Boolean =
+    UIScreen.mainScreen.traitCollection.userInterfaceStyle == UIUserInterfaceStyle.UIUserInterfaceStyleDark
+
 @Composable
 internal actual fun rememberPrefersReducedMotion(): Boolean {
     val reduced = remember { mutableStateOf(UIAccessibilityIsReduceMotionEnabled()) }

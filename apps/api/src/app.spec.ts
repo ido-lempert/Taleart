@@ -4538,6 +4538,10 @@ describe('Management API v1: projects and zones', () => {
       [{ backgroundColor: '#123456;x' }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
       [{ backgroundColor: null }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
       [{ accentColor: 'transparent' }, 'theme.accentColor must be a colour as #rrggbb'],
+      [{ colorScheme: 'sepia' }, 'theme.colorScheme must be one of: auto, light, dark'],
+      [{ liveColor: 'red' }, 'theme.liveColor must be a colour as #rrggbb, or null for the last ring colour'],
+      [{ successColor: null }, 'theme.successColor must be a colour as #rrggbb'],
+      [{ errorColor: '#fff' }, 'theme.errorColor must be a colour as #rrggbb'],
       [{ fontFamily: 'inherit' }, expect.stringMatching(/^theme\.fontFamily /)],
       [{ fontFamily: 'Georgia, revert-layer' }, expect.stringMatching(/^theme\.fontFamily /)],
       [{ fontFamily: '-apple-system' }, expect.stringMatching(/^theme\.fontFamily /)],
@@ -4568,6 +4572,21 @@ describe('Management API v1: projects and zones', () => {
           expect((await res.json()).error.code).toBe('project_not_found');
         }
       }
+    });
+
+    it('stores the colour scheme, the live colour and the quiz colours, and answers them resolved', async () => {
+      const project = await createProject();
+      const settings = { colorScheme: 'dark', liveColor: '#00ff00', successColor: '#0a7d4f', errorColor: '#c00000' };
+      const saved = await putTheme(project.id, settings);
+      expect(saved.status).toBe(200);
+      expect(await saved.json()).toEqual({ projectId: project.id, theme: settings, resolved: { ...DEFAULT_THEME, ...settings } });
+      // A theme stored before the fields existed reads back with their defaults.
+      await pool.query(`UPDATE project_themes SET theme = '{"ringStyle":"solid"}' WHERE project_id = $1`, [project.id]);
+      expect(await (await getTheme(project.id)).json()).toEqual({
+        projectId: project.id,
+        theme: { ringStyle: 'solid' },
+        resolved: { ...DEFAULT_THEME, ringStyle: 'solid' },
+      });
     });
 
     it("lets a content manager edit their project's theme, and no other", async () => {

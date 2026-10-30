@@ -1,6 +1,7 @@
 package site.lempert.taleart.sdk.ui
 
 import android.graphics.Color as AndroidColor
+import android.content.res.Configuration
 import android.database.ContentObserver
 import android.os.Build
 import android.os.Handler
@@ -14,6 +15,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
@@ -66,6 +68,12 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
 
 // "Remove animations" in the accessibility settings sets the animator duration scale to 0. The
 // setting is observed: a change while the app runs reaches the banner at once, and the next viewer.
+@Composable
+internal actual fun rememberPrefersDarkScheme(): Boolean {
+    val night = LocalConfiguration.current.uiMode and Configuration.UI_MODE_NIGHT_MASK
+    return night == Configuration.UI_MODE_NIGHT_YES
+}
+
 @Composable
 internal actual fun rememberPrefersReducedMotion(): Boolean {
     val resolver = LocalContext.current.contentResolver

@@ -5,6 +5,7 @@ import {
   ANDROID_MOBILE_COORDINATES,
   ANDROID_VIEW_MEMBERS,
   ANDROID_ZONE_PARAMS,
+  NATIVE_THEME_FIELDS,
   CONFIG_FIELDS,
   EVENT_FIELDS,
   LISTENER_HOOKS,
@@ -171,6 +172,32 @@ import {
       </table>
     </div>
 
+    <h2 id="theme">TaleartTheme</h2>
+    <p>The project's theme as the native SDK reads it. The fields and their rules are the Web SDK's (see <a routerLink="/theme-and-fonts">Theme and fonts</a>); a field left out or not valid takes its default.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="theme-caption">
+      <table id="theme-fields">
+        <caption id="theme-caption">TaleartTheme fields</caption>
+        <thead>
+          <tr>
+            <th scope="col">Field</th>
+            <th scope="col">Type</th>
+            <th scope="col">Default</th>
+            <th scope="col">Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of themeFields; track row.name) {
+            <tr>
+              <td><code>{{ row.name }}</code></td>
+              <td><code>{{ row.type }}</code></td>
+              <td>{{ row.def }}</td>
+              <td>{{ row.meaning }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
     <h2 id="listener">TaleartListener</h2>
     <p>
       The hooks. Implement the interface and override the methods you need; each default does nothing. A hook that throws
@@ -298,6 +325,7 @@ export class AndroidSdkReferencePage {
   protected readonly xmlAttributes = XML_ATTRIBUTES;
   protected readonly viewMembers = ANDROID_VIEW_MEMBERS;
   protected readonly zoneParams = ANDROID_ZONE_PARAMS;
+  protected readonly themeFields = NATIVE_THEME_FIELDS;
   protected readonly hooks = LISTENER_HOOKS;
   protected readonly eventFields = EVENT_FIELDS;
   protected readonly stringKeys = STRING_KEYS;

@@ -12,11 +12,15 @@ export type Theme = Schemas['Theme'];
 export type ThemeSettings = Partial<Theme>;
 /** How the unseen ring is drawn. */
 export type RingStyle = Schemas['RingStyle'];
+/** Which colour scheme the SDK draws: follow the host page's preference, or always one of them. */
+export type ColorScheme = Schemas['ColorScheme'];
 /** The theme fields, in the order the dashboard shows them. */
 export type ThemeField = keyof Theme;
 
 /** Every ring style. */
 export const RING_STYLES: readonly RingStyle[] = ['gradient', 'solid', 'none'];
+/** Every colour scheme. */
+export const COLOR_SCHEMES: readonly ColorScheme[] = ['auto', 'light', 'dark'];
 
 /** Every theme field, in display order. */
 export const THEME_FIELDS: readonly ThemeField[] = [
@@ -29,6 +33,10 @@ export const THEME_FIELDS: readonly ThemeField[] = [
   'titleColor',
   'backgroundColor',
   'accentColor',
+  'colorScheme',
+  'liveColor',
+  'successColor',
+  'errorColor',
 ];
 
 /** A colour: `#rrggbb` and nothing else. */
@@ -81,7 +89,10 @@ export const TRANSPARENT = 'transparent';
  * come from the host page or the frame (`null`); the ring keeps its old
  * gradient except the first stop, darkened from `#f59e0b` (2.2:1 on white) to
  * `#ea580c` (3.6:1). On white, every ring colour and the seen ring pass 3:1;
- * the accent passes 3:1 on black and on the viewer's track and buttons.
+ * the accent passes 3:1 on black and on the viewer's track and buttons. The
+ * colour scheme follows the host page (`auto`); the live colour is the last
+ * ring colour (`null`); the quiz answer colours are `#047857` and `#b91c1c`,
+ * which pass 4.5:1 on white (not on the dark background).
  */
 export const DEFAULT_THEME: Readonly<Theme> = /* @__PURE__ */ Object.freeze({
   ringStyle: 'gradient',
@@ -93,10 +104,15 @@ export const DEFAULT_THEME: Readonly<Theme> = /* @__PURE__ */ Object.freeze({
   titleColor: null,
   backgroundColor: TRANSPARENT,
   accentColor: '#ffffff',
+  colorScheme: 'auto',
+  liveColor: null,
+  successColor: '#047857',
+  errorColor: '#b91c1c',
 });
 
 /** The fields whose `null` takes the host page's or the frame's own value. */
 export const NULLABLE_THEME_FIELDS = ['cornerRadius', 'fontFamily', 'titleColor'] as const;
+// `liveColor` is nullable too, but its `null` means the last of `ringColors`, not the host page's value.
 
 /** The viewer's background, which the accent is drawn on. */
 export const VIEWER_BACKGROUND = '#000000';
@@ -150,6 +166,10 @@ function fieldError(field: ThemeField, value: unknown): string | null {
         : `${at} must be a list of font names separated by commas (letters, digits, spaces, hyphens and quotes; a bare name starts with a letter; no CSS-wide keyword or "default"; no name starting with ${RESERVED_FONT_PREFIX})`;
     case 'titleColor':
       return value === null || isThemeColor(value) ? null : `${at} must be a colour as #rrggbb, or null for the host page's`;
+    case 'colorScheme':
+      return (COLOR_SCHEMES as readonly unknown[]).includes(value) ? null : `${at} must be one of: ${COLOR_SCHEMES.join(', ')}`;
+    case 'liveColor':
+      return value === null || isThemeColor(value) ? null : `${at} must be a colour as #rrggbb, or null for the last ring colour`;
     case 'backgroundColor':
       return value === TRANSPARENT || isThemeColor(value) ? null : `${at} must be a colour as #rrggbb, or transparent`;
     default:

@@ -50,15 +50,15 @@ private fun optionalPlain(props: JsonObject, key: String, max: Int): Optional<St
     return if (isPlainLine(value, max)) Optional.Value(value) else Optional.Invalid
 }
 
-// `theme`: light (the default) or dark. False for light, true for dark, null for anything else.
-private fun themeIsDark(props: JsonObject): Boolean? {
-    if (!props.containsKey("theme")) return false
-    return when (props.stringOf("theme")) {
-        "light" -> false
-        "dark" -> true
-        else -> null
-    }
+// `theme`: light or dark; absent, the card follows the colour scheme (null). A refused value is not drawn (`themeRefused`).
+private fun themeIsDark(props: JsonObject): Boolean? = when (props.stringOf("theme")) {
+    "light" -> false
+    "dark" -> true
+    else -> null
 }
+
+private fun themeRefused(props: JsonObject): Boolean =
+    props.containsKey("theme") && props.stringOf("theme") !in setOf("light", "dark")
 
 // An ISO 8601 instant in UTC with a `Z` (the schema's pattern, at most 40 characters).
 private val ENDS_AT = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$")
@@ -72,7 +72,8 @@ internal fun readCountdown(id: String, box: ElementBox, layer: Int, props: JsonO
     val endsAt = props.stringOf("endsAt")?.let(::readInstant) ?: return null
     val title = optionalPlain(props, "title", 80)
     val endedText = optionalPlain(props, "endedText", 80)
-    val dark = themeIsDark(props) ?: return null
+    if (themeRefused(props)) return null
+    val dark = themeIsDark(props)
     if (title === Optional.Invalid || endedText === Optional.Invalid) return null
     return DocumentElement.Countdown(
         id = id,
@@ -93,7 +94,8 @@ internal fun readPromoCode(id: String, box: ElementBox, layer: Int, props: JsonO
     val code = props.stringOf("code")?.takeIf { PROMO_CODE.matches(it) } ?: return null
     val title = optionalPlain(props, "title", 80)
     val note = optionalPlain(props, "note", 120)
-    val dark = themeIsDark(props) ?: return null
+    if (themeRefused(props)) return null
+    val dark = themeIsDark(props)
     if (title === Optional.Invalid || note === Optional.Invalid) return null
     return DocumentElement.PromoCode(
         id = id,
@@ -157,7 +159,8 @@ internal fun readPoll(id: String, box: ElementBox, layer: Int, props: JsonObject
     val question = requiredPlain(props, "question", 200) ?: return null
     val title = optionalPlain(props, "title", 80)
     val options = readChoices(props, "options", 2, 2) ?: return null
-    val dark = themeIsDark(props) ?: return null
+    if (themeRefused(props)) return null
+    val dark = themeIsDark(props)
     if (title === Optional.Invalid) return null
     return DocumentElement.Poll(id, box, layer, (title as? Optional.Value)?.value, question, options, dark)
 }
@@ -176,7 +179,8 @@ internal fun readQuiz(id: String, box: ElementBox, layer: Int, props: JsonObject
     } else {
         null
     }
-    val dark = themeIsDark(props) ?: return null
+    if (themeRefused(props)) return null
+    val dark = themeIsDark(props)
     if (title === Optional.Invalid) return null
     return DocumentElement.Quiz(
         id, box, layer, (title as? Optional.Value)?.value, question, answers,
@@ -190,7 +194,8 @@ internal fun readRating(id: String, box: ElementBox, layer: Int, props: JsonObje
     val question = requiredPlain(props, "question", 200) ?: return null
     val title = optionalPlain(props, "title", 80)
     val emoji = props.stringOf("emoji")?.takeIf { isPlainLine(it, 64) && it.isNotBlank() } ?: return null
-    val dark = themeIsDark(props) ?: return null
+    if (themeRefused(props)) return null
+    val dark = themeIsDark(props)
     if (title === Optional.Invalid) return null
     return DocumentElement.Rating(id, box, layer, (title as? Optional.Value)?.value, question, emoji, dark)
 }
@@ -206,7 +211,8 @@ internal fun readReaction(id: String, box: ElementBox, layer: Int, props: JsonOb
     if (items.size !in 2..6) return null
     val emojis = items.map { item -> (item as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { isPlainLine(it, 64) && it.isNotBlank() } ?: return null }
     if (emojis.toSet().size != emojis.size) return null
-    val dark = themeIsDark(props) ?: return null
+    if (themeRefused(props)) return null
+    val dark = themeIsDark(props)
     if (title === Optional.Invalid) return null
     return DocumentElement.Reaction(id, box, layer, (title as? Optional.Value)?.value, question, emojis, dark)
 }

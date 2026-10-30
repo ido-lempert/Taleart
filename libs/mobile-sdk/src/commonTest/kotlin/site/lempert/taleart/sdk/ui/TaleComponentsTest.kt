@@ -45,7 +45,7 @@ class TaleComponentsTest {
         assertEquals("Sale ends", c.title)
         assertEquals(Instant.parse("2026-12-31T21:00:00Z"), c.endsAt)
         assertEquals("Over", c.endedText)
-        assertTrue(c.dark)
+        assertEquals(true, c.dark)
         assertFalse(c.decorative)
         assertEquals(emptyList(), layer.skipped)
     }
@@ -55,7 +55,7 @@ class TaleComponentsTest {
         val c = countdowns(layerOf(element("countdown", props(endsAt)))).single()
         assertNull(c.title)
         assertNull(c.endedText, "the SDK's ended string is used at render time")
-        assertFalse(c.dark, "light when left out")
+        assertEquals(null, c.dark, "follows the colour scheme when left out")
     }
 
     @Test
@@ -112,7 +112,7 @@ class TaleComponentsTest {
         assertEquals("SAVE-20_x", p.code)
         assertEquals("Welcome", p.title)
         assertEquals("Once per visitor", p.note)
-        assertTrue(p.dark)
+        assertEquals(true, p.dark)
         assertEquals(emptyList(), layer.skipped)
     }
 

@@ -67,7 +67,7 @@ class InteractiveElementsTest {
             layerOf(element("poll", """{"title":"Survey","question":"?","options":[$tea,$coffee],"theme":"dark"}""")).elements.single(),
         )
         assertEquals("Survey", p.title)
-        assertTrue(p.dark)
+        assertEquals(true, p.dark)
     }
 
     // -- quiz -----------------------------------------------------------------------------------
@@ -129,7 +129,7 @@ class InteractiveElementsTest {
             layerOf(element("reaction", """{"question":"Feel?","emojis":["❤️","😂","😮"]}""")).elements.single(),
         )
         assertEquals(listOf("❤️", "😂", "😮"), r.emojis)
-        assertEquals(false, r.dark)
+        assertEquals(null, r.dark)
     }
 
     @Test

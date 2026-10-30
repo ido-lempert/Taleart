@@ -30,8 +30,9 @@ export const REACTION_STYLES = `
   text-align: start;
   overflow-wrap: anywhere;
 }
-.ta-reaction-light { background: #ffffff; color: #111827; }
-.ta-reaction-dark { background: #111827; color: #ffffff; }
+.ta-reaction-light { background: var(--ta-light); color: var(--ta-light-ink); }
+.ta-reaction-dark { background: var(--ta-dark); color: var(--ta-dark-ink); }
+.ta-reaction-auto { background: var(--ta-paper); color: var(--ta-ink); }
 .ta-reaction-title { margin: 0; font-size: 0.75em; font-weight: 600; opacity: 0.85; }
 .ta-reaction-q { margin: 0; font-weight: 700; font-size: 1.1em; }
 .ta-reaction-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 1cqh; }
@@ -51,8 +52,8 @@ export const REACTION_STYLES = `
   -webkit-tap-highlight-color: transparent;
 }
 .ta-reaction-btn[aria-disabled='true'] { cursor: default; }
-.ta-reaction-btn[aria-pressed='true'] { border-width: 0.5cqh; background: rgb(127 127 127 / 0.3); }
-.ta-reaction-btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; }
+.ta-reaction-btn[aria-pressed='true'] { border-width: 0.5cqh; background: color-mix(in srgb, currentColor 30%, transparent); }
+.ta-reaction-btn:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 .ta-reaction-emoji { font-size: 2em; line-height: 1.2; }
 .ta-reaction-count { min-height: 1.2em; font-size: 0.8em; font-weight: 700; font-variant-numeric: tabular-nums; }
 @media (forced-colors: active) { .ta-reaction-btn { border-color: ButtonText; } .ta-reaction-btn[aria-pressed='true'] { background: Highlight; } }
@@ -96,7 +97,7 @@ export function renderReaction(element: DeliveryTaleElement, context: RenderCont
   if (!emojis || !question) return null;
 
   const root = document.createElement('div');
-  root.className = `ta-el ta-reaction ta-interactive ta-reaction-${props.theme === 'dark' ? 'dark' : 'light'}`;
+  root.className = `ta-el ta-reaction ta-interactive ${props.theme === 'dark' ? 'ta-reaction-dark' : props.theme === 'light' ? 'ta-reaction-light' : 'ta-reaction-light ta-reaction-auto'}`;
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', question);
   if (typeof props.title === 'string' && props.title.trim()) root.appendChild(text('p', 'ta-reaction-title', props.title));

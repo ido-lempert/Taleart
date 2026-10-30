@@ -177,7 +177,7 @@ private fun FailurePlaceholder(fallback: (@Composable () -> Unit)?, onRetry: () 
         Box(
             Modifier
                 .clip(RoundedCornerShape(50))
-                .border(1.dp, Color.Gray, RoundedCornerShape(50))
+                .border(1.dp, rememberThemeColors().muted, RoundedCornerShape(50))
                 .clickable(role = Role.Button, onClick = onRetry)
                 .padding(horizontal = 14.dp, vertical = 6.dp),
         ) {

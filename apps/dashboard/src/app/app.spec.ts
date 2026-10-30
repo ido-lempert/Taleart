@@ -7063,6 +7063,10 @@ describe('App', () => {
       titleColor: null,
       backgroundColor: 'transparent',
       accentColor: '#ffffff',
+      colorScheme: 'auto',
+      liveColor: null,
+      successColor: '#047857',
+      errorColor: '#b91c1c',
     };
     const projectTheme = (theme: object) => ({ projectId: 'p1', theme, resolved: { ...defaults, ...theme } });
 
@@ -7140,6 +7144,51 @@ describe('App', () => {
         '#000000',
       );
       expect(note(root)).toBe('');
+    });
+
+    it('shows the colour scheme, the live colour and the quiz colours with their defaults', async () => {
+      const { root } = await openTheme();
+      expect(root.querySelector<HTMLSelectElement>('#theme-colorScheme')?.value).toBe('auto');
+      expect(input(root, 'liveColor')).toBeNull();
+      expect(root.textContent).toContain('The ring of a live tale uses the last ring colour (#7c3aed).');
+      expect(input(root, 'successColor')?.value).toBe('#047857');
+      expect(input(root, 'errorColor')?.value).toBe('#b91c1c');
+      // The defaults pass on white and fail on the dark background, so nothing is warned about.
+      expect(root.querySelector('.text-contrast')).toBeNull();
+    });
+
+    it('saves the colour scheme, a live colour and a quiz colour', async () => {
+      const { fixture, root } = await openTheme();
+      choose(root.querySelector<HTMLSelectElement>('#theme-colorScheme'), 'dark');
+      buttonNamed(root, 'Set a live colour').click();
+      await settle(fixture);
+      expect(input(root, 'liveColor')?.value).toBe('#7c3aed');
+      type(input(root, 'liveColor'), '#00ff00');
+      type(input(root, 'successColor'), '#0a7d4f');
+      await settle(fixture);
+      await expectSave(fixture, root, { colorScheme: 'dark', liveColor: '#00ff00', successColor: '#0a7d4f' });
+    });
+
+    it('resets the live colour to the last ring colour', async () => {
+      const { fixture, root } = await openTheme({ liveColor: '#00ff00' });
+      buttonNamed(root, 'Use the last ring colour').click();
+      await settle(fixture);
+      expect(input(root, 'liveColor')).toBeNull();
+      await expectSave(fixture, root, {});
+    });
+
+    it('warns about a quiz colour only when it is below 4.5:1 on both backgrounds', async () => {
+      const { fixture, root } = await openTheme();
+      type(input(root, 'successColor'), '#047857');
+      await settle(fixture);
+      expect(root.querySelector('.text-contrast')).toBeNull();
+      type(input(root, 'errorColor'), '#777777');
+      await settle(fixture);
+      const warned = root.querySelector('.text-contrast')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+      expect(warned).toContain('white 4.48:1');
+      expect(warned).toContain('the dark background (#12111f) 4.17:1');
+      // A quiz colour set back to its default is not sent.
+      await expectSave(fixture, root, { errorColor: '#777777' });
     });
 
     it('stores only the field that changed', async () => {

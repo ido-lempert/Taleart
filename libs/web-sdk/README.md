@@ -511,6 +511,10 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 | `titleColor` | `#rrggbb`, or `null` for the host page's text colour |
 | `backgroundColor` | `#rrggbb` or `"transparent"` |
 | `accentColor` | `#rrggbb`: the viewer's progress and buttons |
+| `colorScheme` | `"auto"` (the default: the visitor's light or dark setting), `"light"` or `"dark"` |
+| `liveColor` | `#rrggbb`, or `null` for the last ring colour (the live badge) |
+| `successColor` | `#rrggbb`: a right quiz answer (lightened on dark cards to 4.5:1) |
+| `errorColor` | `#rrggbb`: a wrong quiz answer (lightened on dark cards to 4.5:1) |
 
 - A field left out (or `undefined`) falls through to the next source; `null`, where allowed, is a value and wins.
 - Each value is checked with the same rules as the dashboard's. An invalid or unknown field is ignored with one console

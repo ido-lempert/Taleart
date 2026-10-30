@@ -168,10 +168,10 @@ internal const val MAX_FRAME_STEP_MS = 1_000L
 const val HOLD_MIN_MS = 250L
 
 // The viewer's fixed look (VIEWER_BASE_STYLES in the Web SDK).
-private val TRACK = Color.White.copy(alpha = 0.4f)
-private val CONTROL_BACKGROUND = Color.Black.copy(alpha = 0.6f)
-private val NAME_BACKGROUND = Color.Black.copy(alpha = 0.8f)
-private val TOP_SHADE = Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent))
+private val TRACK = InkDark.copy(alpha = 0.4f)
+private val CONTROL_BACKGROUND = CardDark.copy(alpha = 0.6f)
+private val NAME_BACKGROUND = CardDark.copy(alpha = 0.8f)
+private val TOP_SHADE = Brush.verticalGradient(listOf(CardDark.copy(alpha = 0.7f), Color.Transparent))
 
 private object Icons {
     const val PAUSE = "M6 5h4v14H6zM14 5h4v14h-4z"
@@ -221,7 +221,9 @@ fun TaleartViewer(
     val state = remember(groups, startGroupId) {
         TaleViewerState(groups, startGroupId, reducedMotion, onClosed = { last[0] = it }, translate = translate)
     }
-    ViewerContent(state, modifier, seenGroups, theme, onGroupShown, reducedMotion, onExited = { last[0]?.let { closed(it) } })
+    ProvideTaleartTheme(theme) {
+        ViewerContent(state, modifier, seenGroups, theme, onGroupShown, reducedMotion, onExited = { last[0]?.let { closed(it) } })
+    }
 }
 
 /**
@@ -239,7 +241,7 @@ fun TaleartViewer(
     theme: TaleartTheme = TaleartTheme.DEFAULT,
     onGroupShown: (groupId: String) -> Unit = {},
     followReducedMotion: Boolean = false,
-) = ViewerContent(
+) = ProvideTaleartTheme(theme) { ViewerContent(
     state,
     modifier,
     seenGroups,
@@ -247,7 +249,7 @@ fun TaleartViewer(
     onGroupShown,
     reducedMotion = if (followReducedMotion) rememberPrefersReducedMotion() else null,
     onExited = {},
-)
+) }
 
 /** How long the viewer waits for its window to appear before it opens anyway (iOS). */
 internal const val VIEWER_APPEAR_TIMEOUT_MS = 500L
@@ -423,7 +425,7 @@ internal fun ViewerContent(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    val accent = parseHexColor(theme.accentColor) ?: Color.White
+    val accent = parseHexColor(theme.accentColor) ?: InkDark
     val font = rememberFontFamily(theme.fontFamily)
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -442,7 +444,7 @@ internal fun ViewerContent(
             }
             .drawBehind {
                 val pulled = (dragDown.value / size.height).coerceIn(0f, 1f)
-                drawRect(Color.Black.copy(alpha = 1f - 0.6f * pulled))
+                drawRect(CardDark.copy(alpha = 1f - 0.6f * pulled))
             }
             .testTag(VIEWER_TAG)
             .semantics {
@@ -648,7 +650,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
 private fun Modifier.faceShade(position: () -> Float): Modifier = drawWithContent {
     drawContent()
     val p = abs(position()).coerceIn(0f, 1f)
-    if (p > 0f) drawRect(Color.Black.copy(alpha = 0.5f * p))
+    if (p > 0f) drawRect(CardDark.copy(alpha = 0.5f * p))
 }
 
 /**
@@ -662,7 +664,7 @@ private fun TalePreview(view: TaleView, themeFont: String?) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(view.stageColor?.let(::parseHexColor) ?: Color.Black),
+            .background(view.stageColor?.let(::parseHexColor) ?: CardDark),
         contentAlignment = Alignment.Center,
     ) {
         when (val media = view.media) {
@@ -838,7 +840,7 @@ private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: android
             Box(Modifier.weight(1f).padding(end = 8.dp)) {
                 BasicText(
                     state.group.name,
-                    style = TextStyle(color = Color.White, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, fontFamily = font),
+                    style = TextStyle(color = InkDark, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, fontFamily = font),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier

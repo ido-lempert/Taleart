@@ -40,6 +40,7 @@ export default [
         ignores: [
             "src/app/pages/tale-*.ts",
             "src/app/pages/theme.ts",
+            "src/app/pages/theme-*.ts",
             "src/app/pages/fonts.ts",
             "src/app/tale-document.service.ts",
             "src/app/theme.service.ts"

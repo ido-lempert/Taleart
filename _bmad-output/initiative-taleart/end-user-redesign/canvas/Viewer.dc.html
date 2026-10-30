@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Story viewer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Inter+Tight:wght@600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0A0918}
+a{color:#9B7BFF}a:hover{color:#C4B2FF}
+.ta{--bg:#0A0918;--s1:#13112A;--s2:#1C1A38;--s3:#2A2650;--line:rgba(255,255,255,.08);--ink:#F4F3FF;--mute:#A9A6C4;--ring:conic-gradient(from 0deg,#1365FC,#4F1DFC,#7710FB,#E040FB,#22D3EE,#1365FC);font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.ta.light{--bg:#F6F5FB;--s1:#FFFFFF;--s2:#F0EEF8;--s3:#E2DFF0;--line:rgba(18,17,31,.08);--ink:#12111F;--mute:#5C5A72}
+.disp{font-family:'Inter Tight','Inter',system-ui,sans-serif;letter-spacing:-.02em}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:600}
+.hd{display:flex;justify-content:space-between;align-items:baseline}
+.hd b{font-size:15px}.hd span{font-size:12px;color:var(--mute)}
+.story{position:relative;overflow:hidden;color:#fff;transition:background .6s}
+.bl{position:absolute;border-radius:50%;transition:transform 1.2s cubic-bezier(.16,1,.3,1),background .6s}
+.segs{position:absolute;left:12px;right:12px;top:12px;display:flex;gap:4px;z-index:3}
+.segs i{flex:1;height:3px;border-radius:9px;background:rgba(255,255,255,.35);overflow:hidden}
+.segs i b{display:block;height:100%;background:#fff}
+.top{position:absolute;left:12px;right:8px;top:24px;display:flex;align-items:center;gap:8px;z-index:3}
+.av{width:32px;height:32px;border-radius:50%;padding:2px;box-sizing:border-box;background:#fff}
+.av i{display:block;width:100%;height:100%;border-radius:50%;transition:background .6s}
+.ib{width:40px;height:40px;border-radius:50%;border:0;background:rgba(10,9,24,.22);backdrop-filter:blur(8px);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .2s,transform .2s}
+.ib:hover{background:rgba(10,9,24,.45);transform:scale(1.06)}
+.ib:focus-visible,.zone:focus-visible,.side:focus-visible,.nav:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.zone{position:absolute;top:80px;bottom:90px;border:0;background:transparent;cursor:pointer;z-index:2;padding:0}
+.content{position:absolute;left:22px;right:22px;bottom:110px;display:flex;flex-direction:column;gap:10px;z-index:1}
+.eA{animation:enterA .7s cubic-bezier(.16,1,.3,1) both}
+.eB{animation:enterB .7s cubic-bezier(.16,1,.3,1) both}
+.swipe{position:absolute;left:0;right:0;bottom:22px;display:flex;flex-direction:column;align-items:center;gap:2px;z-index:3}
+.swipe span{background:rgba(255,255,255,.22);backdrop-filter:blur(10px);padding:8px 16px;border-radius:99px;font-size:13px;font-weight:700}
+.chev{animation:bob 1.4s ease-in-out infinite}
+.phone{width:360px;height:760px;border-radius:54px;background:#05040D;padding:12px;box-sizing:border-box;box-shadow:0 0 0 1px rgba(255,255,255,.1),0 60px 120px -40px rgba(79,29,252,.55),0 40px 80px -30px rgba(0,0,0,.8)}
+.desk{flex:1 1 0;min-width:0;height:760px;border-radius:24px;position:relative;overflow:hidden;background:#05040D;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 40px 80px -30px rgba(0,0,0,.8)}
+.backdrop{position:absolute;inset:-60px;filter:blur(70px) saturate(130%);opacity:.6;transition:background .8s}
+.side{position:absolute;top:50%;width:200px;height:356px;border-radius:22px;overflow:hidden;border:0;padding:0;cursor:pointer;color:#fff;transition:transform .6s cubic-bezier(.16,1,.3,1),filter .6s;filter:brightness(.6)}
+.side:hover{filter:brightness(.85)}
+.nav{position:absolute;top:50%;width:48px;height:48px;margin-top:-24px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);backdrop-filter:blur(12px);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:4;transition:background .2s,transform .2s}
+.nav:hover{background:rgba(79,29,252,.7);transform:scale(1.08)}
+.ring{position:relative;overflow:hidden;border-radius:50%;padding:2px;box-sizing:border-box;isolation:isolate;flex-shrink:0}
+.ring::before{content:"";position:absolute;inset:-30%;background:var(--ring);z-index:-1;animation:spin 4s linear infinite}
+.ring .in{border-radius:inherit;background:#05040D;padding:2px;width:100%;height:100%;box-sizing:border-box}
+.ring .cv{border-radius:inherit;width:100%;height:100%}
+.sbtn{font:600 13px 'Inter',sans-serif;padding:8px 14px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--mute);cursor:pointer;min-height:36px}
+@keyframes enterA{from{opacity:0;transform:translateY(24px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes enterB{from{opacity:0;transform:translateY(24px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){*,*::before{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div class="ta {{themeCls}}" style="width: 1440px; height: 1100px; box-sizing: border-box; padding: 52px 64px; display: flex; flex-direction: column; gap: 22px">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="eyebrow">Viewer · one state, two screens</div>
+      <h1 class="disp" style="margin: 0; font-size: 44px; font-weight: 800; line-height: 1.05">Full-screen, full depth.</h1>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center">
+      <span style="font-size: 13px; color: var(--mute)">Tap left/right edges, or the side groups. Both screens stay in sync.</span>
+      <button class="sbtn" onClick="{{restart}}">Restart</button>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 28px; align-items: flex-start">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>Mobile</b><span>edge-to-edge · swipe-up CTA</span></div>
+      <div class="phone">
+        <div class="story" style="width: 100%; height: 100%; border-radius: 42px; background: {{cur.c1}}">
+          <span class="bl" style="background: {{cur.c2}}; width: 460px; height: 460px; right: -200px; top: -120px; {{par1}}"></span>
+          <span class="bl" style="background: {{cur.c3}}; width: 300px; height: 300px; left: -120px; bottom: 40px; opacity: .7; {{par2}}"></span>
+          <div class="segs" style="top: 16px; left: 18px; right: 18px"><sc-for list="{{segs}}" as="s" hint-placeholder-count="3"><i><b style="width: {{s.w}}"></b></i></sc-for></div>
+          <div class="top" style="top: 30px; left: 18px; right: 12px">
+            <span class="av"><i style="background: {{cur.c1}}"></i></span>
+            <span style="font-size: 13px; font-weight: 700">{{cur.name}}</span><span style="font-size: 12px; opacity: .75">· 2h</span>
+            <span style="flex-grow: 1"></span>
+            <button class="ib" onClick="{{toggle}}" aria-label="{{toggleLabel}}">
+              <sc-if value="{{playing}}" hint-placeholder-val="{{true}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"></path></svg></sc-if>
+              <sc-if value="{{paused}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"></path></svg></sc-if>
+            </button>
+            <button class="ib" aria-label="Close viewer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+          </div>
+          <button class="zone" style="left: 0; width: 34%" onClick="{{prevTale}}" aria-label="Previous story"></button>
+          <button class="zone" style="right: 0; width: 66%" onClick="{{nextTale}}" aria-label="Next story"></button>
+          <div class="content {{enterCls}}">
+            <span style="font-size: 12px; font-weight: 700; letter-spacing: .16em; opacity: .9">{{tale.k}}</span>
+            <span class="disp" style="font-size: 46px; font-weight: 800; line-height: .95">{{tale.big}}</span>
+            <span style="font-size: 16px; opacity: .9">{{tale.sub}}</span>
+          </div>
+          <a class="swipe" href="#" style="text-decoration: none; color: #fff">
+            <svg class="chev" aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"></path></svg>
+            <span>{{cur.cta}}</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+      <div class="hd"><b>Desktop</b><span>blurred backdrop · neighbouring groups in depth</span></div>
+      <div class="desk">
+        <div class="backdrop" style="background: {{cur.c1}}"></div>
+        <div style="position: absolute; inset: 0; background: rgba(5,4,13,.35)"></div>
+        <button class="side" style="left: 50%; margin-top: -178px; transform: translateX(-450px) perspective(900px) rotateY(18deg); background: {{prevG.c1}}" onClick="{{prevGroup}}" aria-label="Previous group: {{prevG.name}}">
+          <span class="bl" style="background: {{prevG.c2}}; width: 260px; height: 260px; right: -100px; top: -80px"></span>
+          <span style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px">
+            <span class="ring" style="width: 60px; height: 60px; display: block"><span class="in" style="display: block"><span class="cv" style="display: block; background: {{prevG.c1}}"></span></span></span>
+            <span style="font-size: 14px; font-weight: 700">{{prevG.name}}</span>
+          </span>
+        </button>
+        <button class="side" style="left: 50%; margin-top: -178px; transform: translateX(250px) perspective(900px) rotateY(-18deg); background: {{nextG.c1}}" onClick="{{nextGroup}}" aria-label="Next group: {{nextG.name}}">
+          <span class="bl" style="background: {{nextG.c2}}; width: 260px; height: 260px; right: -100px; top: -80px"></span>
+          <span style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px">
+            <span class="ring" style="width: 60px; height: 60px; display: block"><span class="in" style="display: block"><span class="cv" style="display: block; background: {{nextG.c1}}"></span></span></span>
+            <span style="font-size: 14px; font-weight: 700">{{nextG.name}}</span>
+          </span>
+        </button>
+
+        <button class="nav" style="left: 50%; margin-left: -270px" onClick="{{prevTale}}" aria-label="Previous story"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg></button>
+        <button class="nav" style="left: 50%; margin-left: 222px" onClick="{{nextTale}}" aria-label="Next story"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"></path></svg></button>
+        <button class="ib" style="position: absolute; right: 18px; top: 18px; z-index: 4" aria-label="Close viewer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+
+        <div class="story" style="position: absolute; left: 50%; top: 50%; width: 372px; height: 662px; margin-left: -186px; margin-top: -331px; border-radius: 24px; background: {{cur.c1}}; box-shadow: 0 50px 100px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.1); z-index: 3">
+          <span class="bl" style="background: {{cur.c2}}; width: 460px; height: 460px; right: -200px; top: -120px; {{par1}}"></span>
+          <span class="bl" style="background: {{cur.c3}}; width: 300px; height: 300px; left: -120px; bottom: 40px; opacity: .7; {{par2}}"></span>
+          <div class="segs"><sc-for list="{{segs}}" as="s" hint-placeholder-count="3"><i><b style="width: {{s.w}}"></b></i></sc-for></div>
+          <div class="top">
+            <span class="av"><i style="background: {{cur.c1}}"></i></span>
+            <span style="font-size: 13px; font-weight: 700">{{cur.name}}</span><span style="font-size: 12px; opacity: .75">· 2h</span>
+            <span style="flex-grow: 1"></span>
+            <button class="ib" onClick="{{toggle}}" aria-label="{{toggleLabel}}">
+              <sc-if value="{{playing}}" hint-placeholder-val="{{true}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"></path></svg></sc-if>
+              <sc-if value="{{paused}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"></path></svg></sc-if>
+            </button>
+          </div>
+          <div class="content {{enterCls}}">
+            <span style="font-size: 12px; font-weight: 700; letter-spacing: .16em; opacity: .9">{{tale.k}}</span>
+            <span class="disp" style="font-size: 46px; font-weight: 800; line-height: .95">{{tale.big}}</span>
+            <span style="font-size: 16px; opacity: .9">{{tale.sub}}</span>
+          </div>
+          <a class="swipe" href="#" style="text-decoration: none; color: #fff">
+            <span style="background: #fff; color: #12111F; display: inline-flex; align-items: center; gap: 8px">{{cur.cta}}
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+            </span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"taleSeconds":{"editor":"range","min":3,"max":10,"step":1,"default":5,"unit":"s"},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.groups = [
+      { name: 'Summer sale', c1: '#FF5A36', c2: '#FFC2A8', c3: '#B3261E', cta: 'Shop the sale', tales: [
+        { k: 'UP TO', big: '[X]% off', sub: 'Selected summer styles' },
+        { k: 'NEW IN SALE', big: 'Linen shirts', sub: 'Light, breathable, back in stock' },
+        { k: 'ENDS SOON', big: 'Last 48 hours', sub: 'While sizes last' }
+      ] },
+      { name: 'New drops', c1: '#4F1DFC', c2: '#9B7BFF', c3: '#1365FC', cta: 'See the drop', tales: [
+        { k: 'DROP 07', big: 'Midnight', sub: 'Thursday, 10:00' },
+        { k: 'FIRST LOOK', big: 'Small batch', sub: 'Made to order' },
+        { k: 'GET NOTIFIED', big: 'Be first', sub: 'Turn on reminders' }
+      ] },
+      { name: 'Studio', c1: '#1365FC', c2: '#8CB6FF', c3: '#22D3EE', cta: 'Meet the team', tales: [
+        { k: 'BEHIND THE SCENES', big: 'Inside the studio', sub: 'Where every piece starts' },
+        { k: 'PATTERN ROOM', big: 'Cut by hand', sub: 'A day with the makers' }
+      ] }
+    ];
+    this.state = { g: 0, t: 0, p: 0, playing: true, n: 0 };
+  }
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      if (!this.state.playing) return;
+      const secs = this.props.taleSeconds ?? 5;
+      const p = this.state.p + 0.05 / secs;
+      if (p >= 1) this.step(1); else this.setState({ p });
+    }, 50);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  step(dir) {
+    let { g, t } = this.state;
+    const G = this.groups;
+    t += dir;
+    if (t >= G[g].tales.length) { g = (g + 1) % G.length; t = 0; }
+    if (t < 0) { g = (g - 1 + G.length) % G.length; t = G[g].tales.length - 1; }
+    this.setState({ g, t, p: 0, n: this.state.n + 1 });
+  }
+  jump(dir) {
+    const G = this.groups;
+    this.setState({ g: (this.state.g + dir + G.length) % G.length, t: 0, p: 0, n: this.state.n + 1 });
+  }
+  renderVals() {
+    const G = this.groups;
+    const { g, t, p, playing, n } = this.state;
+    const cur = G[g];
+    const segs = cur.tales.map((_, i) => ({ w: i < t ? '100%' : i === t ? Math.round(p * 1000) / 10 + '%' : '0%' }));
+    const shifts = [[0, 0], [-60, 80], [40, -50]];
+    const sh = shifts[t % 3];
+    return {
+      themeCls: (this.props.theme ?? 'dark') === 'light' ? 'light' : '',
+      cur, tale: cur.tales[t], segs,
+      prevG: G[(g - 1 + G.length) % G.length],
+      nextG: G[(g + 1) % G.length],
+      par1: 'transform: translate(' + sh[0] + 'px,' + sh[1] + 'px)',
+      par2: 'transform: translate(' + (-sh[0] / 2) + 'px,' + (-sh[1]) + 'px)',
+      enterCls: n % 2 ? 'eA' : 'eB',
+      playing, paused: !playing,
+      toggleLabel: playing ? 'Pause' : 'Play',
+      toggle: () => this.setState({ playing: !this.state.playing }),
+      prevTale: () => this.step(-1),
+      nextTale: () => this.step(1),
+      prevGroup: () => this.jump(-1),
+      nextGroup: () => this.jump(1),
+      restart: () => this.setState({ g: 0, t: 0, p: 0, playing: true, n: this.state.n + 1 })
+    };
+  }
+}
+</script>
+</body>
+</html>

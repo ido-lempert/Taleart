@@ -5354,6 +5354,12 @@ components:
     RingStyle:
       type: string
       enum: [gradient, solid, none]
+    ColorScheme:
+      type: string
+      enum: [auto, light, dark]
+      description: >-
+        Which colour scheme the SDK draws: `auto` follows the host page's
+        `prefers-color-scheme`, `light` and `dark` always draw that one.
     ThemeSettings:
       type: object
       description: >-
@@ -5416,12 +5422,30 @@ components:
           $ref: '#/components/schemas/ThemeColor'
           default: '#ffffff'
           description: The viewer's progress and button icons.
+        colorScheme:
+          $ref: '#/components/schemas/ColorScheme'
+          default: auto
+        liveColor:
+          type: [string, 'null']
+          pattern: '^#[0-9a-fA-F]{6}$'
+          default: null
+          description: >-
+            The ring of a live tale as `#rrggbb`; null takes the last of
+            `ringColors`.
+        successColor:
+          $ref: '#/components/schemas/ThemeColor'
+          default: '#047857'
+          description: The text and mark of a correct quiz answer. Needs 4.5:1 on light and dark backgrounds.
+        errorColor:
+          $ref: '#/components/schemas/ThemeColor'
+          default: '#b91c1c'
+          description: The text and mark of a wrong quiz answer. Needs 4.5:1 on light and dark backgrounds.
     Theme:
       type: object
       description: >-
         A complete theme, every field present (TaleArt's default where the
         project sets none); `null` takes the host page's or the frame's own value.
-      required: [ringStyle, ringColors, seenRingColor, ringWidth, cornerRadius, fontFamily, titleColor, backgroundColor, accentColor]
+      required: [ringStyle, ringColors, seenRingColor, ringWidth, cornerRadius, fontFamily, titleColor, backgroundColor, accentColor, colorScheme, liveColor, successColor, errorColor]
       additionalProperties: false
       properties:
         ringStyle:
@@ -5449,6 +5473,15 @@ components:
         backgroundColor:
           type: string
         accentColor:
+          $ref: '#/components/schemas/ThemeColor'
+        colorScheme:
+          $ref: '#/components/schemas/ColorScheme'
+        liveColor:
+          type: [string, 'null']
+          pattern: '^#[0-9a-fA-F]{6}$'
+        successColor:
+          $ref: '#/components/schemas/ThemeColor'
+        errorColor:
           $ref: '#/components/schemas/ThemeColor'
     ProjectTheme:
       type: object

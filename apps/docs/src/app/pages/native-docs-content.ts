@@ -498,6 +498,23 @@ export const XML_ATTRIBUTES: readonly FieldRow[] = [
   { name: 'app:taleartAnalytics', type: 'boolean', def: '(none: follows the SDK)', meaning: 'false turns this view’s analytics events off, whatever TaleartConfig.analytics says.' },
 ];
 
+/** TaleartTheme's fields, as the native SDKs read the project's theme (checked in TaleartTheme.kt). */
+export const NATIVE_THEME_FIELDS: readonly FieldRow[] = [
+  { name: 'ringStyle', type: 'RingStyle', def: 'Gradient', meaning: 'Gradient, Solid or None: how the unseen ring is drawn.' },
+  { name: 'ringColors', type: 'List<String>', def: 'three colours', meaning: '1 to 3 colours, #rrggbb.' },
+  { name: 'seenRingColor', type: 'String', def: '#6b7280', meaning: 'The ring after a group was viewed.' },
+  { name: 'ringWidth', type: 'Int', def: '2', meaning: '1 to 4 dp.' },
+  { name: 'cornerRadius', type: 'Int?', def: 'null', meaning: '0 to 32 dp, or the display’s own.' },
+  { name: 'fontFamily', type: 'String?', def: 'null', meaning: 'A font list, or the host’s.' },
+  { name: 'titleColor', type: 'String?', def: 'null', meaning: '#rrggbb, or the host’s text colour.' },
+  { name: 'backgroundColor', type: 'String', def: 'transparent', meaning: '#rrggbb, or transparent.' },
+  { name: 'accentColor', type: 'String', def: '#ffffff', meaning: 'The viewer’s progress and buttons; its text is white or near-black, by contrast.' },
+  { name: 'colorScheme', type: 'ColorScheme', def: 'Auto', meaning: 'Auto follows the device’s light or dark setting; Light and Dark force it.' },
+  { name: 'liveColor', type: 'String?', def: 'null', meaning: '#rrggbb for the live badge, or the last ring colour.' },
+  { name: 'successColor', type: 'String', def: '#047857', meaning: 'A right quiz answer; lightened on a dark card until it reads at 4.5:1.' },
+  { name: 'errorColor', type: 'String', def: '#b91c1c', meaning: 'A wrong quiz answer; lightened on a dark card until it reads at 4.5:1.' },
+];
+
 /** TaleartView members (checked for their declarations in TaleartView.kt). */
 export const ANDROID_VIEW_MEMBERS: readonly FieldRow[] = [
   { name: 'zoneKey', type: 'String', def: '""', meaning: 'The zone’s key. The view reads the zone once it has a key and an API origin.' },

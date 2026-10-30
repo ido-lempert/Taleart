@@ -1,3 +1,4 @@
+import { cardClass } from './poll';
 import { cleanText, LABEL_TEXT_RULE, type DeliveryTaleElement } from '@taleart/contract';
 import { defaultTranslate, type Translate } from '../i18n';
 import type { RenderContext } from './media';
@@ -36,7 +37,7 @@ export const PROMO_STYLES = `
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.ta-promo-copy:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; }
+.ta-promo-copy:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 .ta-promo-status { margin: 0; min-height: 1.2em; font-size: 0.8em; font-weight: 600; }
 `;
 
@@ -96,7 +97,7 @@ export function renderPromoCode(element: DeliveryTaleElement, context: RenderCon
   const note = typeof props.note === 'string' ? cleanText(props.note, LABEL_TEXT_RULE).trim() : '';
 
   const card = document.createElement('div');
-  card.className = `ta-el ta-poll ta-interactive ta-promo ta-poll-${props.theme === 'dark' ? 'dark' : 'light'}`;
+  card.className = `ta-el ta-poll ta-interactive ta-promo ${cardClass(props.theme)}`;
   card.setAttribute('role', 'group');
   if (title) {
     card.setAttribute('aria-label', title);

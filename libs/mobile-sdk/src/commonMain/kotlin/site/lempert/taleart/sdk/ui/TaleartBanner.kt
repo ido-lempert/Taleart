@@ -105,12 +105,7 @@ fun bannerDotLabel(name: String, translate: Translate = defaultTranslate): Strin
 fun bannerRotationLabel(rotating: Boolean, translate: Translate = defaultTranslate): String =
     if (rotating) translate("banner.stopRotation") else translate("banner.startRotation")
 
-// The banner's fixed look (BANNER_STYLES in the Web SDK).
-private val SLIDE_PLACEHOLDER = Color(0xFFE5E7EB)
-private val BUTTON_FILL = Color.White.copy(alpha = 0.92f)
-private val BUTTON_BORDER = Color(0xFF6B7280)
-private val BUTTON_INK = Color(0xFF111827)
-private val DOT = Color(0xFF6B7280)
+// The banner's fixed look (BANNER_STYLES in the Web SDK) comes from the theme's palette.
 private const val DEFAULT_RADIUS = 12
 private const val SLIDE_MS = 350
 
@@ -284,10 +279,11 @@ private fun Banner(
     }
     val stopsOnFocus = Modifier.onFocusChanged { if (it.isFocused && !programmaticFocus[0]) interact() }
 
+    val palette = theme.colors(titleStyle.color, rememberPrefersDarkScheme())
     val radius = theme.cornerRadius ?: DEFAULT_RADIUS
     val background = parseHexColor(theme.backgroundColor)
     val dotColor = parseHexColor(theme.titleColor)
-    val hostColor = titleStyle.color.takeUnless { it == Color.Unspecified } ?: Color.Black
+    val hostColor = titleStyle.color.takeUnless { it == Color.Unspecified } ?: palette.ink
     val translate = LocalTaleartContext.current.translate
     val loader = rememberCoverImageLoader()
 
@@ -311,7 +307,7 @@ private fun Banner(
                 .fillMaxWidth()
                 .aspectRatio(settings.aspectRatio.widthOverHeight)
                 .clip(RoundedCornerShape(radius.dp))
-                .background(SLIDE_PLACEHOLDER)
+                .background(palette.surface)
                 .testTag(BANNER_VIEWPORT_TAG)
                 .pointerInput(rtl, count, loop) {
                     val swipe = SWIPE_MIN_DP.dp.toPx()
@@ -380,13 +376,14 @@ private fun Banner(
                                 },
                             ),
                     ) {
-                        if (drawn) SlideMedia(group, loader)
+                        if (drawn) SlideMedia(group, loader, palette.surface)
                     }
                 }
             }
             if (count > 1) {
                 val prevDisabled = !loop && index == 0
                 RoundButton(
+colors = palette,
                     label = translate("banner.previousSlide"),
                     icon = BannerIcons.PREV,
                     mirrored = rtl,
@@ -397,6 +394,7 @@ private fun Banner(
                     step(-1)
                 }
                 RoundButton(
+colors = palette,
                     label = translate("banner.nextSlide"),
                     icon = BannerIcons.NEXT,
                     mirrored = rtl,
@@ -418,6 +416,7 @@ private fun Banner(
             ) {
                 if (showRotate) {
                     RoundButton(
+colors = palette,
                         label = bannerRotationLabel(rotating, translate),
                         icon = if (rotating) BannerIcons.PAUSE else BannerIcons.PLAY,
                         mirrored = false,
@@ -431,6 +430,7 @@ private fun Banner(
                     Row {
                         slides.forEachIndexed { n, group ->
                             Dot(
+                                muted = palette.muted,
                                 label = bannerDotLabel(group.name, translate),
                                 current = n == index,
                                 themed = dotColor,
@@ -449,9 +449,9 @@ private fun Banner(
 }
 
 @Composable
-private fun SlideMedia(group: DeliveryTaleGroup, loader: coil3.ImageLoader) {
+private fun SlideMedia(group: DeliveryTaleGroup, loader: coil3.ImageLoader, surface: Color) {
     val source = remember(group) { defaultCoverSource(group) }
-    val placeholder = (source as? CoverSource.Placeholder)?.color?.let(::parseHexColor) ?: SLIDE_PLACEHOLDER
+    val placeholder = (source as? CoverSource.Placeholder)?.color?.let(::parseHexColor) ?: surface
     Box(Modifier.fillMaxSize().background(placeholder)) {
         if (source is CoverSource.Image) {
             AsyncImage(
@@ -469,6 +469,7 @@ private fun SlideMedia(group: DeliveryTaleGroup, loader: coil3.ImageLoader) {
 // stays a button, dimmed, whose tap still counts as an interaction.
 @Composable
 private fun RoundButton(
+colors: ThemeColors,
     label: String,
     icon: String,
     mirrored: Boolean,
@@ -482,8 +483,8 @@ private fun RoundButton(
             .size(44.dp)
             .alpha(if (disabled) 0.4f else 1f)
             .clip(CircleShape)
-            .background(BUTTON_FILL)
-            .border(1.dp, BUTTON_BORDER, CircleShape)
+            .background(colors.paper.copy(alpha = 0.92f))
+            .border(1.dp, colors.muted, CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics {
                 contentDescription = label
@@ -494,7 +495,7 @@ private fun RoundButton(
         Canvas(Modifier.size(24.dp)) {
             val factor = size.width / 24f
             scale(if (mirrored) -factor else factor, factor, pivot = Offset(if (mirrored) size.width / 2f else 0f, 0f)) {
-                drawPath(path, BUTTON_INK)
+                drawPath(path, colors.ink)
             }
         }
     }
@@ -503,7 +504,7 @@ private fun RoundButton(
 // A dot: a 24dp target around an 8dp grey dot, the shown slide's 12dp in the host's text colour;
 // with a theme title colour, 10dp rings of it, the shown one filled.
 @Composable
-private fun Dot(label: String, current: Boolean, themed: Color?, host: Color, modifier: Modifier, onClick: () -> Unit) {
+private fun Dot(label: String, current: Boolean, themed: Color?, host: Color, muted: Color, modifier: Modifier, onClick: () -> Unit) {
     Box(
         modifier
             .testTag(BANNER_DOT_TAG)
@@ -520,7 +521,7 @@ private fun Dot(label: String, current: Boolean, themed: Color?, host: Color, mo
         when {
             current -> Box(Modifier.size(12.dp).clip(CircleShape).background(themed ?: host))
             themed != null -> Box(Modifier.size(10.dp).border(2.dp, themed, CircleShape))
-            else -> Box(Modifier.size(8.dp).clip(CircleShape).background(DOT))
+            else -> Box(Modifier.size(8.dp).clip(CircleShape).background(muted))
         }
     }
 }
