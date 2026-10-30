@@ -133,6 +133,8 @@ export const BAR_STYLES = `
   text-align: center;
   font-size: 12px;
   line-height: 16px;
+  /* A name in another script keeps its own direction: a first line in Latin does not turn the others around. */
+  unicode-bidi: plaintext;
 }
 /* Forced colours drop the ring's gradient: draw it, and the seen ring, in system colours. */
 @media (forced-colors: active) {

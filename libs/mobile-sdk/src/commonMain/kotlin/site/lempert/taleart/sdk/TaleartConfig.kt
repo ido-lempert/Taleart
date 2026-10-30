@@ -24,6 +24,11 @@ package site.lempert.taleart.sdk
  * [frequency] caps how often a viewer sees a tale group (null, the default, for no cap); see
  * [FrequencyRule]. [analytics] turns the SDK's impressions, opens, views and clicks on (the default)
  * or off; a view's own setting wins over it.
+ *
+ * [layoutDirection] is the direction the SDK's views lay out in: `ltr` or `rtl`. Null (the default) follows
+ * the platform's direction (the device's language: Hebrew and Arabic are right to left). Any other value
+ * counts as null. The bar's items, the viewer's segments and its tap zones, the banner's arrows and the
+ * poll and rating layouts follow it; a promo code and the countdown's digits stay left to right.
  */
 data class TaleartConfig(
     val apiUrl: String = "",
@@ -37,6 +42,7 @@ data class TaleartConfig(
     val fallback: FallbackMode = FallbackMode.None,
     val frequency: FrequencyRule? = null,
     val analytics: Boolean = true,
+    val layoutDirection: String? = null,
 )
 
 /** What a view shows when its zone fails to load (`fallback` in the Web SDK): nothing, or the message and a retry button. */

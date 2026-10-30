@@ -219,8 +219,10 @@ fun TaleartZone(
     listener: TaleartListener? = null,
 ) {
     val context = rememberTaleartContext(zoneKey, zone.slug, locale, strings, listener)
-    CompositionLocalProvider(LocalTaleartContext provides context) {
-        ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+    ProvideTaleartDirection {
+        CompositionLocalProvider(LocalTaleartContext provides context) {
+            ZoneDisplay(zone, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
+        }
     }
 }
 

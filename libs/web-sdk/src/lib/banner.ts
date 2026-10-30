@@ -2,7 +2,8 @@ import type { BannerSettings, DeliveryTaleGroup } from '@taleart/contract';
 import { coverMedia, REDUCED_MOTION_QUERY } from './bar';
 import { coverSettled } from './first-content';
 import { defaultTranslate, type Translate } from './i18n';
-import { isRtl, setIcon, SWIPE_MIN_PX } from './viewer';
+import { isRtl } from './direction';
+import { setIcon, SWIPE_MIN_PX } from './viewer';
 
 /** The frame type this renderer draws (AD-5). */
 export const BANNER_FRAME_TYPE = 'banner';
@@ -375,6 +376,16 @@ export function renderBanner(
   });
   root.addEventListener('focusin', (e) => {
     if (!programmaticFocus && e.target !== rotate) interact();
+  });
+  // The arrow keys step the slides as the visual direction says: right to left, the next slide is to the left.
+  root.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const rtl = isRtl(root);
+    const forward = e.key === (rtl ? 'ArrowLeft' : 'ArrowRight');
+    if (!forward && e.key !== (rtl ? 'ArrowRight' : 'ArrowLeft')) return;
+    e.preventDefault();
+    interact();
+    step(forward ? 1 : -1);
   });
   viewport.addEventListener('pointerdown', (e) => {
     press = { x: e.clientX, y: e.clientY };

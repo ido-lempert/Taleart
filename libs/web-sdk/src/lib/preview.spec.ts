@@ -283,7 +283,7 @@ describe('TalePreview', () => {
     preview.setSafeArea(true);
     expect(overlay.hidden).toBe(false);
     const css = root().querySelector('style')?.textContent ?? '';
-    expect(css).toMatch(/top: 12%;\s*bottom: 16%;\s*left: 4%;\s*right: 4%;/);
+    expect(css).toMatch(/top: 12%;\s*bottom: 16%;\s*inset-inline: 4%;/);
     preview.setSafeArea(false);
     expect(overlay.hidden).toBe(true);
   });

@@ -9,6 +9,7 @@ import {
   ANDROID_FREQUENCY,
   APPLICATION_INIT,
   ANDROID_HOOKS,
+  ANDROID_LAYOUT_DIRECTION,
   ANDROID_LOCALE,
   ANDROID_PROPERTIES,
   ANDROID_PROPERTIES_VIEW,
@@ -537,6 +538,41 @@ import {
       the SDK says so on screen and the visitor can answer again.
     </p>
 
+    <h2 id="right-to-left">Right to left</h2>
+    <p>
+      The SDK's views lay out in the device's direction: Hebrew and Arabic are right to left, so the bar starts on the
+      right, a viewer's progress fills from the right, Previous is the right third of the tale, and the poll and rating
+      layouts follow. Numbers, promo codes and a countdown's digits stay left to right. To set the direction yourself,
+      pass <code>layoutDirection = "rtl"</code> or <code>"ltr"</code>; any other value, or none, follows the device.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Layout direction in the configuration"><code>{{ androidLayoutDirection }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-rtl-bar.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app's bar on Android with a Hebrew locale and right-to-left layout: three Hebrew group circles, the first group on the right, with their titles under them."
+      />
+      <figcaption class="muted">
+        The bar with the Hebrew locale and <code>layoutDirection</code> set to <code>rtl</code>, a real screenshot of the
+        TaleArt sample app (taller). The first group is on the right; the app's own screen stays left to right.
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-rtl-viewer.png"
+        width="720"
+        height="1280"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app's viewer on Android in right-to-left layout: the Hebrew group name chip on the right, pause and close buttons on the left, and the progress bar of the first tale filling from the right."
+      />
+      <figcaption class="muted">
+        The viewer in the same setup, a real screenshot: the first tale's progress fills from the right, and the group
+        name sits at the start of the line.
+      </figcaption>
+    </figure>
+
     <h2 id="backups">Backups and the visitor id</h2>
     <p>
       The SDK makes a visitor id once and keeps it in its own store on the device: the <code>taleart-sdk</code>
@@ -577,6 +613,7 @@ export class AndroidGuidePage {
   protected readonly androidFrequency = ANDROID_FREQUENCY;
   protected readonly androidAnalytics = ANDROID_ANALYTICS;
   protected readonly androidAnalyticsXml = ANDROID_ANALYTICS_XML;
+  protected readonly androidLayoutDirection = ANDROID_LAYOUT_DIRECTION;
   protected readonly androidComponents = ANDROID_COMPONENTS;
   protected readonly backupOld = BACKUP_RULES_OLD;
   protected readonly backupNew = BACKUP_RULES_NEW;

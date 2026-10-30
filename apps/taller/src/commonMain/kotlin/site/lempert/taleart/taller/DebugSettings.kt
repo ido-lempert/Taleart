@@ -45,19 +45,24 @@ data class DebugSettings(val apiUrl: String, val zoneKey: String) {
  * without taps (the docs' screenshots). They are read from the same store as the settings, under `taller.*`
  * keys (Android also takes them as launch Intent extras, which win): `taller.autoOpenGroup` (the index of
  * the group the viewer opens on at start), `taller.autoOpenTale` (the tale in it, from 0), `taller.fallback`
- * (`none` or `message`) and `taller.frequency` (see [frequencyRule]). An unset key keeps the SDK's default.
+ * (`none` or `message`), `taller.frequency` (see [frequencyRule]), `taller.locale` (the SDK's locale, BCP 47)
+ * and `taller.layoutDirection` (`ltr` or `rtl`, `TaleartConfig.layoutDirection`). An unset key keeps the SDK's default.
  */
 data class TallerDebugOptions(
     val autoOpenGroup: Int? = null,
     val autoOpenTale: Int = 0,
     val fallback: FallbackMode = FallbackMode.None,
     val frequency: FrequencyRule? = null,
+    val locale: String = "",
+    val layoutDirection: String? = null,
 ) {
     companion object {
         const val AUTO_OPEN_GROUP = "taller.autoOpenGroup"
         const val AUTO_OPEN_TALE = "taller.autoOpenTale"
         const val FALLBACK = "taller.fallback"
         const val FREQUENCY = "taller.frequency"
+        const val LOCALE = "taller.locale"
+        const val LAYOUT_DIRECTION = "taller.layoutDirection"
 
         fun load(store: KeyValueStore, extras: Map<String, String> = emptyMap()): TallerDebugOptions {
             fun read(key: String): String? = (extras[key] ?: store.get(key))?.trim()?.takeIf { it.isNotEmpty() }
@@ -66,6 +71,8 @@ data class TallerDebugOptions(
                 autoOpenTale = read(AUTO_OPEN_TALE)?.toIntOrNull() ?: 0,
                 fallback = if (read(FALLBACK)?.lowercase() == "message") FallbackMode.Message else FallbackMode.None,
                 frequency = read(FREQUENCY)?.let(::frequencyRule),
+                locale = read(LOCALE).orEmpty(),
+                layoutDirection = read(LAYOUT_DIRECTION)?.lowercase(),
             )
         }
     }

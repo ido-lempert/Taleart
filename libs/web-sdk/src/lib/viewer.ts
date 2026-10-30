@@ -9,6 +9,7 @@ import {
 } from '@taleart/contract';
 import { prefersReducedMotion, stillCover } from './bar';
 import { defaultTranslate, type Translate } from './i18n';
+import { isRtl } from './direction';
 import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOptions } from './document/renderer';
@@ -113,8 +114,7 @@ span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dar
 .top {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   padding: 8px;
   background: linear-gradient(color-mix(in srgb, var(--ta-dark) 70%, transparent), transparent);
   pointer-events: none;
@@ -122,6 +122,7 @@ span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dar
 .segments { display: flex; gap: 4px; }
 .segment { flex: 1; height: 3px; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, var(--ta-dark-ink) 40%, transparent); }
 .fill { display: block; height: 100%; background: var(--ta-accent, var(--ta-dark-ink)); transform-origin: left; transform: scaleX(0); }
+/* transform-origin takes no logical keyword: right to left, the progress grows from the right (handoff 3.2). */
 .viewer[data-rtl] .fill { transform-origin: right; }
 .done .fill { transform: none; }
 .fill.timed { animation: taleart-fill var(--taleart-duration) linear forwards; }
@@ -132,6 +133,7 @@ span.media { background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dar
 }
 .head { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .name {
+  unicode-bidi: plaintext;
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -192,7 +194,7 @@ const VIEWER_WIDE_STYLES = `
   .frame, .side {
     position: absolute;
     top: calc(50% - var(--card-h) / 2);
-    left: calc(50% - var(--card-w) / 2);
+    inset-inline-start: calc(50% - var(--card-w) / 2);
     width: var(--card-w);
     max-width: none;
     height: var(--card-h);
@@ -250,7 +252,7 @@ const VIEWER_WIDE_STYLES = `
     background: color-mix(in srgb, var(--ta-dark-ink) 14%, var(--ta-dark));
     box-shadow: 0 0 0 2px var(--ta-dark-ink);
   }
-  .chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-name { unicode-bidi: plaintext; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip svg, .nav svg { flex: none; width: 20px; height: 20px; fill: currentColor; }
   .viewer[data-rtl] .chip svg, .viewer[data-rtl] .nav svg { transform: scaleX(-1); }
 }
@@ -308,10 +310,7 @@ function onAnswered(e: Event): boolean {
   return componentControl(e)?.getAttribute('aria-disabled') === 'true';
 }
 
-// True when `node` lays out right to left (the host page's direction reaches the Shadow DOM).
-export function isRtl(node: Element): boolean {
-  return typeof getComputedStyle === 'function' && getComputedStyle(node).direction === 'rtl';
-}
+export { isRtl } from './direction';
 
 // True when the event happened on a document's text element.
 function inText(e: Event): boolean {
@@ -443,15 +442,13 @@ export class TaleViewer {
     this.held = false;
     this.press = null;
     this.suppressClick = false;
-    this.reduced = prefersReducedMotion();
     // Built once and kept, so its live region exists before it is filled.
     const dialog = this.dialog ?? this.build();
     this.opened = true;
     this.syncPauseButton();
     this.parts.pause.hidden = false;
     this.present(dialog);
-    this.rtl = isRtl(dialog);
-    dialog.toggleAttribute('data-rtl', this.rtl);
+    this.syncDirection();
     addEventListener('blur', this.onBlur);
     addEventListener('resize', this.onResize);
     this.entering = true;
@@ -786,10 +783,20 @@ export class TaleViewer {
     this.applyPause();
   }
 
+  // Reads the page's direction and the visitor's motion setting again: a change made while the viewer is open
+  // applies from the next tale on.
+  private syncDirection(): void {
+    if (!this.dialog) return;
+    this.rtl = isRtl(this.dialog);
+    this.dialog.toggleAttribute('data-rtl', this.rtl);
+  }
+
   // Shows tale `tale` of group `group`, rebuilding the group's parts when it changes.
   protected show(group: number, tale: number, newGroup = group !== this.group): void {
     if (!this.dialog || !this.opened) return;
     this.stop();
+    this.reduced = prefersReducedMotion();
+    this.syncDirection();
     const g = this.groups[group];
     const [fromGroup, fromTale] = [this.group, this.tale];
     this.group = group;

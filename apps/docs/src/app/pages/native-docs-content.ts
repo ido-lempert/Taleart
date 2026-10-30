@@ -236,7 +236,8 @@ struct MyApp: App {
             properties: nil,
             fallback: FallbackMode.none,
             frequency: nil,
-            analytics: true
+            analytics: true,
+            layoutDirection: nil
         ))
     }
 
@@ -330,7 +331,8 @@ export const SWIFT_FREQUENCY = `TaleartSdk.shared.doInit(config: TaleartConfig(
     fallback: FallbackMode.none,
     frequency: FrequencyRuleOnce.shared,    // or FrequencyRuleDaily.shared, FrequencyRuleWeekly.shared,
                                             // or FrequencyRuleCount(views: 3) for 1 to 50 views
-    analytics: true
+    analytics: true,
+    layoutDirection: nil                    // or "rtl" / "ltr" to set the direction; nil follows the device
 ))`;
 
 export const SWIFT_ANALYTICS = `let zone = TaleartZoneView(apiUrl: "https://api.example.com", zoneKey: "tak_YOUR_ZONE_KEY")
@@ -353,6 +355,18 @@ view.properties = mapOf("plan" to "free")   // Java: view.setProperties(map)
 
 // Back to the SDK's properties:
 view.properties = null`;
+
+export const ANDROID_LAYOUT_DIRECTION = `TaleartSdk.init(
+    TaleartConfig(
+        apiUrl = "https://api.example.com",
+        locale = "he-IL",
+        layoutDirection = "rtl",            // "ltr" or "rtl"; null (the default) follows the device
+    ),
+)`;
+
+export const SWIFT_LAYOUT_DIRECTION = `// The layoutDirection argument of TaleartConfig(...) in doInit. Swift needs every argument,
+// so pass nil to follow the device's language.
+layoutDirection: "rtl",             // or "ltr"; nil (the default) follows the device`;
 
 export const SWIFT_PROPERTIES = `// The properties argument of TaleartConfig(...) in doInit. Swift needs every argument,
 // so pass nil when the app has none.
@@ -414,6 +428,7 @@ export const CONFIG_FIELDS: readonly FieldRow[] = [
   { name: 'fallback', type: 'FallbackMode', def: 'FallbackMode.None', meaning: 'What a view shows when its zone fails to load. None: nothing, as before. Message: the translated load.failed text and a load.retry button that reads the zone again. A view’s own fallbackView (Android) or fallbackViewController (iOS) wins over both.' },
   { name: 'frequency', type: 'FrequencyRule?', def: 'null (no cap)', meaning: 'How often a viewer sees a tale group. Once: hide a group after its first view. Daily: at most one view per 24 hours. Weekly: one per 7 days. Count(views): hide after N views, N from 1 to 50. A view is one opening of the viewer on a group, counted only on this device in the SDK’s store, never sent to TaleArt. Groups over the cap leave the display; when none remain, nothing is shown. An out-of-range Count throws IllegalArgumentException when it is built.' },
   { name: 'analytics', type: 'Boolean', def: 'true', meaning: 'false turns the SDK’s analytics events off: impression, open, view and click. Per zone they are queued and sent every 5 seconds, when 20 are queued, and when the app goes to the background, in requests of at most 50. A request is retried once; a failure is silent. Each event carries only its type, the group id, the tale id (view and click only) and the time, with the zone key and the anonymous visitor id header. A view’s own setting wins over it.' },
+  { name: 'layoutDirection', type: 'String?', def: 'null (the platform’s direction)', meaning: '`ltr` or `rtl` lays every SDK view out in that direction, whatever the device’s language: the bar’s items and scroll start, the viewer’s progress and tap zones, the banner’s arrows, the poll and rating layouts. Null, or any other value, follows the platform (Hebrew and Arabic are right to left). A promo code and a countdown’s digits stay left to right in both.' },
 ];
 
 export const EVENT_FIELDS: readonly FieldRow[] = [

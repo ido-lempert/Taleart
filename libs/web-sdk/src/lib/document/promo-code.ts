@@ -19,7 +19,8 @@ export const PROMO_STYLES = `
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 1.3em;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  direction: ltr;
+  unicode-bidi: isolate;
   overflow-wrap: anywhere;
   user-select: all;
   -webkit-user-select: all;
@@ -104,6 +105,8 @@ export function renderPromoCode(element: DeliveryTaleElement, context: RenderCon
     card.appendChild(text('p', 'ta-poll-title', title));
   }
   const chip = text('span', 'ta-promo-chip', code);
+  // A code reads left to right, whatever the text around it (handoff 3.5).
+  chip.dir = 'ltr';
   const copy = document.createElement('button');
   copy.type = 'button';
   copy.className = 'ta-promo-copy';

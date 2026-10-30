@@ -37,6 +37,15 @@ class TallerDebugOptionsTest {
     }
 
     @Test
+    fun readsTheLocaleAndTheLayoutDirection() {
+        val store = InMemoryStore(mapOf(TallerDebugOptions.LOCALE to "he-IL", TallerDebugOptions.LAYOUT_DIRECTION to "RTL"))
+        val debug = TallerDebugOptions.load(store)
+        assertEquals("he-IL", debug.locale)
+        assertEquals("rtl", debug.layoutDirection)
+        assertEquals(TallerDebugOptions(), TallerDebugOptions.load(InMemoryStore()))
+    }
+
+    @Test
     fun frequencyNamesMapToRules() {
         assertEquals(FrequencyRule.Daily, frequencyRule("daily"))
         assertEquals(FrequencyRule.Weekly, frequencyRule(" Weekly "))

@@ -27,12 +27,16 @@ export const COUNTDOWN_STYLES = `
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.2cqh;
+  /* The digits and their units run left to right in every language: days first, seconds last. */
+  direction: ltr;
   font-variant-numeric: tabular-nums;
 }
 /* A number is one line, two digits wide at most in its column: 3.2em of the card's size, capped by the canvas width
    so four columns fit at 320 to 420 px wide. Digits take equal widths, so the numbers do not jiggle as they tick. */
 .ta-cd-unit { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .ta-cd-num {
+  direction: ltr;
+  unicode-bidi: isolate;
   font-size: min(7.68cqh, 11cqw);
   font-weight: 700;
   line-height: 1.1;
@@ -115,6 +119,7 @@ export function renderCountdown(element: DeliveryTaleElement, context: RenderCon
     box.className = 'ta-cd-unit';
     box.setAttribute('role', 'group');
     const number = text('span', 'ta-cd-num', '00');
+    number.dir = 'ltr';
     const label = t(UNIT_KEYS[unit]);
     // The number over its unit label, which is also the unit's accessible name, such as "03 Hours".
     box.append(number, text('span', 'ta-cd-label', label));

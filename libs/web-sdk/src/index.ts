@@ -21,6 +21,7 @@ export {
 } from './lib/taleart-element';
 export type { ZoneOptions } from './lib/taleart-element';
 export type { ConfigKey, FallbackMode, ResolvedTaleartConfig, TaleartConfig } from './lib/config';
+export type { DirOption } from './lib/public-types';
 export type { FrequencyRule } from './lib/frequency';
 export type {
   ActionClickedEvent,

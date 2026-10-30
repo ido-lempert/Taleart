@@ -54,7 +54,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -455,7 +457,10 @@ private fun ChoiceButton(
                 BasicText(glyph, style = TextStyle(color = markColor, fontSize = canvas.sp(base), fontWeight = FontWeight.ExtraBold), modifier = Modifier.clearAndSetSemantics { })
             }
             if (percent != null) {
-                BasicText("$percent%", style = TextStyle(color = ink, fontSize = canvas.sp(base), fontWeight = FontWeight.Bold), modifier = Modifier.clearAndSetSemantics { })
+                // A percentage reads left to right in any direction: the number, then its sign.
+                LeftToRight {
+                    BasicText("$percent%", style = TextStyle(color = ink, fontSize = canvas.sp(base), fontWeight = FontWeight.Bold), modifier = Modifier.clearAndSetSemantics { })
+                }
             }
         }
     }
@@ -463,19 +468,36 @@ private fun ChoiceButton(
 
 // ---- Rating -----------------------------------------------------------------------------------
 
-/** The Rating's value from its tap or drag position, along the track from 0 to 100. */
-internal fun ratingAt(x: Float, width: Float): Int {
+/**
+ * The Rating's value from its tap or drag position [x] (from the left edge) along a track [width] wide: 0 at
+ * the track's start and 100 at its end, which is the right in right to left ([rtl]) and the left otherwise.
+ */
+internal fun ratingAt(x: Float, width: Float, rtl: Boolean = false): Int {
     if (width <= 0f) return 50
-    return (x / width * 100f).roundToInt().coerceIn(0, 100)
+    val fromStart = if (rtl) width - x else x
+    return (fromStart / width * 100f).roundToInt().coerceIn(0, 100)
 }
 
-/** The Rating's value after a key: arrows and Page keys step by 10, Home and End go to the ends. Null for another key. */
-internal fun ratingKey(value: Int, key: Key): Int? = when (key) {
-    Key.DirectionUp, Key.DirectionRight, Key.PageUp -> (value + 10).coerceAtMost(100)
-    Key.DirectionDown, Key.DirectionLeft, Key.PageDown -> (value - 10).coerceAtLeast(0)
-    Key.MoveHome -> 0
-    Key.MoveEnd -> 100
-    else -> null
+/** The distance from the left edge of a track [width] wide to the point of [value] (0 to 100) on it: mirrored in right to left. */
+internal fun ratingLeft(value: Float, width: Float, rtl: Boolean = false): Float {
+    val fromStart = value.coerceIn(0f, 100f) / 100f * width
+    return if (rtl) width - fromStart else fromStart
+}
+
+/**
+ * The Rating's value after a key: arrows and Page keys step by 10, Home and End go to the ends. The arrow
+ * toward the end of the track raises it: right, or left in right to left ([rtl]). Null for another key.
+ */
+internal fun ratingKey(value: Int, key: Key, rtl: Boolean = false): Int? {
+    val up = if (rtl) Key.DirectionLeft else Key.DirectionRight
+    val down = if (rtl) Key.DirectionRight else Key.DirectionLeft
+    return when (key) {
+        Key.DirectionUp, up, Key.PageUp -> (value + 10).coerceAtMost(100)
+        Key.DirectionDown, down, Key.PageDown -> (value - 10).coerceAtLeast(0)
+        Key.MoveHome -> 0
+        Key.MoveEnd -> 100
+        else -> null
+    }
 }
 
 /**
@@ -528,6 +550,8 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
     }
 
     val thumbPx = canvas.h(CARD_FONT) * 1.8f
+    // The track runs from its start edge (the left, or the right in right to left) to its end edge.
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     CardColumn(element.title, element.question, element.dark, canvas, modifier, content = {
         // The track: its bar, the fill to the value, the average once rated, and the emoji thumb.
         Box(
@@ -557,20 +581,20 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
                         submit()
                         return@onKeyEvent true
                     }
-                    val next = ratingKey(value.roundToInt(), event.key) ?: return@onKeyEvent false
+                    val next = ratingKey(value.roundToInt(), event.key, rtl) ?: return@onKeyEvent false
                     set(next)
                     true
                 }
                 .pointerInput(locked) {
                     if (!locked) detectTapGestures(onTap = { position ->
-                        set(ratingAt(position.x, width.toFloat()))
+                        set(ratingAt(position.x, width.toFloat(), rtl))
                         submit()
                     })
                 }
                 .pointerInput(locked) {
                     if (!locked) detectHorizontalDragGestures(
-                        onDragStart = { position -> set(ratingAt(position.x, width.toFloat())) },
-                        onHorizontalDrag = { change, _ -> set(ratingAt(change.position.x, width.toFloat())) },
+                        onDragStart = { position -> set(ratingAt(position.x, width.toFloat(), rtl)) },
+                        onHorizontalDrag = { change, _ -> set(ratingAt(change.position.x, width.toFloat(), rtl)) },
                         onDragEnd = { submit() },
                     )
                 },
@@ -593,7 +617,7 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
             result?.let { r ->
                 Box(
                     Modifier
-                        .offset { IntOffset((r.average / 100f * width - base * 0.15f).roundToInt(), 0) }
+                        .offset { IntOffset((ratingLeft(r.average.toFloat(), width.toFloat(), rtl) - base * 0.15f).roundToInt(), 0) }
                         .width(canvas.dp(base * 0.3f))
                         .height(canvas.dp(base * 1.4f))
                         .clearAndSetSemantics { }
@@ -604,7 +628,7 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
                 element.emoji,
                 style = TextStyle(color = ink, fontSize = canvas.sp(thumbPx)),
                 modifier = Modifier
-                    .offset { IntOffset((value / 100f * width - thumbPx / 2f).roundToInt(), 0) }
+                    .offset { IntOffset((ratingLeft(value, width.toFloat(), rtl) - thumbPx / 2f).roundToInt(), 0) }
                     .clearAndSetSemantics { },
                 softWrap = false,
                 maxLines = 1,

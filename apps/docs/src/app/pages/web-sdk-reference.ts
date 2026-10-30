@@ -94,6 +94,15 @@ import { RouterLink } from '@angular/router';
               it to the SDK's <code>analytics</code> option.
             </td>
           </tr>
+          <tr>
+            <td><code>dir</code></td>
+            <td><code>dir</code></td>
+            <td>No</td>
+            <td>
+              <code>ltr</code> or <code>rtl</code> sets this element's reading direction; <code>auto</code> (the default)
+              takes the page's. The Web guide's Right-to-left section shows what turns.
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -143,8 +152,8 @@ import { RouterLink } from '@angular/router';
       <code>init(config)</code> sets the page's options, before or after the elements connect. Every option is
       optional: an option left out keeps its value, and an element attribute overrides the option. <code>null</code>
       clears <code>locale</code>, <code>strings</code>, <code>theme</code>, <code>externalUserId</code>,
-      <code>tags</code>, <code>properties</code>, <code>hooks</code> and <code>frequency</code>; <code>fallback: null</code> means <code>none</code>, and
-      <code>analytics: null</code> means on.
+      <code>tags</code>, <code>properties</code>, <code>hooks</code> and <code>frequency</code>; <code>fallback: null</code> means <code>none</code>,
+      <code>analytics: null</code> means on, and <code>dir: null</code> means <code>auto</code>.
       An invalid option logs one console warning that names it and keeps its value.
     </p>
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="init-options-caption">
@@ -227,6 +236,12 @@ import { RouterLink } from '@angular/router';
             <td><code>true</code> or <code>false</code>, or null</td>
             <td>On</td>
             <td>Whether elements report impressions, opens, tale views and clicks to the TaleArt API. An element's <code>analytics</code> attribute wins.</td>
+          </tr>
+          <tr>
+            <td><code>dir</code></td>
+            <td><code>auto</code>, <code>ltr</code>, <code>rtl</code>, or null</td>
+            <td><code>auto</code></td>
+            <td>The reading direction of every element: <code>auto</code> takes the page's. An element's <code>dir</code> attribute wins.</td>
           </tr>
         </tbody>
       </table>

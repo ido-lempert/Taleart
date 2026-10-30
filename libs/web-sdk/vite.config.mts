@@ -99,7 +99,7 @@ export default defineConfig(() => ({
       pathsToAliases: false,
       // Only the public API's declarations: the internal modules' types point into the contract's OpenAPI
       // schemas, which are not published. `web-sdk:types-check` checks the result.
-      include: ['src/index.ts', 'src/lib/taleart-element.ts', 'src/lib/public-types.ts', 'src/lib/config.ts', 'src/lib/hooks.ts', 'src/lib/i18n.ts'],
+      include: ['src/index.ts', 'src/lib/taleart-element.ts', 'src/lib/public-types.ts', 'src/lib/config.ts', 'src/lib/hooks.ts', 'src/lib/i18n.ts', 'src/lib/frequency.ts'],
     }),
   ],
   // See: https://vite.dev/guide/build.html#library-mode

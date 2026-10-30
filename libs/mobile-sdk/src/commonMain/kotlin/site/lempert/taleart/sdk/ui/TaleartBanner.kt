@@ -184,7 +184,9 @@ internal fun TaleartBanner(
         return
     }
     // A new set of slides starts again at the first, as the Web SDK renders a new banner.
-    key(slides) { Banner(slides, settings, theme, onGroupClick, modifier, titleStyle, reducedMotion, show, onShowDone) }
+    ProvideTaleartDirection {
+        key(slides) { Banner(slides, settings, theme, onGroupClick, modifier, titleStyle, reducedMotion, show, onShowDone) }
+    }
 }
 
 @Composable

@@ -130,28 +130,31 @@ internal fun CountdownElement(element: DocumentElement.Countdown, canvas: Canvas
                 countdownNumber(left.minutes) to t("countdown.minutes"),
                 countdownNumber(left.seconds) to t("countdown.seconds"),
             )
-            Row(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken.orEmpty() }) {
-                for ((number, label) in units) {
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        BasicText(
-                            number,
-                            style = TextStyle(
-                                color = ink,
-                                fontSize = canvas.sp(numberPx),
-                                fontWeight = FontWeight.Bold,
-                                fontFeatureSettings = "tnum",
-                                textAlign = TextAlign.Center,
-                            ),
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                        BasicText(
-                            label,
-                            style = TextStyle(color = ink.copy(alpha = 0.75f), fontSize = canvas.sp(base * 0.9f), textAlign = TextAlign.Center),
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+            // The digits and their units run left to right whatever the direction (`dir="ltr"` in the Web SDK).
+            LeftToRight {
+                Row(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken.orEmpty() }) {
+                    for ((number, label) in units) {
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            BasicText(
+                                number,
+                                style = TextStyle(
+                                    color = ink,
+                                    fontSize = canvas.sp(numberPx),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFeatureSettings = "tnum",
+                                    textAlign = TextAlign.Center,
+                                ),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            BasicText(
+                                label,
+                                style = TextStyle(color = ink.copy(alpha = 0.75f), fontSize = canvas.sp(base * 0.9f), textAlign = TextAlign.Center),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -228,19 +231,22 @@ internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: Canvas
                 }
                 .padding(horizontal = canvas.dp(chipFont * 0.9f), vertical = canvas.dp(chipFont * 0.4f)),
         ) {
-            BasicText(
-                element.code,
-                style = TextStyle(
-                    color = ink,
-                    fontSize = canvas.sp(chipFont),
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 0.08.em,
-                    textAlign = TextAlign.Center,
-                ),
-                maxLines = 1,
-                softWrap = false,
-            )
+            // A code is written as it is, left to right, in any direction.
+            LeftToRight {
+                BasicText(
+                    element.code,
+                    style = TextStyle(
+                        color = ink,
+                        fontSize = canvas.sp(chipFont),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 0.08.em,
+                        textAlign = TextAlign.Center,
+                    ),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
         element.note?.let { note ->
             BasicText(

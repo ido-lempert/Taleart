@@ -1,3 +1,4 @@
+import { isRtl } from '../direction';
 import { cardClass } from './poll';
 import {
   cleanText,
@@ -151,7 +152,7 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
   card.append(track, out, live);
 
   const responses = context.responses;
-  const rtl = () => typeof getComputedStyle === 'function' && getComputedStyle(card).direction === 'rtl';
+  const rtl = () => isRtl(card);
   let value = 50;
   let answered = false;
   let busy = false;

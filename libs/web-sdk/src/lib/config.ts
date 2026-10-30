@@ -1,9 +1,10 @@
 // The SDK's global configuration: `Taleart.init(config)` sets it, every element reads it (epic SDK v2).
-import { encodeExternalUserIdHeader, viewerPropertiesFrom, type ViewerProperties } from '@taleart/contract';
+import { encodeExternalUserIdHeader, viewerPropertiesFrom } from '@taleart/contract';
 import type { StringsConfig } from './i18n';
 import { parseFrequency, type FrequencyRule } from './frequency';
 import type { TaleartHooks } from './hooks';
-import type { Theme } from './public-types';
+import { parseDir } from './direction';
+import type { DirOption, Theme, ViewerProperties } from './public-types';
 import { readThemeOverride } from './theme';
 
 /** What a `<taleart-view>` shows when its zone cannot be loaded: nothing, or a message with a retry button. */
@@ -37,6 +38,11 @@ export interface TaleartConfig {
   frequency?: FrequencyRule | null;
   /** Whether elements report impressions, opens, views and clicks to the Delivery API. `false` turns it off; `null` means on. Default: on. */
   analytics?: boolean | null;
+  /**
+   * The reading direction of every element: `ltr`, `rtl`, or `auto` (the default, the host page's direction). An
+   * element's own `dir` attribute wins over it. `null` means `auto`.
+   */
+  dir?: DirOption | null;
 }
 
 /** What {@link getConfig} returns: every option with the value the SDK uses. */
@@ -52,6 +58,7 @@ export interface ResolvedTaleartConfig {
   readonly fallback: FallbackMode;
   readonly frequency: FrequencyRule | null;
   readonly analytics: boolean;
+  readonly dir: DirOption;
 }
 
 /** The names of the options. */
@@ -72,6 +79,7 @@ const KEYS: readonly ConfigKey[] = [
   'fallback',
   'frequency',
   'analytics',
+  'dir',
 ];
 
 /**
@@ -133,6 +141,7 @@ interface State {
   fallback: FallbackMode;
   frequency: FrequencyRule | null;
   analytics: boolean;
+  dir: DirOption;
 }
 
 let state: State = {
@@ -148,6 +157,7 @@ let state: State = {
   fallback: 'none',
   frequency: null,
   analytics: true,
+  dir: 'auto',
 };
 
 const listeners = new Set<ConfigListener>();
@@ -265,6 +275,15 @@ export function init(config: TaleartConfig): void {
           continue;
         }
         break;
+      case 'dir': {
+        if (value === null) next.dir = 'auto';
+        else if (parseDir(value) !== undefined) next.dir = parseDir(value) as DirOption;
+        else {
+          warnInvalid(key, '"auto", "ltr", "rtl", or null');
+          continue;
+        }
+        break;
+      }
     }
     if (!sameValue(key, state[key as keyof State], next[key as keyof State])) changed.add(key);
   }
@@ -336,6 +355,7 @@ export function getConfig(): ResolvedTaleartConfig {
     fallback: state.fallback,
     frequency: state.frequency,
     analytics: state.analytics,
+    dir: state.dir,
   };
 }
 

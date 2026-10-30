@@ -147,7 +147,7 @@ describe('native docs: the reference rows match the SDK sources', () => {
   });
 
   it('lists every TaleartConfig field', () => {
-    expect(configFields().length).toBe(11);
+    expect(configFields().length).toBe(12);
     expect(sorted(CONFIG_FIELDS.map((f) => f.name))).toEqual(sorted(configFields()));
   });
 

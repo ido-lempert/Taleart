@@ -136,6 +136,7 @@ const KEYS = {
   bar: 'tak_SampleBarKey0000000000001',
   banner: 'tak_SampleBannerKey000000001',
   hebrew: 'tak_SampleHebrewKey00000001',
+  hebrewBanner: 'tak_SampleHebrewBannerKey0001',
   features: 'tak_DemoFeaturesKey00000000001',
   frequency: 'tak_DemoFrequencyKey000000001',
   reaction: 'tak_DemoReactionKey000000000001',
@@ -261,6 +262,14 @@ const AUDIENCE_HOSTS = Object.fromEntries(
   ),
 );
 
+const HEBREW_SCRIPT = `<script type="module">
+  import { init } from '/sdk/v1/taleart.js';
+  init({
+    locale: 'he',
+    strings: { he: { 'viewer.close': 'סגור', 'viewer.nextGroup': 'הבאה', 'viewer.previousGroup': 'הקודמת' } },
+  });
+</script>`;
+
 const HOSTS = {
   ...AUDIENCE_HOSTS,
   '/bar.html': () => page({ kind: 'bar' }),
@@ -291,23 +300,14 @@ const HOSTS = {
   '/banner-plain.html': () => page({ kind: 'bannerPlain' }),
   '/bar-square.html': () => page({ kind: 'barSquare' }),
   '/bar-large.html': () => page({ kind: 'barLarge' }),
-  '/he.html': () =>
-    page({
-      lang: 'he-IL',
-      dir: 'rtl',
-      kind: 'hebrew',
-      script: `<script type="module">
-  import { init } from '/sdk/v1/taleart.js';
-  init({
-    locale: 'he',
-    strings: { he: { 'viewer.close': 'סגור', 'viewer.nextGroup': 'הבאה', 'viewer.previousGroup': 'הקודמת' } },
-  });
-</script>`,
-    }),
+  // The Hebrew pages: a right-to-left host (dir="rtl") with the SDK's texts in Hebrew.
+  '/he.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrew', script: HEBREW_SCRIPT }),
+  '/rtl-banner.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'hebrewBanner', script: HEBREW_SCRIPT }),
 };
 
-function localisedZone() {
-  const zone = zoneFor('bar');
+// The sample zone in Hebrew, as a bar (`bar`) or a banner (`banner`).
+function localisedZone(frame = 'bar') {
+  const zone = zoneFor(frame);
   zone.name = 'הבית – למעלה';
   zone.slug = 'home-top';
   zone.taleGroups = zone.taleGroups.map((g, i) => ({
@@ -681,7 +681,7 @@ async function startServer() {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       const kind = Object.keys(KEYS).find((k) => KEYS[k] === key);
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
-      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
+      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'hebrewBanner' ? localisedZone('banner') : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : zoneFor(kind);
       return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(zone));
     }
     if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
@@ -918,6 +918,35 @@ async function main() {
     await p.waitForTimeout(700);
     await p.screenshot({ path: join(imagesDir, 'web-view-hebrew.png') });
     written.push('web-view-hebrew.png');
+
+    // The right-to-left set (a Hebrew host page, dir="rtl"): the bar, the banner, and the viewer on a wide screen,
+    // where the neighbouring groups and the arrows sit on the other sides.
+    p = await desktop.newPage();
+    await p.goto(`${origin}/he.html`);
+    await ready(p, 'button.item');
+    await p.waitForLoadState('networkidle');
+    await p.locator('main').screenshot({ path: join(imagesDir, 'web-rtl-bar.png') });
+    written.push('web-rtl-bar.png');
+
+    p = await desktop.newPage();
+    await p.goto(`${origin}/rtl-banner.html`);
+    await ready(p, '[aria-roledescription="carousel"]');
+    await p.waitForLoadState('networkidle');
+    await p.waitForTimeout(400);
+    await p.locator('main').screenshot({ path: join(imagesDir, 'web-rtl-banner.png') });
+    written.push('web-rtl-banner.png');
+
+    const wide = await browser.newContext({ viewport: { width: 960, height: 600 }, deviceScaleFactor: 2, locale: 'he-IL' });
+    p = await wide.newPage();
+    await p.goto(`${origin}/he.html`);
+    await ready(p, 'button.item');
+    await p.waitForLoadState('networkidle');
+    // The middle group, so a neighbour shows on each side.
+    await p.getByRole('button', { name: 'חורף' }).click();
+    await p.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('dialog[open]'));
+    await p.waitForTimeout(700);
+    await p.screenshot({ path: join(imagesDir, 'web-rtl-viewer.png') });
+    written.push('web-rtl-viewer.png');
 
     // Failure, slotted: the zone's key is refused, so the page's own placeholder shows in the element's slot.
     const failed = await browser.newContext({ viewport: { width: 560, height: 360 }, deviceScaleFactor: 2, locale: 'en-US' });

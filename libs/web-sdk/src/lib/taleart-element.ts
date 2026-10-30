@@ -6,8 +6,6 @@ import {
   viewerTagSet,
   type AnalyticsEventType,
   type DeliveryZone,
-  type ViewerProperties,
-  type ViewerPropertyValue,
 } from '@taleart/contract';
 import { recordAnalyticsEvent, type AnalyticsTarget } from './analytics';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
@@ -34,12 +32,13 @@ import {
   type FallbackMode,
 } from './config';
 import { fetchZone } from './delivery-client';
+import { parseDir } from './direction';
 import { emit, type GroupRef, type TaleRef, type TaleartHooks } from './hooks';
 import { cappedGroupIds, type FrequencyRule, parseFrequency, recordView } from './frequency';
 import { responseClient } from './responses';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import { createTranslate, type StringsConfig, type Translate } from './i18n';
-import type { Theme } from './public-types';
+import type { Theme, ViewerProperties, ViewerPropertyValue } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride, THEME_SCHEME_STYLES } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
@@ -57,6 +56,8 @@ const ZONE_KEY_ATTR = 'zone-key';
 const LOCALE_ATTR = 'locale';
 const FALLBACK_ATTR = 'fallback';
 const FREQUENCY_ATTR = 'frequency';
+// The reading direction of this element: `ltr` or `rtl` overrides the page's, `auto` (or none) takes the page's or the SDK's `dir` option.
+const DIR_ATTR = 'dir';
 // `analytics="off"` turns the element's events off; any other value, or no attribute, leaves them to the SDK option.
 const ANALYTICS_ATTR = 'analytics';
 const ANALYTICS_OFF = 'off';
@@ -220,7 +221,7 @@ onConfigChange((changed: ReadonlySet<ConfigKey>) => {
   const only = (key: ConfigKey) => changed.size === 1 && changed.has(key);
   const retargetOnly = [...changed].every((key) => key === 'tags' || key === 'properties');
   for (const element of connected) {
-    if (only('theme')) element.retheme();
+    if (only('theme') || only('dir')) element.retheme();
     else if (retargetOnly) element.retarget();
     else if (only('hooks') || only('analytics')) continue;
     else element.reload();
@@ -259,7 +260,7 @@ const ElementBase: typeof HTMLElement = typeof HTMLElement === 'undefined' ? (cl
 
 export class TaleartElement extends ElementBase {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR, FALLBACK_ATTR, FREQUENCY_ATTR, ANALYTICS_ATTR];
+    return [API_URL_ATTR, ZONE_KEY_ATTR, LOCALE_ATTR, THEME_ATTR, FALLBACK_ATTR, FREQUENCY_ATTR, ANALYTICS_ATTR, DIR_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -370,8 +371,20 @@ export class TaleartElement extends ElementBase {
     if (this.isConnected) this.scheduleLoad();
   }
 
+  // The direction the display draws in: this element's `dir` attribute when it says ltr or rtl, else the
+  // SDK's `dir` option when that does; otherwise none, and the page's direction is inherited.
+  private applyDirection(): void {
+    const themed = this.themed?.element;
+    if (!themed) return;
+    const own = parseDir(this.getAttribute(DIR_ATTR));
+    const dir = own && own !== 'auto' ? own : getConfig().dir;
+    if (dir === 'auto') themed.removeAttribute('dir');
+    else themed.dir = dir;
+  }
+
   /** Applies the theme again with the current SDK configuration, without a new request. */
   retheme(): void {
+    this.applyDirection();
     const themed = this.themed;
     if (themed) {
       applyTheme(
@@ -532,6 +545,14 @@ export class TaleartElement extends ElementBase {
     }
     // Analytics only decides what is sent from now on: the zone is not read again.
     if (name === ANALYTICS_ATTR) return;
+    // The direction only turns the display and the viewer around: nothing is read again.
+    if (name === DIR_ATTR) {
+      if (newValue !== null && newValue !== '' && parseDir(newValue) === undefined) {
+        console.warn('TaleArt: the element\'s dir attribute must be ltr, rtl or auto; it is ignored');
+      }
+      this.applyDirection();
+      return;
+    }
     // An invalid fallback or frequency is ignored with one warning, and the SDK's option applies.
     if (name === FALLBACK_ATTR) checkFallback(newValue, "the element's fallback attribute");
     if (name === FREQUENCY_ATTR) checkFrequency(newValue, "the element's frequency attribute");

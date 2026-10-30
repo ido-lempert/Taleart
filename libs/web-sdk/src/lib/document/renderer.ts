@@ -89,7 +89,7 @@ export const DOCUMENT_STYLES = `
 .ta-line { display: block; }
 .ta-media { display: block; pointer-events: none; -webkit-user-drag: none; }
 .ta-shape { pointer-events: none; }
-.ta-stroke { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); }
+.ta-stroke { position: absolute; inset-inline: 0; top: 50%; transform: translateY(-50%); }
 .ta-emoji {
   display: flex;
   align-items: center;

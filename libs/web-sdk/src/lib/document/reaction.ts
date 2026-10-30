@@ -34,7 +34,7 @@ export const REACTION_STYLES = `
 .ta-reaction-dark { background: var(--ta-dark); color: var(--ta-dark-ink); }
 .ta-reaction-auto { background: var(--ta-paper); color: var(--ta-ink); }
 .ta-reaction-title { margin: 0; font-size: 0.75em; font-weight: 600; opacity: 0.85; }
-.ta-reaction-q { margin: 0; font-weight: 700; font-size: 1.1em; }
+.ta-reaction-q { margin: 0; font-weight: 700; font-size: 1.1em; unicode-bidi: plaintext; }
 .ta-reaction-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 1cqh; }
 .ta-reaction-btn {
   display: inline-flex;
@@ -55,7 +55,7 @@ export const REACTION_STYLES = `
 .ta-reaction-btn[aria-pressed='true'] { border-width: 0.5cqh; background: color-mix(in srgb, currentColor 30%, transparent); }
 .ta-reaction-btn:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 .ta-reaction-emoji { font-size: 2em; line-height: 1.2; }
-.ta-reaction-count { min-height: 1.2em; font-size: 0.8em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ta-reaction-count { min-height: 1.2em; font-size: 0.8em; font-weight: 700; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
 @media (forced-colors: active) { .ta-reaction-btn { border-color: ButtonText; } .ta-reaction-btn[aria-pressed='true'] { background: Highlight; } }
 `;
 
@@ -116,6 +116,8 @@ export function renderReaction(element: DeliveryTaleElement, context: RenderCont
     glyph.setAttribute('aria-hidden', 'true');
     const count = text('span', 'ta-reaction-count', '');
     count.setAttribute('aria-hidden', 'true');
+    // A count is a number: it reads left to right in a right-to-left text too.
+    count.dir = 'ltr';
     button.append(glyph, count);
     row.appendChild(button);
     return { emoji, button, count };

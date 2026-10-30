@@ -120,6 +120,7 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | `fallback` / `fallback` | What this element shows when its zone fails to load: `none` (default) or `message` (the SDK's text and a retry button). See Load failures. |
 | `frequency` / `frequency` | How often a viewer sees a tale group of this element: `once`, `daily`, `weekly` or a whole number from 1 to 50. Default none. See Frequency cap. |
 | `analytics` / `analytics` | `off` stops this element's analytics events. Any other value, or none, leaves it to the SDK's `analytics` option. See Analytics. |
+| `dir` / `dir` | The reading direction of this element: `ltr` or `rtl` set it; `auto` (the default) takes the page's. See Reading direction. |
 
 Properties without an attribute:
 
@@ -136,7 +137,7 @@ Methods: `retry()` reads the zone again after a failed load (see Load failures).
 The script sets `globalThis.Taleart`, with the functions below. `init(config)` (also a named export of the module) sets
 the SDK's options, before or after the elements connect; elements that show a zone read the options again. Every
 option is optional: an option left out keeps its value. `null` clears `locale`, `strings`, `theme`, `externalUserId`,
-`tags`, `properties`, `hooks` and `frequency`, `fallback: null` means `none`, and `analytics: null` means on. An invalid option logs one console warning naming it and keeps its value.
+`tags`, `properties`, `hooks` and `frequency`, `fallback: null` means `none`, `analytics: null` means on, and `dir: null` means `auto`. An invalid option logs one console warning naming it and keeps its value.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -151,6 +152,7 @@ option is optional: an option left out keeps its value. `null` clears `locale`, 
 | `fallback` | `none` | What every element shows when its zone fails to load: `none` or `message` (see Load failures). An element's `fallback` wins. |
 | `frequency` | none | How often a viewer sees a tale group: `once`, `daily`, `weekly` or a whole number from 1 to 50 (see Frequency cap). An element's `frequency` wins. |
 | `analytics` | on | Whether elements report impressions, opens, tale views and clicks (see Analytics). `false` turns them off; an element's `analytics` attribute wins. |
+| `dir` | `auto` | The reading direction of every element: `ltr`, `rtl`, or `auto` for the page's (see Reading direction). An element's `dir` attribute wins. |
 
 ```js
 import { init } from 'https://api.example.com/sdk/v1/taleart.js';
@@ -163,6 +165,27 @@ init({
 ```
 
 `setTags`, `setProperties`, `setProperty`, `setExternalUserId`, `configureZone` and `defineTaleartElement` remain, each the same as its `init` option (`setProperty` sets one property, see Viewer properties).
+
+## Reading direction
+
+The display and the viewer lay out in the reading direction of the page, so a right-to-left page (`<html dir="rtl">`, or
+an element inside one) reverses the bar's order and scrolling, the banner's slides and dots, the viewer's tap zones,
+arrow keys, swipes, progress and neighbouring groups. The arrows and chevrons turn with it; play, pause, close, emoji,
+numbers, countdown digits, percentages and promo codes stay as they are (numbers and codes always read left to right).
+
+To set the direction, use the `dir` attribute on one element, or `init({ dir })` for every element. An element's
+attribute wins over the option, and `auto` (the default) takes the page's direction:
+
+```html
+<taleart-view zone-key="YOUR_ZONE_KEY" dir="rtl"></taleart-view>
+```
+
+```js
+Taleart.init({ dir: 'rtl' });
+```
+
+The keys follow the visual direction too: in a right-to-left display the left arrow key goes to the next tale, the next
+group, or the next banner slide.
 
 ## Locale and strings
 

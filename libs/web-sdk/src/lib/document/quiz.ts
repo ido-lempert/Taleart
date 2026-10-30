@@ -14,12 +14,12 @@ function quizWords(t: Translate): ChoiceWords {
 
 // Marks a button as the correct answer or as a wrong one: a glyph people see, words a screen reader
 // reads in the button's name, and the colour (never alone).
-function markButton(button: HTMLButtonElement | undefined, right: boolean, t: Translate): void {
+function markButton(button: HTMLButtonElement | undefined, correct: boolean, t: Translate): void {
   if (!button) return;
-  button.classList.add(right ? 'ta-quiz-right' : 'ta-quiz-wrong');
-  const glyph = text('span', 'ta-quiz-mark', right ? '✓' : '✗');
+  button.classList.add(correct ? 'ta-quiz-right' : 'ta-quiz-wrong');
+  const glyph = text('span', 'ta-quiz-mark', correct ? '✓' : '✗');
   glyph.setAttribute('aria-hidden', 'true');
-  button.querySelector('.ta-poll-label')?.after(glyph, text('span', 'ta-sr', t(right ? 'quiz.correct' : 'quiz.wrong')));
+  button.querySelector('.ta-poll-label')?.after(glyph, text('span', 'ta-sr', t(correct ? 'quiz.correct' : 'quiz.wrong')));
 }
 
 /**

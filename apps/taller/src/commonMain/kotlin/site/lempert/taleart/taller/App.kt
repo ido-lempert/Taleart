@@ -97,7 +97,15 @@ fun App(
 
     // The SDK's configuration first (its fallback and frequency apply to the zone the controller reads).
     fun load(with: DebugSettings) {
-        TaleartSdk.init(TaleartConfig(apiUrl = with.apiUrl, fallback = options.fallback, frequency = options.frequency))
+        TaleartSdk.init(
+            TaleartConfig(
+                apiUrl = with.apiUrl,
+                locale = options.locale,
+                fallback = options.fallback,
+                frequency = options.frequency,
+                layoutDirection = options.layoutDirection,
+            ),
+        )
         controller.configure(with.apiUrl, with.zoneKey)
     }
 

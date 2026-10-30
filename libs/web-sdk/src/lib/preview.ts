@@ -100,8 +100,7 @@ const PREVIEW_STYLES = `
   position: absolute;
   top: ${TALE_SAFE_AREA.top * 100}%;
   bottom: ${TALE_SAFE_AREA.bottom * 100}%;
-  left: ${TALE_SAFE_AREA.side * 100}%;
-  right: ${TALE_SAFE_AREA.side * 100}%;
+  inset-inline: ${TALE_SAFE_AREA.side * 100}%;
   outline: 2px dashed #22d3ee;
   box-shadow: 0 0 0 100vmax rgba(34, 211, 238, 0.18);
 }

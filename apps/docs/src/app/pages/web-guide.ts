@@ -76,6 +76,13 @@ init({
   },
 });`;
 
+const RTL_SAMPLE = `<!-- The page sets its direction; the zone follows it. For one zone, or for every zone, set it explicitly: -->
+<taleart-view zone-key="YOUR_ZONE_KEY" dir="rtl"></taleart-view>
+
+<script>
+  Taleart.init({ dir: 'rtl' });
+</script>`;
+
 const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
 <!-- Give the element its height before it renders, so the page does not shift: -->
@@ -150,9 +157,9 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <figure>
           <img
             src="images/web-view-banner.png"
-            alt="A rendered banner zone: a large picture slide with previous and next arrows, a pause button and four dots for the slides."
+            alt="A rendered banner zone: a large picture slide with previous and next arrows, and four dots for the slides."
             width="1120"
-            height="800"
+            height="760"
           />
           <figcaption>A banner zone, from the same sample zone: its groups as slides.</figcaption>
         </figure>
@@ -465,6 +472,47 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       </li>
     </ol>
 
+    <h2 id="right-to-left">Right to left</h2>
+    <p>
+      On a Hebrew or Arabic page (<code>&lt;html dir="rtl"&gt;</code>) the zone follows the page. The bar starts from the
+      right, the banner's slides and arrows run from the right, and in the viewer the progress, the tap zones, the arrow
+      keys, the swipes and the neighbouring groups turn with it. Arrows and chevrons mirror; play, pause, close, emoji,
+      numbers, countdown digits and promo codes stay as they are. To set the direction for one zone, or for every zone,
+      use <code>dir</code> on the element or <code>init(&#123; dir &#125;)</code>; an element's <code>dir</code> wins, and
+      <code>auto</code> (the default) takes the page's.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Reading direction"><code>{{ rtlSample }}</code></pre>
+    <figure>
+      <img
+        src="images/web-rtl-bar.png"
+        alt="A bar on a Hebrew page, right to left: four circles with Hebrew group names under them, starting at the right, the first group named קיץ."
+        width="1120"
+        height="284"
+      />
+      <figcaption>The bar on a Hebrew page (<code>dir="rtl"</code>), a real screenshot of the SDK.</figcaption>
+    </figure>
+    <figure>
+      <img
+        src="images/web-rtl-banner.png"
+        alt="A banner on a Hebrew page, right to left: the slide with a sun, the previous arrow on the right, the next arrow on the left, and the dots with the first one at the right."
+        width="1120"
+        height="760"
+      />
+      <figcaption>The banner on a Hebrew page: the first slide is at the right, and the arrows face the way the slides run.</figcaption>
+    </figure>
+    <figure>
+      <img
+        src="images/web-rtl-viewer.png"
+        alt="The viewer on a wide screen on a Hebrew page: the group in the middle as a card, the next tale on its left and the previous one on its right, the previous group's chip at the bottom right and the next group's at the bottom left."
+        width="1920"
+        height="1200"
+      />
+      <figcaption>
+        The viewer on a wide screen, right to left: the progress fills from the right, and the group chips sit where the
+        reader expects them.
+      </figcaption>
+    </figure>
+
     <h2 id="when-it-is-live">When it is live</h2>
     <p>
       The zone shows on the page once the key is in place, the zone has a display, and it has visible content. The
@@ -488,4 +536,5 @@ export class WebGuidePage {
   protected readonly componentSample = COMPONENT_SAMPLE;
   protected readonly componentDomSample = COMPONENT_DOM_SAMPLE;
   protected readonly reactionSample = REACTION_SAMPLE;
+  protected readonly rtlSample = RTL_SAMPLE;
 }

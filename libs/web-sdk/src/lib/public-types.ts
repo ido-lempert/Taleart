@@ -8,6 +8,15 @@ export type RingStyle = 'gradient' | 'solid' | 'none';
 /** Which colour scheme the display draws: `auto` follows the host page's `prefers-color-scheme`. */
 export type ColorScheme = 'auto' | 'light' | 'dark';
 
+/** The reading direction: `auto` (the default) takes the host page's, `ltr` and `rtl` set it (`dir` on `<taleart-view>`, or `init({ dir })`). */
+export type DirOption = 'auto' | 'ltr' | 'rtl';
+
+/** A viewer property's value: text, a number, a yes or no, or a list of texts (see `setProperties`). */
+export type ViewerPropertyValue = string | number | boolean | readonly string[];
+
+/** The viewer's properties, as {@link init} and `setProperties` take them. */
+export type ViewerProperties = Readonly<Record<string, ViewerPropertyValue>>;
+
 /** A full theme (R9): the project's theme as the Delivery API sends it, every field filled. */
 export interface Theme {
   ringStyle: RingStyle;

@@ -28,8 +28,8 @@ export const POLL_STYLES = `
 .ta-poll-dark { background: var(--ta-dark); color: var(--ta-dark-ink); }
 /* No theme prop: the card follows the colour scheme (THEME_SCHEME_STYLES). */
 .ta-poll-auto { background: var(--ta-paper); color: var(--ta-ink); }
-.ta-poll-title { margin: 0; font-size: 0.75em; font-weight: 600; opacity: 0.85; }
-.ta-poll-q { margin: 0; font-weight: 700; font-size: 1.1em; }
+.ta-poll-title { margin: 0; font-size: 0.75em; font-weight: 600; opacity: 0.85; unicode-bidi: plaintext; }
+.ta-poll-q { margin: 0; font-weight: 700; font-size: 1.1em; unicode-bidi: plaintext; }
 .ta-poll-opt {
   position: relative;
   display: flex;
@@ -52,7 +52,7 @@ export const POLL_STYLES = `
 }
 .ta-poll-opt[aria-disabled='true'] { cursor: default; }
 .ta-poll-opt:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
-.ta-poll-fill { position: absolute; inset: 0 auto 0 0; width: 0; opacity: 0.22; background: currentColor; transition: width 0.4s ease-out; }
+.ta-poll-fill { position: absolute; inset-block: 0; inset-inline-start: 0; width: 0; opacity: 0.22; background: currentColor; transition: width 0.4s ease-out; }
 .ta-poll-label, .ta-poll-pct { position: relative; }
 .ta-poll-label { flex: 1; }
 .ta-poll-mine { border-width: 0.5cqh; }
@@ -217,7 +217,10 @@ export function renderChoiceCard(element: DeliveryTaleElement, context: RenderCo
       button.querySelector('.ta-poll-pct')?.remove();
       if (result) {
         const percent = percentOf(result, choice.id);
-        button.appendChild(text('span', 'ta-poll-pct', `${percent}%`));
+        // A percentage is a number: it reads left to right in a right-to-left text too.
+        const pct = text('span', 'ta-poll-pct', `${percent}%`);
+        pct.dir = 'ltr';
+        button.appendChild(pct);
         fill.style.width = `${percent}%`;
       }
     }

@@ -221,8 +221,10 @@ fun TaleartViewer(
     val state = remember(groups, startGroupId) {
         TaleViewerState(groups, startGroupId, reducedMotion, onClosed = { last[0] = it }, translate = translate)
     }
-    ProvideTaleartTheme(theme) {
-        ViewerContent(state, modifier, seenGroups, theme, onGroupShown, reducedMotion, onExited = { last[0]?.let { closed(it) } })
+    ProvideTaleartDirection {
+        ProvideTaleartTheme(theme) {
+            ViewerContent(state, modifier, seenGroups, theme, onGroupShown, reducedMotion, onExited = { last[0]?.let { closed(it) } })
+        }
     }
 }
 
@@ -241,15 +243,19 @@ fun TaleartViewer(
     theme: TaleartTheme = TaleartTheme.DEFAULT,
     onGroupShown: (groupId: String) -> Unit = {},
     followReducedMotion: Boolean = false,
-) = ProvideTaleartTheme(theme) { ViewerContent(
-    state,
-    modifier,
-    seenGroups,
-    theme,
-    onGroupShown,
-    reducedMotion = if (followReducedMotion) rememberPrefersReducedMotion() else null,
-    onExited = {},
-) }
+) = ProvideTaleartDirection {
+    ProvideTaleartTheme(theme) {
+        ViewerContent(
+            state,
+            modifier,
+            seenGroups,
+            theme,
+            onGroupShown,
+            reducedMotion = if (followReducedMotion) rememberPrefersReducedMotion() else null,
+            onExited = {},
+        )
+    }
+}
 
 /** How long the viewer waits for its window to appear before it opens anyway (iOS). */
 internal const val VIEWER_APPEAR_TIMEOUT_MS = 500L
@@ -589,13 +595,11 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                         swipeUpHref != null && releasedAt - down.uptimeMillis < SWIPE_UP_MAX_MS && -dy >= swipeUp && -dy > abs(dx) ->
                             openLink(opener, uri, ComponentRef(state.view.swipeUpId.orEmpty(), "swipe-up"), swipeUpHref)
                         // A swipe toward the start of the line (left, or right in right to left) shows the next group.
-                        abs(dx) >= swipe && abs(dx) > abs(dy) -> if (if (rtl) dx > 0 else dx < 0) state.nextGroup() else state.previousGroup()
+                        abs(dx) >= swipe && abs(dx) > abs(dy) -> if (swipeShowsNext(dx, rtl)) state.nextGroup() else state.previousGroup()
                         closing -> state.close()
                         releasedAt - down.uptimeMillis >= HOLD_MIN_MS -> Unit
                         else -> {
-                            val third = size.width / 3f
-                            val back = if (rtl) down.position.x > size.width - third else down.position.x < third
-                            if (back) state.previous() else state.next()
+                            if (tapIsBack(down.position.x, size.width.toFloat(), rtl)) state.previous() else state.next()
                         }
                     }
                 }
@@ -605,7 +609,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
         // parts. They lie under the tale and come first in the reading order, so the tale's links,
         // drawn over them, are what touch exploration finds where they are.
         Row(Modifier.matchParentSize().semantics { isTraversalGroup = true; traversalIndex = -1f }) {
-            // The Row mirrors right to left by itself: Previous is then the right third.
+            // The Row mirrors right to left by itself: Previous is then the start side, the right third.
             Zone(t("viewer.previousTale"), 1f) { state.previous() }
             Zone(t("viewer.nextTale"), 2f) { state.next() }
         }
@@ -812,6 +816,24 @@ private fun MediaImage(media: StageMedia.Image, loader: ImageLoader, modifier: M
 private fun Modifier.mediaSemantics(label: String?): Modifier =
     if (label == null) this else semantics { contentDescription = label; role = Role.Image }
 
+/**
+ * Whether a tap at [x] (from the left edge) on a stage [width] wide is the back third, the Previous tap zone:
+ * the left third, or the right one in right to left. The Previous zone is the start side of the line.
+ */
+internal fun tapIsBack(x: Float, width: Float, rtl: Boolean): Boolean {
+    val third = width / 3f
+    return if (rtl) x > width - third else x < third
+}
+
+/** Whether a sideways swipe of [dx] pixels shows the next group: toward the start of the line, left (right in right to left) is next. */
+internal fun swipeShowsNext(dx: Float, rtl: Boolean): Boolean = if (rtl) dx > 0 else dx < 0
+
+/**
+ * Where a progress segment's fill of [fillWidth] starts, from the left edge of a segment [width] wide: at the
+ * start of the line, so the fill grows from the left in left to right and from the right in right to left.
+ */
+internal fun segmentFillLeft(fillWidth: Float, width: Float, rtl: Boolean): Float = if (rtl) width - fillWidth else 0f
+
 // The top: one segment per tale of the group, then the group's name, Pause and Close.
 @Composable
 private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: androidx.compose.ui.text.font.FontFamily?) {
@@ -872,7 +894,7 @@ private fun Segment(fill: Float, accent: Color, modifier: Modifier) {
         val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
         Canvas(Modifier.matchParentSize()) {
             val w = size.width * fill
-            drawRect(accent, topLeft = androidx.compose.ui.geometry.Offset(if (rtl) size.width - w else 0f, 0f), size = Size(w, size.height))
+            drawRect(accent, topLeft = androidx.compose.ui.geometry.Offset(segmentFillLeft(w, size.width, rtl), 0f), size = Size(w, size.height))
         }
     }
 }
