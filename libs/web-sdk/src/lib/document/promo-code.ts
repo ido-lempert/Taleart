@@ -12,7 +12,7 @@ import type { RenderContext } from './media';
 export const PROMO_STYLES = `
 @keyframes ta-shine { 0%, 60% { inset-inline-start: -60%; } 100% { inset-inline-start: 130%; } }
 @keyframes ta-toast-in { from { opacity: 0; translate: 0 -0.6em; scale: 0.9; } to { opacity: 1; translate: 0 0; scale: 1; } }
-.ta-promo { align-items: center; position: relative; }
+.ta-promo { align-items: center; }
 .ta-promo-ticket {
   --ta-cut-x: calc(100% - 6em);
   position: relative;

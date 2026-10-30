@@ -20,6 +20,11 @@
 // countdown ticking. With --poll-views, only the poll view shots are written (web-poll-view-*.png): each of the five views
 // before a vote (sticker, embed, this-or-that, grid, inline), the voted embed, this-or-that and grid, and this-or-that
 // on a right-to-left page in Hebrew.
+// With --matrix, the visual matrix is written to the folder MATRIX_OUT names (default: the session scratchpad's matrix
+// folder, not apps/docs/public/images): 19 surfaces (the four bar layouts, six banner variants, the poll in the viewer,
+// the four other poll views, the quiz answered, the rating, the countdown, the promo code), each in four combinations
+// (left to right in English or right to left in Hebrew, light or dark), as `<surface>-<ltr|rtl>-<light|dark>.png`, and a
+// contact sheet per surface (`sheet-<surface>.png`, the four side by side).
 import { createServer } from 'node:http';
 import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
@@ -34,9 +39,13 @@ const BAR_LAYOUTS_ONLY = process.argv.includes('--bar-layouts');
 const BANNER_VARIANTS_ONLY = process.argv.includes('--banner-variants');
 const CLIPS_ONLY = process.argv.includes('--clips');
 const POLL_VIEWS_ONLY = process.argv.includes('--poll-views');
+const MATRIX_ONLY = process.argv.includes('--matrix');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
 const imagesDir = join(root, 'apps/docs/public/images');
+const matrixDir =
+  process.env.MATRIX_OUT ??
+  '/private/tmp/claude-501/-Users-idolempert-WebstormProjects-taleart/a60a2d08-adce-47b0-8e4c-7792d3782c9d/scratchpad/matrix';
 
 // --- PNG encoding (no dependencies): a flat-colour scene per tale, drawn pixel by pixel. ---
 const CRC = Array.from({ length: 256 }, (_, n) => {
@@ -361,6 +370,13 @@ const HEBREW_SCRIPT = `<script type="module">
         'bar.noNewStories': 'אין סיפורים חדשים',
         'banner.watch': 'לצפייה',
         'banner.dismiss': 'סגירת הבאנר',
+        'countdown.days': 'ימים',
+        'countdown.hours': 'שעות',
+        'countdown.minutes': 'דק׳',
+        'countdown.seconds': 'שנ׳',
+        'promo.copy': 'העתקה',
+        'promo.copied': 'הועתק',
+        'promo.copyFailed': 'לא הצלחנו להעתיק. בחרו את הקוד והעתיקו אותו בעצמכם.',
       },
     },
   });
@@ -880,6 +896,216 @@ function pollViewsZone(lang = 'en') {
   return demoZone('bar', groups);
 }
 
+// --- The visual matrix (--matrix): each surface in four combinations: left to right with English texts, or right to left
+// with Hebrew ones, each light or dark (the colour scheme and a dark host page). Each surface and language has its own zone
+// key, so the English and the Hebrew zone of a surface are told apart; the pages are /matrix/<surface>-<dir>-<scheme>.html.
+const MATRIX_BAR = { width: 560, height: 360 };
+const MATRIX_PHONE = { width: 390, height: 700 };
+const BANNER_READY = '[data-tale-group-id]';
+const MATRIX_TEXT = {
+  en: {
+    quiz: { group: 'Quiz', title: 'Quiz', question: 'What is the capital of France?', answers: ['Paris', 'Lyon', 'Nice'] },
+    rating: { group: 'Rating', title: 'Rate us', question: 'How was your visit?' },
+    countdown: { group: 'Sale', title: 'Sale ends in', endedText: 'The sale is over' },
+    promo: { group: 'Welcome gift', title: 'Your welcome gift', code: 'SUMMER25', note: '20% off sandals, until Sunday' },
+  },
+  he: {
+    quiz: { group: 'חידון', title: 'חידון', question: 'מהי בירת צרפת?', answers: ['פריז', 'ליון', 'ניס'] },
+    rating: { group: 'דירוג', title: 'דרגו אותנו', question: 'איך הייתה הביקור?' },
+    countdown: { group: 'מבצע', title: 'המבצע מסתיים בעוד', endedText: 'המבצע הסתיים' },
+    promo: { group: 'מתנה', title: 'המתנה שלכם', code: 'SUMMER25', note: '20% הנחה על סנדלים, עד יום ראשון' },
+  },
+};
+// One card of the components demo (quiz, rating, countdown, promo code) in a tale of its own; the card's theme is the
+// SDK's default (auto), so the dark combinations show it dark.
+function matrixCardZone(card, lang) {
+  const t = MATRIX_TEXT[lang];
+  const endsAt = new Date(Date.now() + (2 * 86400 + 5 * 3600 + 40 * 60) * 1000).toISOString();
+  const cards = {
+    quiz: {
+      group: t.quiz.group,
+      media: 'afternoon',
+      element: {
+        id: QUIZ_ID,
+        type: 'quiz',
+        box: { ...CARD_BOX, y: 0.44, h: 0.42 },
+        a11y: {},
+        props: { title: t.quiz.title, question: t.quiz.question, answers: t.quiz.answers.map((label, i) => ({ id: 'abc'[i], label })), correctAnswerId: 'a' },
+      },
+    },
+    rating: {
+      group: t.rating.group,
+      media: 'evening',
+      element: { id: RATING_ID, type: 'rating', box: { ...CARD_BOX, h: 0.3 }, a11y: {}, props: { title: t.rating.title, question: t.rating.question, emoji: '⭐' } },
+    },
+    countdown: {
+      group: t.countdown.group,
+      media: 'sale',
+      element: {
+        id: COUNTDOWN_ID,
+        type: 'countdown',
+        box: { x: 0.1, y: 0.38, w: 0.8, h: 0.24, rotation: 0 },
+        a11y: {},
+        props: { title: t.countdown.title, endsAt, endedText: t.countdown.endedText },
+      },
+    },
+    promo: {
+      group: t.promo.group,
+      media: 'gift',
+      element: {
+        id: PROMO_ID,
+        type: 'promo-code',
+        box: { x: 0.1, y: 0.66, w: 0.8, h: 0.3, rotation: 0 },
+        a11y: {},
+        props: { title: t.promo.title, code: t.promo.code, note: t.promo.note },
+      },
+    },
+  }[card];
+  return demoZone('bar', [
+    { id: `g-matrix-${card}`, name: cards.group, tales: [demoTale(`t-matrix-${card}`, cards.group, cards.media, [cards.element])] },
+  ]);
+}
+// A bar or a banner of the six groups, with the Hebrew names and tales for the right-to-left pages (the same zone
+// helper as the banner variants: it takes any kind of frame).
+const matrixBarZone = (kind, lang) => (lang === 'he' ? localisedVariantZone(kind) : zoneFor(kind));
+const pollSurface = (view) => ({
+  name: `poll-${view}`,
+  size: MATRIX_PHONE,
+  zone: (lang) => pollViewsZone(lang),
+  group: (lang) => POLL_VIEW_TEXT[lang].groups[view],
+  ready: `.ta-poll-v-${view}`,
+});
+const cardSurface = (name, card, ready) => ({
+  name,
+  size: MATRIX_PHONE,
+  zone: (lang) => matrixCardZone(card, lang),
+  group: (lang) => MATRIX_TEXT[lang][card].group,
+  ready,
+});
+const MATRIX_SURFACES = [
+  { name: 'bar-ring', size: MATRIX_BAR, zone: (lang) => matrixBarZone('layoutRing', lang), ready: 'button.item' },
+  { name: 'bar-chip', size: MATRIX_BAR, zone: (lang) => matrixBarZone('layoutChip', lang), ready: 'button.chip' },
+  { name: 'bar-poster', size: MATRIX_BAR, zone: (lang) => matrixBarZone('layoutPoster', lang), ready: 'button.poster' },
+  { name: 'bar-stack', size: MATRIX_BAR, zone: (lang) => matrixBarZone('layoutStack', lang), ready: 'button.stack' },
+  { name: 'banner-carousel', size: MATRIX_BAR, zone: (lang) => matrixBarZone('variantCarousel', lang), ready: BANNER_READY },
+  { name: 'banner-coverflow', size: MATRIX_BAR, zone: (lang) => matrixBarZone('variantCoverflow', lang), ready: BANNER_READY },
+  { name: 'banner-peek', size: MATRIX_BAR, zone: (lang) => matrixBarZone('variantPeek', lang), ready: BANNER_READY, showThird: true },
+  { name: 'banner-deck', size: MATRIX_BAR, zone: (lang) => matrixBarZone('variantDeck', lang), ready: BANNER_READY },
+  { name: 'banner-sticky', size: MATRIX_BAR, zone: (lang) => matrixBarZone('variantSticky', lang), ready: BANNER_READY },
+  { name: 'banner-strip', size: MATRIX_BAR, zone: (lang) => matrixBarZone('variantStrip', lang), ready: BANNER_READY, freezeStrip: true },
+  // The viewer opened on the poll's tale, in its default view (the sticker), then the four other poll views.
+  { name: 'viewer-poll', size: MATRIX_PHONE, zone: (lang) => pollViewsZone(lang), group: (lang) => POLL_VIEW_TEXT[lang].groups.sticker, ready: '.ta-poll-v-sticker' },
+  pollSurface('this-or-that'),
+  pollSurface('grid'),
+  pollSurface('embed'),
+  pollSurface('inline'),
+  { ...cardSurface('quiz-answered', 'quiz', '.ta-quiz'), act: true },
+  cardSurface('rating', 'rating', '[role="slider"]'),
+  cardSurface('countdown', 'countdown', '.ta-countdown'),
+  cardSurface('promo-code', 'promo', '.ta-promo'),
+];
+// The zone keys of the matrix: one per surface and language, and the page of each surface and language.
+const MATRIX_KEYS = new Map();
+const MATRIX_PAGE_KEY = new Map();
+MATRIX_SURFACES.forEach((surface, i) => {
+  for (const lang of ['en', 'he']) {
+    const key = `tak_Matrix${lang === 'he' ? 'He' : 'En'}${String(i).padStart(2, '0')}Key${'0'.repeat(16)}`;
+    MATRIX_KEYS.set(key, { surface, lang });
+    MATRIX_PAGE_KEY.set(`${surface.name}-${lang}`, key);
+  }
+});
+function matrixPage(surface, dir, scheme) {
+  const lang = dir === 'rtl' ? 'he' : 'en';
+  return page({
+    lang: lang === 'he' ? 'he-IL' : 'en',
+    dir,
+    dark: scheme === 'dark',
+    script: lang === 'he' ? HEBREW_SCRIPT : undefined,
+    body: `<taleart-view zone-key="${MATRIX_PAGE_KEY.get(`${surface.name}-${lang}`)}"></taleart-view>`,
+  });
+}
+
+async function matrixShots(browser, origin, written, outDir) {
+  await mkdir(outDir, { recursive: true });
+  const inView = (p, sel) =>
+    p.waitForFunction((s) => !!document.querySelector('taleart-view')?.shadowRoot?.querySelector(s), sel, { timeout: 15_000 });
+  const labels = ['LTR light', 'LTR dark', 'RTL light', 'RTL dark'];
+  for (const surface of MATRIX_SURFACES) {
+    const names = [];
+    for (const dir of ['ltr', 'rtl']) {
+      for (const scheme of ['light', 'dark']) {
+        const lang = dir === 'rtl' ? 'he' : 'en';
+        const context = await browser.newContext({
+          viewport: surface.size,
+          deviceScaleFactor: 2,
+          locale: dir === 'rtl' ? 'he-IL' : 'en-US',
+          colorScheme: scheme,
+        });
+        try {
+          const p = await context.newPage();
+          await p.goto(`${origin}/matrix/${surface.name}-${dir}-${scheme}.html`);
+          if (surface.group) {
+            // The viewer opens from the bar's group button, so the bar is there first.
+            await inView(p, 'button.item');
+            await p.waitForLoadState('networkidle');
+            await p.getByRole('button', { name: surface.group(lang), exact: true }).click();
+          }
+          await inView(p, surface.ready);
+          await p.waitForLoadState('networkidle');
+          if (surface.act) {
+            await p.locator('taleart-view .ta-quiz .ta-poll-opt').nth(1).click();
+            await inView(p, '.ta-quiz-right');
+          }
+          if (surface.showThird) await p.locator('taleart-view .b-dot').nth(2).click();
+          await p.waitForTimeout(900);
+          if (surface.freezeStrip) {
+            await p.evaluate(() => {
+              for (const animation of document.querySelector('taleart-view').shadowRoot.getAnimations({ subtree: true })) {
+                animation.pause();
+                animation.currentTime = 6000;
+              }
+            });
+          }
+          await p.waitForTimeout(150);
+          const name = `${surface.name}-${dir}-${scheme}.png`;
+          await (surface.group ? p : p.locator('main')).screenshot({ path: join(outDir, name) });
+          written.push(name);
+          names.push(name);
+        } finally {
+          await context.close();
+        }
+      }
+    }
+    // The contact sheet: the four combinations side by side, each picture as a data URI, the page as wide as its pictures.
+    const figures = await Promise.all(
+      names.map(async (name, i) => {
+        const src = `data:image/png;base64,${(await readFile(join(outDir, name))).toString('base64')}`;
+        return `<figure><img src="${src}" alt=""><figcaption>${labels[i]}</figcaption></figure>`;
+      }),
+    );
+    const sheet = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    try {
+      const p = await sheet.newPage();
+      await p.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>
+  body { margin: 0; padding: 24px; width: max-content; background: #e5e7eb; color: #111827; font: 600 15px system-ui, sans-serif; }
+  h1 { margin: 0 0 16px; font-size: 18px; }
+  .row { display: flex; gap: 20px; align-items: flex-start; }
+  figure { margin: 0; }
+  img { display: block; height: 560px; width: auto; border-radius: 10px; }
+  figcaption { margin-top: 8px; }
+</style></head><body><h1>${surface.name}</h1><div class="row">${figures.join('')}</div></body></html>`);
+      const width = await p.evaluate(() => document.documentElement.scrollWidth);
+      await p.setViewportSize({ width, height: 800 });
+      const sheetName = `sheet-${surface.name}.png`;
+      await p.screenshot({ path: join(outDir, sheetName), fullPage: true });
+      written.push(sheetName);
+    } finally {
+      await sheet.close();
+    }
+  }
+  console.log(`wrote ${written.length} files to ${outDir}`);
+}
+
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
 
 async function readBody(req) {
@@ -904,6 +1130,8 @@ async function startServer() {
     if (sdkChunk) return send('text/javascript; charset=utf-8', await readFile(join(sdkDir, sdkChunk[1])));
     if (url.pathname === '/delivery/v1/zone') {
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+      const matrixKey = MATRIX_KEYS.get(key);
+      if (matrixKey) return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(matrixKey.surface.zone(matrixKey.lang)));
       const kind = Object.keys(KEYS).find((k) => KEYS[k] === key);
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
       // The loading stand-in: the zone of this key is never answered, so the page keeps its loading skeleton.
@@ -914,7 +1142,7 @@ async function startServer() {
     if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
       // The stand-in for a tap: the tapped emoji's count goes up by one, and the answer carries the counts as the API's does.
       const key = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-      if (!Object.values(KEYS).includes(key)) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
+      if (!Object.values(KEYS).includes(key) && !MATRIX_KEYS.has(key)) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
       const body = JSON.parse(await readBody(req));
       const fixed = componentResult(body);
       if (fixed) return void res.writeHead(201, JSON_HEADERS).end(JSON.stringify({ elementId: body.elementId, value: body.value, recorded: true, result: fixed }));
@@ -928,6 +1156,10 @@ async function startServer() {
     }
     const media = /^\/media\/(\w+)\.png$/.exec(url.pathname);
     if (media && MEDIA[media[1]]) return send('image/png', MEDIA[media[1]]);
+    // The visual matrix's pages: /matrix/<surface>-<ltr|rtl>-<light|dark>.html.
+    const matrixHost = /^\/matrix\/([a-z-]+)-(ltr|rtl)-(light|dark)\.html$/.exec(url.pathname);
+    const matrixSurface = matrixHost && MATRIX_SURFACES.find((s) => s.name === matrixHost[1]);
+    if (matrixSurface) return send('text/html; charset=utf-8', matrixPage(matrixSurface, matrixHost[2], matrixHost[3]));
     for (const [path, render] of Object.entries(HOSTS)) {
       if (url.pathname === path) return send('text/html; charset=utf-8', render());
     }
@@ -1255,6 +1487,10 @@ async function main() {
     }
     if (POLL_VIEWS_ONLY) {
       await pollViewShots(browser, origin, written);
+      return;
+    }
+    if (MATRIX_ONLY) {
+      await matrixShots(browser, origin, written, matrixDir);
       return;
     }
     const ready = (p, selector) =>

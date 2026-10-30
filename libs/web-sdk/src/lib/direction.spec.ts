@@ -353,6 +353,12 @@ describe('a countdown and a promo code, in both directions', () => {
       wrapper.remove();
     });
   }
+
+  // The renderer places every element absolutely (`.ta-el`); a `position` on the card would put it in the flow, where a
+  // right-to-left block starts at the right edge and the placement then lands it off the screen (measured in Chromium).
+  it('leaves the card positioned by the renderer, in both directions', () => {
+    expect(PROMO_STYLES).not.toMatch(/\.ta-promo \{[^}]*position\s*:/);
+  });
 });
 
 describe('the element, in both directions', () => {
