@@ -46,6 +46,11 @@ export const DEFAULT_STRINGS = {
   'poll.chose': 'You chose {label}.',
   'poll.previewNotRecorded': 'Votes are not recorded in the preview.',
   'poll.failed': 'Your vote could not be sent. Try again.',
+  // The embed view's results header before and after a vote, and its total line ({count} is the number of votes).
+  'poll.resultsAfterVote': 'Results appear after you vote',
+  'poll.results': 'Results',
+  'poll.vote': '{count} vote',
+  'poll.votes': '{count} votes',
 
   'quiz.answered': 'You answered {label}.',
   'quiz.right': 'Right! You answered {label}.',

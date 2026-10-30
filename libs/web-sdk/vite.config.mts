@@ -15,6 +15,8 @@ const VIEWER_CHUNK =
 // stays at the ring and the carousel.
 const BANNER_VARIANTS_CHUNK = /libs\/web-sdk\/src\/lib\/banner-variants\.ts$/;
 const BAR_EXTRA_LAYOUTS_CHUNK = /libs\/web-sdk\/src\/lib\/bar-extra-layouts\.ts$/;
+// The poll views other than the sticker (embed, this-or-that, grid, inline): loaded when a tale with one is drawn (poll.ts).
+const POLL_VIEWS_CHUNK = /libs\/web-sdk\/src\/lib\/document\/poll-views\.ts$/;
 // The rest of the SDK and its contract, in one chunk; the entry (index.ts) stays on its own.
 const CORE_CHUNK = /libs\/(web-sdk\/src\/lib|contract\/src\/lib)\//;
 
@@ -201,6 +203,7 @@ export default defineConfig(() => ({
               { name: 'viewer', test: VIEWER_CHUNK, includeDependenciesRecursively: false },
               { name: 'banner-variants', test: BANNER_VARIANTS_CHUNK, includeDependenciesRecursively: false },
               { name: 'bar-extra-layouts', test: BAR_EXTRA_LAYOUTS_CHUNK, includeDependenciesRecursively: false },
+              { name: 'poll-views', test: POLL_VIEWS_CHUNK, includeDependenciesRecursively: false },
               { name: 'core', test: CORE_CHUNK },
             ],
           },

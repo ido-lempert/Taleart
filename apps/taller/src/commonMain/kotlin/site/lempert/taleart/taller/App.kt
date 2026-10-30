@@ -150,7 +150,7 @@ fun App(
                 }
             }
             // The debug option that opens the viewer at start: the group's tale, stepped to from its first.
-            if (!showSettings) AutoOpenViewer(controller.zone, options)
+            if (!showSettings) AutoOpenViewer(controller.zone?.let { if (options.redrawsZone) options.drawn(it) else it }, options)
         }
     }
 }
@@ -216,7 +216,7 @@ private fun HomeScreen(
             // The host's title colour and font, as the web bar inherits the page's.
             val titleStyle = TextStyle(color = LocalContentColor.current, fontFamily = LocalTextStyle.current.fontFamily)
             // The debug option draws the zone's bar in its layout; without it (or before the zone reads) the controller shows it.
-            val shown = if (options.barLayout != null || options.bannerVariant != null) zone?.let { options.drawn(it) } else null
+            val shown = if (options.redrawsZone) zone?.let { options.drawn(it) } else null
             if (shown != null) {
                 TaleartZone(
                     shown,

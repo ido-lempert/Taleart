@@ -44,7 +44,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
         // 2 days, 3 hours, 4 minutes and 5 seconds before the end.
         val now = endsAt - (2 * 86_400 + 3 * 3_600 + 4 * 60 + 5).seconds
         setContent {
-            CompositionLocalProvider(LocalTaleClock provides { now }, LocalComponentReporter provides reporter) {
+            CompositionLocalProvider(LocalTaleReducedMotion provides true, LocalTaleClock provides { now }, LocalComponentReporter provides reporter) {
                 Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
             }
         }
@@ -58,7 +58,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
     fun aCountdownShowsItsEndedTextAndReportsTheEndOnce() = runComposeUiTest {
         val layer = layerOf(countdown("""{"endsAt":"2026-12-31T21:00:00Z","endedText":"Over"}"""))
         setContent {
-            CompositionLocalProvider(LocalTaleClock provides { endsAt + 1.seconds }, LocalComponentReporter provides reporter) {
+            CompositionLocalProvider(LocalTaleReducedMotion provides true, LocalTaleClock provides { endsAt + 1.seconds }, LocalComponentReporter provides reporter) {
                 Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
             }
         }
@@ -71,7 +71,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
     fun aCountdownWithoutEndedTextSaysEnded() = runComposeUiTest {
         val layer = layerOf(countdown("""{"endsAt":"2026-12-31T21:00:00Z"}"""))
         setContent {
-            CompositionLocalProvider(LocalTaleClock provides { endsAt }, LocalComponentReporter provides reporter) {
+            CompositionLocalProvider(LocalTaleReducedMotion provides true, LocalTaleClock provides { endsAt }, LocalComponentReporter provides reporter) {
                 Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
             }
         }
@@ -84,7 +84,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
         val layer = layerOf(countdown("""{"endsAt":"2026-12-31T21:00:00Z","endedText":"Over"}"""))
         var now = endsAt - 2.seconds
         setContent {
-            CompositionLocalProvider(LocalTaleClock provides { now }, LocalComponentReporter provides reporter) {
+            CompositionLocalProvider(LocalTaleReducedMotion provides true, LocalTaleClock provides { now }, LocalComponentReporter provides reporter) {
                 Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
             }
         }
@@ -99,7 +99,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
     fun aPreviewReportsNoComponentEvent() = runComposeUiTest {
         val layer = layerOf(countdown("""{"endsAt":"2026-12-31T21:00:00Z","endedText":"Over"}"""))
         setContent {
-            CompositionLocalProvider(LocalTaleClock provides { endsAt + 1.seconds }, LocalComponentReporter provides reporter) {
+            CompositionLocalProvider(LocalTaleReducedMotion provides true, LocalTaleClock provides { endsAt + 1.seconds }, LocalComponentReporter provides reporter) {
                 Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer, inertLinks = true) }
             }
         }
@@ -113,6 +113,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
         val layer = layerOf(promo("SAVE20", ""","title":"Welcome","note":"Once per visitor""""))
         setContent {
             CompositionLocalProvider(
+                LocalTaleReducedMotion provides true,
                 LocalClipboardCopy provides { text -> copied += text; true },
                 LocalComponentReporter provides reporter,
             ) {
@@ -133,7 +134,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
     fun aRefusedClipboardSaysSoAndReportsNothing() = runComposeUiTest {
         val layer = layerOf(promo("SAVE20"))
         setContent {
-            CompositionLocalProvider(LocalClipboardCopy provides { false }, LocalComponentReporter provides reporter) {
+            CompositionLocalProvider(LocalTaleReducedMotion provides true, LocalClipboardCopy provides { false }, LocalComponentReporter provides reporter) {
                 Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
             }
         }
@@ -147,7 +148,7 @@ class TaleComponentsUiTest : ComposeUiTestBase() {
     fun theStatusLineClearsAfterTwoSeconds() = runComposeUiTest {
         val layer = layerOf(promo("SAVE20"))
         setContent {
-            CompositionLocalProvider(LocalClipboardCopy provides { true }, LocalComponentReporter provides reporter) {
+            CompositionLocalProvider(LocalTaleReducedMotion provides true, LocalClipboardCopy provides { true }, LocalComponentReporter provides reporter) {
                 Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
             }
         }

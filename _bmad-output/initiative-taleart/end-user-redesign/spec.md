@@ -11,7 +11,7 @@ Owner decision (2026-10-30): scope = **everything**: tokens, RTL, restyle of vie
 4. Text 4.5:1 contrast on any background; text on `accentColor` picks white/dark automatically. Touch targets >= 44px.
 5. Data model unchanged at the base: `DeliveryTaleGroup`, element schemas. New display options are *settings* of the frame/zone/element (additive, defaulted so existing zones look as before except for the restyle).
 6. Fonts: the SDK ships none; host font by default (`fontFamily: null`); dashboard/docs may suggest a Hebrew-capable family but SDK never bundles one.
-7. Standing rules: every feature ends with docs (guides + reference tables) and REAL screenshots; no competitor names (AD-12); size budget of the web SDK 50 KB gzip (report each phase; if exceeded, split code by display type lazily).
+7. Standing rules: every feature ends with docs (guides + reference tables) and REAL screenshots; no competitor names (AD-12); size budget of the web SDK 100 KB gzip, all chunks together (owner decision 2026-10-30, was 50 KB; report each phase; keep the page-loaded part small and split code by display type lazily).
 
 ## Phases (strictly in this order; each phase is delegated, verified by the main agent, committed locally; push only on the owner's go-ahead)
 - **P1 Foundation (tokens + theme):** theme schema adds `colorScheme` (auto|light|dark), `liveColor`, `successColor`, `errorColor` (optional, validated `#rrggbb`, derived defaults per handoff 4.3); contract `DEFAULT_THEME`/validation/OpenAPI + server + dashboard theme editor (+preview) + web `theme.ts` (derived tokens `--ta-ring/seen/accent/title/muted/surface/on-accent/live/success/error`, `colorScheme`) + `TaleartTheme.kt` + docs theme page. Keep the drift test between the web copy and the contract.

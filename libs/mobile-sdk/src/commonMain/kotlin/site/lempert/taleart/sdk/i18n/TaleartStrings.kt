@@ -75,6 +75,9 @@ object TaleartStrings {
         "reaction.count" to "Reactions: {count}",
         "reaction.failed" to "Your reaction could not be sent. Try again.",
 
+        "poll.votes" to "{count} votes",
+        "poll.resultsAfterVote" to "Results appear after you vote",
+
         // Native only: a link leaves the app for the browser (the Web SDK says the same with `links.newTab`).
         "links.open" to "Open in browser",
     )

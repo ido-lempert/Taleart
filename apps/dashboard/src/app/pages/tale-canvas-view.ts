@@ -92,7 +92,8 @@ export function linkView(element: { type: string; box: TaleElementBox; props: un
     color: look.color,
     background: look.variant === 'filled' ? look.fill : null,
     border: look.variant === 'outline' ? `${size(BUTTON_OUTLINE_WIDTH)} solid ${look.fill}` : null,
-    radius: look.radius > 0 ? size(look.radius) : null,
+    // The SDK's look: a button with its own radius draws it, one without takes the pill of its stylesheet (99px).
+    radius: typeof (element.props as { radius?: unknown }).radius === 'number' ? size(look.radius) : '99px',
     fontSize: size(buttonFontSize(element.box)),
   };
 }

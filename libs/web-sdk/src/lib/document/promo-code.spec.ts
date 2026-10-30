@@ -98,7 +98,7 @@ describe('renderPromoCode', () => {
     Reflect.deleteProperty(document, 'execCommand');
   });
 
-  it('clears its status two seconds after it said it', async () => {
+  it('clears its toast four seconds after it said it', async () => {
     vi.useFakeTimers();
     try {
       mockClipboard(vi.fn(async () => undefined));
@@ -106,7 +106,7 @@ describe('renderPromoCode', () => {
       copyButton(node).click();
       await vi.advanceTimersByTimeAsync(0);
       expect(status(node)).toBe('Copied');
-      await vi.advanceTimersByTimeAsync(1999);
+      await vi.advanceTimersByTimeAsync(3999);
       expect(status(node)).toBe('Copied');
       await vi.advanceTimersByTimeAsync(1);
       expect(status(node)).toBe('');

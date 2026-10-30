@@ -606,10 +606,10 @@ import {
         width="506"
         height="900"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample tale on Android over a sale picture: a white card reading 'Sale ends in' with the days, hours, minutes and seconds left to its end in large figures, each with its unit below."
+        alt="Screenshot of a TaleArt sample countdown on Android over a dark picture: a dark card reading 'Drop goes live in' with 02 days, 07 hours, 12 minutes and 56 seconds in large figures, each in a tile with its unit below."
       />
       <figcaption class="muted">
-        A countdown in the sample app's viewer (taller) on Android, a real screenshot. The figures tick on the device's clock.
+        A countdown in the sample app's viewer (taller) on Android, a real screenshot. The figures flip as they tick on the device's clock.
       </figcaption>
     </figure>
     <figure class="native-figure native-shot">
@@ -618,7 +618,7 @@ import {
         width="506"
         height="900"
         loading="lazy"
-        alt="Screenshot of a TaleArt sample tale on Android over a gift picture: a white card with the title 'Your welcome gift', the code SUMMER25 in a dashed chip, a note about 25 percent off, and a Copy button."
+        alt="Screenshot of a TaleArt sample promo code on Android over a teal picture: a white ticket card titled 'Summer sale' with the code SUNNY25 in a dashed chip, the note 'Once per visitor' and a Copy button."
       />
       <figcaption class="muted">
         A promo code in the sample app's viewer (taller) on Android, before a copy, a real screenshot.
@@ -630,10 +630,10 @@ import {
         width="506"
         height="900"
         loading="lazy"
-        alt="The same promo code card on Android after Copy was tapped: the Copy button stays and the word 'Copied' shows under it."
+        alt="The same promo code card on Android after Copy was tapped: the code is on the clipboard, and Android shows its own clipboard confirmation with the code at the foot of the screen."
       />
       <figcaption class="muted">
-        The same promo code after Copy: the status line says Copied for two seconds (a real screenshot).
+        The same promo code after Copy, a real screenshot. The code is on the clipboard; the Android system adds its own confirmation at the foot of the screen.
       </figcaption>
     </figure>
 
@@ -673,6 +673,97 @@ import {
         (a real screenshot).
       </figcaption>
     </figure>
+    <h3 id="answer-poll-views">Poll views</h3>
+    <p>
+      A poll is drawn in one of five views, chosen by the poll's <code>view</code>. The sticker is the default, and a poll
+      without a view, or with one the SDK does not know, is a sticker. The view changes how the poll looks, not what it
+      records: a vote is counted the same way in every view. Two options can carry a colour (<code>options[].color</code>,
+      <code>#rrggbb</code>); only this-or-that and grid use it, and without one the theme's colours are used.
+    </p>
+    <table>
+      <thead>
+        <tr><th>View</th><th>Use</th><th>Option colour</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>sticker</code> (default)</td><td>A small card over the tale, for a quick question.</td><td>Not used: the theme's colours.</td></tr>
+        <tr><td><code>embed</code></td><td>A full-width card with its own results header: the vote total once voted, else the line that results appear after a vote.</td><td>Not used: the theme's colours.</td></tr>
+        <tr><td><code>this-or-that</code></td><td>Two halves that fill the card. Once voted they split at the vote's share and a VS mark sits on the seam; mirrored in right to left.</td><td>Each half takes its option's colour, else the theme's; the text on it is white or black, whichever reads better.</td></tr>
+        <tr><td><code>grid</code></td><td>Two large tiles side by side, each with its label and, once voted, its share.</td><td>Each tile takes its option's colour, else the theme's; the text on it is white or black, whichever reads better.</td></tr>
+        <tr><td><code>inline</code></td><td>Compact rows, for a poll in the flow of a page.</td><td>Not used: the theme's colours.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      The embed, this-or-that and grid views are shown before a vote and after one. The voted images are real taps on the
+      sample app: a vote for Beach in each view.
+    </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-view-embed.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the embed poll view on Android: a card with the question 'Where would you go this summer?', the line 'Results appear after you vote', and two option rows, Beach and Mountains, before a vote."
+      />
+      <figcaption class="muted">The embed view before a vote, in the sample app's viewer (taller), a real screenshot.</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-view-embed-voted.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The embed view on Android after a vote for Beach: the header reads 681 votes, the rows show Beach at 61 percent with a filled bar and Mountains at 39 percent, and the card reads 'You voted Beach.'"
+      />
+      <figcaption class="muted">The embed view after a vote: its header counts the votes and each row shows its share (a real screenshot).</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-view-this-or-that.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the this-or-that poll view on Android: the question 'Where would you go this summer?' over two equal halves, a teal half for Beach and an orange half for Mountains, with a VS mark on the seam, before a vote."
+      />
+      <figcaption class="muted">The this-or-that view before a vote: two equal halves, each in its option's colour (a real screenshot).</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-view-this-or-that-voted.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The this-or-that view on Android after a vote for Beach: the teal half takes 61 percent of the card and the orange half 39 percent, the VS mark sits on the seam between them, and the card reads 'You voted Beach.'"
+      />
+      <figcaption class="muted">The this-or-that view after a vote: the seam moves to the vote's share (a real screenshot).</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-view-grid.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the grid poll view on Android: two large tiles side by side, Beach in teal and Mountains in orange, under the question, before a vote."
+      />
+      <figcaption class="muted">The grid view before a vote: two large tiles (a real screenshot).</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/android-shot-poll-view-grid-voted.png"
+        width="506"
+        height="900"
+        loading="lazy"
+        alt="The grid view on Android after a vote for Beach: each tile shows its share, Beach at 61 percent and Mountains at 39 percent, and the card reads 'You voted Beach.'"
+      />
+      <figcaption class="muted">The grid view after a vote: each tile shows its share (a real screenshot).</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-poll-view-this-or-that.png" width="506" height="900">
+        <source src="images/android-clip-poll-this-or-that.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        The this-or-that view on Android for a few seconds: a tap on Beach, and the halves move to the vote's share (a short recording of the sample app).
+      </figcaption>
+    </figure>
     <h3 id="answer-quiz">Quiz</h3>
     <p>
       Two to four answers. Once answered, the quiz says whether the answer was right: the correct answer is marked with a
@@ -704,6 +795,14 @@ import {
         screenshot).
       </figcaption>
     </figure>
+    <figure class="native-figure native-shot">
+      <video muted loop playsinline controls preload="metadata" poster="images/android-shot-quiz.png" width="506" height="900">
+        <source src="images/android-clip-quiz.mp4" type="video/mp4" />
+      </video>
+      <figcaption class="muted">
+        A quiz on Android for a few seconds: a wrong answer, and the right one is marked at once (a short recording of the sample app).
+      </figcaption>
+    </figure>
     <h3 id="answer-rating">Rating</h3>
     <p>
       A slider from 0 to 100 whose thumb is an emoji you choose. The visitor drags it or taps the track, and the rating is
@@ -727,10 +826,10 @@ import {
         width="506"
         height="900"
         loading="lazy"
-        alt="The same rating on Android after the visitor let go at 81: the thumb sits near the end of the track and the card reads 'You rated 81. Average 71 from 3 ratings.'"
+        alt="The same rating on Android after the visitor let go near 81: the thumb sits near the end of the track, the average marker shows on the track, and the card reads 'Average 67 from 3 ratings.'"
       />
       <figcaption class="muted">
-        The rating once sent: the card shows the visitor's own rating and the average of all ratings (a real screenshot).
+        The rating once sent: the thumb is the visitor's own rating, and the marker and the line under the track show the average of all ratings (a real screenshot).
       </figcaption>
     </figure>
     <h3 id="answer-reaction">Reaction</h3>

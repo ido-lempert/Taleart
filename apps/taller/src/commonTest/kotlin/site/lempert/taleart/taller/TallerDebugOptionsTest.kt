@@ -1,17 +1,22 @@
 package site.lempert.taleart.taller
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import site.lempert.taleart.sdk.FallbackMode
 import site.lempert.taleart.sdk.FrequencyRule
 import site.lempert.taleart.sdk.delivery.DeliveryFrame
+import site.lempert.taleart.sdk.delivery.DeliveryTale
+import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.ui.BannerVariant
 import site.lempert.taleart.sdk.ui.BarLayout
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class TallerDebugOptionsTest {
     @Test
@@ -130,6 +135,47 @@ class TallerDebugOptionsTest {
         assertEquals(JsonObject(mapOf("layout" to JsonPrimitive("chip"))), options.drawn(bar).frame?.settings)
         assertEquals(JsonObject(mapOf("variant" to JsonPrimitive("sticky"))), options.drawn(banner).frame?.settings)
         assertSame(banner, TallerDebugOptions().drawn(banner))
+    }
+
+    @Test
+    fun readsThePollViewAndIgnoresAnUnknownOne() {
+        assertEquals("this-or-that", TallerDebugOptions.load(InMemoryStore(mapOf(TallerDebugOptions.POLL_VIEW to " This-Or-That "))).pollView)
+        assertEquals("grid", TallerDebugOptions.load(InMemoryStore(), mapOf(TallerDebugOptions.POLL_VIEW to "grid")).pollView)
+        assertNull(TallerDebugOptions.load(InMemoryStore(mapOf(TallerDebugOptions.POLL_VIEW to "carousel"))).pollView)
+        assertNull(TallerDebugOptions.load(InMemoryStore()).pollView)
+        assertEquals(listOf("sticker", "embed", "this-or-that", "grid", "inline"), POLL_VIEWS)
+        assertEquals("sticker", pollViewNamed("sticker"))
+    }
+
+    @Test
+    fun aZoneWithAPollIsDrawnInTheDebugViewWithItsOtherPropsKept() {
+        val poll = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive("poll-1"),
+                "type" to JsonPrimitive("poll"),
+                "props" to JsonObject(mapOf("question" to JsonPrimitive("Q?"), "theme" to JsonPrimitive("dark"))),
+            ),
+        )
+        val text = JsonObject(mapOf("id" to JsonPrimitive("t"), "type" to JsonPrimitive("text"), "props" to JsonObject(mapOf("text" to JsonPrimitive("Hi")))))
+        val document = JsonObject(mapOf("version" to JsonPrimitive(1), "elements" to JsonArray(listOf(text, poll))))
+        val zone = DeliveryZone(
+            id = "z",
+            taleGroups = listOf(DeliveryTaleGroup(id = "g", tales = listOf(DeliveryTale(id = "t", document = document)))),
+        )
+        val drawn = zone.withPollView("embed")
+        val elements = (drawn.taleGroups.single().tales.single().document as JsonObject)["elements"] as JsonArray
+        assertEquals(text, elements[0])
+        val props = (elements[1] as JsonObject)["props"] as JsonObject
+        assertEquals(
+            JsonObject(mapOf("question" to JsonPrimitive("Q?"), "theme" to JsonPrimitive("dark"), "view" to JsonPrimitive("embed"))),
+            props,
+        )
+        assertEquals(zone.taleGroups.single().tales.single().id, drawn.taleGroups.single().tales.single().id)
+        assertEquals(DeliveryZone(id = "z"), DeliveryZone(id = "z").withPollView("grid"))
+        assertEquals(drawn, TallerDebugOptions(pollView = "embed").drawn(zone))
+        assertSame(zone, TallerDebugOptions().drawn(zone))
+        assertTrue(TallerDebugOptions(pollView = "grid").redrawsZone)
+        assertFalse(TallerDebugOptions().redrawsZone)
     }
 
     @Test

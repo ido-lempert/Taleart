@@ -114,6 +114,8 @@ class DocumentLayerUiTest : ComposeUiTestBase() {
                 .build()
         }
         CompositionLocalProvider(
+            // The swipe-up arrow bobs and the tests run without motion, so their clock has no endless animation.
+            LocalTaleReducedMotion provides true,
             LocalCoverImageLoader provides loader,
             LocalTaleVideoPlayer provides videos,
             LocalViewerInPlace provides true,

@@ -12,6 +12,9 @@ class InteractiveStringsTest {
         "poll.chose" to "You chose {label}.",
         "poll.previewNotRecorded" to "Votes are not recorded in the preview.",
         "poll.failed" to "Your vote could not be sent. Try again.",
+        // The embed view's header (P6b): the same words as the web SDK's DEFAULT_STRINGS.
+        "poll.votes" to "{count} votes",
+        "poll.resultsAfterVote" to "Results appear after you vote",
         "quiz.answered" to "You answered {label}.",
         "quiz.right" to "Right! You answered {label}.",
         "quiz.wrongAnswer" to "Wrong: you answered {label}. The correct answer is {correct}.",

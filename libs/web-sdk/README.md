@@ -301,6 +301,10 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 | `poll.chose` | You chose {label}. |
 | `poll.previewNotRecorded` | Votes are not recorded in the preview. |
 | `poll.failed` | Your vote could not be sent. Try again. |
+| `poll.resultsAfterVote` | Results appear after you vote |
+| `poll.results` | Results |
+| `poll.vote` | {count} vote |
+| `poll.votes` | {count} votes |
 | `quiz.answered` | You answered {label}. |
 | `quiz.right` | Right! You answered {label}. |
 | `quiz.wrongAnswer` | Wrong: you answered {label}. The correct answer is {correct}. |
@@ -627,7 +631,7 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 ## Fast first content
 
 The budget (NFR-006) is the first zone content visible within 1.5 s at p75 on a mid-tier phone over Fast 4G, with
-the SDK at most 50 KB gzipped. What the SDK does:
+the SDK at most 100 KB gzipped. What the SDK does:
 
 - The display's covers in view load first, eager and at high fetch priority; every other picture (bar covers out
   of view) waits until they have loaded, at most 3 s. Bar covers out of view stay lazy, including
@@ -727,6 +731,16 @@ focus is inside it. The SDK keeps the answer and the percentages it received in 
 data forgets them, while the server still holds the vote. The Tale Studio preview records nothing. Under a CSP, the
 API origin must be allowed in `connect-src`, as it already is for the Delivery API.
 
+**Views.** The poll's `view` picks how it is drawn. `sticker` (the default) is a card with two pills, each filling with its
+share after the vote. `embed` is a full-width card with a results header, a full bar for each option and a total line
+(such as "101 votes"). `this-or-that` is two halves that fill the card, split at the vote shares, with a VS marker on the
+split. `grid` is two large tiles, each filling along its bottom edge with its share. `inline` is compact pills in one row,
+which give way to a stacked bar and its legend after the vote. Each option may carry a `color` (`#rrggbb`): the
+`this-or-that` halves and `grid` tiles take it, and the text on each is black or white, whichever reads at 4.5:1 or
+better. Without a colour they take the theme's accent and ink. The other views count and answer exactly as the sticker
+does, and read left to right in the numbers on a right-to-left page. The views other than the sticker are a chunk of
+their own (`poll-views-<hash>.js`), loaded the first time a tale with one is drawn; an unknown view draws the sticker.
+
 ### Quizzes
 
 A quiz is a card like a poll's with two to four answers. Pressing one posts it the same way, and the card then shows
@@ -764,7 +778,7 @@ below:
 
 | Budget | Limit | Checked by |
 | --- | --- | --- |
-| The SDK's ES chunks together, gzipped | at most 50 KB | `web-sdk:size`, `sdk-sample:perf` |
+| The SDK's ES chunks together, gzipped | at most 100 KB (about 54 KB measured) | `web-sdk:size`, `sdk-sample:perf` |
 | The entry the page loads (`index.js`), gzipped | at most 40 KB | `web-sdk:size`, `sdk-sample:perf` |
 | First zone content, cold, p75 | at most 1.5 s | `sdk-sample:perf` |
 | First tale frame of a 20-element tale with a project font, from the tap, p75 | at most 1 s | `sdk-sample:perf` |
@@ -772,9 +786,11 @@ below:
 | Project font | after the first tale frame, only when its tale opens | `sdk-sample:perf` |
 
 The SDK is split (AD-16): the entry `index.js` is a few hundred bytes that imports `core-<hash>.js` (the SDK and its
-contract, about 15 KB gzipped), so the page loads two scripts; the viewer and the document renderers are `viewer-<hash>.js`
-(about 27 KB gzipped), which the SDK imports the first time a visitor opens a group. The UMD build (`index.umd.cjs`) is one
-file with the viewer inside. `web-sdk:size` reports every chunk and judges the entry and the total; the API serves each
+contract, about 27.5 KB gzipped), so the page loads two scripts; the viewer and the document renderers are `viewer-<hash>.js`
+(about 18 KB gzipped), which the SDK imports the first time a visitor opens a group. The poll views other than the sticker
+are `poll-views-<hash>.js` (about 2.5 KB), loaded the first time a tale with one is drawn, and the banner's and the bar's
+other layouts load as their own chunks (see the banner and bar sections). The UMD build (`index.umd.cjs`) is one file with
+all of them inside (about 46 KB gzipped). `web-sdk:size` reports every chunk and judges the entry and the total; the API serves each
 chunk under `/sdk/v1` by its name, and keeps the chunks of each pinned build with that build. Sizes are measured at gzip
 level 9 (what the API sends) and level 6 (most servers' and CDNs' default), and judged on the larger.
 
@@ -831,7 +847,7 @@ page's viewer pixel by pixel at 390 × 844, in a phone-sized window and inside a
 ## Building
 
 Run `nx build web-sdk` to build the library, and `nx run web-sdk:size` to check the size budget (all chunks at most
-50 KB gzipped, the page's chunk at most 40 KB; see "Budgets").
+100 KB gzipped, the page's chunk at most 40 KB; see "Budgets").
 
 ## Running unit tests
 

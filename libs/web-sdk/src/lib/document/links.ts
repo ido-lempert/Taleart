@@ -100,7 +100,8 @@ export function renderButton(element: DeliveryTaleElement, context?: RenderConte
   style.fontSize = `${Math.round(buttonFontSize(element.box) * 100000) / 1000}cqh`;
   if (look.variant === 'filled') style.backgroundColor = look.fill;
   else style.border = `${BUTTON_OUTLINE_WIDTH * 100}cqh solid ${look.fill}`;
-  if (look.radius > 0) style.borderRadius = `${look.radius * 100}cqh`;
+  // A button with its own corner radius draws it; one without takes the pill of the stylesheet (`.ta-button`).
+  if (typeof (element.props as { radius?: unknown }).radius === 'number') style.borderRadius = `${look.radius * 100}cqh`;
   return a;
 }
 

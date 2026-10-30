@@ -117,7 +117,8 @@ export const DOCUMENT_STYLES = `
   -webkit-tap-highlight-color: transparent;
 }
 .ta-cta:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
-.ta-button { padding: 0 0.8em; text-overflow: ellipsis; }
+.ta-button { padding: 0 0.8em; border-radius: 99px; text-overflow: ellipsis; }
+@keyframes ta-bob { 0%, 100% { translate: 0 0.2em; } 50% { translate: 0 -0.2em; } }
 .ta-sr {
   position: absolute;
   width: 1px;
@@ -136,7 +137,9 @@ export const DOCUMENT_STYLES = `
   height: 0.7em;
   border-top: 0.16em solid currentColor;
   border-left: 0.16em solid currentColor;
-  transform: translateY(0.2em) rotate(45deg);
+  rotate: 45deg;
+  translate: 0 0.2em;
+  animation: ta-bob 1.4s ease-in-out infinite;
 }
 .ta-swipe-label { padding: 0.35em 1em; border-radius: 999px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 @media (forced-colors: active) { .ta-cta { border: 1px solid LinkText; } }

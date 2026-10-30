@@ -256,7 +256,7 @@ describe('a poll, a quiz and a reaction, in both directions', () => {
       expect(pct.textContent).toBe('32%');
       expect(pct.dir).toBe('ltr');
       expect(card.querySelector('.ta-poll-fill')).not.toBeNull();
-      expect(POLL_STYLES).toContain('.ta-poll-fill { position: absolute; inset-block: 0; inset-inline-start: 0;');
+      expect(POLL_STYLES).toMatch(/\.ta-poll-fill \{\s*position: absolute;\s*inset-block: 0;\s*inset-inline-start: 0;/);
       wrapper.remove();
     });
 

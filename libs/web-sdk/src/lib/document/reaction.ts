@@ -36,11 +36,14 @@ export const REACTION_STYLES = `
 .ta-reaction-title { margin: 0; font-size: 0.75em; font-weight: 600; opacity: 0.85; }
 .ta-reaction-q { margin: 0; font-weight: 700; font-size: 1.1em; unicode-bidi: plaintext; }
 .ta-reaction-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 1cqh; }
+@keyframes ta-fly { 0% { opacity: 0; translate: 0 0; scale: 0.6; } 15% { opacity: 1; } 100% { opacity: 0; translate: 0 -5em; scale: 1.3; } }
 .ta-reaction-btn {
+  position: relative;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  min-width: 3.4em;
+  min-width: max(3.4em, 44px);
+  min-height: 44px;
   margin: 0;
   padding: 0.3em 0.5em;
   border: 0.25cqh solid currentColor;
@@ -55,6 +58,8 @@ export const REACTION_STYLES = `
 .ta-reaction-btn[aria-pressed='true'] { border-width: 0.5cqh; background: color-mix(in srgb, currentColor 30%, transparent); }
 .ta-reaction-btn:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
 .ta-reaction-emoji { font-size: 2em; line-height: 1.2; }
+/* Each tap sends the emoji up over its button, and it fades out (the renderer's reduced-motion rule stops it). */
+.ta-reaction-fly { position: absolute; inset-block-start: 0; inset-inline-start: 50%; margin-inline-start: -0.6em; font-size: 1.6em; line-height: 1; pointer-events: none; animation: ta-fly 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 .ta-reaction-count { min-height: 1.2em; font-size: 0.8em; font-weight: 700; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
 @media (forced-colors: active) { .ta-reaction-btn { border-color: ButtonText; } .ta-reaction-btn[aria-pressed='true'] { background: Highlight; } }
 `;
@@ -133,6 +138,14 @@ export function renderReaction(element: DeliveryTaleElement, context: RenderCont
   let answered = false;
   let busy = false;
 
+  // The emoji rises over its button and fades: a visual echo of the tap, and nothing to read.
+  const fly = (button: HTMLElement, emoji: string) => {
+    const node = text('span', 'ta-reaction-fly', emoji);
+    node.setAttribute('aria-hidden', 'true');
+    node.style.fontFamily = EMOJI_FONT_STACK;
+    button.appendChild(node);
+    setTimeout(() => node.remove(), 1200);
+  };
   // Marks the tapped emoji, and with a result shows each emoji's count; no further tap.
   const show = (value: string, result: ResponseResult | null): void => {
     answered = true;
@@ -156,6 +169,7 @@ export function renderReaction(element: DeliveryTaleElement, context: RenderCont
       // A tap on the row is the Reaction's: it never steps the tale (C7).
       e.stopPropagation();
       if (answered || busy) return;
+      fly(button, emoji);
       if (!responses) {
         show(emoji, null);
         return;

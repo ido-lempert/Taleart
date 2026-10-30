@@ -465,7 +465,7 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, sdk: SdkSource 
 
   const gzipped = gzipCache();
   const sendBundle = async (req: Request, res: Response, file: ServedFile, cacheControl: string) => {
-    // Compressed for a client that accepts gzip, as a CDN serves it: the 50 KB budget is gzipped
+    // Compressed for a client that accepts gzip, as a CDN serves it: the 100 KB budget is gzipped
     // (epic Tale Studio R15). Only the bundle: the test page's files go as they are. The ETag
     // differs per encoding, so a cache never mixes the two.
     const gzip = req.acceptsEncodings('gzip') === 'gzip';

@@ -1,7 +1,7 @@
 // The Web SDK's size budget (NFR-006; epic Tale Studio R15, AD-16), shared by `web-sdk:size`
 // (check-size.mjs) and `sdk-sample:perf`.
 //
-// - The SDK's ES chunks together stay at or under 50 KB gzipped.
+// - The SDK's ES chunks together stay at or under 100 KB gzipped (raised from 50 KB by the owner, 2026-10-30).
 // - The chunk a host page loads first (`index.js`) stays at or under 40 KB gzipped. Once the SDK
 //   passes 40 KB, the viewer and the document renderers move to a chunk loaded on the viewer's first
 //   open (AD-16); until then everything is in `index.js`, and the check reports what that split
@@ -12,7 +12,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-export const BUNDLE_LIMIT_BYTES = 50 * 1024;
+export const BUNDLE_LIMIT_BYTES = 100 * 1024;
 export const SPLIT_AT_BYTES = 40 * 1024;
 export const ENTRY_CHUNK = 'index.js';
 /** The build's module report, next to the package folder (see vite.config.mts). */
@@ -70,7 +70,7 @@ export function splitEstimate(modules) {
  * Judges `chunks` (from `readChunks`) against the budget: the lines to print, the failures and the
  * total gzipped size. One chunk is the unsplit SDK: over 40 KB it fails, asking for the split.
  * Several chunks are the split SDK: the entry must stay at or under 40 KB. Either way, all the
- * chunks together at most 50 KB.
+ * chunks together at most 100 KB.
  */
 export function judge(chunks) {
   const lines = [];

@@ -284,6 +284,29 @@ import {
       </table>
     </div>
 
+    <h2 id="poll-views">Poll views</h2>
+    <p>
+      A poll element's <code>view</code> picks how it is drawn: sticker (the default; a missing or unknown view is a sticker),
+      embed, this-or-that, grid or inline. Each option may carry a <code>color</code> (<code>#rrggbb</code>), used only by this-or-that
+      and grid; without one, the theme's colours are used. The embed header is the strings <code>poll.votes</code> and
+      <code>poll.resultsAfterVote</code> (see String keys). The guide shows each view under Poll views.
+    </p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="poll-views-caption">
+      <table>
+        <caption id="poll-views-caption">The poll views and their option colours</caption>
+        <thead>
+          <tr><th scope="col">View</th><th scope="col">Use</th><th scope="col">Option colour</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>sticker</code></td><td>A small card over the tale (default).</td><td>Not used.</td></tr>
+          <tr><td><code>embed</code></td><td>A full-width card with its own results header (the vote total, or the hint before a vote).</td><td>Not used.</td></tr>
+          <tr><td><code>this-or-that</code></td><td>Two halves split at the vote's share, with a VS mark on the seam.</td><td>Each half: its colour, else the theme's.</td></tr>
+          <tr><td><code>grid</code></td><td>Two large tiles with their shares.</td><td>Each tile: its colour, else the theme's.</td></tr>
+          <tr><td><code>inline</code></td><td>Compact rows, in the flow of a page.</td><td>Not used.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <h2 id="listener">TaleartListener and TaleartListenerBase</h2>
     <p>
       The hooks. In Swift, subclass <code>TaleartListenerBase</code> (an open class whose methods do nothing) and override

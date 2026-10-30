@@ -6,6 +6,7 @@ import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.storage.InMemoryKeyValueStore
 import site.lempert.taleart.sdk.ui.BannerVariant
 import site.lempert.taleart.sdk.ui.BarLayout
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -54,7 +55,8 @@ data class DebugSettings(val apiUrl: String, val zoneKey: String) {
  * `taller.layoutDirection` (`ltr` or `rtl`, `TaleartConfig.layoutDirection`) and `taller.barLayout` (`ring`, `chip`,
  * `poster` or `stack`: the bar layout the zone's bar is drawn in, whatever the zone's own setting) and
  * `taller.bannerVariant` (`carousel`, `coverflow`, `peek`, `deck`, `sticky` or `strip`: the variant the zone's banner
- * is drawn in). An unset key keeps the SDK's default.
+ * is drawn in), and `taller.pollView` (`sticker`, `embed`, `this-or-that`, `grid` or `inline`: the view every poll of the
+ * zone's tales is drawn in, whatever the document's own `view`). An unset key keeps the SDK's default.
  */
 data class TallerDebugOptions(
     val autoOpenGroup: Int? = null,
@@ -65,6 +67,7 @@ data class TallerDebugOptions(
     val layoutDirection: String? = null,
     val barLayout: BarLayout? = null,
     val bannerVariant: BannerVariant? = null,
+    val pollView: String? = null,
 ) {
     companion object {
         const val AUTO_OPEN_GROUP = "taller.autoOpenGroup"
@@ -75,6 +78,7 @@ data class TallerDebugOptions(
         const val LAYOUT_DIRECTION = "taller.layoutDirection"
         const val BAR_LAYOUT = "taller.barLayout"
         const val BANNER_VARIANT = "taller.bannerVariant"
+        const val POLL_VIEW = "taller.pollView"
 
         fun load(store: KeyValueStore, extras: Map<String, String> = emptyMap()): TallerDebugOptions {
             fun read(key: String): String? = (extras[key] ?: store.get(key))?.trim()?.takeIf { it.isNotEmpty() }
@@ -87,6 +91,7 @@ data class TallerDebugOptions(
                 layoutDirection = read(LAYOUT_DIRECTION)?.lowercase(),
                 barLayout = read(BAR_LAYOUT)?.let(::barLayoutNamed),
                 bannerVariant = read(BANNER_VARIANT)?.let(::bannerVariantNamed),
+                pollView = read(POLL_VIEW)?.let(::pollViewNamed),
             )
         }
     }
@@ -105,6 +110,39 @@ fun barLayoutNamed(value: String): BarLayout? = BarLayout.entries.firstOrNull { 
 
 /** A banner variant as the debug option names it (`carousel`, `coverflow`, `peek`, `deck`, `sticky` or `strip`, any case); null for anything else. */
 fun bannerVariantNamed(value: String): BannerVariant? = BannerVariant.entries.firstOrNull { it.key == value.trim().lowercase() }
+
+/** The poll views the poll element's `view` prop names (`poll.schema.json`). */
+val POLL_VIEWS = listOf("sticker", "embed", "this-or-that", "grid", "inline")
+
+/** A poll view as the debug option names it (any case); null for anything else. */
+fun pollViewNamed(value: String): String? = POLL_VIEWS.firstOrNull { it == value.trim().lowercase() }
+
+/**
+ * The zone with every poll of its tales drawn in [view]: the `view` prop of each poll element replaced, the rest of the
+ * document as delivered. A zone without a poll is returned as it is.
+ */
+fun DeliveryZone.withPollView(view: String): DeliveryZone {
+    var changed = false
+    val groups = taleGroups.map { group ->
+        val tales = group.tales.map { tale ->
+            val document = tale.document as? JsonObject ?: return@map tale
+            val elements = document["elements"] as? JsonArray ?: return@map tale
+            var touched = false
+            val shown = elements.map { element ->
+                val o = element as? JsonObject ?: return@map element
+                if ((o["type"] as? JsonPrimitive)?.content != "poll") return@map element
+                touched = true
+                val props = (o["props"] as? JsonObject).orEmpty() + ("view" to JsonPrimitive(view))
+                JsonObject(o + ("props" to JsonObject(props)))
+            }
+            if (!touched) return@map tale
+            changed = true
+            tale.copy(document = JsonObject(document + ("elements" to JsonArray(shown))))
+        }
+        group.copy(tales = tales)
+    }
+    return if (changed) copy(taleGroups = groups) else this
+}
 
 /**
  * The zone with its bar drawn in [layout]: the frame's `layout` setting replaced, the rest of the zone as delivered.
@@ -129,12 +167,16 @@ fun DeliveryZone.withBannerVariant(variant: BannerVariant): DeliveryZone {
 }
 
 /**
- * The zone as the debug options draw it: its bar in [TallerDebugOptions.barLayout] and its banner in
- * [TallerDebugOptions.bannerVariant], each when set; a zone of neither kind is returned as it is.
+ * The zone as the debug options draw it: its bar in [TallerDebugOptions.barLayout], its banner in
+ * [TallerDebugOptions.bannerVariant] and its polls in [TallerDebugOptions.pollView], each when set; a zone of none is returned as it is.
  */
 fun TallerDebugOptions.drawn(zone: DeliveryZone): DeliveryZone {
     var shown = zone
     barLayout?.let { shown = shown.withBarLayout(it) }
     bannerVariant?.let { shown = shown.withBannerVariant(it) }
+    pollView?.let { shown = shown.withPollView(it) }
     return shown
 }
+
+/** Whether these options change the zone as [drawn] draws it: a bar layout, a banner variant or a poll view is set. */
+val TallerDebugOptions.redrawsZone: Boolean get() = barLayout != null || bannerVariant != null || pollView != null

@@ -372,6 +372,10 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>poll.chose</code></td><td>You chose &#123;label&#125;.</td></tr>
           <tr><td><code>poll.previewNotRecorded</code></td><td>Votes are not recorded in the preview.</td></tr>
           <tr><td><code>poll.failed</code></td><td>Your vote could not be sent. Try again.</td></tr>
+          <tr><td><code>poll.resultsAfterVote</code></td><td>Results appear after you vote</td></tr>
+          <tr><td><code>poll.results</code></td><td>Results</td></tr>
+          <tr><td><code>poll.vote</code></td><td>&#123;count&#125; vote</td></tr>
+          <tr><td><code>poll.votes</code></td><td>&#123;count&#125; votes</td></tr>
           <tr><td><code>quiz.answered</code></td><td>You answered &#123;label&#125;.</td></tr>
           <tr><td><code>quiz.right</code></td><td>Right! You answered &#123;label&#125;.</td></tr>
           <tr><td><code>quiz.wrongAnswer</code></td><td>Wrong: you answered &#123;label&#125;. The correct answer is &#123;correct&#125;.</td></tr>

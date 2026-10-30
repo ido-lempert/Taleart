@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -18,11 +19,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,6 +34,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -85,7 +90,8 @@ import site.lempert.taleart.sdk.storage.deviceKeyValueStoreOrNull
 // question over buttons that show each choice's share once answered; a Rating is a slider whose thumb
 // is an emoji, posted on release; a Reaction is a row of emoji buttons with their counts. One answer
 // per visitor and element: once answered (or kept from an earlier visit) the controls are disabled.
-// A preview (inert links, the Tale Studio) marks the choice and sends nothing.
+// A preview (inert links, the Tale Studio) marks the choice and sends nothing. A poll's five views are
+// in TaleInteractivePoll.kt; the motion in TaleInteractiveMotion.kt.
 
 /** The zone an answer is posted to: the API origin, the zone key and the client that posts it. */
 internal data class ZoneResponses(val apiUrl: String, val key: String, val client: DeliveryClient)
@@ -189,17 +195,17 @@ internal fun reactionCount(result: ResponseResult?, emoji: String): Int =
 // ---- Shared look ------------------------------------------------------------------------------
 
 /** The minimum tap target, 48 dp (WCAG 2.5.5). */
-private val MinTarget: Dp = 48.dp
+internal val MinTarget: Dp = 48.dp
 
 // The card every interactive element draws on: a title, the question, then its controls and a live line.
 @Composable
-private fun CardColumn(
+internal fun CardColumn(
     title: String?,
     question: String,
     dark: Boolean?,
     canvas: CanvasMetrics,
     modifier: Modifier,
-    content: @Composable () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val (card, ink) = cardColors(dark)
     val base = canvas.h(CARD_FONT)
@@ -229,7 +235,7 @@ private fun CardColumn(
 
 // The line the live region says (`aria-live="polite"`): the result, a refusal or a preview's note.
 @Composable
-private fun LiveLine(text: String, ink: androidx.compose.ui.graphics.Color, canvas: CanvasMetrics) {
+internal fun LiveLine(text: String, ink: Color, canvas: CanvasMetrics) {
     BasicText(
         text,
         style = TextStyle(color = ink, fontSize = canvas.sp(canvas.h(CARD_FONT) * 0.8f), fontWeight = FontWeight.SemiBold),
@@ -240,7 +246,7 @@ private fun LiveLine(text: String, ink: androidx.compose.ui.graphics.Color, canv
 // The line screen readers say and nothing draws (the web SDK's visually hidden live region): a reaction's counts
 // read out in one sentence would be a long clipped line on screen. A 1 dp node carries it as its description.
 @Composable
-private fun SpokenLine(text: String) {
+internal fun SpokenLine(text: String) {
     Box(
         Modifier
             .size(1.dp)
@@ -254,12 +260,12 @@ private fun SpokenLine(text: String) {
 // ---- Poll and quiz ----------------------------------------------------------------------------
 
 // A quiz's mark on a choice: right (the correct answer) or wrong (the visitor's wrong answer).
-private enum class Mark { Right, Wrong }
+internal enum class Mark { Right, Wrong }
 
 /**
- * A poll (`renderPoll`): its question over two option buttons. Once voted the buttons show each option's
- * share with the vote selected, and the result is said in the live line; without a response (a preview)
- * the choice is marked and nothing is recorded.
+ * A poll (`renderPoll`): its question over its options, drawn in the poll's `view`. Once voted the options
+ * show each option's share with the vote selected, and the result is said in the live line; without a
+ * response (a preview) the choice is marked and nothing is recorded.
  */
 @Composable
 internal fun PollElement(element: DocumentElement.Poll, canvas: CanvasMetrics, responder: ElementResponder?, modifier: Modifier) {
@@ -272,6 +278,7 @@ internal fun PollElement(element: DocumentElement.Poll, canvas: CanvasMetrics, r
         choices = element.options,
         quiz = false,
         correctId = null,
+        view = element.view,
         canvas = canvas,
         responder = responder,
         modifier = modifier,
@@ -281,7 +288,7 @@ internal fun PollElement(element: DocumentElement.Poll, canvas: CanvasMetrics, r
 /**
  * A quiz (`renderQuiz`): as a poll, with the answer marked once answered: a correct answer with a tick,
  * a wrong one with a cross (a glyph and words as well as colour), and what the visitor answered. A quiz
- * without a correct answer is a survey and shows only the shares.
+ * without a correct answer is a survey and shows only the shares. A quiz is always drawn as a sticker.
  */
 @Composable
 internal fun QuizElement(element: DocumentElement.Quiz, canvas: CanvasMetrics, responder: ElementResponder?, modifier: Modifier) {
@@ -294,26 +301,56 @@ internal fun QuizElement(element: DocumentElement.Quiz, canvas: CanvasMetrics, r
         choices = element.answers,
         quiz = true,
         correctId = element.correctAnswerId,
+        view = PollView.Sticker,
         canvas = canvas,
         responder = responder,
         modifier = modifier,
     )
 }
 
+/**
+ * The state of a poll's or quiz's choices: the answer shown (the visitor's, or a preview's press), the result,
+ * whether a send is in flight, and the lines said for it. [press] takes a choice, as a tap does.
+ */
+internal class ChoiceState(
+    /** The choice shown as the visitor's: their answer, or a preview's press; null when none. */
+    val shown: String?,
+    /** The result the server gave with the answer; null before it. */
+    val result: ResponseResult?,
+    val busy: Boolean,
+    /** The live line: the result, a refusal or a preview's note. */
+    val live: String,
+    /** The announcement with the shares, said to screen readers only. */
+    val spoken: String,
+    /** Whether the choices are a quiz's answers. */
+    val quiz: Boolean,
+    private val correctId: String?,
+    private val onPress: (Choice) -> Unit,
+) {
+    /** Locked once a choice is shown: one answer per visitor and element. */
+    val locked: Boolean get() = shown != null
+
+    /** The quiz's mark on [choice]: right on the correct answer always, wrong on the visitor's wrong answer. */
+    fun markOf(choice: Choice): Mark? = when {
+        shown == null || !quiz || correctId == null -> null
+        choice.id == correctId -> Mark.Right
+        choice.id == shown -> Mark.Wrong
+        else -> null
+    }
+
+    fun press(choice: Choice) = onPress(choice)
+}
+
+/** The choices' state of one element: its kept answer, its preview press and the send of a press. */
 @Composable
-private fun ChoiceCardElement(
+internal fun rememberChoiceState(
     id: String,
     type: String,
-    title: String?,
-    question: String,
-    dark: Boolean?,
     choices: List<Choice>,
     quiz: Boolean,
     correctId: String?,
-    canvas: CanvasMetrics,
     responder: ElementResponder?,
-    modifier: Modifier,
-) {
+): ChoiceState {
     val t = LocalTaleartContext.current.translate
     val scope = rememberCoroutineScope()
     // The visitor's kept answer, read once; a press here marks a preview's choice and records nothing.
@@ -321,18 +358,14 @@ private fun ChoiceCardElement(
     var preview by remember(id) { mutableStateOf<String?>(null) }
     var busy by remember(id) { mutableStateOf(false) }
     var live by remember(id) { mutableStateOf("") }
-    // The announcement with the shares, said to screen readers only: the shares are on the buttons already.
     var spoken by remember(id) { mutableStateOf("") }
     val shown = answer?.value ?: preview
-    val locked = shown != null
-    val result = answer?.result
-    val (_, ink) = cardColors(dark)
 
     fun start(value: String) = if (quiz) quizStart(choices, correctId, value, t) else pollStart(choices, value, t)
     val failed = if (quiz) t("quiz.failed") else t("poll.failed")
 
     fun press(choice: Choice) {
-        if (locked || busy) return
+        if (shown != null || busy) return
         if (responder == null) {
             preview = choice.id
             // The web preview words a poll's press "You chose", and a quiz's as an answer.
@@ -356,32 +389,90 @@ private fun ChoiceCardElement(
         }
     }
 
-    CardColumn(title, question, dark, canvas, modifier, content = {
-        for (choice in choices) {
-            val mark = when {
-                shown == null || !quiz || correctId == null -> null
-                choice.id == correctId -> Mark.Right
-                choice.id == shown -> Mark.Wrong
-                else -> null
-            }
-            ChoiceButton(
-                label = choice.label,
-                percent = if (result != null) percentOf(result, choice.id) else null,
-                selected = shown == choice.id,
-                mark = mark,
-                enabled = !locked && !busy,
-                dark = dark,
-                canvas = canvas,
-                onClick = { press(choice) },
-            )
-        }
-        LiveLine(live, ink, canvas)
-        SpokenLine(spoken)
-    })
+    return ChoiceState(
+        shown = shown,
+        result = answer?.result,
+        busy = busy,
+        live = live,
+        spoken = spoken,
+        quiz = quiz,
+        correctId = correctId,
+        onPress = ::press,
+    )
 }
 
-// One choice as a button of at least 48 dp: its label, its share once answered (a bar behind it), the
-// quiz's mark. Selected is the visitor's choice; a disabled button is one that took no press.
+@Composable
+private fun ChoiceCardElement(
+    id: String,
+    type: String,
+    title: String?,
+    question: String,
+    dark: Boolean?,
+    choices: List<Choice>,
+    quiz: Boolean,
+    correctId: String?,
+    view: PollView,
+    canvas: CanvasMetrics,
+    responder: ElementResponder?,
+    modifier: Modifier,
+) {
+    val state = rememberChoiceState(id, type, choices, quiz, correctId, responder)
+    val reduced = rememberTaleReducedMotion()
+    val (_, ink) = cardColors(dark)
+    // A quiz is always a sticker: its marks read on the buttons, as the Web SDK draws it.
+    val drawn = if (quiz) PollView.Sticker else view
+    CardColumn(title, question, dark, canvas, modifier) {
+        // The card lays its own rows out in the host's direction, as the canvas places it left to right.
+        HostDirection {
+        when (drawn) {
+            PollView.Sticker -> ChoiceButtons(state, choices, dark, canvas, reduced, ChoiceShape.Pill)
+            PollView.Embed -> {
+                EmbedHeader(state, ink, canvas)
+                ChoiceButtons(state, choices, dark, canvas, reduced, ChoiceShape.Card)
+            }
+            PollView.Inline -> ChoiceButtons(state, choices, dark, canvas, reduced, ChoiceShape.Compact)
+            PollView.ThisOrThat -> if (choices.size == 2) {
+                ThisOrThatView(state, choices[0], choices[1], canvas, reduced)
+            } else {
+                ChoiceButtons(state, choices, dark, canvas, reduced, ChoiceShape.Pill)
+            }
+            PollView.Grid -> if (choices.size == 2) {
+                GridView(state, choices, canvas, reduced)
+            } else {
+                ChoiceButtons(state, choices, dark, canvas, reduced, ChoiceShape.Pill)
+            }
+        }
+        }
+        LiveLine(state.live, ink, canvas)
+        SpokenLine(state.spoken)
+    }
+}
+
+// The buttons of a choice card, one per choice, in the shape the view draws them in.
+@Composable
+private fun ChoiceButtons(state: ChoiceState, choices: List<Choice>, dark: Boolean?, canvas: CanvasMetrics, reduced: Boolean, shape: ChoiceShape) {
+    for (choice in choices) {
+        ChoiceButton(
+            label = choice.label,
+            percent = state.result?.let { percentOf(it, choice.id) },
+            selected = state.shown == choice.id,
+            mark = state.markOf(choice),
+            enabled = !state.locked && !state.busy,
+            dark = dark,
+            canvas = canvas,
+            reduced = reduced,
+            shape = shape,
+            onClick = { state.press(choice) },
+        )
+    }
+}
+
+/** A choice button's shape and size: a pill (the sticker and quiz), a rounded card row (embed) or a compact row (inline). */
+internal enum class ChoiceShape { Pill, Card, Compact }
+
+// One choice as a button of at least 48 dp: its label, its share once answered (a bar behind it, filled with a
+// spring), the quiz's mark (a glyph and words as well as colour, and a shake on a wrong answer). Selected is
+// the visitor's choice (it pops once); a disabled button is one that took no press.
 @Composable
 private fun ChoiceButton(
     label: String,
@@ -391,12 +482,18 @@ private fun ChoiceButton(
     enabled: Boolean,
     dark: Boolean?,
     canvas: CanvasMetrics,
+    reduced: Boolean,
+    shape: ChoiceShape,
     onClick: () -> Unit,
 ) {
     val t = LocalTaleartContext.current.translate
     val (_, ink) = cardColors(dark)
     val base = canvas.h(CARD_FONT)
-    val shape = RoundedCornerShape(50)
+    val radius = when (shape) {
+        ChoiceShape.Pill -> RoundedCornerShape(50)
+        ChoiceShape.Card -> RoundedCornerShape(canvas.dp(canvas.h(0.018)))
+        ChoiceShape.Compact -> RoundedCornerShape(canvas.dp(canvas.h(0.012)))
+    }
     val palette = rememberThemeColors()
     // As the Web SDK: a card drawn light or dark on purpose uses that card's mark; an automatic one the scheme's.
     val markColor = when (mark) {
@@ -414,6 +511,9 @@ private fun ChoiceButton(
         Mark.Wrong -> "✗"
         null -> ""
     }
+    val fill = rememberFill((percent ?: 0) / 100f, reduced)
+    val pop = rememberPop(selected, reduced)
+    val shake = rememberShake(mark == Mark.Wrong, reduced)
     val spoken = buildString {
         append(label).append(markWord)
         if (percent != null) append(", ").append(percent).append('%')
@@ -423,8 +523,13 @@ private fun ChoiceButton(
         Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = MinTarget)
-            .clip(shape)
-            .border(canvas.dp(if (selected || mark != null) edge * 2 else edge), if (mark != null) markColor else ink, shape)
+            .graphicsLayer {
+                translationX = shake * density
+                scaleX = pop
+                scaleY = pop
+            }
+            .clip(radius)
+            .border(canvas.dp(if (selected || mark != null) edge * 2 else edge), if (mark != null) markColor else ink, radius)
             .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 contentDescription = spoken
@@ -435,14 +540,14 @@ private fun ChoiceButton(
         if (percent != null) {
             Box(
                 Modifier
-                    .fillMaxWidth(percent.coerceIn(0, 100) / 100f)
+                    .fillMaxWidth(fill)
                     // The button's own height, not the column's: a fill that takes the free height pushed the other options out.
                     .matchParentSize()
                     .background(ink.copy(alpha = 0.22f)),
             )
         }
         Row(
-            Modifier.padding(horizontal = canvas.dp(base * 0.9f), vertical = canvas.dp(base * 0.5f)),
+            Modifier.padding(horizontal = canvas.dp(base * 0.9f), vertical = canvas.dp(base * if (shape == ChoiceShape.Compact) 0.35f else 0.5f)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.5f)),
         ) {
@@ -485,6 +590,12 @@ internal fun ratingLeft(value: Float, width: Float, rtl: Boolean = false): Float
 }
 
 /**
+ * The emoji thumb's size as a share of its base size: it grows with the value, from 0.8 at 0 to 1.3 at 100
+ * (the thumb grows as the rating does).
+ */
+internal fun ratingThumbScale(value: Float): Float = 0.8f + 0.5f * value.coerceIn(0f, 100f) / 100f
+
+/**
  * The Rating's value after a key: arrows and Page keys step by 10, Home and End go to the ends. The arrow
  * toward the end of the track raises it: right, or left in right to left ([rtl]). Null for another key.
  */
@@ -501,9 +612,9 @@ internal fun ratingKey(value: Int, key: Key, rtl: Boolean = false): Int? {
 }
 
 /**
- * A Rating (`renderRating`): a question over a slider from 0 to 100 whose thumb is the emoji. The visitor
- * drags the emoji or taps the track, or moves it with the arrow keys and Enter; the rating is posted on
- * release (or Enter). Once rated the track marks the average and the count and average show.
+ * A Rating (`renderRating`): a question over a slider from 0 to 100 whose thumb is the emoji, and which grows
+ * with the value. The visitor drags the emoji or taps the track, or moves it with the arrow keys and Enter;
+ * the rating is posted on release (or Enter). Once rated the track marks the average and the count and average show.
  */
 @Composable
 internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetrics, responder: ElementResponder?, modifier: Modifier) {
@@ -549,10 +660,11 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
         }
     }
 
-    val thumbPx = canvas.h(CARD_FONT) * 1.8f
+    val thumbBase = canvas.h(CARD_FONT) * 1.8f
     // The track runs from its start edge (the left, or the right in right to left) to its end edge.
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    CardColumn(element.title, element.question, element.dark, canvas, modifier, content = {
+    val rtl = LocalHostLayoutDirection.current == LayoutDirection.Rtl
+    val thumbPx = thumbBase * ratingThumbScale(value)
+    CardColumn(element.title, element.question, element.dark, canvas, modifier) {
         // The track: its bar, the fill to the value, the average once rated, and the emoji thumb.
         Box(
             Modifier
@@ -636,15 +748,15 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
         }
         result?.let { r -> BasicText(ratingSummary(r, t), style = TextStyle(color = ink, fontSize = canvas.sp(base * 0.85f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center), modifier = Modifier.fillMaxWidth()) }
         LiveLine(live, ink, canvas)
-    })
+    }
 }
 
 // ---- Reaction ---------------------------------------------------------------------------------
 
 /**
  * A Reaction (`renderReaction`): a question over a row of emoji buttons, each at least 48 dp. The visitor
- * taps one; the row then shows each emoji's count with the tapped one selected, and the counts are said
- * in the live line. No second tap is taken.
+ * taps one; the emoji rises from its button and fades, and the row then shows each emoji's count with the
+ * tapped one selected, and the counts are said in the live line. No second tap is taken.
  */
 @Composable
 internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMetrics, responder: ElementResponder?, modifier: Modifier) {
@@ -654,6 +766,10 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
     var previewed by remember(element.id) { mutableStateOf<String?>(null) }
     var busy by remember(element.id) { mutableStateOf(false) }
     var live by remember(element.id) { mutableStateOf("") }
+    // The emoji that rises: the last one tapped, and a count of taps that restarts its rise each time.
+    var risen by remember(element.id) { mutableStateOf<String?>(null) }
+    var taps by remember(element.id) { mutableIntStateOf(0) }
+    val reduced = rememberTaleReducedMotion()
     val shown = answer?.value ?: previewed
     val locked = shown != null
     val result = answer?.result
@@ -663,6 +779,8 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
 
     fun press(emoji: String) {
         if (locked || busy) return
+        risen = emoji
+        taps += 1
         if (responder == null) {
             previewed = emoji
             return
@@ -681,9 +799,9 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
         }
     }
 
-    CardColumn(element.title, element.question, element.dark, canvas, modifier, content = {
+    CardColumn(element.title, element.question, element.dark, canvas, modifier) {
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().selectableGroup(),
             horizontalArrangement = Arrangement.spacedBy(canvas.dp(base * 0.5f), Alignment.CenterHorizontally),
         ) {
             for (emoji in element.emojis) {
@@ -691,27 +809,45 @@ internal fun ReactionElement(element: DocumentElement.Reaction, canvas: CanvasMe
                 val count = if (result != null) reactionCount(result, emoji) else null
                 val spoken = if (count != null) "$emoji, ${t("reaction.count", mapOf("count" to count))}" else emoji
                 val shape = RoundedCornerShape(canvas.dp(canvas.h(0.02)))
-                Column(
-                    Modifier
-                        .defaultMinSize(minWidth = MinTarget, minHeight = MinTarget)
-                        .clip(shape)
-                        .border(canvas.dp(canvas.h(if (pressed) 0.005 else 0.0025)), ink, shape)
-                        .clickable(enabled = !locked && !busy, role = Role.Button) { press(emoji) }
-                        .semantics(mergeDescendants = true) {
-                            selected = pressed
-                            contentDescription = spoken
-                            if (locked) disabled()
+                val pop = rememberPop(pressed, reduced)
+                Box(contentAlignment = Alignment.TopCenter) {
+                    Column(
+                        Modifier
+                            .defaultMinSize(minWidth = MinTarget, minHeight = MinTarget)
+                            .graphicsLayer { scaleX = pop; scaleY = pop }
+                            .clip(shape)
+                            .border(canvas.dp(canvas.h(if (pressed) 0.005 else 0.0025)), ink, shape)
+                            .clickable(enabled = !locked && !busy, role = Role.Button) { press(emoji) }
+                            .semantics(mergeDescendants = true) {
+                                selected = pressed
+                                contentDescription = spoken
+                                if (locked) disabled()
+                            }
+                            .padding(horizontal = canvas.dp(base * 0.4f), vertical = canvas.dp(base * 0.3f)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        BasicText(emoji, style = TextStyle(fontSize = canvas.sp(emojiPx * 0.6f), textAlign = TextAlign.Center), softWrap = false, maxLines = 1)
+                        if (count != null) {
+                            BasicText("$count", style = TextStyle(color = ink, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.Bold), modifier = Modifier.clearAndSetSemantics { })
                         }
-                        .padding(horizontal = canvas.dp(base * 0.4f), vertical = canvas.dp(base * 0.3f)),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    BasicText(emoji, style = TextStyle(fontSize = canvas.sp(emojiPx * 0.6f), textAlign = TextAlign.Center), softWrap = false, maxLines = 1)
-                    if (count != null) {
-                        BasicText("$count", style = TextStyle(color = ink, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.Bold), modifier = Modifier.clearAndSetSemantics { })
+                    }
+                    if (risen == emoji) {
+                        RisingEmoji(restart = taps, reduced = reduced) { progress ->
+                            BasicText(
+                                emoji,
+                                style = TextStyle(fontSize = canvas.sp(emojiPx * 0.5f), textAlign = TextAlign.Center),
+                                softWrap = false,
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .clearAndSetSemantics { }
+                                    .offset { IntOffset(0, -(canvas.h(0.12) * progress).roundToInt()) }
+                                    .graphicsLayer { alpha = risingAlpha(progress) },
+                            )
+                        }
                     }
                 }
             }
         }
         SpokenLine(live)
-    })
+    }
 }

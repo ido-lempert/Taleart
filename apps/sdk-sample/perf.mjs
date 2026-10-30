@@ -7,7 +7,7 @@
 // mark the Web SDK sets once the first frame is on the page with the covers in view loaded. Prints
 // every run, p50, p75 and max for cold loads (empty cache) and warm loads (a reload), and the SDK's
 // gzipped size. Exits 1 when cold p75 is over the budget, the SDK over its size budget (all chunks
-// 50 KB gzipped, the page's chunk 40 KB: libs/web-sdk/scripts/size-budget.mjs), or the page (whose
+// 100 KB gzipped, the page's chunk 40 KB: libs/web-sdk/scripts/size-budget.mjs), or the page (whose
 // tales use no project font) requests a font file (epic Tale Studio R15).
 //
 // A second zone holds a composed tale of 20 elements (14 texts, every other one in a project font,
@@ -712,7 +712,7 @@ async function main() {
       process.exitCode = 1;
     } else {
       console.log(
-        `PASS: SDK ${kb(size.total)} gzipped <= 50 KB; cold p75 first content ${Math.round(p75)} ms ` +
+        `PASS: SDK ${kb(size.total)} gzipped <= ${BUNDLE_LIMIT_BYTES / 1024} KB; cold p75 first content ${Math.round(p75)} ms ` +
           `(API-served SDK ${Math.round(servedP75)} ms) <= ${BUDGET_MS} ms; no font request without a project font; ` +
           `p75 first tale frame ${Math.round(frameP75)} ms <= ${FRAME_BUDGET_MS} ms, the font swapping in after it`,
       );

@@ -23,7 +23,7 @@ import type { RenderContext } from './media';
 export const RATING_STYLES = `
 .ta-rate-track {
   position: relative;
-  height: 2.4em;
+  block-size: max(2.4em, 44px);
   margin: 0 1.2em;
   touch-action: none;
   cursor: grab;
@@ -43,8 +43,9 @@ export const RATING_STYLES = `
 .ta-rate-track::before { width: 100%; opacity: 0.2; }
 .ta-rate-fill { opacity: 0.6; }
 .ta-rate-thumb, .ta-rate-avg { position: absolute; top: 50%; transform: translateY(-50%); }
-.ta-rate-thumb { width: 1em; margin-inline-start: -0.5em; font-size: 1.8em; line-height: 1; text-align: center; }
-.ta-rate-avg { width: 0.3em; margin-inline-start: -0.15em; height: 1.4em; border-radius: 999px; background: currentColor; display: none; }
+/* The emoji grows with the value (--ta-v, 0 to 100, set by the slider): 1.6em at the start, 2.8em at the end. */
+.ta-rate-thumb { width: 1em; margin-inline-start: -0.5em; font-size: calc(1.6em + var(--ta-v, 50) * 0.012em); line-height: 1; text-align: center; transition: font-size 0.2s ease-out; }
+.ta-rate-avg { width: 0.3em; margin-inline-start: -0.15em; height: 1.6em; border-radius: 999px; background: currentColor; display: none; box-shadow: 0 0 0 0.12em color-mix(in srgb, var(--ta-ink) 30%, transparent); }
 .ta-rated .ta-rate-avg { display: block; }
 .ta-rated .ta-rate-track { cursor: default; }
 .ta-rate-track:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; border-radius: 999px; }
@@ -161,6 +162,7 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
   // Moves the emoji to `next` and says where it is.
   const set = (next: number) => {
     value = onScale(next);
+    thumb.style.setProperty('--ta-v', String(value));
     track.setAttribute('aria-valuenow', String(value));
     const valueText = answered ? 'rating.ratedValueText' : 'rating.valueText';
     track.setAttribute('aria-valuetext', t(valueText, { value, max: RATING_MAX }));

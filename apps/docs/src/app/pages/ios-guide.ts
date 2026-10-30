@@ -598,6 +598,59 @@ import {
         A poll before the visitor votes, in the sample app's viewer (taller) on iOS, a real screenshot.
       </figcaption>
     </figure>
+    <h3 id="answer-poll-views">Poll views</h3>
+    <p>
+      A poll is drawn in one of five views, chosen by the poll's <code>view</code>. The sticker is the default, and a poll
+      without a view, or with one the SDK does not know, is a sticker. The view changes how the poll looks, not what it
+      records. Two options can carry a colour (<code>options[].color</code>, <code>#rrggbb</code>); only this-or-that and grid
+      use it, and without one the theme's colours are used.
+    </p>
+    <table>
+      <thead>
+        <tr><th>View</th><th>Use</th><th>Option colour</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>sticker</code> (default)</td><td>A small card over the tale, for a quick question.</td><td>Not used: the theme's colours.</td></tr>
+        <tr><td><code>embed</code></td><td>A full-width card with its own results header: the vote total once voted, else the line that results appear after a vote.</td><td>Not used: the theme's colours.</td></tr>
+        <tr><td><code>this-or-that</code></td><td>Two halves that fill the card. Once voted they split at the vote's share and a VS mark sits on the seam; mirrored in right to left.</td><td>Each half takes its option's colour, else the theme's; the text on it is white or black, whichever reads better.</td></tr>
+        <tr><td><code>grid</code></td><td>Two large tiles side by side, each with its label and, once voted, its share.</td><td>Each tile takes its option's colour, else the theme's; the text on it is white or black, whichever reads better.</td></tr>
+        <tr><td><code>inline</code></td><td>Compact rows, for a poll in the flow of a page.</td><td>Not used: the theme's colours.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      These screenshots show each view before any vote: the simulator cannot tap without accessibility access, so the voted
+      states are not shown for iOS.
+    </p>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-poll-view-embed.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the embed poll view on iOS: a card with the question 'Where would you go this summer?', the line 'Results appear after you vote', and two option rows, Beach and Mountains, before a vote."
+      />
+      <figcaption class="muted">The embed view before a vote, in the sample app's viewer (taller) on iOS, a real screenshot.</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-poll-view-this-or-that.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the this-or-that poll view on iOS: the question 'Where would you go this summer?' over two equal halves, a teal half for Beach and an orange half for Mountains, with a VS mark on the seam, before a vote."
+      />
+      <figcaption class="muted">The this-or-that view before a vote: two equal halves, each in its option's colour (a real screenshot).</figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/ios-shot-poll-view-grid.png"
+        width="415"
+        height="900"
+        loading="lazy"
+        alt="Screenshot of the grid poll view on iOS: two large tiles side by side, Beach in teal and Mountains in orange, under the question, before a vote."
+      />
+      <figcaption class="muted">The grid view before a vote: two large tiles (a real screenshot).</figcaption>
+    </figure>
     <h3 id="answer-quiz">Quiz</h3>
     <p>
       Two to four answers. Once answered, the quiz says whether the answer was right: the correct answer is marked with a

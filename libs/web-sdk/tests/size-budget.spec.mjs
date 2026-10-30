@@ -28,20 +28,20 @@ describe('the Web SDK size check', () => {
     expect(failures[0]).toMatch(/move the viewer and renderers to a chunk loaded on first open/);
   });
 
-  it('reports both chunks once split, and fails only when the entry passes 40 KB or all pass 50 KB', () => {
+  it('reports both chunks once split, and fails only when the entry passes 40 KB or all pass 100 KB', () => {
     const split = judge([chunk('index.js', 30), chunk('viewer-abc.js', 19)]);
     expect(split.failures).toEqual([]);
     expect(split.lines).toEqual([
       '  index.js: 30.00 KB gzipped (loaded by the page)',
       '  viewer-abc.js: 19.00 KB gzipped (loaded on first open)',
-      '  all chunks: 49.00 KB gzipped (budget 50.00 KB)',
+      '  all chunks: 49.00 KB gzipped (budget 100.00 KB)',
     ]);
     expect(judge([chunk('index.js', 41), chunk('viewer-abc.js', 5)]).failures[0]).toMatch(/even with the viewer in its own chunk/);
-    expect(judge([chunk('index.js', 30), chunk('viewer-abc.js', 21)]).failures[0]).toMatch(/over the 50\.00 KB budget/);
+    expect(judge([chunk('index.js', 30), chunk('viewer-abc.js', 71)]).failures[0]).toMatch(/over the 100\.00 KB budget/);
   });
 
   it('has the starting limits of the epic', () => {
-    expect(BUNDLE_LIMIT_BYTES).toBe(50 * 1024);
+    expect(BUNDLE_LIMIT_BYTES).toBe(100 * 1024);
     expect(SPLIT_AT_BYTES).toBe(40 * 1024);
   });
 

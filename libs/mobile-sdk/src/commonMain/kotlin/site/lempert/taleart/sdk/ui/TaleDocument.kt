@@ -63,6 +63,15 @@ const val LEGACY_TEXT_WEIGHT = 600
 /** The direction a row of a tale reads in (AD-15). */
 enum class ReadingDirection { Ltr, Rtl }
 
+/** How a poll is drawn (`view` of the poll element): a sticker, an embed card, two halves, tiles or compact rows. */
+enum class PollView(val key: String) {
+    Sticker("sticker"),
+    Embed("embed"),
+    ThisOrThat("this-or-that"),
+    Grid("grid"),
+    Inline("inline"),
+}
+
 /** A system stack of the contract's font registry (`SYSTEM_FONT_STACKS`). */
 enum class FontStack(val key: String) { Sans("sans"), Serif("serif"), Rounded("rounded"), Monospace("monospace") }
 
@@ -243,6 +252,8 @@ sealed interface DocumentElement {
         val options: List<Choice>,
         /** The card is dark (`theme` `dark`), light (`light`), or null: it follows the colour scheme. */
         val dark: Boolean?,
+        /** How the poll is drawn (`view`); a missing or unknown view is [PollView.Sticker]. */
+        val view: PollView = PollView.Sticker,
     ) : DocumentElement {
         override val decorative: Boolean get() = false
     }
@@ -774,5 +785,8 @@ private fun JsonObject.numberIn(key: String, min: Double, max: Double, fallback:
 
 private fun JsonObject.color(key: String): String? = text(key)?.takeIf { HEX_COLOR.matches(it) }
 
-/** One choice of a poll or a quiz: its id, kept when its label changes, and its label as visitors read it. */
-data class Choice(val id: String, val label: String)
+/**
+ * One choice of a poll or a quiz: its id, kept when its label changes, its label as visitors read it, and its
+ * colour (`#rrggbb`, a poll's option only) for the this-or-that and grid views; null takes the theme's.
+ */
+data class Choice(val id: String, val label: String, val color: String? = null)

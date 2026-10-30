@@ -35,11 +35,19 @@ export const COUNTDOWN_STYLES = `
    so four columns fit at 320 to 420 px wide. Digits take equal widths, so the numbers do not jiggle as they tick. */
 .ta-cd-unit { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .ta-cd-num {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: 0.12em 0.05em;
+  border-radius: 0.3em;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  text-align: center;
   direction: ltr;
   unicode-bidi: isolate;
   font-size: min(7.68cqh, 11cqw);
   font-weight: 700;
   line-height: 1.1;
+  perspective: 400px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }

@@ -128,7 +128,12 @@ internal fun DocumentElementsLayer(
     val reporter = if (inertLinks) null else LocalComponentReporter.current
     // The answers of the interactive elements go nowhere in a preview either (no request is sent).
     val responder = if (inertLinks) null else LocalElementResponder.current
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr, LocalProjectFonts provides projectFonts) {
+    val host = LocalLayoutDirection.current
+    CompositionLocalProvider(
+        LocalLayoutDirection provides LayoutDirection.Ltr,
+        LocalHostLayoutDirection provides host,
+        LocalProjectFonts provides projectFonts,
+    ) {
         BoxWithConstraints(modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
             val density = LocalDensity.current
             val width = constraints.maxWidth.toFloat()
@@ -505,7 +510,13 @@ private fun ButtonElement(element: DocumentElement.Button, canvas: CanvasMetrics
     ) {
         BasicText(
             element.label,
-            style = linkTextStyle(look.color, fontPx, canvas, linkFontFamily(themeFont)),
+            // A filled button's label keeps its colour only where it reads at 4.5:1 on the fill; else it takes white or black.
+            style = linkTextStyle(
+                (parseHexColor(look.color) ?: InkDark).takeIf { !look.filled || contrastRatio(it, fill) >= 4.5 } ?: textOn(fill),
+                fontPx,
+                canvas,
+                linkFontFamily(themeFont),
+            ),
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
@@ -518,8 +529,8 @@ private fun ButtonElement(element: DocumentElement.Button, canvas: CanvasMetrics
 private fun linkFontFamily(themeFont: String?): FontFamily = rememberFontFamily(themeFont?.takeIf(::isFontFamily)) ?: FontFamily.Default
 
 // The label of a link: bold, line height 1.2, in [family].
-private fun linkTextStyle(color: String, fontPx: Float, canvas: CanvasMetrics, family: FontFamily) = TextStyle(
-    color = parseHexColor(color) ?: InkDark,
+private fun linkTextStyle(color: Color, fontPx: Float, canvas: CanvasMetrics, family: FontFamily) = TextStyle(
+    color = color,
     fontSize = canvas.sp(fontPx),
     fontWeight = FontWeight.Bold,
     fontFamily = family,
@@ -556,6 +567,8 @@ private fun SwipeUpElement(element: DocumentElement.SwipeUp, canvas: CanvasMetri
     val fontPx = canvas.h(SWIPE_UP_FONT_SIZE)
     val em = { n: Double -> canvas.dp((fontPx * n).toFloat()) }
     val color = parseHexColor(element.color) ?: InkDark
+    // The arrow bobs up and down (`bob`); the bob stops under reduced motion.
+    val bob = rememberBob(rememberTaleReducedMotion())
     BoxWithConstraints(modifier.link(element.href, element.label, inert, ComponentRef(element.id, "swipe-up")), contentAlignment = Alignment.Center) {
         val maxWidth = maxWidth
         Column(
@@ -564,7 +577,7 @@ private fun SwipeUpElement(element: DocumentElement.SwipeUp, canvas: CanvasMetri
             verticalArrangement = Arrangement.spacedBy(em(0.2)),
         ) {
             // The arrow: the top and left edges of a 0.7 em square, turned 45° and moved down 0.2 em (`.ta-swipe-arrow`).
-            Canvas(Modifier.size(em(0.7)).graphicsLayer { translationY = (fontPx * 0.2).toFloat() }.clearAndSetSemantics { }) {
+            Canvas(Modifier.size(em(0.7)).graphicsLayer { translationY = (fontPx * 0.2).toFloat() + bob * density }.clearAndSetSemantics { }) {
                 val t = (fontPx * 0.16).toFloat()
                 rotate(45f) {
                     drawRect(color, topLeft = Offset.Zero, size = Size(size.width, t))
@@ -573,7 +586,7 @@ private fun SwipeUpElement(element: DocumentElement.SwipeUp, canvas: CanvasMetri
             }
             BasicText(
                 element.label,
-                style = linkTextStyle(element.color, fontPx, canvas, linkFontFamily(themeFont)),
+                style = linkTextStyle(parseHexColor(element.color) ?: InkDark, fontPx, canvas, linkFontFamily(themeFont)),
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,

@@ -60,12 +60,13 @@ import { SDK_BUDGET } from './sdk-budget.generated';
       </table>
     </div>
     <p>
-      The budget covers all of the SDK's script, gzipped. The page loads two script files: <code>index.js</code> and the
-      <code>core</code> chunk it imports, which together hold the ring, the carousel and the rest the page needs. Three
-      more chunks load the first time they are needed, so a display that does not use them never fetches them: the
-      viewer and the renderers of tale documents (on the first open of a group), the banner's other variants (coverflow,
-      peek, deck, sticky and strip, on the first banner that uses one) and the bar's chip, poster and stack (on the first
-      bar that uses one). Until its chunk arrives, a display shows its loading skeleton in the same space. The UMD build
+      The budget covers all of the SDK's script, gzipped (100 KB, all its chunks together). The page loads two script files:
+      <code>index.js</code> and the <code>core</code> chunk it imports, which together hold the ring, the carousel and the
+      rest the page needs. Four more chunks load the first time they are needed, so a display that does not use them never
+      fetches them: the viewer and the renderers of tale documents (on the first open of a group), the banner's other
+      variants (coverflow, peek, deck, sticky and strip, on the first banner that uses one), the bar's chip, poster and
+      stack (on the first bar that uses one), and the poll views other than the sticker (embed, this-or-that, grid and
+      inline, on the first tale that has one). Until its chunk arrives, a display shows its loading skeleton in the same space. The UMD build
       is one file that includes all of them. Each zone adds one request to the TaleArt API, and the page makes no call to
       any other host. Pictures load as described below.
     </p>

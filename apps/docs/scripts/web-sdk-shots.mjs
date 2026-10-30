@@ -16,6 +16,10 @@
 // on a right-to-left page. The stills have no autoplay, and the strip is frozen part way along its loop.
 // With --clips, only the motion clips are written (web-clip-*.webm), recorded by Playwright from a small page: the
 // ring turning and a hover, and the banner's coverflow and strip moving. Each is a few seconds and kept under 300 KB.
+// The poll clips (--clips too): this-or-that splitting after a vote, a quiz answered wrong (the shake and the marks), and a
+// countdown ticking. With --poll-views, only the poll view shots are written (web-poll-view-*.png): each of the five views
+// before a vote (sticker, embed, this-or-that, grid, inline), the voted embed, this-or-that and grid, and this-or-that
+// on a right-to-left page in Hebrew.
 import { createServer } from 'node:http';
 import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
@@ -29,6 +33,7 @@ const THEME_ONLY = process.argv.includes('--theme');
 const BAR_LAYOUTS_ONLY = process.argv.includes('--bar-layouts');
 const BANNER_VARIANTS_ONLY = process.argv.includes('--banner-variants');
 const CLIPS_ONLY = process.argv.includes('--clips');
+const POLL_VIEWS_ONLY = process.argv.includes('--poll-views');
 const root = resolve(import.meta.dirname, '../../..');
 const sdkDir = join(root, 'dist/libs/web-sdk');
 const imagesDir = join(root, 'apps/docs/public/images');
@@ -196,6 +201,8 @@ const KEYS = {
   heVariantStrip: 'tak_DemoHeVariantStripKey00001',
   clipRing: 'tak_DemoClipRingKey00000000000001',
   clipCoverflow: 'tak_DemoClipCoverflowKey000001',
+  pollViews: 'tak_DemoPollViewsKey0000000001',
+  pollViewsHe: 'tak_DemoPollViewsHeKey00000001',
   clipStrip: 'tak_DemoClipStripKey0000000001',
 };
 // Display settings per sample zone (a missing field takes its default); the banners stay still for the shots.
@@ -409,6 +416,11 @@ const HOSTS = {
   '/clip-banner-strip.html': () => page({ kind: 'clipStrip', pad: 12 }),
   '/reaction.html': () => page({ kind: 'reaction' }),
   '/components.html': () => page({ kind: 'components' }),
+  '/poll-views.html': () => page({ kind: 'pollViews' }),
+  '/poll-views-he.html': () => page({ lang: 'he-IL', dir: 'rtl', kind: 'pollViewsHe', script: HEBREW_SCRIPT }),
+  '/clip-poll.html': () => page({ kind: 'pollViews', pad: 4 }),
+  '/clip-quiz.html': () => page({ kind: 'components', pad: 4 }),
+  '/clip-countdown.html': () => page({ kind: 'features', pad: 4 }),
   '/banner-wide.html': () => page({ kind: 'banner31' }),
   '/banner-square.html': () => page({ kind: 'banner11' }),
   '/banner-plain.html': () => page({ kind: 'bannerPlain' }),
@@ -791,6 +803,8 @@ function componentResult(body) {
   if (body.elementId === POLL_ID) return choiceResult(POLL_OPTIONS, [61, 39], body.value);
   if (body.elementId === QUIZ_ID) return choiceResult(QUIZ_ANSWERS, [74, 18, 8], body.value);
   if (body.elementId === RATING_ID) return { total: 213, average: 78 };
+  const view = Object.keys(POLL_VIEW_IDS).find((v) => POLL_VIEW_IDS[v] === body.elementId);
+  if (view) return choiceResult([{ id: 'midnight' }, { id: 'coral' }], POLL_VIEW_SEED[view], body.value);
   return null;
 }
 function frequencyZone() {
@@ -799,6 +813,71 @@ function frequencyZone() {
     { id: 'g-afternoon', name: 'Afternoon', tales: [demoTale('t-afternoon', 'Afternoon', 'afternoon')] },
     { id: 'g-evening', name: 'Evening', tales: [demoTale('t-evening', 'Evening', 'evening')] },
   ]);
+}
+
+// The poll views (the end-user redesign, P6a): one tale per view, each poll with the same two options; both carry a
+// colour (the this-or-that and grid views draw it, the others do not). The Hebrew set is the right-to-left shot.
+const POLL_VIEW_TEXT = {
+  en: {
+    title: 'Poll',
+    question: 'Which colourway next?',
+    midnight: 'Midnight',
+    coral: 'Coral',
+    groups: { sticker: 'Sticker', embed: 'Embed', 'this-or-that': 'This or that', grid: 'Grid', inline: 'Inline' },
+  },
+  he: {
+    title: 'סקר',
+    question: 'איזה צבע הבא?',
+    midnight: 'חצות',
+    coral: 'אלמוג',
+    groups: { sticker: 'מדבקה', embed: 'הטמעה', 'this-or-that': 'זה או זה', grid: 'רשת', inline: 'שורה' },
+  },
+};
+const POLL_VIEW_IDS = {
+  sticker: '00000000-0000-4000-8000-0000000000a1',
+  embed: '00000000-0000-4000-8000-0000000000a2',
+  'this-or-that': '00000000-0000-4000-8000-0000000000a3',
+  grid: '00000000-0000-4000-8000-0000000000a4',
+  inline: '00000000-0000-4000-8000-0000000000a5',
+};
+// The stand-in counts of each view's poll, against the same two options (midnight, coral).
+const POLL_VIEW_SEED = {
+  sticker: [61, 39],
+  embed: [58, 42],
+  'this-or-that': [60, 40],
+  grid: [55, 45],
+  inline: [52, 48],
+};
+const POLL_VIEW_BOX = {
+  sticker: { x: 0.1, y: 0.48, w: 0.8, h: 0.3, rotation: 0 },
+  embed: { x: 0.06, y: 0.44, w: 0.88, h: 0.42, rotation: 0 },
+  'this-or-that': { x: 0.08, y: 0.46, w: 0.84, h: 0.3, rotation: 0 },
+  grid: { x: 0.08, y: 0.46, w: 0.84, h: 0.34, rotation: 0 },
+  inline: { x: 0.06, y: 0.7, w: 0.88, h: 0.14, rotation: 0 },
+};
+const POLL_VIEW_MEDIA = { sticker: 'morning', embed: 'afternoon', 'this-or-that': 'beach', grid: 'evening', inline: 'sale' };
+function pollViewsZone(lang = 'en') {
+  const t = POLL_VIEW_TEXT[lang];
+  const options = [
+    { id: 'midnight', label: t.midnight, color: '#3B2FC9' },
+    { id: 'coral', label: t.coral, color: '#FF6F61' },
+  ];
+  const groups = Object.keys(POLL_VIEW_IDS).map((view) => ({
+    id: `g-poll-${view}`,
+    name: t.groups[view],
+    tales: [
+      demoTale(`t-poll-${view}`, t.groups[view], POLL_VIEW_MEDIA[view], [
+        {
+          id: POLL_VIEW_IDS[view],
+          type: 'poll',
+          box: POLL_VIEW_BOX[view],
+          a11y: {},
+          props: { title: t.title, question: t.question, options, theme: 'light', view },
+        },
+      ]),
+    ],
+  }));
+  return demoZone('bar', groups);
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
@@ -829,7 +908,7 @@ async function startServer() {
       if (!kind) return void res.writeHead(401, JSON_HEADERS).end(JSON.stringify({ error: { code: 'invalid_zone_key' } }));
       // The loading stand-in: the zone of this key is never answered, so the page keeps its loading skeleton.
       if (kind === 'layoutLoading') return void held.add(res);
-      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'hebrewBanner' ? localisedZone('banner') : kind === 'hebrewChip' || kind === 'hebrewPoster' ? localisedLayoutZone(kind) : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : kind.startsWith('heVariant') ? localisedVariantZone(kind) : zoneFor(kind);
+      const zone = kind in AUDIENCE_KINDS ? audienceZone(AUDIENCE_KINDS[kind]) : kind === 'hebrew' ? localisedZone() : kind === 'hebrewBanner' ? localisedZone('banner') : kind === 'hebrewChip' || kind === 'hebrewPoster' ? localisedLayoutZone(kind) : kind === 'features' ? featuresZone() : kind === 'frequency' ? frequencyZone() : kind === 'reaction' ? reactionZone() : kind === 'components' ? componentsZone() : kind === 'pollViews' ? pollViewsZone() : kind === 'pollViewsHe' ? pollViewsZone('he') : kind.startsWith('heVariant') ? localisedVariantZone(kind) : zoneFor(kind);
       return void res.writeHead(200, JSON_HEADERS).end(JSON.stringify(zone));
     }
     if (url.pathname === '/delivery/v1/responses' && req.method === 'POST') {
@@ -1013,6 +1092,60 @@ async function bannerVariantShots(browser, origin, written) {
 // The motion clips (epic end-user redesign P7): short WebM recordings of the SDK in motion, made by Playwright's
 // `recordVideo` (no conversion, so the file is the recording as it is). Each records a few seconds of one page, small
 // at one device pixel, sized to its poster, to stay under 300 KB, and is copied to the images folder under its name.
+// The poll view shots: each view as a viewer shows it before a vote, the voted views, and this-or-that on a right-to-left
+// page. A vote is the first option's press, and the page waits for the view to show it (its root carries data-voted).
+async function pollViewShots(browser, origin, written) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 700 }, deviceScaleFactor: 2, locale: 'en-US' });
+  const rtl = await browser.newContext({ viewport: { width: 390, height: 700 }, deviceScaleFactor: 2, locale: 'he-IL' });
+  const open = async (ctx, path, name) => {
+    const p = await ctx.newPage();
+    await p.goto(`${origin}${path}`);
+    await p.waitForFunction((sel) => !!document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel), 'button.item', { timeout: 15_000 });
+    await p.waitForLoadState('networkidle');
+    await p.getByRole('button', { name, exact: true }).click();
+    await p.waitForFunction((sel) => document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel), '[data-voted], .ta-poll-v-sticker, .ta-poll-v-embed, .ta-poll-v-this-or-that, .ta-poll-v-grid, .ta-poll-v-inline', { timeout: 15_000 });
+    await p.waitForTimeout(900);
+    return p;
+  };
+  const vote = async (p, view) => {
+    await p.locator(`taleart-view .ta-poll-v-${view} button`).first().click();
+    await p.waitForFunction((sel) => document.querySelector('taleart-view')?.shadowRoot?.querySelector(sel), `.ta-poll-v-${view}[data-voted]`);
+    await p.waitForTimeout(1300);
+  };
+  const save = async (p, name) => {
+    await p.screenshot({ path: join(imagesDir, name) });
+    written.push(name);
+  };
+  try {
+    const names = POLL_VIEW_TEXT.en.groups;
+    let p = await open(context, '/poll-views.html', names.sticker);
+    await save(p, 'web-poll-view-sticker.png');
+    p = await open(context, '/poll-views.html', names.embed);
+    await save(p, 'web-poll-view-embed.png');
+    await vote(p, 'embed');
+    await save(p, 'web-poll-view-embed-voted.png');
+    p = await open(context, '/poll-views.html', names['this-or-that']);
+    await save(p, 'web-poll-view-this-or-that.png');
+    await vote(p, 'this-or-that');
+    await save(p, 'web-poll-view-this-or-that-voted.png');
+    p = await open(context, '/poll-views.html', names.grid);
+    await save(p, 'web-poll-view-grid.png');
+    await vote(p, 'grid');
+    await save(p, 'web-poll-view-grid-voted.png');
+    p = await open(context, '/poll-views.html', names.inline);
+    await save(p, 'web-poll-view-inline.png');
+
+    // The right-to-left page: the Hebrew set, with this-or-that split after a vote.
+    const he = POLL_VIEW_TEXT.he.groups;
+    p = await open(rtl, '/poll-views-he.html', he['this-or-that']);
+    await vote(p, 'this-or-that');
+    await save(p, 'web-poll-view-this-or-that-rtl.png');
+  } finally {
+    await context.close();
+    await rtl.close();
+  }
+}
+
 async function clipShots(browser, origin, written) {
   const clipDir = join(root, 'node_modules/.cache/web-sdk-clips');
   await mkdir(clipDir, { recursive: true });
@@ -1021,6 +1154,46 @@ async function clipShots(browser, origin, written) {
     { path: '/clip-ring.html', name: 'web-clip-ring.webm', wait: 'button.item', action: 'hover', size: { width: 420, height: 106 } },
     { path: '/clip-banner-coverflow.html', name: 'web-clip-banner-coverflow.webm', wait: '[data-tale-group-id]', size: { width: 420, height: 285 } },
     { path: '/clip-banner-strip.html', name: 'web-clip-banner-strip.webm', wait: '[data-tale-group-id]', size: { width: 420, height: 113 } },
+    // The poll: this-or-that opened, then a vote, and the split moves to its share.
+    {
+      path: '/clip-poll.html',
+      name: 'web-clip-poll-this-or-that.webm',
+      wait: 'button.item',
+      size: { width: 260, height: 467 },
+      prepare: async (p) => {
+        await p.getByRole('button', { name: POLL_VIEW_TEXT.en.groups['this-or-that'], exact: true }).click();
+        await p.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-split'), null, { timeout: 15_000 });
+        await p.waitForTimeout(700);
+        await p.locator('taleart-view .ta-poll-v-this-or-that button').first().click();
+      },
+      after: 3000,
+    },
+    // The quiz: opened, then the wrong answer pressed (it shakes, the right one is marked).
+    {
+      path: '/clip-quiz.html',
+      name: 'web-clip-quiz.webm',
+      wait: 'button.item',
+      size: { width: 260, height: 467 },
+      prepare: async (p) => {
+        await p.getByRole('button', { name: 'Quiz', exact: true }).click();
+        await p.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-quiz'), null, { timeout: 15_000 });
+        await p.waitForTimeout(700);
+        await p.locator('taleart-view .ta-quiz .ta-poll-opt').nth(1).click();
+      },
+      after: 3000,
+    },
+    // The countdown: opened, and its digits turn over each second.
+    {
+      path: '/clip-countdown.html',
+      name: 'web-clip-countdown.webm',
+      wait: 'button.item',
+      size: { width: 260, height: 467 },
+      prepare: async (p) => {
+        await p.getByRole('button', { name: 'Sale', exact: true }).click();
+        await p.waitForFunction(() => document.querySelector('taleart-view')?.shadowRoot?.querySelector('.ta-countdown'), null, { timeout: 15_000 });
+      },
+      after: 3600,
+    },
   ];
   for (const clip of clips) {
     const context = await browser.newContext({
@@ -1041,7 +1214,8 @@ async function clipShots(browser, origin, written) {
       await p.waitForTimeout(1200);
       await p.locator('taleart-view button.item').nth(1).hover();
     }
-    await p.waitForTimeout(3600);
+    if (clip.prepare) await clip.prepare(p);
+    await p.waitForTimeout(clip.after ?? 3600);
     const video = p.video();
     await context.close();
     const recorded = await video.path();
@@ -1077,6 +1251,10 @@ async function main() {
     }
     if (CLIPS_ONLY) {
       await clipShots(browser, origin, written);
+      return;
+    }
+    if (POLL_VIEWS_ONLY) {
+      await pollViewShots(browser, origin, written);
       return;
     }
     const ready = (p, selector) =>

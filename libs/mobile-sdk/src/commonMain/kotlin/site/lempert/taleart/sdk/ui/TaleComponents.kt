@@ -142,27 +142,33 @@ private val CHOICE_ID = Regex("^[A-Za-z0-9_-]{1,64}$")
  * of them, each id by its pattern and unique, each label a plain line that is not blank. Null when any
  * breaks its rule.
  */
-private fun readChoices(props: JsonObject, key: String, min: Int, max: Int): List<Choice>? {
+private fun readChoices(props: JsonObject, key: String, min: Int, max: Int, withColor: Boolean = false): List<Choice>? {
     val items = props[key] as? JsonArray ?: return null
     if (items.size !in min..max) return null
     val choices = items.map { item ->
         val o = item as? JsonObject ?: return null
         val choiceId = o.stringOf("id")?.takeIf { CHOICE_ID.matches(it) } ?: return null
         val label = o.stringOf("label")?.takeIf { isPlainLine(it, 60) && it.isNotBlank() } ?: return null
-        Choice(choiceId, label)
+        // A colour that is not `#rrggbb` is left out: the option takes the theme's colour, as the views read it.
+        val color = if (withColor) o.stringOf("color")?.takeIf(::isThemeColor) else null
+        Choice(choiceId, label, color)
     }
     return if (choices.map { it.id }.toSet().size == choices.size) choices else null
 }
 
-/** A poll from its props (`poll.schema.json`): two options; null when the element is invalid. */
+/**
+ * A poll from its props (`poll.schema.json`): two options; null when the element is invalid. The `view` is read
+ * tolerantly: a missing, non-string or unknown view draws the sticker, as the contract's default does.
+ */
 internal fun readPoll(id: String, box: ElementBox, layer: Int, props: JsonObject): DocumentElement.Poll? {
     val question = requiredPlain(props, "question", 200) ?: return null
     val title = optionalPlain(props, "title", 80)
-    val options = readChoices(props, "options", 2, 2) ?: return null
+    val options = readChoices(props, "options", 2, 2, withColor = true) ?: return null
     if (themeRefused(props)) return null
     val dark = themeIsDark(props)
     if (title === Optional.Invalid) return null
-    return DocumentElement.Poll(id, box, layer, (title as? Optional.Value)?.value, question, options, dark)
+    val view = PollView.entries.firstOrNull { it.key == props.stringOf("view") } ?: PollView.Sticker
+    return DocumentElement.Poll(id, box, layer, (title as? Optional.Value)?.value, question, options, dark, view)
 }
 
 /**

@@ -1,5 +1,12 @@
 package site.lempert.taleart.sdk.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -23,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -82,6 +91,7 @@ internal const val CARD_FONT = 0.024
 internal fun CountdownElement(element: DocumentElement.Countdown, canvas: CanvasMetrics, reporter: ComponentReporter?, modifier: Modifier) {
     val t: Translate = LocalTaleartContext.current.translate
     val clock = LocalTaleClock.current
+    val reduced = rememberTaleReducedMotion()
     val report by rememberUpdatedState(reporter)
     var now by remember(element.endsAt) { mutableStateOf(clock()) }
     LaunchedEffect(element.endsAt) {
@@ -135,18 +145,28 @@ internal fun CountdownElement(element: DocumentElement.Countdown, canvas: Canvas
                 Row(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken.orEmpty() }) {
                     for ((number, label) in units) {
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            BasicText(
+                            // Each number sits in a tile and flips when it changes (`tickA`); the tile is the card's ink at 8 %.
+                            FlipDigit(
                                 number,
-                                style = TextStyle(
-                                    color = ink,
-                                    fontSize = canvas.sp(numberPx),
-                                    fontWeight = FontWeight.Bold,
-                                    fontFeatureSettings = "tnum",
-                                    textAlign = TextAlign.Center,
-                                ),
-                                maxLines = 1,
-                                softWrap = false,
-                            )
+                                reduced,
+                                Modifier
+                                    .clip(RoundedCornerShape(canvas.dp(canvas.h(0.012))))
+                                    .background(ink.copy(alpha = 0.08f))
+                                    .padding(horizontal = canvas.dp(numberPx * 0.12f), vertical = canvas.dp(numberPx * 0.08f)),
+                            ) {
+                                BasicText(
+                                    number,
+                                    style = TextStyle(
+                                        color = ink,
+                                        fontSize = canvas.sp(numberPx),
+                                        fontWeight = FontWeight.Bold,
+                                        fontFeatureSettings = "tnum",
+                                        textAlign = TextAlign.Center,
+                                    ),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
                             BasicText(
                                 label,
                                 style = TextStyle(color = ink.copy(alpha = 0.75f), fontSize = canvas.sp(base * 0.9f), textAlign = TextAlign.Center),
@@ -168,20 +188,22 @@ internal fun CountdownElement(element: DocumentElement.Countdown, canvas: Canvas
     }
 }
 
-// What a Copy said: the status line, which clears after two seconds. A new one is a new object, so a
+// What a Copy said: the toast's text, which clears after two seconds. A new one is a new object, so a
 // second copy restarts the two seconds.
 private class CopyStatus(val text: String)
 
 /**
- * A promo code (`renderPromoCode`): an optional title, the code in a monospace chip with a dashed edge,
- * an optional note, and a Copy button. Copy puts the code on the clipboard: the status line says
- * `Copied` (or why it could not copy) for two seconds, and [reporter] hears `copied` with the code as
- * its value when the clipboard took it. The code is visible to every visitor, so it is no secret.
+ * A promo code (`renderPromoCode`): an optional title, the code on a ticket (a card with notches at its seam
+ * and a shine that sweeps across it), an optional note, and a Copy button of at least 48 dp. Copy puts the
+ * code on the clipboard: a toast says `Copied` (or why it could not copy) for two seconds, and it is said
+ * through a live region; [reporter] hears `copied` with the code as its value when the clipboard took it.
+ * The code is visible to every visitor, so it is no secret. The code stays left to right in any direction.
  */
 @Composable
 internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: CanvasMetrics, reporter: ComponentReporter?, modifier: Modifier) {
     val t: Translate = LocalTaleartContext.current.translate
     val copy = LocalClipboardCopy.current
+    val reduced = rememberTaleReducedMotion()
     val report by rememberUpdatedState(reporter)
     var status by remember { mutableStateOf<CopyStatus?>(null) }
     LaunchedEffect(status) {
@@ -191,13 +213,14 @@ internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: Canvas
         }
     }
 
+    val palette = rememberThemeColors()
     val (card, ink) = cardColors(element.dark)
     val base = canvas.h(CARD_FONT)
     // The chip's code is 1.3 em, smaller for a long code so that its 32 characters fit the canvas width.
     val chipFont = minOf(base * 1.3f, canvas.width * 0.8f / (element.code.length * 0.62f))
     val edge = canvas.h(0.0025)
-    val dash = PathEffect.dashPathEffect(floatArrayOf(canvas.h(0.008), canvas.h(0.006)))
-    val chipRadius = canvas.h(0.01)
+    val ticketRadius = canvas.dp(canvas.h(0.012))
+    val notch = canvas.dp(base * 0.9f)
     val onCopy = {
         val copied = copy(element.code)
         status = CopyStatus(t(if (copied) "promo.copied" else "promo.copyFailed"))
@@ -220,16 +243,24 @@ internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: Canvas
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        // The ticket: the code on a dashed stub, with a notch cut from each side at the seam and the shine over it.
         Box(
             Modifier
+                .clip(RoundedCornerShape(ticketRadius))
+                .background(ink.copy(alpha = 0.06f))
+                .ticketShine(reduced)
                 .drawBehind {
+                    // The notches: half discs in the card's colour, cut into the ticket's sides at its middle.
+                    val y = size.height / 2f
+                    drawCircle(color = card, radius = notch.toPx(), center = Offset(0f, y))
+                    drawCircle(color = card, radius = notch.toPx(), center = Offset(size.width, y))
                     drawRoundRect(
                         color = ink,
-                        cornerRadius = CornerRadius(chipRadius, chipRadius),
-                        style = Stroke(width = edge, pathEffect = dash),
+                        cornerRadius = CornerRadius(ticketRadius.toPx(), ticketRadius.toPx()),
+                        style = Stroke(width = edge, pathEffect = PathEffect.dashPathEffect(floatArrayOf(canvas.h(0.008), canvas.h(0.006)))),
                     )
                 }
-                .padding(horizontal = canvas.dp(chipFont * 0.9f), vertical = canvas.dp(chipFont * 0.4f)),
+                .padding(horizontal = canvas.dp(chipFont * 1.2f), vertical = canvas.dp(chipFont * 0.6f)),
         ) {
             // A code is written as it is, left to right, in any direction.
             LeftToRight {
@@ -256,6 +287,7 @@ internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: Canvas
         }
         Box(
             Modifier
+                .defaultMinSize(minWidth = MinTarget, minHeight = MinTarget)
                 .clip(RoundedCornerShape(50))
                 .border(canvas.dp(edge), ink, RoundedCornerShape(50))
                 .clickable(role = Role.Button, onClick = onCopy)
@@ -269,10 +301,24 @@ internal fun PromoCodeElement(element: DocumentElement.PromoCode, canvas: Canvas
                 softWrap = false,
             )
         }
-        BasicText(
-            status?.text.orEmpty(),
-            style = TextStyle(color = ink, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-        )
+        // The toast: the confirmation for two seconds, in the card's ink inverted, announced through its live region.
+        AnimatedVisibility(
+            visible = status != null,
+            enter = if (reduced) EnterTransition.None else fadeIn() + slideInVertically(),
+            exit = if (reduced) ExitTransition.None else fadeOut() + slideOutVertically(),
+        ) {
+            val text = status?.text.orEmpty()
+            BasicText(
+                text,
+                style = TextStyle(color = card, fontSize = canvas.sp(base * 0.8f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(ink)
+                    .padding(horizontal = canvas.dp(base * 0.9f), vertical = canvas.dp(base * 0.4f))
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

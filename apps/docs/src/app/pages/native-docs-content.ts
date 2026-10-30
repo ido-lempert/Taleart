@@ -492,6 +492,8 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'poll.chose', english: 'You chose {label}.', note: 'The live line after a press in a preview, before the note.' },
   { key: 'poll.previewNotRecorded', english: 'Votes are not recorded in the preview.', note: 'The note after a press in a preview.' },
   { key: 'poll.failed', english: 'Your vote could not be sent. Try again.', note: 'The live line when the vote was refused or could not be sent; the options stay open.' },
+  { key: 'poll.votes', english: '{count} votes', note: 'The embed view header once voted: the vote total.' },
+  { key: 'poll.resultsAfterVote', english: 'Results appear after you vote', note: 'The embed view header before a vote.' },
   { key: 'quiz.answered', english: 'You answered {label}.', note: 'The live line after an answer to a survey (a quiz without a correct answer).' },
   { key: 'quiz.right', english: 'Right! You answered {label}.', note: 'The live line when the answer is the correct one.' },
   { key: 'quiz.wrongAnswer', english: 'Wrong: you answered {label}. The correct answer is {correct}.', note: 'The live line when the answer is wrong.' },

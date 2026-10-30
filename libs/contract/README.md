@@ -60,7 +60,7 @@ it, with one console warning per type per page, and shows the rest of the tale.
 4. **SDK renderer** (`libs/web-sdk`, `src/lib/document/`). Write the renderer (DOM through text nodes
    and CSSOM only, each value checked again) and add it to `RENDERERS` in `renderer.ts`; the table
    is typed by the `TaleElement` union, so it does not compile until the type has its renderer.
-   Watch the SDK budget (`nx run web-sdk:size`, 50 KB gzipped).
+   Watch the SDK budget (`nx run web-sdk:size`, 100 KB gzipped).
 
 An unknown type is handled differently by the server and the SDK. The server checks a published
 document again before delivering it: a document holding a type the server does not take (a test type
