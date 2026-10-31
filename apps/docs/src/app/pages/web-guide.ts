@@ -522,6 +522,14 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       the old one at once, so update the page first. Read the
       <a routerLink="/reference/web-sdk">Web SDK reference</a> for the error behaviour.
     </p>
+
+    <h2 id="no-backend">Without a backend</h2>
+    <p>
+      A page can also show tales with no TaleArt server and no zone key: pass the zone JSON (the body of
+      <code>GET /delivery/v1/zone</code>) to the element's <code>data</code> property or to
+      <code>Taleart.setZoneData</code>, and check it with <code>Taleart.validateZone</code>. Nothing is sent to the
+      Delivery API. <a routerLink="/guides/no-backend">Use without a backend</a> has live examples and the details.
+    </p>
   `,
 })
 export class WebGuidePage {

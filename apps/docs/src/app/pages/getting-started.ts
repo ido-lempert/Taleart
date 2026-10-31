@@ -98,7 +98,8 @@ import { DOCS_SNIPPET } from '../docs-content';
 
     <p>
       Next: <a routerLink="/concepts">Concepts</a> explains zones, displays, templates and the rest, and
-      <a routerLink="/visibility">Visibility and troubleshooting</a> explains a zone that does not show.
+      <a routerLink="/visibility">Visibility and troubleshooting</a> explains a zone that does not show. To show tales on a page with no TaleArt server, pass the zone JSON yourself:
+      <a routerLink="/guides/no-backend">Use without a backend</a>.
     </p>
 
     <h2 id="all-pages">All pages</h2>
@@ -137,6 +138,7 @@ import { DOCS_SNIPPET } from '../docs-content';
     <h3 id="index-sdk-guides">SDK guides</h3>
     <ul>
       <li><a routerLink="/guides/web">Web guide</a></li>
+      <li><a routerLink="/guides/no-backend">Use without a backend</a></li>
       <li><a routerLink="/android-guide">Android guide</a></li>
       <li><a routerLink="/ios-guide">iOS guide</a></li>
     </ul>

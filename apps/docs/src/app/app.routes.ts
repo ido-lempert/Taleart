@@ -215,6 +215,14 @@ export const DOCS_PAGES: ReadonlyArray<
     loadComponent: () => import('./pages/web-guide').then((m) => m.WebGuidePage),
   },
   {
+    path: 'guides/no-backend',
+    label: 'Use without a backend',
+    title: 'Use without a backend',
+    group: 'SDK guides',
+    file: 'no-backend',
+    loadComponent: () => import('./pages/no-backend').then((m) => m.NoBackendPage),
+  },
+  {
     path: 'android-guide',
     label: 'Android guide',
     title: 'Android guide',

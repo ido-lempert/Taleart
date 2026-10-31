@@ -36,7 +36,7 @@ import { RouterLink } from '@angular/router';
             <td>Yes</td>
             <td>
               The zone's key, <code>tak_…</code>, issued in the dashboard. It names the zone, so the element needs no
-              slug. Without it the element renders nothing.
+              slug. Without it, and without <a routerLink="/guides/no-backend">zone data</a>, the element renders nothing.
             </td>
           </tr>
           <tr>
@@ -122,6 +122,15 @@ import { RouterLink } from '@angular/router';
             <td>
               The zone's slug, such as <code>home-top</code>, from the response. Set it only to name the zone for
               <code>configureZone</code> when the response does not carry the slug.
+            </td>
+          </tr>
+          <tr>
+            <td><code>data</code></td>
+            <td>
+              Zone data for a page with no backend: the body of <code>GET /delivery/v1/zone</code> as an object or JSON
+              text. The element then renders it with no zone key and no API URL, and sends nothing to the Delivery API. It
+              wins over <code>setZoneData</code> and over the network; <code>null</code> removes it. Invalid data fails
+              like a failed load. See <a routerLink="/guides/no-backend">Use without a backend</a>.
             </td>
           </tr>
           <tr>
@@ -300,6 +309,23 @@ import { RouterLink } from '@angular/router';
             <td><code>setProperty</code></td>
             <td><code>setProperty(name, value)</code></td>
             <td>Sets one property and keeps the others. A <code>null</code> value removes it. With no properties set yet, <code>setProperty(name, null)</code> changes nothing.</td>
+          </tr>
+          <tr>
+            <td><code>setZoneData</code></td>
+            <td><code>setZoneData(zone, data)</code></td>
+            <td>
+              Gives the zone named <code>zone</code> (the <code>zone</code> attribute of the elements) its data, an object or
+              JSON text, so those elements render with no backend. A new call re-renders them; <code>null</code> removes the
+              data. See <a routerLink="/guides/no-backend">Use without a backend</a>.
+            </td>
+          </tr>
+          <tr>
+            <td><code>validateZone</code></td>
+            <td><code>validateZone(json)</code></td>
+            <td>
+              Returns <code>{{ '{' }} ok: true {{ '}' }}</code> or <code>{{ '{' }} ok: false, errors {{ '}' }}</code>, one readable line per
+              problem with its path, for zone data given as an object or JSON text. Shows and sends nothing.
+            </td>
           </tr>
           <tr>
             <td><code>defineTaleartElement</code></td>
@@ -550,6 +576,14 @@ import { RouterLink } from '@angular/router';
           <tr>
             <td>The zone key is missing, refused, rotated or revoked</td>
             <td>The element renders nothing and logs one console error for it. <em>Load failed</em> fires.</td>
+          </tr>
+          <tr>
+            <td>Zone data (<code>data</code> or <code>setZoneData</code>) that is not valid</td>
+            <td>
+              The same as a failed load: the element renders nothing (or its fallback), logs one console error that lists the
+              problems with their paths, and <em>Load failed</em> fires. Nothing is thrown. <code>validateZone</code> lists the
+              same problems without rendering.
+            </td>
           </tr>
           <tr>
             <td>A rate limit (HTTP 429) or a network failure</td>

@@ -19,6 +19,12 @@
             "contract"
           ],
           "target": "generate"
+        },
+        {
+          "projects": [
+            "web-sdk"
+          ],
+          "target": "build"
         }
       ],
       "inputs": [
@@ -26,6 +32,8 @@
         "^production",
         "{workspaceRoot}/libs/contract/openapi/openapi.yaml",
         "{workspaceRoot}/libs/contract/src/generated/openapi.json",
+        "{workspaceRoot}/libs/contract/src/generated/zone.schema.json",
+        "{workspaceRoot}/libs/web-sdk/src/**/*",
         "{workspaceRoot}/skills/taleart/**/*"
       ],
       "outputs": [
@@ -45,6 +53,16 @@
             "glob": "openapi.json",
             "input": "libs/contract/src/generated",
             "output": "api-reference"
+          },
+          {
+            "glob": "*.js",
+            "input": "dist/libs/web-sdk",
+            "output": "sdk/web"
+          },
+          {
+            "glob": "zone.schema.json",
+            "input": "libs/contract/src/generated",
+            "output": "schemas"
           },
           {
             "glob": "**/*.md",
