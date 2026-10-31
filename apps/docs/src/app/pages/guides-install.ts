@@ -1,10 +1,13 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'docs-guides-install',
+  imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <h1 tabindex="-1">Install TaleArt locally</h1>
+<p>Prefer containers? <a routerLink="/docker">Install with Docker</a> runs the database, API, dashboard and https proxy with one command.</p>
 <h2 id="requirements">Requirements</h2>
 <ul>
 <li>Node.js 22 or later (the API refuses to start without it; see the root README).</li>

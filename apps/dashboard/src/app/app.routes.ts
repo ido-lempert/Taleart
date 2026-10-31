@@ -136,6 +136,13 @@ export const appRoutes: Route[] = [
         data: { heading: 'Settings' } satisfies ShellData,
       },
       {
+        // Settings > Team: the selected project's members, invitations, roles and activity.
+        path: 'settings/team',
+        loadComponent: () => import('./pages/team').then((m) => m.TeamPage),
+        title: 'Team · Settings · TaleArt',
+        data: { heading: 'Settings' } satisfies ShellData,
+      },
+      {
         // Personal API tokens for scripts and the CLI (epic developer experience 10.1).
         path: 'settings/api-tokens',
         loadComponent: () => import('./pages/api-tokens').then((m) => m.ApiTokensPage),

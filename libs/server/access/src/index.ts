@@ -17,10 +17,26 @@ export { listProjects, createProject, projectExists } from './lib/projects';
 export {
   accessibleProjectIds,
   canAccessProject,
+  projectRole,
+  hasProjectPermission,
   addProjectMember,
   type Caller,
   type ProjectScope,
 } from './lib/members';
+export {
+  AUDIT_LOG_DEFAULT_LIMIT,
+  AUDIT_LOG_MAX_LIMIT,
+  recordProjectAudit,
+  listProjectMembers,
+  addMemberByEmail,
+  updateMember,
+  removeMember,
+  joinInvitedProject,
+  listPendingInvitations,
+  revokeInvitation,
+  listProjectAuditLog,
+  type Actor,
+} from './lib/projectMembers';
 export {
   createInvitation,
   previewInvitation,
@@ -36,6 +52,11 @@ export {
   EmailTakenError,
   ZoneKeyNotFoundError,
   SiteKeyExistsError,
+  UserNotFoundError,
+  MemberExistsError,
+  MemberNotFoundError,
+  InvitationNotFoundError,
+  LastProjectAdminError,
   SiteKeyNotFoundError,
   ApiTokenNotFoundError,
   ApiTokenLimitError,

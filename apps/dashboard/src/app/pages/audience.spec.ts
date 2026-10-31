@@ -89,7 +89,7 @@ describe('AudiencePage (epic targeting story 5.3)', () => {
 
   async function open(lists: UserList[]): Promise<void> {
     const store = TestBed.inject(DashboardStore);
-    store.projects.set([{ id: 'p1', name: 'Acme' }]);
+    store.projects.set([{ id: 'p1', name: 'Acme', role: 'admin' }]);
     store.selectProject('p1');
     fixture = TestBed.createComponent(AudiencePage);
     root = fixture.nativeElement as HTMLElement;

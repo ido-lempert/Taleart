@@ -330,7 +330,8 @@ describe('TaleStudioPage', () => {
       fixture.componentRef.setInput('taleId', 't2');
       await settle(fixture);
       expect(store.readGroups()).toEqual({});
-      for (const req of http.match((r) => r.url.includes('/tales/t2'))) req.flush(null, { status: 404, statusText: 'Not Found' });
+      for (const req of http.match((r) => r.url.includes('/tales/t2')))
+        req.flush(null, { status: 404, statusText: 'Not Found' });
       await settle(fixture);
 
       // Back to the first tale, then the studio closes: released again.
@@ -1776,7 +1777,9 @@ describe('TaleStudioPage', () => {
         fixture = TestBed.createComponent(TaleStudioPage);
         fixture.componentRef.setInput('taleId', 't1');
         fixture.detectChanges();
-        http.expectOne(url).flush(draftRead({ document: three, revision: 3, published: { document: null, revision: 0 } }));
+        http
+          .expectOne(url)
+          .flush(draftRead({ document: three, revision: 3, published: { document: null, revision: 0 } }));
         await settle(fixture);
         root = fixture.nativeElement as HTMLElement;
         document.body.appendChild(root);
@@ -2599,7 +2602,8 @@ describe('TaleStudioPage', () => {
       const tablist = root.querySelector('[role=tablist]');
       expect(tablist?.getAttribute('aria-orientation')).toBe('vertical');
       expect(tablist?.getAttribute('aria-label')).toBe('Left panel tabs');
-      const shown = () => [...root.querySelectorAll<HTMLElement>('[role=tabpanel]')].filter((p) => !p.hidden).map((p) => p.id);
+      const shown = () =>
+        [...root.querySelectorAll<HTMLElement>('[role=tabpanel]')].filter((p) => !p.hidden).map((p) => p.id);
       expect(shown()).toEqual(['studio-panel-elements']);
       expect(tabs.map((t) => t.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1']);
       tabs[0].focus();
@@ -2681,8 +2685,16 @@ describe('TaleStudioPage', () => {
       TestBed.inject(DashboardStore).taleGroups.set({ z1: [{ ...group, tales } as unknown as ZoneTaleGroup] });
       await open({ document: existing, revision: 1 });
       const links = [...root.querySelectorAll<HTMLAnchorElement>('.studio-strip a')];
-      expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['1. Dawn, Hidden', '2. Beach', '3. Dusk']);
-      expect(links.map((a) => a.getAttribute('href'))).toEqual(['/tales/t0/studio', '/tales/t1/studio', '/tales/t2/studio']);
+      expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+        '1. Dawn, Hidden',
+        '2. Beach',
+        '3. Dusk',
+      ]);
+      expect(links.map((a) => a.getAttribute('href'))).toEqual([
+        '/tales/t0/studio',
+        '/tales/t1/studio',
+        '/tales/t2/studio',
+      ]);
       expect(links.map((a) => a.getAttribute('aria-current'))).toEqual([null, 'page', null]);
       expect(root.querySelector('#studio-title')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tale 2 · Beach');
       // The current tale's picture is its media; a tale without media shows a colour.
@@ -2826,7 +2838,9 @@ describe('TaleStudioPage', () => {
       const draft = save.request.body.document;
       save.flush({ document: draft, revision: 2 });
       await settle(fixture);
-      http.expectOne(`${url}/publish`).flush({ document: draft, revision: 2, published: { document: draft, revision: 2 } });
+      http
+        .expectOne(`${url}/publish`)
+        .flush({ document: draft, revision: 2, published: { document: draft, revision: 2 } });
       await settle(fixture);
     });
 
@@ -2841,6 +2855,50 @@ describe('TaleStudioPage', () => {
       expect(document.querySelector('[role=dialog]')).toBeNull();
       expect(root.textContent).toContain('so the tale was not duplicated');
       http.expectNone(`${API_BASE}/tales/t1/duplicate`);
+    });
+  });
+  describe('project roles', () => {
+    const live = () => root.querySelector('#studio-live')?.textContent;
+    const asRole = (role: 'viewer' | 'editor' | 'publisher') =>
+      TestBed.inject(DashboardStore).projects.set([{ id: 'p1', name: 'Acme', role }]);
+
+    it('opens read-only for a viewer: a View only badge, no Update, and a change goes nowhere', async () => {
+      asRole('viewer');
+      await open({ document: existing, revision: 1 });
+      expect(root.querySelector('#studio-view-only')?.textContent?.trim()).toBe('View only');
+      expect(root.querySelector('#studio-view-only-note')?.textContent).toContain(
+        'can look at this tale but not change',
+      );
+      expect(root.querySelector('#studio-update')).toBeNull();
+      expect(root.querySelector('#studio-ask-publisher')).toBeNull();
+      // An arrow key would nudge the text: the document stays as it was, nothing is saved, and the reason is said.
+      const before = elements()[0].style.top;
+      key(elements()[0], 'ArrowDown');
+      await settle(fixture);
+      expect(elements()[0].style.top).toBe(before);
+      expect(live()).toContain('View only');
+      expect(await fixture.componentInstance.canLeave()).toBe(true);
+      http.expectNone((r) => r.method === 'PUT');
+    });
+
+    it('lets an editor save drafts, and asks them to ask a publisher instead of Update tale', async () => {
+      asRole('editor');
+      await open({ document: existing, revision: 1 });
+      expect(root.querySelector('#studio-view-only')).toBeNull();
+      expect(root.querySelector('#studio-update')).toBeNull();
+      expect(root.querySelector('#studio-ask-publisher')?.textContent).toContain('Ask a publisher to publish');
+      key(elements()[0], 'ArrowDown');
+      await settle(fixture);
+      const body = await saveNow(2);
+      expect(body.document.elements[0].box.y).toBeGreaterThan(0.5);
+    });
+
+    it('shows Update tale to a publisher', async () => {
+      asRole('publisher');
+      await open({ document: existing, revision: 1 });
+      expect(root.querySelector('#studio-update')).not.toBeNull();
+      expect(root.querySelector('#studio-ask-publisher')).toBeNull();
+      expect(root.querySelector('#studio-view-only')).toBeNull();
     });
   });
 });

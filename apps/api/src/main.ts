@@ -12,6 +12,7 @@ import {
 } from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
+import { seedDemoOnSetup } from './demo-seed';
 import { USER_LIST_UPLOAD_DEADLINE_MS } from './http/user-lists.router';
 import { defaultSdkFiles, hasKeptBuilds, sdkBuildsFromEnv, webSdkFileFromEnv } from './http/sdk.router';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
@@ -76,7 +77,14 @@ async function start(): Promise<void> {
     secretKey: parseSecretKey(process.env[SECRET_KEY_ENV]),
     // TALEART_SETUP_PASSWORD=true lets the first admin set up with a username and password (off by default).
     setupPassword: process.env['TALEART_SETUP_PASSWORD'] === 'true',
+    // TALEART_SEED_DEMO=true fills the first admin's install with the demo project once setup is done
+    // (only an install with that one user; the API calls itself on its own port). Off by default.
+    onSetup:
+      process.env['TALEART_SEED_DEMO'] === 'true' ?
+        seedDemoOnSetup(pool, `http://127.0.0.1:${process.env['PORT'] || 3333}`, log)
+      : undefined,
   };
+  if (auth.onSetup) log('info', 'Demo seed on: the first admin gets the Spring Campaign demo project after setup');
   if (auth.secretKey === null) {
     log(
       'info',

@@ -14,12 +14,14 @@ interface UserRow {
   password: boolean;
   identities: string[] | null;
   projects: number;
+  projectRoles: AdminUser['projectRoles'] | null;
 }
 
 /**
  * The install's users for an admin (Users page): the sign-in methods each one holds, never a hash, a
  * secret or a username. Ordered by creation and then id, a total order. `projects` counts the projects
- * the user is a member of (admins reach every project whether or not they are members).
+ * the user is a member of (admins reach every project whether or not they are members). `projectRoles` lists those
+ * memberships with the role in each.
  */
 export async function listUsers(db: Db): Promise<AdminUserList> {
   const { rows } = await db.query<UserRow>(
@@ -27,7 +29,13 @@ export async function listUsers(db: Db): Promise<AdminUserList> {
             EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = u.id) AS passkey,
             EXISTS (SELECT 1 FROM user_passwords pw WHERE pw.user_id = u.id) AS password,
             ARRAY(SELECT DISTINCT i.provider FROM user_identities i WHERE i.user_id = u.id ORDER BY i.provider) AS identities,
-            (SELECT count(*)::int FROM project_members m WHERE m.user_id = u.id) AS projects
+            (SELECT count(*)::int FROM project_members m WHERE m.user_id = u.id) AS projects,
+            (SELECT coalesce(json_agg(json_build_object(
+                      'projectId', m.project_id, 'projectName', p.name, 'role', m.role,
+                      'expiresAt', m.expires_at,
+                      'expired', m.expires_at IS NOT NULL AND m.expires_at <= now()
+                    ) ORDER BY p.created_at, p.id), '[]'::json)
+               FROM project_members m JOIN projects p ON p.id = m.project_id WHERE m.user_id = u.id) AS "projectRoles"
        FROM users u
       ORDER BY u.created_at, u.id
       LIMIT $1`,
@@ -45,6 +53,7 @@ export async function listUsers(db: Db): Promise<AdminUserList> {
       identities: row.identities ?? [],
     },
     projects: row.projects,
+    projectRoles: row.projectRoles ?? [],
   }));
   return { users, truncated: rows.length > USER_DIRECTORY_LIMIT };
 }

@@ -55,8 +55,8 @@ const frameTypes = [
   { key: 'bar', label: 'Bar', schema: barSchema },
   { key: 'banner', label: 'Banner', schema: bannerSchema },
 ];
-const acme = { id: 'p1', name: 'Acme' };
-const globex = { id: 'p2', name: 'Globex' };
+const acme = { id: 'p1', name: 'Acme', role: 'admin' as const };
+const globex = { id: 'p2', name: 'Globex', role: 'admin' as const };
 const zone = { id: 'z1', name: 'Home bar', projectId: 'p1' };
 const otherZone = { id: 'z2', name: 'Checkout', projectId: 'p2' };
 const group = {
@@ -134,7 +134,7 @@ function projectGroup(
 }
 
 interface Data {
-  projects?: { id: string }[];
+  projects?: { id: string; role?: string }[];
   zones?: ({ id: string } & Record<string, unknown>)[];
   /** Each zone's display (its one frame, AD-17), keyed by zone id; none when missing. */
   displays?: Record<string, unknown>;
@@ -1633,7 +1633,7 @@ describe('App', () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
-      await flushRefresh(fixture, { projects: [acme], zones: [newZone] });
+      await flushRefresh(fixture, { projects: [{ ...acme, role: 'editor' }], zones: [newZone] });
       const root = fixture.nativeElement as HTMLElement;
       expect(steps(root)[1]).toEqual(['Ask an admin to issue a zone key', 'To do']);
       stepLink(root, 'Ask an admin to issue a zone key').click();
@@ -7693,7 +7693,7 @@ describe('App', () => {
 
       root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
       await settle(fixture);
-      expect(drawer()?.querySelector('h2')?.textContent).toContain('Invite to project');
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Add or invite');
       expect(drawer()?.textContent).toContain('To project Acme');
       buttonNamed(drawer() as HTMLElement, 'Create link').click();
       const req = http.expectOne(`${API_BASE}/projects/p1/invitations`);
@@ -7766,7 +7766,7 @@ describe('App', () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       await navigate(fixture, '/projects', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
-      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+      await flushRefresh(fixture, { projects: [{ ...acme, role: 'editor' }], zones: [zone] });
       const root = fixture.nativeElement as HTMLElement;
 
       expect(root.textContent).not.toContain('New project');
@@ -7850,6 +7850,104 @@ describe('App', () => {
       await settle(fixture);
       expect(root.querySelector('.form-error')?.textContent).toContain('already exists');
       expect(root.querySelector('h1')?.textContent).toContain('Join Acme');
+    });
+  });
+  describe('project roles: what each role sees', () => {
+    const summer = { ...group, tales: [taleA, taleB] };
+    const asRole = (role: 'viewer' | 'editor' | 'publisher' | 'admin'): Data => ({
+      projects: [{ ...acme, role }],
+      zones: [zone],
+      groups: { z1: [summer] },
+    });
+    const switchOf = (root: ParentNode, label: string) =>
+      root.querySelector<HTMLElement>(`[role=switch][aria-label^="${label}"]`);
+    const rowOf = (root: HTMLElement, name: string) =>
+      [...root.querySelectorAll<HTMLElement>('.group-row')].find((r) => r.textContent?.includes(name)) as HTMLElement;
+
+    it('shows the caller\'s role as a badge next to the project switcher', async () => {
+      const { root } = await open('/zones', asRole('publisher'));
+      expect(root.querySelector('#project-role')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Your role in this project: Publisher',
+      );
+    });
+
+    it('lets a viewer read a zone but change nothing: no create, edit, reorder or add controls', async () => {
+      const { root } = await open('/zones/z1', asRole('viewer'), false);
+      expect(root.querySelector('.topbar')?.textContent).not.toContain('New tale group');
+      expect(root.querySelector('#new-tale-group')).toBeNull();
+      expect(root.querySelector('#add-existing-group')).toBeNull();
+      expect(root.querySelector('.zone-edit')).toBeNull();
+      expect(root.querySelector('.group-row__reorder')).toBeNull();
+      expect(root.querySelector('#groups-readonly')?.textContent).toContain('Needs the Editor role');
+      // Every ⋯ item that changes something is disabled with the role it needs.
+      const items = menuItems(rowOf(root, 'Summer'), 'More for Summer');
+      const rename = items.find((i) => i.label === 'Rename');
+      expect(rename).toEqual({ label: 'Rename', reason: 'Needs the Editor role or higher.', disabled: true });
+      expect(items.find((i) => i.label === 'Schedule')?.reason).toBe('Needs the Publisher role or higher.');
+      // The On/Off switch stays visible, explained, and does not call the API.
+      const sw = switchOf(root, 'Summer on site');
+      expect(sw?.getAttribute('aria-disabled')).toBe('true');
+      expect(sw?.getAttribute('title')).toBe('Needs the Publisher role or higher.');
+    });
+
+    it('lets an editor change content but not publish, schedule or manage zones', async () => {
+      const { fixture, root } = await open('/zones/z1', asRole('editor'), false);
+      expect(root.querySelector('.topbar')?.textContent).toContain('New tale group');
+      expect(root.querySelector('.zone-edit')).toBeNull();
+      const items = menuItems(rowOf(root, 'Summer'), 'More for Summer');
+      expect(items.find((i) => i.label === 'Rename')?.disabled).toBe(false);
+      expect(items.find((i) => i.label === 'Schedule')).toEqual({
+        label: 'Schedule',
+        reason: 'Needs the Publisher role or higher.',
+        disabled: true,
+      });
+      // A click on the disabled switch sends nothing.
+      switchOf(root, 'Summer on site')?.click();
+      await settle(fixture);
+      http.expectNone((r) => r.method === 'PUT');
+    });
+
+    it('gives a publisher the switch, the schedule and the zone controls, but not the keys', async () => {
+      const { root } = await open('/zones/z1', asRole('publisher'), false);
+      expect(switchOf(root, 'Summer on site')?.getAttribute('aria-disabled')).toBeNull();
+      expect(root.querySelector('.zone-edit')).not.toBeNull();
+      const items = menuItems(rowOf(root, 'Summer'), 'More for Summer');
+      expect(items.find((i) => i.label === 'Schedule')?.disabled).toBe(false);
+      const keyCard = root.querySelector('app-zone-key-card');
+      expect(keyCard?.textContent).not.toContain('Rotate');
+    });
+
+    it('hides the group view\'s add, drag and move controls from a viewer and says why', async () => {
+      const { root } = await open('/zones/z1', asRole('viewer'));
+      const view = groupView() as HTMLElement;
+      expect(view.querySelector('#group-view-add-tale')).toBeNull();
+      expect(view.querySelector('.tale-card__moves')).toBeNull();
+      expect(view.querySelector('.tale-card__open')).toBeNull();
+      expect(view.querySelector('#group-view-readonly')?.textContent).toContain('View only');
+      expect(switchOf(view, 'Show A')?.getAttribute('title')).toBe('Needs the Publisher role or higher.');
+      expect(root.querySelector('#project-role')?.textContent).toContain('Viewer');
+    });
+
+    it('hides "New zone" from an editor on an empty project and says who can', async () => {
+      const { root } = await open('/zones', { projects: [{ ...acme, role: 'editor' }], zones: [] });
+      expect(root.textContent).not.toContain('New zone');
+      expect(root.querySelector('#zones-need-role')?.textContent).toContain('Needs the Publisher role or higher.');
+    });
+
+    it('shows the role on each project card, and Invite only to an admin of that project', async () => {
+      const { root } = await open('/projects', {
+        projects: [
+          { ...acme, role: 'admin' },
+          { ...globex, role: 'viewer' },
+        ],
+        zones: [zone],
+      });
+      const cards = [...root.querySelectorAll('.project-card')].map((c) => c.textContent?.replace(/\s+/g, ' '));
+      expect(cards[0]).toContain('Your role: Admin');
+      expect(cards[1]).toContain('Your role: Viewer');
+      expect(root.querySelector('[aria-label="Invite to Acme"]')).not.toBeNull();
+      expect(root.querySelector('[aria-label="Invite to Globex"]')).toBeNull();
+      expect(root.querySelector('[aria-label="Team of Globex"]')).not.toBeNull();
     });
   });
 });

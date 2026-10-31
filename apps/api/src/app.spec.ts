@@ -345,7 +345,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_audiences, tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
+      'TRUNCATE tale_group_audiences, tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, project_audit_log, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -415,10 +415,10 @@ describe('Management API v1: projects and zones', () => {
     const created = await post('/projects', { name: 'Acme' });
     expect(created.status).toBe(201);
     const project = await created.json();
-    expect(project).toEqual({ id: expect.any(String), name: 'Acme' });
+    expect(project).toEqual({ id: expect.any(String), name: 'Acme', role: 'admin' });
 
     const list = await (await fetch(`${base}/projects`)).json();
-    expect(list).toEqual([{ id: project.id, name: 'Acme' }]);
+    expect(list).toEqual([{ id: project.id, name: 'Acme', role: 'admin' }]);
   });
 
   it('creates a zone in an existing project and lists it', async () => {
@@ -511,7 +511,7 @@ describe('Management API v1: projects and zones', () => {
 
     const projects = await (await fetch(`${base}/projects`)).json();
     const zones = await (await fetch(`${base}/zones`)).json();
-    expect(projects).toEqual([{ id: project.id, name: 'Acme' }]);
+    expect(projects).toEqual([{ id: project.id, name: 'Acme', role: 'admin' }]);
     expect(zones).toEqual([
       {
         id: expect.any(String),
@@ -4219,6 +4219,8 @@ describe('Management API v1: projects and zones', () => {
         projectId: project.id,
         url: expect.stringMatching(/^http:\/\/localhost:4200\/invite\/[A-Za-z0-9_-]{43}$/),
         expiresAt: expect.any(String),
+        role: 'editor',
+        accessExpiresAt: null,
       });
       const token = body.url.split('/').pop();
       const ttl = new Date(body.expiresAt).getTime() - before;
@@ -4242,7 +4244,7 @@ describe('Management API v1: projects and zones', () => {
       const { token, expiresAt } = await invite(project.id);
       const res = await send('GET', `/auth/invitations/${token}`, undefined, '');
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ projectName: 'Acme', expiresAt });
+      expect(await res.json()).toEqual({ projectName: 'Acme', expiresAt, role: 'editor', accessExpiresAt: null });
 
       const unknown = await send('GET', '/auth/invitations/nope', undefined, '');
       expect(unknown.status).toBe(410);
@@ -4269,7 +4271,7 @@ describe('Management API v1: projects and zones', () => {
       sessionCookie = `taleart_session=${cookieValue(res, 'taleart_session')}`;
 
       expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user, methods: [PASSKEY_METHOD] });
-      expect(await (await send('GET', '/projects')).json()).toEqual([a.project]);
+      expect(await (await send('GET', '/projects')).json()).toEqual([{ ...a.project, role: 'editor' }]);
       expect(await (await send('GET', '/zones')).json()).toEqual([{ ...a.zone, visibility: SOME_VISIBILITY }]);
       expect((await send('GET', `/zones/${a.zone.id}/tale-groups`)).status).toBe(200);
       expect((await send('GET', `/zones/${b.zone.id}/tale-groups`)).status).toBe(403);
@@ -12820,7 +12822,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE analytics_events, site_keys, zone_keys, api_token_projects, api_tokens, invitations, project_members, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
+        'TRUNCATE analytics_events, site_keys, zone_keys, api_token_projects, api_tokens, project_audit_log, invitations, project_members, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
       );
     });
 
@@ -14686,7 +14688,7 @@ describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
   it('joins through an invitation when the verified email is the invitation email (Google preset)', async () => {
     const project = await createProject(pool, { name: 'Site' });
     const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
-    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: admin.id });
+    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: { id: admin.id, name: 'Admin' } });
     await addProvider('google', 'google', { clientId }, clientSecret);
     const query = `purpose=invitation&token=${invitation.token}&email=Person@Example.com`;
     const done = await signInFlow('google', query);
@@ -14704,7 +14706,7 @@ describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
   it('refuses an invitation when the verified email is not the invitation email', async () => {
     const project = await createProject(pool, { name: 'Site' });
     const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
-    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: admin.id });
+    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: { id: admin.id, name: 'Admin' } });
     await addProvider('google', 'google', { clientId }, clientSecret);
     const done = await signInFlow('google', `purpose=invitation&token=${invitation.token}&email=someone.else@example.com`);
     expect(authError(done)).toBe('email_mismatch');
@@ -14714,7 +14716,7 @@ describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
   it('refuses an invitation with an unverified provider email', async () => {
     const project = await createProject(pool, { name: 'Site' });
     const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
-    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: admin.id });
+    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: { id: admin.id, name: 'Admin' } });
     fake.mode = { emailVerified: 'false' };
     await addProvider('google', 'google', { clientId }, clientSecret);
     const done = await signInFlow('google', `purpose=invitation&token=${invitation.token}&email=person@example.com`);
@@ -15111,6 +15113,7 @@ describe('Management API v1: the users list for the Users page (admins only)', (
           createdAt: '2026-01-01T00:00:00.000Z',
           methods: { passkey: false, password: true, identities: [] },
           projects: 0,
+          projectRoles: [],
         },
         {
           id: adminId,
@@ -15120,6 +15123,7 @@ describe('Management API v1: the users list for the Users page (admins only)', (
           createdAt: '2026-01-02T00:00:00.000Z',
           methods: { passkey: true, password: false, identities: [] },
           projects: 0,
+          projectRoles: [],
         },
         {
           id: memberId,
@@ -15129,6 +15133,9 @@ describe('Management API v1: the users list for the Users page (admins only)', (
           createdAt: '2026-01-03T00:00:00.000Z',
           methods: { passkey: true, password: true, identities: ['google', 'oidc:acme'] },
           projects: 1,
+          projectRoles: [
+            { projectId: expect.any(String), projectName: 'Acme', role: 'publisher', expiresAt: null, expired: false },
+          ],
         },
       ],
       truncated: false,
@@ -15182,5 +15189,594 @@ describe('Management API v1: the users list for the Users page (admins only)', (
     const body = await (await send()).json();
     expect(body.users).toHaveLength(500);
     expect(body.truncated).toBe(true);
+  });
+});
+
+describe('Management API v1: project roles', () => {
+  let pool: Pool;
+  let base = '';
+  const servers: Server[] = [];
+  let adminId = '';
+  let adminCookie = '';
+  let projectId = '';
+  let otherProjectId = '';
+  let zoneId = '';
+  let groupId = '';
+  let taleId = '';
+  const people: Record<'viewer' | 'editor' | 'publisher' | 'admin', { id: string; cookie: string; email: string }> =
+    {} as never;
+
+  async function cookieFor(userId: string): Promise<string> {
+    return `taleart_session=${(await createSession(pool, userId)).token}`;
+  }
+
+  async function useApp(): Promise<void> {
+    const s = createApp(
+      pool,
+      loadFrameTypeRegistry(frameTypesDir),
+      new LocalDiskStorage(mediaDir),
+      { verifier: fakeVerifier, secretKey: randomBytes(32), passwordAddressLimit: null },
+      { publicApiUrl },
+      undefined,
+      { rateLimit: null },
+    ).listen(0);
+    await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+    servers.push(s);
+    base = `http://127.0.0.1:${(s.address() as AddressInfo).port}/api/v1`;
+  }
+
+  // A request as a session cookie ('' sends none) or an API token.
+  function api(method: string, path: string, who: string | { token: string }, body?: unknown): Promise<Response> {
+    const headers: Record<string, string> = {};
+    if (typeof who === 'string') {
+      if (who) headers['Cookie'] = who;
+    } else {
+      headers['Authorization'] = `Bearer ${who.token}`;
+    }
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    return globalThis.fetch(`${base}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  async function status(method: string, path: string, who: string | { token: string }, body?: unknown): Promise<number> {
+    return (await api(method, path, who, body)).status;
+  }
+
+  async function errorCode(res: Response): Promise<string> {
+    return (await res.json()).error.code;
+  }
+
+  async function person(role: 'viewer' | 'editor' | 'publisher' | 'admin'): Promise<void> {
+    const user = await createUser(pool, { name: `${role} person`, email: `${role}@example.com`, role: 'content_manager' });
+    await addProjectMember(pool, projectId, user.id, { role });
+    people[role] = { id: user.id, cookie: await cookieFor(user.id), email: user.email };
+  }
+
+  beforeAll(async () => {
+    pool = createPool(testDatabaseUrl);
+    await migrate(pool);
+  });
+
+  beforeEach(async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await pool.query('TRUNCATE users, projects CASCADE');
+    adminId = (await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' })).id;
+    adminCookie = await cookieFor(adminId);
+    projectId = (await createProject(pool, { name: 'Acme' })).id;
+    otherProjectId = (await createProject(pool, { name: 'Other' })).id;
+    for (const role of ['viewer', 'editor', 'publisher', 'admin'] as const) await person(role);
+    await useApp();
+    zoneId = (await (await api('POST', '/zones', adminCookie, { name: 'Bar', projectId })).json()).id;
+    groupId = (await (await api('POST', `/zones/${zoneId}/tale-groups`, adminCookie, { name: 'Summer' })).json()).id;
+    taleId = (await (await api('POST', `/tale-groups/${groupId}/tales`, adminCookie, { title: 'Beach' })).json()).id;
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(servers.splice(0).map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+  });
+
+  afterAll(async () => {
+    await pool.query('TRUNCATE users, projects CASCADE');
+    await pool.end();
+  });
+
+  it('serves the role matrix to any signed-in caller', async () => {
+    const res = await api('GET', '/roles', people.viewer.cookie);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.roles.map((r: { role: string }) => r.role)).toEqual(['viewer', 'editor', 'publisher', 'admin']);
+    expect(body.roles[0].permissions).toEqual(['project.view', 'analytics.view']);
+    expect(body.permissions).toContain('members.manage');
+    expect(await status('GET', '/roles', '')).toBe(401);
+  });
+
+  it('shows each project with the caller\'s effective role; a global admin is admin everywhere', async () => {
+    for (const role of ['viewer', 'editor', 'publisher', 'admin'] as const) {
+      expect(await (await api('GET', '/projects', people[role].cookie)).json()).toEqual([
+        { id: projectId, name: 'Acme', role },
+      ]);
+    }
+    const all = await (await api('GET', '/projects', adminCookie)).json();
+    expect(all).toHaveLength(2);
+    expect(all.every((p: { role: string }) => p.role === 'admin')).toBe(true);
+  });
+
+  describe('viewer', () => {
+    it('reads content, analytics and the member list, and changes nothing', async () => {
+      const v = people.viewer.cookie;
+      for (const path of [
+        `/zones/${zoneId}/tale-groups`,
+        `/tale-groups/${groupId}`,
+        `/tales/${taleId}`,
+        `/tales/${taleId}/document`,
+        `/tales/${taleId}/responses`,
+        `/zones/${zoneId}/analytics`,
+        `/projects/${projectId}/tags`,
+        `/projects/${projectId}/theme`,
+        `/projects/${projectId}/members`,
+        `/projects/${projectId}/site-key`,
+        `/zones/${zoneId}/key`,
+      ]) {
+        expect(await status('GET', path, v), path).toBe(200);
+      }
+      const refused: [string, string, unknown?][] = [
+        ['PUT', `/tales/${taleId}/document`, { revision: 1, document: {} }],
+        ['DELETE', `/tales/${taleId}`],
+        ['POST', `/tale-groups/${groupId}/tales`, { title: 'X' }],
+        ['PUT', `/projects/${projectId}/theme`, { theme: {} }],
+        ['POST', `/projects/${projectId}/tags`, { name: 'x' }],
+        ['PUT', `/tales/${taleId}/status`, { status: 'live' }],
+        ['PATCH', `/zones/${zoneId}`, { name: 'Z' }],
+        ['POST', `/projects/${projectId}/site-key`],
+        ['GET', `/projects/${projectId}/audit-log`],
+        ['GET', `/projects/${projectId}/invitations`],
+      ];
+      for (const [method, path, body] of refused) {
+        const res = await api(method, path, v, body);
+        expect(res.status, `${method} ${path}`).toBe(403);
+        expect(await res.json()).toEqual({
+          error: { code: 'forbidden', message: 'Your role in this project does not allow this' },
+        });
+      }
+    });
+
+    it('is refused in a project it is not a member of, with the same body', async () => {
+      const res = await api('GET', `/projects/${otherProjectId}/tags`, people.viewer.cookie);
+      expect(res.status).toBe(403);
+      expect((await res.json()).error.message).toBe('Your role in this project does not allow this');
+    });
+  });
+
+  describe('editor', () => {
+    it('edits content but cannot make it live, manage zones, keys or members', async () => {
+      const e = people.editor.cookie;
+      expect(await status('POST', `/tale-groups/${groupId}/tales`, e, { title: 'Second' })).toBe(201);
+      expect(await status('POST', `/projects/${projectId}/tags`, e, { name: 'summer' })).toBe(201);
+      expect(await status('POST', `/projects/${projectId}/tale-groups`, e, { name: 'Loose' })).toBe(201);
+      expect(await status('GET', `/zones/${zoneId}/analytics`, e)).toBe(200);
+      // A stale revision proves the draft save got past the permission check.
+      expect(await status('PUT', `/tales/${taleId}/document`, e, { revision: 999, document: {} })).not.toBe(403);
+      for (const [method, path, body] of [
+        ['PUT', `/tales/${taleId}/status`, { status: 'live' }],
+        ['PUT', `/tales/${taleId}/schedule`, { startsAt: null, endsAt: null }],
+        ['POST', `/tales/${taleId}/document/publish`, { revision: 1, publishedRevision: 1 }],
+        ['PUT', `/tale-groups/${groupId}/status`, { status: 'live' }],
+        ['PUT', `/tale-groups/${groupId}/schedule`, { startsAt: null, endsAt: null }],
+        ['POST', '/zones', { name: 'New', projectId }],
+        ['POST', `/zones/${zoneId}/frame`, { type: 'bar' }],
+        ['POST', `/zones/${zoneId}/key`, undefined],
+        ['POST', `/projects/${projectId}/members`, { email: 'x@example.com', role: 'viewer' }],
+      ] as [string, string, unknown][]) {
+        expect(await status(method, path, e, body), `${method} ${path}`).toBe(403);
+      }
+      // Discarding a draft is the editor's own undo.
+      expect(await status('POST', `/tales/${taleId}/document/discard`, e, { revision: 1, publishedRevision: 1 })).not.toBe(403);
+    });
+  });
+
+  describe('publisher', () => {
+    it('makes content live and manages zones, but not keys or members', async () => {
+      const p = people.publisher.cookie;
+      expect(await status('PUT', `/tales/${taleId}/schedule`, p, { startsAt: null, endsAt: null })).toBe(200);
+      expect(await status('PUT', `/tale-groups/${groupId}/schedule`, p, { startsAt: null, endsAt: null })).toBe(200);
+      expect(await status('PUT', `/tales/${taleId}/status`, p, { status: 'live' })).not.toBe(403);
+      expect(await status('POST', `/tales/${taleId}/document/publish`, p, { revision: 1, publishedRevision: 1 })).not.toBe(403);
+      const zone = await api('POST', '/zones', p, { name: 'Banner', projectId });
+      expect(zone.status).toBe(201);
+      expect(await status('PATCH', `/zones/${zoneId}`, p, { name: 'Renamed' })).toBe(200);
+      // A zone cannot be created in a project the publisher is not a member of.
+      expect(await status('POST', '/zones', p, { name: 'Nope', projectId: otherProjectId })).toBe(403);
+      for (const [method, path, body] of [
+        ['POST', `/zones/${zoneId}/key`, undefined],
+        ['DELETE', `/zones/${zoneId}/key`, undefined],
+        ['POST', `/projects/${projectId}/site-key`, undefined],
+        ['DELETE', `/projects/${projectId}/site-key`, undefined],
+        ['POST', `/projects/${projectId}/invitations`, undefined],
+        ['POST', `/projects/${projectId}/members`, { email: 'x@example.com', role: 'viewer' }],
+        ['GET', `/projects/${projectId}/audit-log`, undefined],
+      ] as [string, string, unknown][]) {
+        expect(await status(method, path, p, body), `${method} ${path}`).toBe(403);
+      }
+    });
+  });
+
+  describe('admin', () => {
+    it('manages keys and members of its project only', async () => {
+      const a = people.admin.cookie;
+      expect(await status('POST', `/zones/${zoneId}/key`, a)).toBe(201);
+      expect(await status('POST', `/projects/${projectId}/site-key`, a)).toBe(201);
+      expect(await status('GET', `/projects/${projectId}/audit-log`, a)).toBe(200);
+      expect(await status('GET', `/projects/${projectId}/invitations`, a)).toBe(200);
+      expect(await status('POST', `/projects/${otherProjectId}/site-key`, a)).toBe(403);
+      expect(await status('GET', `/projects/${otherProjectId}/members`, a)).toBe(403);
+      // Still admin-only: project creation and the Users list.
+      expect(await status('POST', '/projects', a, { name: 'Mine' })).toBe(403);
+    });
+
+    it('is implied for a global admin who is no member', async () => {
+      expect(await status('POST', `/projects/${otherProjectId}/site-key`, adminCookie)).toBe(201);
+      expect(await status('GET', `/projects/${otherProjectId}/members`, adminCookie)).toBe(200);
+      expect(await status('GET', `/projects/${otherProjectId}/audit-log`, adminCookie)).toBe(200);
+    });
+
+    it('answers 404 project_not_found to a global admin and 403 to anyone else for an unknown project', async () => {
+      const unknown = randomUUID();
+      const res = await api('GET', `/projects/${unknown}/members`, adminCookie);
+      expect(res.status).toBe(404);
+      expect(await errorCode(res)).toBe('project_not_found');
+      expect(await status('GET', `/projects/${unknown}/members`, people.admin.cookie)).toBe(403);
+    });
+  });
+
+  describe('expiry', () => {
+    it('counts an expired membership as no membership anywhere', async () => {
+      await pool.query(`UPDATE project_members SET expires_at = now() - interval '1 minute' WHERE user_id = $1`, [
+        people.publisher.id,
+      ]);
+      const p = people.publisher.cookie;
+      expect(await (await api('GET', '/projects', p)).json()).toEqual([]);
+      expect(await (await api('GET', '/zones', p)).json()).toEqual([]);
+      expect(await status('GET', `/zones/${zoneId}/tale-groups`, p)).toBe(403);
+      expect(await status('PUT', `/tales/${taleId}/schedule`, p, { startsAt: null, endsAt: null })).toBe(403);
+      expect(await status('GET', `/zones/${zoneId}/analytics`, p)).toBe(404);
+      // The managers still see the row, marked expired.
+      const members = await (await api('GET', `/projects/${projectId}/members`, adminCookie)).json();
+      const row = members.find((m: { userId: string }) => m.userId === people.publisher.id);
+      expect(row).toMatchObject({ role: 'publisher', expired: true, you: false });
+      // A membership that ends in the future still works.
+      await pool.query(`UPDATE project_members SET expires_at = now() + interval '1 hour' WHERE user_id = $1`, [
+        people.publisher.id,
+      ]);
+      expect(await status('GET', `/zones/${zoneId}/tale-groups`, p)).toBe(200);
+    });
+
+    it('does not let an expired admin manage members, nor count as the last admin', async () => {
+      await pool.query(`UPDATE project_members SET expires_at = now() - interval '1 minute' WHERE user_id = $1`, [
+        people.admin.id,
+      ]);
+      expect(await status('GET', `/projects/${projectId}/audit-log`, people.admin.cookie)).toBe(403);
+    });
+  });
+
+  describe('API tokens', () => {
+    async function tokenFor(userId: string, projectIds: string[] | null, readOnly = false) {
+      return createApiToken(pool, { userId, name: 'script', projectIds, readOnly, expiresAt: null });
+    }
+
+    it('acts with its user\'s role, never more, and only in its projects', async () => {
+      const viewerToken = await tokenFor(people.viewer.id, null);
+      expect(await status('GET', `/tales/${taleId}`, viewerToken)).toBe(200);
+      expect(await status('DELETE', `/tales/${taleId}`, viewerToken)).toBe(403);
+      const editorToken = await tokenFor(people.editor.id, null);
+      expect(await status('PUT', `/tales/${taleId}/status`, editorToken, { status: 'live' })).toBe(403);
+      expect(await status('POST', `/tale-groups/${groupId}/tales`, editorToken, { title: 'T' })).toBe(201);
+      const publisherToken = await tokenFor(people.publisher.id, null);
+      expect(await status('PUT', `/tales/${taleId}/schedule`, publisherToken, { startsAt: null, endsAt: null })).toBe(200);
+      expect(await status('POST', `/zones/${zoneId}/key`, publisherToken)).toBe(403);
+      // A project the token does not list is out of reach even for its admin user.
+      const narrow = await tokenFor(people.admin.id, [otherProjectId]);
+      expect(await status('GET', `/projects/${projectId}/members`, narrow)).toBe(403);
+    });
+
+    it('never mints or elevates access, whatever its user\'s role', async () => {
+      const adminToken = await tokenFor(people.admin.id, null);
+      expect(await status('GET', `/projects/${projectId}/members`, adminToken)).toBe(200);
+      expect(await status('GET', `/projects/${projectId}/audit-log`, adminToken)).toBe(200);
+      expect(await status('POST', `/projects/${projectId}/members`, adminToken, { email: 'viewer@example.com', role: 'admin' })).toBe(403);
+      expect(await status('POST', `/projects/${projectId}/invitations`, adminToken)).toBe(403);
+      expect(await status('PATCH', `/projects/${projectId}/members/${people.viewer.id}`, adminToken, { role: 'admin' })).toBe(403);
+      expect(await status('DELETE', `/projects/${projectId}/members/${people.viewer.id}`, adminToken)).toBe(403);
+    });
+  });
+
+  describe('invitations with a role', () => {
+    // Runs the invitee's side in a fresh browser: options, then verify with the challenge cookie.
+    async function redeem(token: string, email: string): Promise<Response> {
+      const options = await api('POST', `/auth/invitations/${token}/options`, '', { name: 'Newcomer', email });
+      const { challenge } = await options.json();
+      const line = options.headers.getSetCookie().find((l) => l.startsWith('taleart_challenge=')) ?? '';
+      return api('POST', `/auth/invitations/${token}/verify`, line.split(';')[0], { id: `cred-${email}`, challenge });
+    }
+
+    it('creates, lists and previews an invitation with its role, and applies it when the invitee joins', async () => {
+      const until = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+      const created = await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, {
+        role: 'viewer',
+        accessExpiresAt: until,
+      });
+      expect(created.status).toBe(201);
+      const invitation = await created.json();
+      expect(invitation).toMatchObject({ projectId, role: 'viewer', accessExpiresAt: until });
+      const token = decodeURIComponent(invitation.url.split('/').pop());
+
+      const pending = await (await api('GET', `/projects/${projectId}/invitations`, people.admin.cookie)).json();
+      expect(pending).toEqual([
+        {
+          id: invitation.id,
+          projectId,
+          role: 'viewer',
+          accessExpiresAt: until,
+          createdBy: { id: people.admin.id, name: 'admin person' },
+          createdAt: expect.any(String),
+          expiresAt: invitation.expiresAt,
+        },
+      ]);
+      expect(JSON.stringify(pending)).not.toContain(token);
+
+      const preview = await (await api('GET', `/auth/invitations/${token}`, '')).json();
+      expect(preview).toEqual({ projectName: 'Acme', expiresAt: invitation.expiresAt, role: 'viewer', accessExpiresAt: until });
+
+      const joined = await redeem(token, 'newcomer@example.com');
+      expect(joined.status).toBe(201);
+      const session = `taleart_session=${decodeURIComponent((joined.headers.getSetCookie().find((l) => l.startsWith('taleart_session=')) ?? '').split(';')[0].slice(16))}`;
+      expect(await (await api('GET', '/projects', session)).json()).toEqual([{ id: projectId, name: 'Acme', role: 'viewer' }]);
+      expect(await status('DELETE', `/tales/${taleId}`, session)).toBe(403);
+      const { rows } = await pool.query('SELECT role, expires_at FROM project_members WHERE user_id <> ALL($1::uuid[])', [
+        [adminId, ...Object.values(people).map((x) => x.id)],
+      ]);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].role).toBe('viewer');
+      expect(rows[0].expires_at.toISOString()).toBe(until);
+
+      // A used invitation is no longer pending.
+      expect(await (await api('GET', `/projects/${projectId}/invitations`, people.admin.cookie)).json()).toEqual([]);
+      const log = await (await api('GET', `/projects/${projectId}/audit-log`, people.admin.cookie)).json();
+      expect(log.entries.map((e: { action: string }) => e.action)).toEqual(['joined', 'invited']);
+      expect(log.entries[0]).toMatchObject({ actorName: 'Newcomer', targetEmail: 'newcomer@example.com', detail: { role: 'viewer' } });
+    });
+
+    it('defaults to editor, and refuses an unknown role or an expiry in the past', async () => {
+      const res = await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie);
+      expect((await res.json()).role).toBe('editor');
+      for (const body of [
+        { role: 'owner' },
+        { accessExpiresAt: new Date(Date.now() - 1000).toISOString() },
+        { accessExpiresAt: 'tomorrow' },
+        { extra: 1 },
+      ]) {
+        const bad = await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, body);
+        expect(bad.status, JSON.stringify(body)).toBe(400);
+        expect(await errorCode(bad)).toBe('validation_failed');
+      }
+    });
+
+    it('revokes a pending invitation: the link dies, the log remembers, a repeat is 404', async () => {
+      const invitation = await (await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie)).json();
+      const token = decodeURIComponent(invitation.url.split('/').pop());
+      const url = `/projects/${projectId}/invitations/${invitation.id}`;
+      expect(await status('DELETE', url, people.publisher.cookie)).toBe(403);
+      expect(await status('DELETE', url, people.admin.cookie)).toBe(204);
+      expect(await status('GET', `/auth/invitations/${token}`, '')).toBe(410);
+      expect(await (await api('GET', `/projects/${projectId}/invitations`, people.admin.cookie)).json()).toEqual([]);
+      const again = await api('DELETE', url, people.admin.cookie);
+      expect(again.status).toBe(404);
+      expect(await errorCode(again)).toBe('invitation_not_found');
+      // Another project's admin cannot revoke it either.
+      const other = await api('DELETE', `/projects/${otherProjectId}/invitations/${invitation.id}`, adminCookie);
+      expect(other.status).toBe(404);
+      const log = await (await api('GET', `/projects/${projectId}/audit-log`, people.admin.cookie)).json();
+      expect(log.entries.map((e: { action: string }) => e.action)).toEqual(['invitation_revoked', 'invited']);
+    });
+  });
+
+  describe('members', () => {
+    let guestId = '';
+    beforeEach(async () => {
+      guestId = (await createUser(pool, { name: 'Guest', email: 'guest@example.com', role: 'content_manager' })).id;
+    });
+
+    it('lists the explicit members with their roles, marking the caller', async () => {
+      const members = await (await api('GET', `/projects/${projectId}/members`, people.editor.cookie)).json();
+      expect(members.map((m: { role: string }) => m.role).sort()).toEqual(['admin', 'editor', 'publisher', 'viewer']);
+      expect(members.find((m: { you: boolean }) => m.you)).toMatchObject({
+        userId: people.editor.id,
+        name: 'editor person',
+        email: 'editor@example.com',
+        role: 'editor',
+        globalRole: 'content_manager',
+        expiresAt: null,
+        expired: false,
+        joinedAt: expect.any(String),
+      });
+      expect(members.filter((m: { you: boolean }) => m.you)).toHaveLength(1);
+    });
+
+    it('adds an existing user by email with a role, one role per project', async () => {
+      const until = new Date(Date.now() + 3600_000).toISOString();
+      const res = await api('POST', `/projects/${projectId}/members`, people.admin.cookie, {
+        email: 'GUEST@example.com',
+        role: 'viewer',
+        expiresAt: until,
+      });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({ userId: guestId, role: 'viewer', expiresAt: until, expired: false, you: false });
+      // A different role in another project.
+      expect(
+        await status('POST', `/projects/${otherProjectId}/members`, adminCookie, { email: 'guest@example.com', role: 'publisher' }),
+      ).toBe(201);
+      const guest = await cookieFor(guestId);
+      const projects = await (await api('GET', '/projects', guest)).json();
+      expect(projects.map((p: { name: string; role: string }) => [p.name, p.role]).sort()).toEqual([
+        ['Acme', 'viewer'],
+        ['Other', 'publisher'],
+      ]);
+      const log = await (await api('GET', `/projects/${projectId}/audit-log`, people.admin.cookie)).json();
+      expect(log.entries[0]).toMatchObject({
+        action: 'member_added',
+        actorId: people.admin.id,
+        actorName: 'admin person',
+        targetUserId: guestId,
+        targetEmail: 'guest@example.com',
+        detail: { role: 'viewer', expiresAt: until },
+      });
+    });
+
+    it('refuses an unknown email, a member already there, a bad role and a past expiry', async () => {
+      const add = (body: unknown) => api('POST', `/projects/${projectId}/members`, people.admin.cookie, body);
+      const unknown = await add({ email: 'nobody@example.com', role: 'viewer' });
+      expect(unknown.status).toBe(404);
+      expect(await errorCode(unknown)).toBe('user_not_found');
+      const twice = await add({ email: 'viewer@example.com', role: 'admin' });
+      expect(twice.status).toBe(409);
+      expect(await errorCode(twice)).toBe('member_exists');
+      for (const body of [
+        { email: 'guest@example.com' },
+        { email: 'guest@example.com', role: 'god' },
+        { role: 'viewer' },
+        { email: 'guest@example.com', role: 'viewer', expiresAt: new Date(Date.now() - 1000).toISOString() },
+      ]) {
+        const bad = await add(body);
+        expect(bad.status, JSON.stringify(body)).toBe(400);
+        expect(await errorCode(bad)).toBe('validation_failed');
+      }
+    });
+
+    it('changes a role and an expiry, and writes each change to the audit log', async () => {
+      const url = `/projects/${projectId}/members/${people.viewer.id}`;
+      const until = new Date(Date.now() + 3600_000).toISOString();
+      const changed = await api('PATCH', url, people.admin.cookie, { role: 'editor', expiresAt: until });
+      expect(changed.status).toBe(200);
+      expect(await changed.json()).toMatchObject({ role: 'editor', expiresAt: until });
+      // The new power applies at once.
+      expect(await status('POST', `/tale-groups/${groupId}/tales`, people.viewer.cookie, { title: 'Now' })).toBe(201);
+      expect(await (await api('PATCH', url, people.admin.cookie, { expiresAt: null })).json()).toMatchObject({ expiresAt: null });
+      // Nothing changed: no entry.
+      await api('PATCH', url, people.admin.cookie, { role: 'editor' });
+      const log = await (await api('GET', `/projects/${projectId}/audit-log`, people.admin.cookie)).json();
+      expect(log.entries.map((e: { action: string }) => e.action)).toEqual(['expiry_changed', 'expiry_changed', 'role_changed']);
+      expect(log.entries[2].detail).toEqual({ from: 'viewer', to: 'editor' });
+      expect(log.entries[1].detail).toEqual({ from: null, to: until });
+      for (const body of [{}, { role: 'x' }, { expiresAt: new Date(Date.now() - 5).toISOString() }, { name: 'x' }]) {
+        expect((await api('PATCH', url, people.admin.cookie, body)).status, JSON.stringify(body)).toBe(400);
+      }
+      const missing = await api('PATCH', `/projects/${projectId}/members/${guestId}`, people.admin.cookie, { role: 'viewer' });
+      expect(missing.status).toBe(404);
+      expect(await errorCode(missing)).toBe('member_not_found');
+      expect(await status('PATCH', url, people.publisher.cookie, { role: 'admin' })).toBe(403);
+    });
+
+    it('removes a member, who then has no access, and logs it', async () => {
+      const url = `/projects/${projectId}/members/${people.editor.id}`;
+      expect(await status('DELETE', url, people.publisher.cookie)).toBe(403);
+      expect(await status('DELETE', url, people.admin.cookie)).toBe(204);
+      expect(await status('GET', `/tales/${taleId}`, people.editor.cookie)).toBe(403);
+      const again = await api('DELETE', url, people.admin.cookie);
+      expect(again.status).toBe(404);
+      expect(await errorCode(again)).toBe('member_not_found');
+      const log = await (await api('GET', `/projects/${projectId}/audit-log`, people.admin.cookie)).json();
+      expect(log.entries[0]).toMatchObject({ action: 'removed', targetEmail: 'editor@example.com', detail: { role: 'editor' } });
+    });
+
+    it('keeps the last active admin: a project admin cannot demote or remove it, a global admin can', async () => {
+      const self = `/projects/${projectId}/members/${people.admin.id}`;
+      const demote = await api('PATCH', self, people.admin.cookie, { role: 'editor' });
+      expect(demote.status).toBe(409);
+      expect(await errorCode(demote)).toBe('last_project_admin');
+      expect((await api('PATCH', self, people.admin.cookie, { expiresAt: new Date(Date.now() + 1000).toISOString() })).status).toBe(200);
+      await api('PATCH', self, people.admin.cookie, { expiresAt: null });
+      expect(await errorCode(await api('DELETE', self, people.admin.cookie))).toBe('last_project_admin');
+      // Another active admin lifts the guard.
+      expect(await status('PATCH', `/projects/${projectId}/members/${people.publisher.id}`, people.admin.cookie, { role: 'admin' })).toBe(200);
+      expect(await status('PATCH', self, people.admin.cookie, { role: 'editor' })).toBe(200);
+      // The new admin is now the last one.
+      const last = `/projects/${projectId}/members/${people.publisher.id}`;
+      expect(await status('DELETE', last, people.publisher.cookie)).toBe(409);
+      // A global admin may always.
+      expect(await status('DELETE', last, adminCookie)).toBe(204);
+    });
+
+    it('does not count an expired admin as another admin', async () => {
+      await pool.query(`UPDATE project_members SET role = 'admin', expires_at = now() - interval '1 minute' WHERE user_id = $1`, [
+        people.publisher.id,
+      ]);
+      const res = await api('DELETE', `/projects/${projectId}/members/${people.admin.id}`, people.admin.cookie);
+      expect(res.status).toBe(409);
+    });
+  });
+
+  describe('audit log', () => {
+    it('pages newest first with limit and before, for members.manage only', async () => {
+      for (let i = 0; i < 5; i++) {
+        await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, { role: 'viewer' });
+      }
+      const url = `/projects/${projectId}/audit-log`;
+      const first = await (await api('GET', `${url}?limit=2`, people.admin.cookie)).json();
+      expect(first.entries).toHaveLength(2);
+      expect(first.nextBefore).toBe(first.entries[1].id);
+      const second = await (await api('GET', `${url}?limit=2&before=${first.nextBefore}`, people.admin.cookie)).json();
+      const third = await (await api('GET', `${url}?limit=2&before=${second.nextBefore}`, people.admin.cookie)).json();
+      expect(third.entries).toHaveLength(1);
+      expect(third.nextBefore).toBeNull();
+      const ids = [...first.entries, ...second.entries, ...third.entries].map((e: { id: string }) => e.id);
+      expect(new Set(ids).size).toBe(5);
+      const all = await (await api('GET', url, people.admin.cookie)).json();
+      expect(all.entries.map((e: { id: string }) => e.id)).toEqual(ids);
+      expect(all.entries[0]).toMatchObject({ action: 'invited', actorId: people.admin.id, targetUserId: null, targetEmail: null });
+      expect((await api('GET', `${url}?limit=0`, people.admin.cookie)).status).toBe(400);
+      expect((await api('GET', `${url}?limit=201`, people.admin.cookie)).status).toBe(400);
+      expect((await (await api('GET', `${url}?before=${randomUUID()}`, people.admin.cookie)).json()).entries).toEqual([]);
+      expect(await status('GET', url, people.publisher.cookie)).toBe(403);
+      // Kept when the actor's account goes, with the name.
+      await pool.query('DELETE FROM users WHERE id = $1', [people.admin.id]);
+      const kept = await (await api('GET', url, adminCookie)).json();
+      expect(kept.entries[0]).toMatchObject({ actorId: null, actorName: 'admin person' });
+    });
+  });
+
+  describe('migration of memberships made before roles', () => {
+    it('turns them into publishers and keeps old pending invitations as powerful as they were', async () => {
+      // The schema as it was: no role, no expiry, no audit log.
+      await pool.query('ALTER TABLE project_members DROP COLUMN role, DROP COLUMN expires_at');
+      await pool.query('ALTER TABLE invitations DROP COLUMN role, DROP COLUMN access_expires_at');
+      await pool.query('DROP TABLE project_audit_log');
+      const old = await createUser(pool, { name: 'Old', email: 'old@example.com', role: 'content_manager' });
+      await pool.query('INSERT INTO project_members (project_id, user_id) VALUES ($1, $2)', [otherProjectId, old.id]);
+      await pool.query(
+        `INSERT INTO invitations (project_id, token_hash, created_by, expires_at) VALUES ($1, 'oldhash', $2, now() + interval '1 day')`,
+        [otherProjectId, adminId],
+      );
+      await migrate(pool);
+      await migrate(pool);
+      const member = await pool.query('SELECT role, expires_at FROM project_members WHERE user_id = $1', [old.id]);
+      expect(member.rows).toEqual([{ role: 'publisher', expires_at: null }]);
+      const invitation = await pool.query(`SELECT role, access_expires_at FROM invitations WHERE token_hash = 'oldhash'`);
+      expect(invitation.rows).toEqual([{ role: 'publisher', access_expires_at: null }]);
+      // New invitations default to editor and the role column rejects nonsense.
+      const fresh = await pool.query(
+        `INSERT INTO invitations (project_id, token_hash, expires_at) VALUES ($1, 'newhash', now() + interval '1 day') RETURNING role`,
+        [otherProjectId],
+      );
+      expect(fresh.rows[0].role).toBe('editor');
+      await expect(pool.query(`UPDATE project_members SET role = 'owner'`)).rejects.toThrow();
+      const cookie = await cookieFor(old.id);
+      expect(await (await api('GET', '/projects', cookie)).json()).toEqual([{ id: otherProjectId, name: 'Other', role: 'publisher' }]);
+      expect(await status('GET', `/projects/${otherProjectId}/audit-log`, adminCookie)).toBe(200);
+    });
   });
 });

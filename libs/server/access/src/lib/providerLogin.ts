@@ -3,7 +3,7 @@ import { consumeChallenge } from './challenges';
 import { createUser, setupRequired, SETUP_LOCK, type SignedInUser } from './auth';
 import { inTransaction, type Db, type TransactionalDb } from './db';
 import { emailTaken } from './invitations';
-import { addProjectMember } from './members';
+import { joinInvitedProject } from './projectMembers';
 import { InputInvalidError, ProviderAuthError, ProviderNotFoundError } from './errors';
 import {
   appleClientSecret,
@@ -333,7 +333,7 @@ export async function completeProviderLogin(
     if (await identityExists(tx, provider, identity.subject)) throw new ProviderAuthError('identity_in_use');
     const user = await createUser(tx, { name: nameFor(identity), email: identity.email as string, role: 'content_manager' });
     await attachIdentity(tx, user.id, provider, identity);
-    await addProjectMember(tx, invitation.projectId, user.id);
+    await joinInvitedProject(tx, invitation.id, user);
     await tx.query('UPDATE invitations SET used_at = now(), used_by = $2 WHERE id = $1', [invitation.id, user.id]);
     return { user, session: await createSession(tx, user.id) };
   });

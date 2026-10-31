@@ -17,6 +17,9 @@ import { InteractiveComponentsPage } from './pages/interactive-components';
 import { ThemeAndFontsPage } from './pages/theme-and-fonts';
 import { VisibilityPage } from './pages/visibility';
 import { ProjectsAndTeamPage } from './pages/projects-and-team';
+import { RolesAndPermissionsPage } from './pages/roles-and-permissions';
+import { DockerPage } from './pages/docker';
+import { DemoDataPage } from './pages/demo-data';
 import { CliPage } from './pages/cli';
 import { CoverageAndLimitsPage } from './pages/coverage-and-limits';
 
@@ -74,6 +77,22 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'Installation',
     file: 'guides-install',
     component: GuidesInstallPage,
+  },
+  {
+    path: 'docker',
+    label: 'Install with Docker',
+    title: 'Install with Docker',
+    group: 'Installation',
+    file: 'docker',
+    component: DockerPage,
+  },
+  {
+    path: 'demo-data',
+    label: 'Demo data',
+    title: 'Demo data',
+    group: 'Installation',
+    file: 'demo-data',
+    component: DemoDataPage,
   },
   {
     path: 'install',
@@ -170,6 +189,14 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'Workspace',
     file: 'projects-and-team',
     component: ProjectsAndTeamPage,
+  },
+  {
+    path: 'roles-and-permissions',
+    label: 'Roles and permissions',
+    title: 'Roles and permissions',
+    group: 'Workspace',
+    file: 'roles-and-permissions',
+    component: RolesAndPermissionsPage,
   },
   {
     path: 'guides/sign-in-methods',

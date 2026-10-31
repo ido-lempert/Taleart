@@ -67,6 +67,8 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
   // per-kind limit is checked after. Too large a body answers 413 media_too_large.
   const rawBody = express.raw({ type: () => true, limit: MAX_VIDEO_BYTES });
   const taleAccess = authorizeParam(pool, 'tale', 'taleId');
+  // Making a tale live, scheduling it or publishing its draft is the publisher's.
+  const talePublish = authorizeParam(pool, 'tale', 'taleId', 'content.publish');
 
   // One tale with its visibility in any zone (R7), as Tale Studio's status line reads it (story 8.4).
   router.get('/:taleId', taleAccess, async (req, res, next) => {
@@ -157,7 +159,7 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
     },
   );
 
-  router.put('/:taleId/status', taleAccess, async (req, res, next) => {
+  router.put('/:taleId/status', talePublish, async (req, res, next) => {
     try {
       // Tale first (404), then the body (400), then the transition (409).
       const { taleId } = req.params;
@@ -169,7 +171,7 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
     }
   });
 
-  router.put('/:taleId/schedule', taleAccess, async (req, res, next) => {
+  router.put('/:taleId/schedule', talePublish, async (req, res, next) => {
     try {
       // Tale first (404), then the body (400).
       const { taleId } = req.params;
@@ -221,7 +223,7 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
     ['publish', publishTaleDocument],
     ['discard', discardTaleDraft],
   ] as const) {
-    router.post(`/:taleId/document/${action}`, taleAccess, async (req, res, next) => {
+    router.post(`/:taleId/document/${action}`, action === 'publish' ? talePublish : taleAccess, async (req, res, next) => {
       try {
         // Tale first (404), then the body (400), then the revisions (409).
         const { taleId } = req.params;

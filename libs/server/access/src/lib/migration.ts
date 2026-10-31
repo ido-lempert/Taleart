@@ -91,6 +91,17 @@ export async function migrateAccess(db: Db): Promise<void> {
   `);
   await db.query('CREATE INDEX IF NOT EXISTS project_members_user_id_idx ON project_members (user_id)');
 
+  // Project roles (epic project access): a membership has a role and may end. Memberships that
+  // existed before roles can do nearly everything inside a project, so they become 'publisher';
+  // the column default is set after the backfill and stays 'publisher'. Every step is idempotent.
+  await db.query(`ALTER TABLE project_members ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'publisher'`);
+  await db.query('ALTER TABLE project_members ADD COLUMN IF NOT EXISTS expires_at timestamptz');
+  await db.query(`
+    ALTER TABLE project_members
+      DROP CONSTRAINT IF EXISTS project_members_role_check,
+      ADD CONSTRAINT project_members_role_check CHECK (role IN ('admin', 'publisher', 'editor', 'viewer'))
+  `);
+
   // One-time invitations to a project (AD-9). Only the SHA-256 hash of the token is stored.
   await db.query(`
     CREATE TABLE IF NOT EXISTS invitations (
@@ -104,6 +115,36 @@ export async function migrateAccess(db: Db): Promise<void> {
       used_by uuid REFERENCES users (id) ON DELETE SET NULL
     );
   `);
+
+  // An invitation carries the role the invitee gets and when their access ends. Invitations made
+  // before roles keep the power they had ('publisher'); new ones default to 'editor'.
+  await db.query(`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'publisher'`);
+  await db.query(`ALTER TABLE invitations ALTER COLUMN role SET DEFAULT 'editor'`);
+  await db.query('ALTER TABLE invitations ADD COLUMN IF NOT EXISTS access_expires_at timestamptz');
+  await db.query(`
+    ALTER TABLE invitations
+      DROP CONSTRAINT IF EXISTS invitations_role_check,
+      ADD CONSTRAINT invitations_role_check CHECK (role IN ('admin', 'publisher', 'editor', 'viewer'))
+  `);
+
+  // Who changed who may enter a project, written in the transaction of the change itself.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS project_audit_log (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+      actor_id uuid REFERENCES users (id) ON DELETE SET NULL,
+      actor_name text NOT NULL,
+      action text NOT NULL CHECK (action IN
+        ('invited', 'invitation_revoked', 'joined', 'member_added', 'role_changed', 'expiry_changed', 'removed')),
+      target_user_id uuid REFERENCES users (id) ON DELETE SET NULL,
+      target_email text,
+      detail jsonb NOT NULL DEFAULT '{}',
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query(
+    'CREATE INDEX IF NOT EXISTS project_audit_log_project_idx ON project_audit_log (project_id, created_at DESC, id DESC)',
+  );
 
   // A project's site key (AD-9 amended, epic UX rework R3).
   await migrateSiteKeys(db);

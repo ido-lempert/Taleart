@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@ang
 import type { AdminUser } from '@taleart/contract/core';
 import { AuthStore } from '../auth';
 import { PasswordResetLinkDrawer } from '../password-reset-link';
+import { ROLE_LABELS as PROJECT_ROLE_LABELS, shortDate } from '../project-roles';
 import { providerNameOf } from '../sign-in-methods';
 import { SignInMethodsApi } from '../sign-in-methods.service';
 import { SettingsTabs } from './settings-tabs';
@@ -43,6 +44,11 @@ const ROLE_LABELS: Record<AdminUser['role'], string> = { admin: 'Admin', content
     }
     .users-table td {
       overflow-wrap: anywhere;
+    }
+    .users-projects {
+      margin: 0;
+      padding: 0;
+      list-style: none;
     }
   `,
   template: `
@@ -95,7 +101,19 @@ const ROLE_LABELS: Record<AdminUser['role'], string> = { admin: 'Admin', content
                       <td>{{ user.email }}</td>
                       <td>{{ roleLabel(user) }}</td>
                       <td>{{ methodsText(user) }}</td>
-                      <td>{{ user.role === 'admin' ? 'All projects' : user.projects }}</td>
+                      <td>
+                        @if (user.role === 'admin') {
+                          All projects
+                        } @else if (user.projectRoles.length === 0) {
+                          {{ user.projects }}
+                        } @else {
+                          <ul class="users-projects" [attr.aria-label]="'Projects of ' + user.name">
+                            @for (membership of user.projectRoles; track membership.projectId) {
+                              <li>{{ membershipText(membership) }}</li>
+                            }
+                          </ul>
+                        }
+                      </td>
                       <td>
                         <button
                           type="button"
@@ -165,6 +183,16 @@ export class UsersPage implements OnInit {
     } catch {
       this.loadFailed.set(true);
     }
+  }
+
+  /** One project membership in words: "Acme: Publisher", with the end of access or "expired" after it. */
+  protected membershipText(membership: AdminUser['projectRoles'][number]): string {
+    const access = membership.expired
+      ? ' (access expired)'
+      : membership.expiresAt
+        ? ` (until ${shortDate(membership.expiresAt)})`
+        : '';
+    return `${membership.projectName}: ${PROJECT_ROLE_LABELS[membership.role]}${access}`;
   }
 
   protected roleLabel(user: AdminUser): string {

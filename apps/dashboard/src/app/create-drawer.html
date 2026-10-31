@@ -301,6 +301,10 @@
               />
               <p class="field__hint" id="invite-url-hint">Works once, until {{ expiryDate(invitation) }}. This link is shown only now.</p>
             </div>
+            <p id="invite-result-role">
+              <span class="muted">Joins as</span>&ngsp;<strong>{{ roleLabels[invitation.role] }}</strong>
+              <span class="muted"> · Access: {{ accessLabel(invitation.accessExpiresAt) }}</span>
+            </p>
             <div class="invite-actions">
               @if (canShare) {
                 <button type="button" class="btn btn--primary" (click)="shareLink(invitation)">Share link</button>
@@ -308,11 +312,57 @@
               <button type="button" class="btn btn--secondary" (click)="copyLink(invitation)">Copy link</button>
             </div>
             <p class="muted" role="status">{{ copyStatus() }}</p>
-          } @else {
-            <p>
-              Create a one-time link and send it to the person you invite. They create a passkey and join this project
-              as a content manager. The link works for 7 days.
+          } @else if (addedMember(); as member) {
+            <p role="status" id="invite-added">
+              <strong>{{ member.name }}</strong> ({{ member.email }}) is now {{ roleLabels[member.role] }} in this project.
+              <span class="muted">Access: {{ accessLabel(member.expiresAt) }}.</span>
             </p>
+          } @else {
+            <fieldset class="tag-options">
+              <legend class="field__label">How</legend>
+              <label class="checkbox">
+                <input type="radio" name="invite-mode" value="add" [checked]="inviteMode() === 'add'" (change)="pickInviteMode('add')" />
+                <span>Add someone who already has an account</span>
+              </label>
+              <label class="checkbox">
+                <input type="radio" name="invite-mode" value="link" [checked]="inviteMode() === 'link'" (change)="pickInviteMode('link')" />
+                <span>Create a one-time invitation link</span>
+              </label>
+            </fieldset>
+            @if (inviteMode() === 'add') {
+              <div class="field">
+                <label class="field__label" for="invite-email">Email</label>
+                <input
+                  id="invite-email"
+                  class="input"
+                  type="email"
+                  name="inviteEmail"
+                  autocomplete="off"
+                  [(ngModel)]="inviteEmail"
+                  [attr.aria-invalid]="error() ? 'true' : null"
+                  [attr.aria-describedby]="error() ? 'create-error' : null"
+                />
+              </div>
+            } @else {
+              <p class="muted">
+                Create a one-time link and send it to the person you invite. They create their sign-in and join this
+                project with the role you choose. The link works for 7 days.
+              </p>
+            }
+            <div class="field">
+              <label class="field__label" for="invite-role">Role</label>
+              <select id="invite-role" class="select" name="inviteRole" aria-describedby="invite-role-hint" (change)="pickInviteRole($event)">
+                @for (role of inviteRoles; track role) {
+                  <option [value]="role" [selected]="role === inviteRole()">{{ roleLabels[role] }}</option>
+                }
+              </select>
+              <p class="field__hint" id="invite-role-hint" aria-live="polite">{{ inviteRoleHint() }}</p>
+            </div>
+            <div class="field">
+              <label class="field__label" for="invite-ends">Access ends (optional)</label>
+              <input id="invite-ends" class="input" type="date" name="inviteEnds" [(ngModel)]="inviteEnds" aria-describedby="invite-ends-hint" />
+              <p class="field__hint" id="invite-ends-hint">Leave empty for permanent access. After this day the person can no longer open the project.</p>
+            </div>
           }
         }
         @case ('tags') {

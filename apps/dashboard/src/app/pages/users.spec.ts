@@ -16,6 +16,7 @@ const ADMIN_ROW = {
   createdAt: '2026-10-01T10:00:00.000Z',
   methods: { passkey: true, password: false, identities: [] },
   projects: 3,
+  projectRoles: [],
 };
 const MANAGER_ROW = {
   id: 'u2',
@@ -25,6 +26,10 @@ const MANAGER_ROW = {
   createdAt: '2026-10-02T10:00:00.000Z',
   methods: { passkey: false, password: true, identities: ['google', 'oidc:corp'] },
   projects: 2,
+  projectRoles: [
+    { projectId: 'p1', projectName: 'Acme', role: 'publisher', expiresAt: null, expired: false },
+    { projectId: 'p2', projectName: 'Globex', role: 'viewer', expiresAt: '2026-12-12T23:59:59.000Z', expired: false },
+  ],
 };
 const METHODS = [
   { id: 'passkey', label: 'Passkey', kind: 'passkey' },
@@ -97,9 +102,12 @@ describe('UsersPage: Settings > Users (admins)', () => {
       'grace@example.com',
       'Content manager',
       'Password, Google, Corp ID',
-      '2',
+      expect.stringContaining('Acme: Publisher'),
       'Issue reset link',
     ]);
+    // Each project with the user's role in it, and when the access ends.
+    const projects = [...row('Grace Manager').querySelectorAll('.users-projects li')].map((li) => li.textContent);
+    expect(projects).toEqual(['Acme: Publisher', 'Globex: Viewer (until 12 Dec 2026)']);
   });
 
   it('has a named table with column headers, and names every reset button after its user', async () => {

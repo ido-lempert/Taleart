@@ -7,6 +7,7 @@ import { AuthStore } from './auth';
 import { CreateDrawer } from './create-drawer';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Icon, Mark } from './icon';
+import { ROLE_LABELS } from './project-roles';
 import type { BareData, ShellData } from './app.routes';
 
 export { API_BASE, API_ORIGIN } from './dashboard.store';
@@ -29,6 +30,7 @@ function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
 })
 export class App {
   protected readonly store = inject(DashboardStore);
+  protected readonly roleLabels = ROLE_LABELS;
   protected readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
@@ -58,10 +60,12 @@ export class App {
         // Only admins create projects.
         return this.auth.isAdmin() ? { kind: 'project' } : null;
       case 'zone':
-        return this.store.projects().length > 0 ? { kind: 'zone' } : null;
+        return this.store.projects().length > 0 && this.store.can('zones.manage') ? { kind: 'zone' } : null;
       case 'taleGroup': {
         const zoneId = this.route()?.paramMap.get('zoneId') ?? '';
-        return this.store.zone(zoneId) ? { kind: 'taleGroup', zoneId } : null;
+        return this.store.zone(zoneId) && this.store.can('content.edit', this.store.zone(zoneId)?.projectId)
+          ? { kind: 'taleGroup', zoneId }
+          : null;
       }
       default:
         return null;

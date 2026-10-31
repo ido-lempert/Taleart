@@ -4,7 +4,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { appRoutes } from './app.routes';
 
 /** The guides with numbered steps: each step's title is a heading with an id, so "On this page" lists the steps. */
-const GUIDES = ['/guides/web', '/android-guide', '/ios-guide', '/guides/analytics', '/guides/sign-in-methods'];
+const GUIDES = ['/guides/web', '/android-guide', '/ios-guide', '/guides/analytics', '/guides/sign-in-methods', '/roles-and-permissions'];
 
 describe('guide step headings', () => {
   beforeEach(() => {

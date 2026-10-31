@@ -713,7 +713,7 @@ export interface paths {
         };
         /**
          * List the projects the caller can access, oldest first.
-         * @description Admins see every project; content managers see the projects they are members of.
+         * @description Admins see every project; content managers see the projects they are members of (an expired membership gives no access). Each project carries `role`, the caller's effective role in it.
          */
         get: operations["listProjects"];
         put?: never;
@@ -722,6 +722,26 @@ export interface paths {
          * @description A content manager gets 403 `forbidden`. An admin's API token may create a project only when it covers all of the admin's projects and is read-write; any other token gets 403 `forbidden`.
          */
         post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project roles and what each one may do.
+         * @description The role and permission matrix every project uses: `viewer` reads and sees analytics, `editor` also changes content (drafts), `publisher` also makes content live and manages zones, `admin` also manages keys and members. A global admin has the `admin` role on every project. Any signed-in caller may read it.
+         */
+        get: operations["listProjectRoles"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -737,13 +757,115 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The project's pending invitations (needs `members.manage`).
+         * @description Invitations that are neither used nor expired, newest first, with the role they give, who created them and when they expire. The link itself is never listed (only its hash is stored). A caller without the `members.manage` permission gets 403 `forbidden`; an unknown project the same, as for every project route.
+         */
+        get: operations["listInvitations"];
         put?: never;
         /**
-         * Invite someone to a project (admins only).
-         * @description Creates a one-time invitation, valid for 7 days. The invitee opens `url`, registers a passkey and becomes a content manager of the project. The token in `url` is shown only in this response; only its SHA-256 hash is stored. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`. An API token gets 403 `forbidden`: invitations need a passkey session.
+         * Invite someone new to a project (needs `members.manage`).
+         * @description Creates a one-time invitation, valid for 7 days. The invitee opens `url`, registers a passkey and becomes a content manager with `role` in the project (default `editor`), until `accessExpiresAt` when given. The token in `url` is shown only in this response; only its SHA-256 hash is stored. A caller without `members.manage` gets 403 `forbidden`; an unknown project 404 `project_not_found`. An API token gets 403 `forbidden`: invitations need a passkey session. To give someone who already has an account access, use `POST /projects/{projectId}/members`.
          */
         post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/invitations/{invitationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                invitationId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a pending invitation (needs `members.manage`).
+         * @description The link stops working at once. An unknown, used, expired or already revoked invitation answers 404 `invitation_not_found`. A passkey session only.
+         */
+        delete: operations["revokeInvitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The project's members and their roles (needs `project.view`).
+         * @description Explicit members only, oldest first, expired memberships included (`expired` is true; they give no access). Global admins reach every project as `admin` and are listed only when they were added as members. `you` marks the caller's own row.
+         */
+        get: operations["listProjectMembers"];
+        put?: never;
+        /**
+         * Give an existing user a role in the project (needs `members.manage`).
+         * @description Adds the user with this email, who must already have an account (404 `user_not_found`; invite a new person instead), with `role`, until `expiresAt` when given (it must be in the future). A user who is already a member, expired or not, gets 409 `member_exists`: change the role instead. A passkey session only.
+         */
+        post: operations["addProjectMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from the project (needs `members.manage`).
+         * @description Removing the last active `admin` member answers 409 `last_project_admin`, unless the caller is a global admin. An unknown member answers 404 `member_not_found`. A passkey session only.
+         */
+        delete: operations["removeProjectMember"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a member's role or access expiry (needs `members.manage`).
+         * @description `role` changes the role; `expiresAt` sets when the access ends, and `null` clears the limit. A change that leaves the project without an active `admin` member answers 409 `last_project_admin`, unless the caller is a global admin. An unknown member answers 404 `member_not_found`. A passkey session only.
+         */
+        patch: operations["updateProjectMember"];
+        trace?: never;
+    };
+    "/projects/{projectId}/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The project's membership audit log (needs `members.manage`).
+         * @description Invitations, joins, additions, role and expiry changes and removals, newest first. Page with `limit` (default 50, at most 200) and `before`, the `nextBefore` of the previous page.
+         */
+        get: operations["listProjectAuditLog"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1845,10 +1967,115 @@ export interface components {
             /** @constant */
             status: "ok";
         };
+        /**
+         * @description A member's role in one project. `viewer` reads, `editor` also changes content, `publisher` also makes it live and manages zones, `admin` also manages keys and members.
+         * @enum {string}
+         */
+        ProjectRole: "admin" | "publisher" | "editor" | "viewer";
+        /** @enum {string} */
+        ProjectPermission: "project.view" | "analytics.view" | "content.edit" | "content.publish" | "zones.manage" | "keys.manage" | "members.manage";
+        ProjectRoleMatrix: {
+            /** @description The roles, lowest to highest. */
+            roles: {
+                role: components["schemas"]["ProjectRole"];
+                permissions: components["schemas"]["ProjectPermission"][];
+            }[];
+            permissions: components["schemas"]["ProjectPermission"][];
+        };
         Project: {
             /** Format: uuid */
             id: string;
             name: string;
+            role: components["schemas"]["ProjectRole"];
+        };
+        ProjectMember: {
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            email: string;
+            role: components["schemas"]["ProjectRole"];
+            globalRole: components["schemas"]["UserRole"];
+            /**
+             * Format: date-time
+             * @description When the access ends, or null for no limit.
+             */
+            expiresAt: string | null;
+            /** @description True when `expiresAt` has passed; the membership then gives no access. */
+            expired: boolean;
+            /** Format: date-time */
+            joinedAt: string;
+            /** @description True for the caller's own row. */
+            you: boolean;
+        };
+        AddProjectMemberRequest: {
+            email: string;
+            role: components["schemas"]["ProjectRole"];
+            /** Format: date-time */
+            expiresAt?: string | null;
+        };
+        UpdateProjectMemberRequest: {
+            role?: components["schemas"]["ProjectRole"];
+            /**
+             * Format: date-time
+             * @description A future time, or null to clear the limit.
+             */
+            expiresAt?: string | null;
+        };
+        CreateInvitationRequest: {
+            role?: components["schemas"]["ProjectRole"];
+            /**
+             * Format: date-time
+             * @description When the invitee's access ends once they have joined; null or left out for no limit.
+             */
+            accessExpiresAt?: string | null;
+        };
+        PendingInvitation: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            role: components["schemas"]["ProjectRole"];
+            /** Format: date-time */
+            accessExpiresAt: string | null;
+            createdBy: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            } | null;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When the link stops working.
+             */
+            expiresAt: string;
+        };
+        /** @enum {string} */
+        ProjectAuditAction: "invited" | "invitation_revoked" | "joined" | "member_added" | "role_changed" | "expiry_changed" | "removed";
+        ProjectAuditEntry: {
+            /** Format: uuid */
+            id: string;
+            action: components["schemas"]["ProjectAuditAction"];
+            /**
+             * Format: uuid
+             * @description Null when the actor's account was deleted since.
+             */
+            actorId: string | null;
+            actorName: string;
+            /** Format: uuid */
+            targetUserId: string | null;
+            targetEmail: string | null;
+            /** @description What changed, such as `role`, `from`, `to`, `expiresAt`, `invitationId`. */
+            detail: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ProjectAuditLog: {
+            entries: components["schemas"]["ProjectAuditEntry"][];
+            /** @description Pass as `before` for the next page; null on the last page. */
+            nextBefore: string | null;
         };
         CreateProjectRequest: {
             name: string;
@@ -2357,6 +2584,16 @@ export interface components {
             };
             /** @description How many projects the user is a member of. */
             projects: number;
+            /** @description The user's explicit project memberships with their roles (expired ones included). */
+            projectRoles: {
+                /** Format: uuid */
+                projectId: string;
+                projectName: string;
+                role: components["schemas"]["ProjectRole"];
+                /** Format: date-time */
+                expiresAt: string | null;
+                expired: boolean;
+            }[];
         };
         AdminUserList: {
             users: components["schemas"]["AdminUser"][];
@@ -3050,6 +3287,12 @@ export interface components {
             id: string;
             /** Format: uuid */
             projectId: string;
+            role: components["schemas"]["ProjectRole"];
+            /**
+             * Format: date-time
+             * @description When the invitee's access ends once they have joined, or null for no limit.
+             */
+            accessExpiresAt: string | null;
             /** @description The one-time link to share, `<dashboard origin>/invite/<token>`. Shown only once. */
             url: string;
             /** Format: date-time */
@@ -3057,6 +3300,9 @@ export interface components {
         };
         InvitationPreview: {
             projectName: string;
+            role: components["schemas"]["ProjectRole"];
+            /** Format: date-time */
+            accessExpiresAt: string | null;
             /** Format: date-time */
             expiresAt: string;
         };
@@ -3082,7 +3328,7 @@ export interface components {
             [key: string]: unknown;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "user_not_found" | "member_exists" | "member_not_found" | "invitation_not_found" | "last_project_admin" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -4530,7 +4776,29 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
-    createInvitation: {
+    listProjectRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The roles, lowest to highest, with their permissions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRoleMatrix"];
+                };
+            };
+            401: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listInvitations: {
         parameters: {
             query?: never;
             header?: never;
@@ -4541,6 +4809,34 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The pending invitations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingInvitation"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateInvitationRequest"];
+            };
+        };
+        responses: {
             /** @description The invitation, with its one-time link. */
             201: {
                 headers: {
@@ -4550,8 +4846,174 @@ export interface operations {
                     "application/json": components["schemas"]["Invitation"];
                 };
             };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    revokeInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                invitationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitation is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listProjectMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMember"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    addProjectMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddProjectMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description The new member. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMember"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    removeProjectMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    updateProjectMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description The member as changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMember"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listProjectAuditLog: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description The `nextBefore` of the previous page; entries older than that entry are returned. */
+                before?: string;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the log. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectAuditLog"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -6579,6 +7041,9 @@ export const pathsProjectsProjectIdFontsPostParametersQueryWeightValues: Readonl
 export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["style"]> = ["normal", "italic"];
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
+export const projectRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectRole"]> = ["admin", "publisher", "editor", "viewer"];
+export const projectPermissionValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectPermission"]> = ["project.view", "analytics.view", "content.edit", "content.publish", "zones.manage", "keys.manage", "members.manage"];
+export const projectAuditActionValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectAuditAction"]> = ["invited", "invitation_revoked", "joined", "member_added", "role_changed", "expiry_changed", "removed"];
 export const createZoneRequestTemplateValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["CreateZoneRequest"]["template"]> = ["stories-bar", "promo-banner", "blank"];
 export const userListRefusalValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserListRefusal"]> = ["too-long", "control-character", "not-one-column"];
 export const tagMatchValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TagMatch"]> = ["any", "all"];
@@ -6604,7 +7069,7 @@ export const projectFontFallbackValues: ReadonlyArray<FlattenedDeepRequired<comp
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const authMethodKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthMethodKind"]> = ["passkey", "password", "oidc", "google", "apple"];
 export const authProviderKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthProviderKind"]> = ["oidc", "google", "apple"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];

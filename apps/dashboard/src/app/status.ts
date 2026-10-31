@@ -92,9 +92,10 @@ export class StatusBadge {
       role="switch"
       class="show-switch__button"
       [attr.aria-checked]="on()"
-      [attr.aria-label]="label()"
+      [attr.aria-label]="reason() ? label() + '. ' + reason() : label()"
+      [attr.title]="reason() || null"
       [attr.aria-describedby]="describedBy() || null"
-      [attr.aria-disabled]="disabled() || null"
+      [attr.aria-disabled]="disabled() || reason() ? true : null"
       (click)="toggle()"
     >
       <span class="show-switch__thumb" aria-hidden="true"></span>
@@ -110,12 +111,14 @@ export class ShowSwitch {
   readonly stateText = input.required<string>();
   readonly disabled = input(false);
   readonly describedBy = input('');
+  /** Why the switch cannot be used by this caller (their role); it then stays visible, disabled and explained. */
+  readonly reason = input('');
   /** The state the person asked for. */
   readonly toggled = output<boolean>();
 
   // While a change is saved the switch stays focusable (aria-disabled, not disabled, so focus is
   // not lost) and ignores clicks.
   protected toggle(): void {
-    if (!this.disabled()) this.toggled.emit(!this.on());
+    if (!this.disabled() && !this.reason()) this.toggled.emit(!this.on());
   }
 }

@@ -1,0 +1,8 @@
+{
+  "name": "seed-demo",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/seed-demo/src",
+  "projectType": "library",
+  "tags": ["type:seed"],
+  "// targets": "No build of its own: the CLI (`taleart seed-demo`) and the API (TALEART_SEED_DEMO=true) bundle it, pictures included (src/assets/*.jpg?inline). `node libs/seed-demo/scripts/render-assets.mjs` redraws the pictures."
+}

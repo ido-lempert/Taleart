@@ -1,8 +1,11 @@
 import {
   ErrorCodes,
+  isProjectRole,
   isSettableStatus,
   isValidWindow,
   SETTABLE_STATUSES,
+  PROJECT_ROLES,
+  type ProjectRole,
   type SetScheduleRequest,
   type SettableStatus,
 } from '@taleart/contract';
@@ -86,4 +89,42 @@ export function requiredStringArray(body: unknown, field: string): string[] {
     throw new HttpError(400, ErrorCodes.validationFailed, `Every item of ${field} must be a string`);
   }
   return value;
+}
+
+/** Reads a project role from a JSON body; `undefined` when absent and not required. */
+export function projectRoleField(body: unknown, field: string, required: boolean): ProjectRole | undefined {
+  const value = (body as Record<string, unknown> | undefined)?.[field];
+  if (value === undefined && !required) return undefined;
+  if (!isProjectRole(value)) {
+    throw new HttpError(400, ErrorCodes.validationFailed, `${field} must be one of ${PROJECT_ROLES.join(', ')}`);
+  }
+  return value;
+}
+
+/**
+ * Reads the end of someone's access from a JSON body: an ISO 8601 date-time with a time zone in the
+ * future, `null` for no limit, or `undefined` when the field is absent.
+ */
+export function accessEndField(body: unknown, field: string): Date | null | undefined {
+  const value = (body as Record<string, unknown> | undefined)?.[field];
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const at = typeof value === 'string' && /(Z|[+-]\d{2}:\d{2})$/i.test(value) ? new Date(value) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    throw new HttpError(400, ErrorCodes.validationFailed, `${field} must be an ISO 8601 date-time with a time zone, or null`);
+  }
+  if (at.getTime() <= Date.now()) {
+    throw new HttpError(400, ErrorCodes.validationFailed, `${field} must be in the future`);
+  }
+  return at;
+}
+
+/** Refuses a JSON body with a field outside `allowed` (400). */
+export function onlyFields(body: unknown, allowed: readonly string[]): void {
+  if (body === undefined || body === null) return;
+  if (typeof body !== 'object' || Array.isArray(body)) {
+    throw new HttpError(400, ErrorCodes.validationFailed, 'Send a JSON object');
+  }
+  const unknown = Object.keys(body).find((field) => !allowed.includes(field));
+  if (unknown !== undefined) throw new HttpError(400, ErrorCodes.validationFailed, `${unknown} is not a known field`);
 }

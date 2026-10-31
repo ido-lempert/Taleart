@@ -68,6 +68,8 @@ export interface SignInMethodsOptions {
   passwordAddressLimit?: RateLimitOptions | null;
   /** True when the server runs with TALEART_SETUP_PASSWORD=true: the first admin may set up with a password. */
   setupPasswordAllowed: boolean;
+  /** Called with the first admin once password setup has created them; see the auth router. */
+  onSetup?: (user: User) => void;
 }
 
 const invalid = (message: string) => new HttpError(400, ErrorCodes.validationFailed, message);
@@ -188,6 +190,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       setSession(res, signedIn.session, options.secureCookies);
       const payload: SignedIn = { user: signedIn.user };
       res.status(201).json(payload);
+      options.onSetup?.(signedIn.user);
     } catch (err) {
       next(err);
     }

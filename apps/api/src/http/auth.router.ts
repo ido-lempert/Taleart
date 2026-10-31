@@ -7,6 +7,7 @@ import {
   type RedeemInvitationRequest,
   type SetupRequest,
   type SignedIn,
+  type User,
 } from '@taleart/contract';
 import {
   CHALLENGE_TTL_MS,
@@ -52,10 +53,12 @@ export interface AuthOptions {
   secretsAvailable: boolean;
   /** True when TALEART_SETUP_PASSWORD=true: on an empty install the password is then a setup method. */
   setupPasswordAllowed: boolean;
+  /** Called with the first admin once setup has created them and their session; its failures are the caller's to handle. */
+  onSetup?: (user: User) => void;
 }
 
 /** Setup of the first admin, joining by invitation, passkey sign-in and sign-out (AD-9). */
-export function authRouter(pool: Pool, { verifier, secureCookies, secretsAvailable, setupPasswordAllowed }: AuthOptions): Router {
+export function authRouter(pool: Pool, { verifier, secureCookies, secretsAvailable, setupPasswordAllowed, onSetup }: AuthOptions): Router {
   const router = Router();
 
   const setChallenge = (res: Response, id: string) =>
@@ -105,6 +108,7 @@ export function authRouter(pool: Pool, { verifier, secureCookies, secretsAvailab
       setSession(res, signedIn.session);
       const body: SignedIn = { user: signedIn.user };
       res.status(201).json(body);
+      onSetup?.(signedIn.user);
     } catch (err) {
       if (err instanceof PasskeyFailedError) clearChallenge(res);
       next(err);

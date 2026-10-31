@@ -18,6 +18,9 @@ You create a zone (a spot on your site), add a tale group with images, video or 
 
 ## Requirements
 
+Want it running in minutes? `docker compose --env-file .env.docker.example up -d --build` starts everything on http://localhost:8080. Guide: https://taleart.lempert.site/docker
+
+
 Node.js 22 or later. A PostgreSQL database.
 
 ## Status

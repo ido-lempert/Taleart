@@ -1,0 +1,20 @@
+# One origin: the API's paths go to the api service, everything else to the dashboard.
+# Routes come from libs/contract: /api/v1 (management), /delivery/v1, /media, /sdk/v1.
+{
+	# The admin endpoint is only for the health check, inside the container.
+	admin 127.0.0.1:2019
+}
+
+{$TALEART_SITE} {
+	# No request size limit and no read timeout here: the API enforces its own limits
+	# (media 100 MB, user list CSV 50 MB, 300 s per request).
+	@api path /api/* /delivery/* /media/* /sdk/*
+	handle @api {
+		# Caddy sends the client's address as X-Forwarded-For; the API trusts one proxy (TRUST_PROXY=1).
+		reverse_proxy api:3333
+	}
+	handle {
+		reverse_proxy dashboard:4000
+	}
+	encode zstd gzip
+}

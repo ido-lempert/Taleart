@@ -120,13 +120,17 @@ import { zoneInstalled } from '../zone-setup';
                 A zone is one spot in your app or site where tales show. Create
                 one, then choose its display and add tale groups.
               </p>
-              <button
-                type="button"
-                class="btn btn--primary"
-                (click)="store.openDrawer({ kind: 'zone' }, $event)"
-              >
-                <app-icon name="plus" /> New zone
-              </button>
+              @if (store.can('zones.manage')) {
+                <button
+                  type="button"
+                  class="btn btn--primary"
+                  (click)="store.openDrawer({ kind: 'zone' }, $event)"
+                >
+                  <app-icon name="plus" /> New zone
+                </button>
+              } @else {
+                <p class="muted" id="zones-need-role">{{ store.roleNeeded('zones.manage') }} Ask an admin of the project.</p>
+              }
             </section>
           }
         } @else {

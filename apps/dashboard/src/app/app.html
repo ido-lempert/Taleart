@@ -47,6 +47,11 @@
                 }
               </select>
             </div>
+            @if (store.role(); as role) {
+              <span class="role-badge" id="project-role" [attr.data-role]="role">
+                <span class="visually-hidden">Your role in this project: </span>{{ roleLabels[role] }}
+              </span>
+            }
           }
           @if (createRequest(); as request) {
             <button type="button" class="btn btn--primary" (click)="store.openDrawer(request, $event)">

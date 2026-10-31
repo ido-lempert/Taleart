@@ -27,6 +27,7 @@ import { GroupRow, opensFromRowClick } from '../group-row';
 import { GroupView } from './group-view';
 import { Icon } from '../icon';
 import type { MenuItem, MenuPick } from '../menu-button';
+import { gateMenu } from '../project-roles';
 import { statusActions, statusLabel } from '../status';
 import { visibilityLine } from '../visibility';
 
@@ -215,9 +216,11 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
           <section class="card section" aria-labelledby="tale-groups-title">
             <div class="section__header tale-groups__header">
               <h2 class="section__title" id="tale-groups-title" tabindex="-1">Tale groups in {{ project.name }}</h2>
-              <button type="button" class="btn btn--primary btn--sm" id="new-project-tale-group" (click)="newGroup($event)">
-                <app-icon name="plus" /> New tale group
-              </button>
+              @if (store.can('content.edit')) {
+                <button type="button" class="btn btn--primary btn--sm" id="new-project-tale-group" (click)="newGroup($event)">
+                  <app-icon name="plus" /> New tale group
+                </button>
+              }
             </div>
             <!-- Opening a group reads it with its tales (story 8.19): while it is read, and when it cannot be. -->
             @if (opening(); as open) {
@@ -470,7 +473,10 @@ export class TaleGroupsPage {
             : projectZoneIds.every((id) => group.zoneIds.includes(id))
               ? 'Already in every zone'
               : '';
-      menus.set(group.id, [
+      menus.set(
+        group.id,
+        gateMenu(
+          [
         { id: 'rename', label: 'Rename' },
         { id: 'cover', label: 'Cover' },
         { id: 'tags', label: 'Audience' },
@@ -480,7 +486,11 @@ export class TaleGroupsPage {
           : { id: 'place', label: 'Show in another zone' },
         { id: 'copy', label: 'Copy to zone' },
         ...(statusItem ? [statusItem] : []),
-      ]);
+          ],
+          (permission) => this.store.can(permission, group.projectId),
+          (permission) => this.store.roleNeeded(permission),
+        ),
+      );
     }
     return menus;
   });

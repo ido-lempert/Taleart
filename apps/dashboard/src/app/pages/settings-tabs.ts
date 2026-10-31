@@ -3,7 +3,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthStore } from '../auth';
 
 /**
- * The tabs of Settings: API tokens, the signed-in user's own sign-in methods, and (admins only) the
+ * The tabs of Settings: API tokens, the project's Team, the signed-in user's own sign-in methods, and (admins only) the
  * sign-in methods and users of the install.
  */
 @Component({
@@ -35,6 +35,7 @@ import { AuthStore } from '../auth';
       <a routerLink="/settings/my-sign-in-methods" routerLinkActive="active" ariaCurrentWhenActive="page">
         My sign-in methods
       </a>
+      <a routerLink="/settings/team" routerLinkActive="active" ariaCurrentWhenActive="page">Team</a>
       @if (auth.isAdmin()) {
         <a routerLink="/settings/sign-in-methods" routerLinkActive="active" ariaCurrentWhenActive="page"
           >Sign-in methods</a

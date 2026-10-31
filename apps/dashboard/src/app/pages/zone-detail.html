@@ -52,13 +52,15 @@
             </li>
           }
         </ul>
-        <button
-          type="button"
-          class="btn btn--secondary btn--sm zone-edit"
-          (click)="store.openDrawer({ kind: 'editZone', zoneId: zone.id }, $event)"
-        >
-          Edit name and slug
-        </button>
+        @if (canZones()) {
+          <button
+            type="button"
+            class="btn btn--secondary btn--sm zone-edit"
+            (click)="store.openDrawer({ kind: 'editZone', zoneId: zone.id }, $event)"
+          >
+            Edit name and slug
+          </button>
+        }
       </header>
 
       @if (setupShown()) {
@@ -165,11 +167,11 @@
               [attr.aria-label]="'Tale groups in ' + zone.name"
               cdkDropList
               cdkDropListLockAxis="y"
-              [cdkDropListDisabled]="filtering()"
+              [cdkDropListDisabled]="filtering() || !canEdit()"
               (cdkDropListDropped)="dropGroup($event)"
             >
               @for (group of visibleGroups(); track group.id; let gi = $index, gFirst = $first, gLast = $last) {
-                <li class="group" cdkDrag cdkDragPreviewContainer="parent">
+                <li class="group" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent">
                   <!--
                     A click on the row outside its controls opens the group, as its name does (R10). It
                     is a pointer shortcut only: the name's button is the keyboard and screen reader way.
@@ -183,7 +185,7 @@
                     (picked)="groupPicked(group, $event)"
                     (click)="rowClick(group, $event)"
                   >
-                    @if (!filtering()) {
+                    @if (!filtering() && canEdit()) {
                       <div class="group-row__reorder" groupRowLead>
                         <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
                           <app-icon name="grip" />
@@ -243,6 +245,7 @@
               <p class="empty__text">A tale group is a set of tales shown together. Create one, then add its tales.</p>
             </div>
           }
+          @if (canEdit()) {
           <div class="groups-actions">
             <button
               type="button"
@@ -268,6 +271,9 @@
               <span class="muted groups-actions__reason" id="add-existing-reason">{{ addExistingReason() }}</span>
             }
           </div>
+          } @else {
+            <p class="muted" id="groups-readonly">View only: {{ store.roleNeeded('content.edit') }}</p>
+          }
         </section>
       </div>
 
@@ -282,7 +288,7 @@
         <section class="card section zone-section" aria-labelledby="display-title">
           <div class="section__header">
             <h3 class="section__title" id="display-title" tabindex="-1">Display</h3>
-            @if (!zone.frame) {
+            @if (!zone.frame && canZones()) {
               <button
                 type="button"
                 id="display-choose"
@@ -296,7 +302,7 @@
           @if (zone.frame; as display) {
             <div class="display-row">
               <span class="pill" id="display-type">{{ store.frameTypeLabel(display.type) }}</span>
-              @if (store.hasSettings(display.type)) {
+              @if (store.hasSettings(display.type) && canZones()) {
                 <button
                   type="button"
                   class="btn btn--secondary btn--sm"
@@ -319,6 +325,7 @@
                 </dl>
               </div>
             }
+            @if (canZones()) {
             <form class="display-type" (submit)="changeDisplayType($event)">
               <div class="field">
                 <label class="field__label" for="display-type-select">Display type</label>
@@ -349,6 +356,9 @@
                 }
               </div>
             </form>
+            } @else {
+              <p class="muted" id="display-readonly">{{ store.roleNeeded('zones.manage') }}</p>
+            }
           } @else {
             <p class="muted">No display yet. Choose how this zone shows its tale groups: a bar or a banner.</p>
           }
@@ -369,12 +379,12 @@
         [hidden]="selectedTab() !== 'install'"
       >
         <!-- The zone's key, the snippet with it and the test page (zone keys, the Web SDK's zone-key attribute). -->
-        <app-zone-key-card [zoneId]="zone.id" [admin]="auth.isAdmin()" />
+        <app-zone-key-card [zoneId]="zone.id" [admin]="canKeys()" />
 
         <!-- The project's site key is for server-side and legacy callers only, so it sits under a disclosure. -->
         <details class="advanced" id="advanced-server">
           <summary>Advanced / server-side</summary>
-          <app-site-key-card [projectId]="zone.projectId" [admin]="auth.isAdmin()" />
+          <app-site-key-card [projectId]="zone.projectId" [admin]="canKeys()" />
         </details>
       </div>
 

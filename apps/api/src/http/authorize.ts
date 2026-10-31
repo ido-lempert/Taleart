@@ -1,5 +1,11 @@
-import { ErrorCodes, type User } from '@taleart/contract';
-import { accessibleProjectIds, canAccessProject, projectExists, type Caller, type ProjectScope } from '@taleart/server-access';
+import { ErrorCodes, type ProjectPermission, type User } from '@taleart/contract';
+import {
+  accessibleProjectIds,
+  hasProjectPermission,
+  projectExists,
+  type Caller,
+  type ProjectScope,
+} from '@taleart/server-access';
 import { taleGroupProjectId, taleProjectId } from '@taleart/server-tales';
 import { zoneProjectId } from '@taleart/server-zones';
 import type { RequestHandler, Response } from 'express';
@@ -34,24 +40,78 @@ async function projectOf(pool: Pool, kind: ResourceKind, id: string): Promise<st
   }
 }
 
-/**
- * Refuses with 403 `forbidden` when the resource is in a project the caller
- * cannot access. A resource that does not exist passes, so the route answers
- * its own 404 (or 400 for a body's unknown project).
- */
-export async function authorize(pool: Pool, res: Response, kind: ResourceKind, id: string): Promise<void> {
-  const projectId = await projectOf(pool, kind, id);
-  if (projectId === null) return;
-  if (!(await canAccessProject(pool, caller(res), projectId))) {
-    throw new HttpError(403, ErrorCodes.forbidden, 'You do not have access to this project');
-  }
+/** What a request needs by default: reading needs `project.view`, anything else `content.edit`. */
+export function defaultPermission(method: string): ProjectPermission {
+  return method === 'GET' || method === 'HEAD' ? 'project.view' : 'content.edit';
 }
 
-/** Middleware form of {@link authorize} for the resource named by a route parameter. */
-export function authorizeParam(pool: Pool, kind: ResourceKind, param: string): RequestHandler {
+/** The refusal for a caller whose role lacks the permission, and for a non-member alike. */
+export function forbiddenRole(): HttpError {
+  return new HttpError(403, ErrorCodes.forbidden, 'Your role in this project does not allow this');
+}
+
+/**
+ * The caller's check of one project permission: true when their role in the project (a global admin
+ * is `admin` everywhere; an API token never exceeds its user, nor its projects) grants it.
+ */
+export function allowed(pool: Pool, res: Response, projectId: string, permission: ProjectPermission): Promise<boolean> {
+  return hasProjectPermission(pool, caller(res), projectId, permission);
+}
+
+/**
+ * Refuses with 403 `forbidden` when the caller's role in the resource's project lacks `permission`
+ * (a non-member is refused the same way). A resource that does not exist passes, so the route
+ * answers its own 404 (or 400 for a body's unknown project).
+ */
+export async function authorize(
+  pool: Pool,
+  res: Response,
+  kind: ResourceKind,
+  id: string,
+  permission: ProjectPermission,
+): Promise<void> {
+  const projectId = await projectOf(pool, kind, id);
+  if (projectId === null) return;
+  if (!(await allowed(pool, res, projectId, permission))) throw forbiddenRole();
+}
+
+/**
+ * Middleware form of {@link authorize} for the resource named by a route parameter. Without a
+ * `permission` it is derived from the method ({@link defaultPermission}).
+ */
+export function authorizeParam(
+  pool: Pool,
+  kind: ResourceKind,
+  param: string,
+  permission?: ProjectPermission,
+): RequestHandler {
   return async (req, res, next) => {
     try {
-      await authorize(pool, res, kind, String(req.params[param] ?? ''));
+      await authorize(pool, res, kind, String(req.params[param] ?? ''), permission ?? defaultPermission(req.method));
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/**
+ * {@link authorizeParam} for the project named by `:projectId`, where a project that does not exist is
+ * refused 403 to anyone but a global admin (who gets the route's 404), so the member routes do not tell
+ * a stranger which ids are projects.
+ */
+export function projectPermission(pool: Pool, permission: ProjectPermission): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const projectId = String(req.params['projectId'] ?? '');
+      if (!(await projectExists(pool, projectId))) {
+        if (caller(res).role === 'admin') {
+          next();
+          return;
+        }
+        throw forbiddenRole();
+      }
+      await authorize(pool, res, 'project', projectId, permission);
       next();
     } catch (err) {
       next(err);

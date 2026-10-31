@@ -111,6 +111,8 @@ import { DOCS_SNIPPET } from '../docs-content';
     <h3 id="index-installation">Installation</h3>
     <ul>
       <li><a routerLink="/guides-install">Install TaleArt locally</a></li>
+      <li><a routerLink="/docker">Install with Docker</a></li>
+      <li><a routerLink="/demo-data">Demo data</a></li>
       <li><a routerLink="/install">Install a zone</a></li>
       <li><a routerLink="/guides-connect-website">Connect a website</a></li>
     </ul>
@@ -129,6 +131,7 @@ import { DOCS_SNIPPET } from '../docs-content';
     <h3 id="index-workspace">Workspace</h3>
     <ul>
       <li><a routerLink="/projects-and-team">Projects, team and sign-in</a></li>
+      <li><a routerLink="/roles-and-permissions">Roles and permissions</a></li>
       <li><a routerLink="/guides/sign-in-methods">Sign-in methods</a></li>
     </ul>
     <h3 id="index-sdk-guides">SDK guides</h3>

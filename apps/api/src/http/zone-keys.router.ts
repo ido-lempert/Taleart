@@ -3,7 +3,7 @@ import { clearPublicFontCache, clearPublicMediaCache } from '@taleart/server-tal
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
-import { authorizeParam, caller, requireAdmin } from './authorize';
+import { authorizeParam, caller } from './authorize';
 
 // The project of an existing zone, or ZoneNotFoundError (404 `zone_not_found`).
 async function existingZoneProject(pool: Pool, zoneId: string): Promise<string> {
@@ -19,6 +19,7 @@ async function existingZoneProject(pool: Pool, zoneId: string): Promise<string> 
 export function zoneKeysRouter(pool: Pool): Router {
   const router = Router();
   const zoneAccess = authorizeParam(pool, 'zone', 'zoneId');
+  const keysAccess = authorizeParam(pool, 'zone', 'zoneId', 'keys.manage');
 
   router.get('/:zoneId/key', zoneAccess, async (req, res, next) => {
     try {
@@ -30,7 +31,7 @@ export function zoneKeysRouter(pool: Pool): Router {
   });
 
   // Issuing while a key is active rotates it: the old key is revoked in the same transaction.
-  router.post('/:zoneId/key', zoneAccess, requireAdmin, async (req, res, next) => {
+  router.post('/:zoneId/key', keysAccess, async (req, res, next) => {
     try {
       const projectId = await existingZoneProject(pool, req.params.zoneId);
       const issued = await issueZoneKey(pool, { zoneId: req.params.zoneId, projectId, createdBy: caller(res).id });
@@ -42,7 +43,7 @@ export function zoneKeysRouter(pool: Pool): Router {
     }
   });
 
-  router.delete('/:zoneId/key', zoneAccess, requireAdmin, async (req, res, next) => {
+  router.delete('/:zoneId/key', keysAccess, async (req, res, next) => {
     try {
       await existingZoneProject(pool, req.params.zoneId);
       await revokeZoneKey(pool, req.params.zoneId);

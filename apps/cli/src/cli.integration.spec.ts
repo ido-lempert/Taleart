@@ -456,4 +456,27 @@ describe('taleart against a test API', () => {
       expect(result.stdout).toContain(`Usage: taleart ${command}`);
     }
   });
+
+  it('seed-demo refuses an install that has projects, dry-runs, and with --force makes the demo project once', () => {
+    const refused = cli(['seed-demo', '--json']);
+    expect(refused.code).toBe(6);
+    expect(refused.error().code).toBe('seed_refused');
+
+    const dry = ok(cli(['seed-demo', '--dry-run', '--force', '--json'])).json();
+    expect(dry).toMatchObject({ status: 'dry-run', project: { name: 'Spring Campaign' }, counts: { zones: 3, taleGroups: 5, tales: 13 } });
+
+    const readOnlyRun = cli(['seed-demo', '--force', '--json'], { token: readOnly });
+    expect(readOnlyRun.code).toBe(4);
+
+    const made = ok(cli(['seed-demo', '--force', '--json'])).json();
+    expect(made).toMatchObject({ status: 'created', project: { name: 'Spring Campaign' }, counts: { zones: 3, taleGroups: 5, tales: 13 } });
+    const zones = ok(cli(['zones', 'list', '--project', made.project.id, '--json'])).json();
+    expect(zones.map((z: { name: string }) => z.name).sort()).toEqual(['Collection posters', 'Home stories', 'Sale banner']);
+    const groups = ok(cli(['groups', 'list', '--project', made.project.id, '--json'])).json();
+    expect(groups).toHaveLength(5);
+
+    // The marker is the project's name: a second run changes nothing.
+    const again = ok(cli(['seed-demo', '--json'])).json();
+    expect(again).toMatchObject({ status: 'exists', project: { id: made.project.id } });
+  });
 });
