@@ -70,12 +70,12 @@ deferred: []
   | dashboard | 370 |
   | contract | 258 |
   | server-tales | 228 |
-  | server-importer | 276 |
+  | | 276 |
   | web-sdk | 335 |
   | server-zones | 67 |
   | server-access | 29 |
   | server-targeting | 24 |
-  | fake-another tool | 18 |
+  | | 18 |
   | server-storage | 16 |
 
 - The dashboard's initial bundle is 495.83 kB, under the 500 kB budget.

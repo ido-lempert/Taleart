@@ -97,7 +97,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool`. Expected: all pass.
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample`. Expected: all pass.
 - `web-sdk:size`, `web-sdk:types-check`. Expected: pass. Dashboard initial bundle: under 500 kB.
 
 **Manual checks:**

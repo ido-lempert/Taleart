@@ -139,7 +139,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- passed (api 540 tests, dashboard 417, web-sdk 335).
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- passed (api 540 tests, dashboard 417, web-sdk 335).
 - `web-sdk:size` 21.85 KB gzipped; `web-sdk:types-check` passed; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` 3 of 206 failed (the known landscape full height, landscape contrast, R16 pixel diff); `sdk-sample:perf` cold p75 1271 ms. Dashboard initial 493.14 kB.
 
 **Manual checks:**

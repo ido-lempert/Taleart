@@ -319,12 +319,6 @@ describe('taleart against a test API', () => {
     expect(ok(cli(['user-lists', 'list', '--json'], inProject())).json()).toEqual([]);
   });
 
-  it('reads imports, and says when the importer is off', () => {
-    const result = cli(['imports', 'list', '--json'], inProject());
-    expect(result.code).toBe(8);
-    expect(result.error()).toMatchObject({ code: 'importer_not_configured', status: 503 });
-  });
-
   it('rotates and revokes the site key only with --yes', () => {
     expect(cli(['site-keys', 'rotate'], inProject()).code).toBe(10);
     const rotated = ok(cli(['site-keys', 'rotate', '--yes', '--json'], inProject())).json();

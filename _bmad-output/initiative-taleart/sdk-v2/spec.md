@@ -1,6 +1,6 @@
 # SDK v2 spec (owner request 2026-10-29)
 
-Decisions: zone keys return (reverses 8.7); script loads once; global config; hooks inspired by another tool's delegate;
+Decisions: zone keys return (reverses 8.7); script loads once; global config; hooks as delegate-style callbacks;
 publish only on owner go-ahead. Packages: npm `@lempert/taleart`, Maven `site.lempert.taleart`, iOS XCFramework on a GitHub release.
 
 ## Credential
@@ -20,7 +20,7 @@ publish only on owner go-ahead. Packages: npm `@lempert/taleart`, Maven `site.le
   Element-level overrides: `locale` attribute/property, `strings` property, `theme`.
 - Existing exports remain: configureZone, setExternalUserId, setTags, defineTaleartElement.
 
-## Hooks (another tool-style, bound to all elements via `init({hooks})` and to one via `element.hooks`)
+## Hooks (delegate-style, bound to all elements via `init({hooks})` and to one via `element.hooks`)
 `onLoaded(zone)`, `onLoadFailed(error)`, `onGroupImpression`, `onTaleShown`, `onPresented`, `onDismissed`,
 `onActionClicked(event)` (cancelable: `event.preventDefault()` stops the default navigation, host can route itself),
 `onUserInteracted` (poll/quiz/rating answer), `onEvent(event)` (every one of the above, one stream for analytics).

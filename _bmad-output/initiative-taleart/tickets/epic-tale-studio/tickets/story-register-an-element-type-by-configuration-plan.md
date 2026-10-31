@@ -101,5 +101,5 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool` -- all succeed.
+- `NX_DAEMON=false node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample` -- all succeed.
 - `node_modules/.bin/nx run web-sdk:size`, `web-sdk:types-check`, `sdk-sample:a11y`, `sdk-sample:a11y-review`, `sdk-sample:perf`.

@@ -91,9 +91,9 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- expected: all pass, test counts unchanged.
+- `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- expected: all pass, test counts unchanged.
 - `npm exec nx -- run web-sdk:types-check`, `web-sdk:size`, `sdk-sample:a11y`, `sdk-sample:a11y-review`, `sdk-sample:perf` -- expected: pass.
 
 **Results (after review fixes, on the foundation tip 901ba7e, `--skip-nx-cache`):**
-- lint, test, build: 12 projects pass. Tests before -> after: api 396 -> 396, dashboard 305 -> 305, contract 109 -> 109, server-access 29 -> 29, server-zones 67 -> 67, server-tales 105 -> 105, server-storage 16 -> 16, server-targeting 24 -> 24, server-importer 276 -> 276, web-sdk 276 -> 278 (+2 type-level drift tests, no type errors), fake-another tool 18 -> 18 (sdk-sample has no unit tests). Nx Vite deprecation warnings: 4 -> 0.
+- lint, test, build: 12 projects pass. Tests before -> after: api 396 -> 396, dashboard 305 -> 305, contract 109 -> 109, server-access 29 -> 29, server-zones 67 -> 67, server-tales 105 -> 105, server-storage 16 -> 16, server-targeting 24 -> 24, 276 -> 276, web-sdk 276 -> 278 (+2 type-level drift tests, no type errors), 18 -> 18 (sdk-sample has no unit tests). Nx Vite deprecation warnings: 4 -> 0.
 - `web-sdk:types-check`: 3 declaration files, none naming `@taleart/` or `components[`; the consumer type-checks. `web-sdk:size` 14.53 KB gzipped (budget 50 KB). `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 123 checks passed; `sdk-sample:perf` cold p75 first content 1255 ms (<= 1500 ms).

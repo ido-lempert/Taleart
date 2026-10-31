@@ -6,7 +6,7 @@ import { Icon } from '../icon';
 
 /**
  * The caller's projects as cards; opening one makes it the selected project.
- * Admins also get "Invite" and "Import from another tool" on each card and can create projects.
+ * Admins also get "Invite" on each card and can create projects.
  */
 @Component({
   selector: 'app-projects-page',
@@ -102,13 +102,6 @@ import { Icon } from '../icon';
                     >
                       Invite
                     </button>
-                    <a
-                      class="btn btn--secondary btn--sm"
-                      [routerLink]="['/projects', project.id, 'import']"
-                      [attr.aria-label]="'Import from another tool into ' + project.name"
-                    >
-                      Import from another tool
-                    </a>
                   }
                 </span>
               </li>

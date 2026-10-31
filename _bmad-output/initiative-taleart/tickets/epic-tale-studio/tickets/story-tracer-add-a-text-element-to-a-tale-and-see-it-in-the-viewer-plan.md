@@ -211,7 +211,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache`. Expected: all succeed.
+- `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache`. Expected: all succeed.
 - `NX_DAEMON=false npm exec nx -- run web-sdk:size`. Expected: 50 KB or less, gzipped.
 - `NX_DAEMON=false npm exec nx -- run sdk-sample:a11y`. Expected: 0 violations, and the text checks pass.
 - `NX_DAEMON=false npm exec nx -- run sdk-sample:perf`. Expected: p75 cold first content of 1.5 s or less.

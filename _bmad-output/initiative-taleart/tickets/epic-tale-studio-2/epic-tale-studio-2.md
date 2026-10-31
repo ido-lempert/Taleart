@@ -5,7 +5,7 @@ parent: initiative-taleart
 id: 11
 covers: [R13, R10]
 sources: [_bmad-output/initiative-taleart/ux-tale-studio-2/EXPERIENCE.md, _bmad-output/initiative-taleart/ux-tale-studio-2/DESIGN.md]
-companions: [_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, _bmad-output/initiative-taleart/tickets/epic-tale-studio/epic-tale-studio.md, _bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/studio-r4-1.md]
+companions: [_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, _bmad-output/initiative-taleart/tickets/epic-tale-studio/epic-tale-studio.md]
 after: []
 refined: true
 risk: high
@@ -15,7 +15,7 @@ risk: high
 
 ## Description
 
-The owner finds another tool's studio more intuitive than ours. He asked for an editor with every component on the left, ready to drag onto the tale, and the selected element's properties on the right, like low-code apps, and for it to be better than another tool's (owner request, 2026-10-24).
+The owner finds our studio less intuitive than it could be. He asked for an editor with every component on the left, ready to drag onto the tale, and the selected element's properties on the right, like low-code apps, (owner request, 2026-10-24).
 
 Today's Tale Studio (epic 7) is strong underneath. It has the tale document, the registry, autosave, undo, snapping, layers, project fonts, contrast warnings and the SDK preview. But its layout hides all of this: the canvas, 13 unlabelled add buttons, the layers list and the inspector share one narrow column (`ux-tale-studio-2/current-studio/`).
 
@@ -27,7 +27,7 @@ This epic rebuilds the studio's layout and interaction model per the UX spines (
 - a right inspector in sections with low-code controls;
 - a tale strip for the group's tales.
 
-It then adds what another tool does not document: alignment tools, templates, RTL mirroring, more shapes and entrance animation. The document model, the SDK renderer and the save and update semantics of epic 7 stay.
+It then adds alignment tools, templates, RTL mirroring, more shapes and entrance animation. The document model, the SDK renderer and the save and update semantics of epic 7 stay.
 
 ## Outcome
 
@@ -107,7 +107,7 @@ R17 (parent R13; NFR-007; architecture Quality Targets): **Accessible editor**
 - **No HTML or CSS from content.** Source: AD-16.
 - **Web SDK budget** of 50 KB gzipped and 1.5 s to first content. Source: architecture Quality Targets.
 - **WCAG 2.2 AA**, including 2.5.7 and 2.4.11. Source: architecture Quality Targets, NFR-007.
-- **No another tool brand names, text, icons or screenshots.** The research is paraphrased only. Source: AD-12, NFR-004, NFR-005.
+- **No third-party brand names, text, icons or screenshots.** Source: AD-12, NFR-004, NFR-005.
 
 ## Done when
 
@@ -134,14 +134,13 @@ R17 (parent R13; NFR-007; architecture Quality Targets): **Accessible editor**
 - design — `_bmad-output/initiative-taleart/ux-tale-studio-2/mockups/tale-studio-2.html` (and `.png`)
 - architecture — `_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md`, AD-3, AD-12, AD-15, AD-16, Quality Targets
 - epic — `_bmad-output/initiative-taleart/tickets/epic-tale-studio/epic-tale-studio.md` (R1 to R18; Boundaries "Post-MVP" list)
-- research — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/studio-r4-1.md`
 
 ## Notes
 
-- Decision (2026-10-24, owner request): the left palette with drag and drop and the right properties inspector, like low-code apps, better than another tool's studio.
+- Decision (2026-10-24, owner request): the left palette with drag and drop and the right properties inspector, like low-code apps.
 - Decision (2026-10-24, autopilot): the tracer bullet is story 1, "Tracer: the studio in five regions". It moves today's controls into the new shell with click to add, so the owner can review the layout (story 2) before the palette, drag and drop and inspector are rebuilt.
 - Decision (2026-10-24, autopilot): one epic of 18 stories rather than two. Every story touches the one studio component, so they form one ordered lane either way. The owner may split it after story 9, into "layout" (1 to 9) and "power features" (10 to 15).
-- Decision (2026-10-24, autopilot): templates and animation, which epic 7 listed as post-MVP, are pulled in here at the owner's request for a studio "better than another tool". Project-saved templates stay out.
+- Decision (2026-10-24, autopilot): templates and animation, which epic 7 listed as post-MVP, are pulled in here at the owner's request for a better studio. Project-saved templates stay out.
 - Assumption: the owner decisions listed at the end of EXPERIENCE.md stand until story 2 confirms or changes them. They are layers in the left panel, animation in scope, the canvas drawn by the SDK renderer, new shape kinds, built-in templates only, the RTL mirror action, edit-lite on phones, Discard and Duplicate in the tale menu, and strip reorder changing the group order.
 - Open question (architect, before story 15, recorded as its unknown): drawing configured types on the canvas with the SDK renderer means the dashboard imports more of `@taleart/web-sdk` than `/preview` exposes today (AD-16). Is a renderer entry point for one element acceptable?
 - Open question (architect, before story 13, recorded as its unknown): where the entrance field lives (an element-level `motion` beside `a11y`, or inside `props`), and its effect on the SDK budget.

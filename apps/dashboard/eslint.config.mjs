@@ -31,7 +31,7 @@ export default [
     {
         // The initial bundle stays under its 500 kB budget only while eager code never reaches the
         // contract code that only lazy pages use. esbuild loads every module a barrel re-exports along
-        // with the importer, even unused ones, so the dashboard never imports the root barrel, and
+        // with the importing module, even unused ones, so the dashboard never imports the root barrel, and
         // only the lazy Tale Studio, theme and font pages (and their helpers) import the narrow
         // lazy-only entry points' values; types from them are fine anywhere.
         files: [

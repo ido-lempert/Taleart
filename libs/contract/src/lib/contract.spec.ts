@@ -24,13 +24,11 @@ import {
   statusHttpCode,
   ERROR_CODES,
   ErrorCodes,
-  IMPORT_STATUSES,
   isZoneSlug,
   MAX_ZONE_SLUG_LENGTH,
   zoneSlugFromName,
   uniqueZoneSlug,
   invitationPath,
-  isImportActive,
   isErrorBody,
   isMediaContentType,
   maxMediaBytes,
@@ -216,12 +214,7 @@ describe('site keys (epic UX rework R3)', () => {
   });
 });
 
-describe('imports', () => {
-  it('lists the job states and tells the active ones', () => {
-    expect([...IMPORT_STATUSES]).toEqual(['queued', 'running', 'done', 'failed']);
-    expect(IMPORT_STATUSES.filter(isImportActive)).toEqual(['queued', 'running']);
-  });
-
+describe('content status', () => {
   describe('status keys (AD-6)', () => {
     it('maps every key of the OpenAPI enum to its one HTTP code, draft to 204', () => {
       expect(Object.keys(CONTENT_STATUS_HTTP_CODES).sort()).toEqual([...CONTENT_STATUSES].sort());

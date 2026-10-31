@@ -6,8 +6,6 @@ sources:
   - ../tickets/epic-tale-studio/epic-tale-studio.md
   - ../tickets/epic-interactive-components/epic-interactive-components.md
   - ../architecture-taleart/architecture-taleart.md
-  - ../research-another tool-competitive-teardown/digests/studio-r4-1.md
-  - ../research-another tool-competitive-teardown/terminology-map.md
 companions:
   - DESIGN.md
 ---
@@ -21,35 +19,26 @@ Tale Studio 2 is a new layout and interaction model for the existing Tale Studio
 - **Surface:** the TaleArt dashboard (Angular, responsive web), route `/tales/:id/studio`. It is desktop first, works on tablets, and has an edit-lite mode on phones.
 - **UI system:** the dashboard's own tokens and components. DESIGN.md holds the editor's visual delta.
 - **Model:** a low-code editor, following the pattern people know from Canva, Figma, Webflow and Framer. Elements are on the left, the canvas is in the centre and properties are on the right.
-- **Owner request (2026-10-24):** "all the components on left and be able to drag & drop them, then on right I see the element properties like all low-code apps", and better than another tool's studio.
+- **Owner request (2026-10-24):** "all the components on left and be able to drag & drop them, then on right I see the element properties like all low-code apps" and better than what we have today.
 
 Why we are changing it (`current-studio/`): today the canvas, the add buttons, the layers list and the inspector share one narrow column. The add buttons are 13 unlabelled pills. The inspector appears under the layers list, so editing a tall element means scrolling the canvas out of view. Half of the page is empty unless Preview is open. Phones see the canvas, then a long scroll.
 
-## What another tool's studio does, and where we go further
+## What Tale Studio 2 adds
 
-From another tool's public docs (paraphrased; see the digest `studio-r4-1.md`):
-
-- You open a story from a story group into the studio canvas. The page has order, delete and duplicate actions and a screen-ratio preview selector.
-- Text comes in three preset sizes, with alignment, colour, highlight, bold and italic. No font choice is documented.
-- There are three kinds of CTA (a button, a swipe-up and an image button), each with a URL and a label.
-- There are seven interactive components (poll, rating, quiz, emoji reaction, countdown, product tag and promo code), each with a light or dark theme and a size.
-- You can upload stickers or drag in GIFs from GIPHY. Elements can overlap, but the docs describe no layers panel, alignment tools, undo, shapes, animation, gradients or brand kit.
-- Templates are the Canva route or the feed-driven "Template Studio". Alt text is set per story, and screen-reader support is English only. RTL is not documented.
-
-| Area | another tool (documented) | Tale Studio 2 |
-|---|---|---|
-| Adding elements | Toolbar entries; stickers and GIFs drag on | A searchable, grouped palette of every registered type. Drag, or click or Enter to add |
-| Fonts | Three text sizes, no font choice | Font picker that shows each font in its face, with project fonts (WOFF2 upload), the theme font and system stacks. Size slider, weight, line height |
-| Shapes | None documented | Rectangle, ellipse and line today; star, arrow and speech bubble added, with stroke and corner radius |
-| Layers | Overlap only | Layers tab with reorder, hide, lock, rename and multi-select, the same model on the canvas |
-| Alignment | Text alignment only | Smart guides, equal spacing, align and distribute, align to canvas or safe area, numeric position |
-| Undo | Not documented | Named undo and redo for every change, including multi-element actions |
-| Accessibility | Alt text per story | Alt text and names per element, contrast badges, visual reading order, full keyboard and screen-reader editing (WCAG 2.2 AA, 2.5.7) |
-| Preview | Screen-ratio selector | The real Web SDK viewer on the unsaved draft, in several phone sizes, with an RTL check. The canvas draws components the way the SDK does |
-| RTL | Not documented | Text direction per element, start and end alignment, "Mirror for right-to-left", reading order follows the tale's direction |
-| Motion | Not documented | Entrance animation per element, which respects reduced motion |
-| Templates | Through Canva or product feeds | Built-in starter tales and element presets in the studio; project templates later |
-| New components | — | Every type in the registry appears in the palette and inspector from its descriptor, with no layout work |
+| Area | Tale Studio 2 |
+|---|---|
+| Adding elements | A searchable, grouped palette of every registered type. Drag, or click or Enter to add |
+| Fonts | Font picker that shows each font in its face, with project fonts (WOFF2 upload), the theme font and system stacks. Size slider, weight, line height |
+| Shapes | Rectangle, ellipse and line today; star, arrow and speech bubble added, with stroke and corner radius |
+| Layers | Layers tab with reorder, hide, lock, rename and multi-select, the same model on the canvas |
+| Alignment | Smart guides, equal spacing, align and distribute, align to canvas or safe area, numeric position |
+| Undo | Named undo and redo for every change, including multi-element actions |
+| Accessibility | Alt text and names per element, contrast badges, visual reading order, full keyboard and screen-reader editing (WCAG 2.2 AA, 2.5.7) |
+| Preview | The real Web SDK viewer on the unsaved draft, in several phone sizes, with an RTL check. The canvas draws components the way the SDK does |
+| RTL | Text direction per element, start and end alignment, "Mirror for right-to-left", reading order follows the tale's direction |
+| Motion | Entrance animation per element, which respects reduced motion |
+| Templates | Built-in starter tales and element presets in the studio; project templates later |
+| New components | Every type in the registry appears in the palette and inspector from its descriptor, with no layout work |
 
 ## Information Architecture
 
@@ -261,7 +250,6 @@ Omar is a content editor who uses NVDA and no mouse.
 - **Rejected: a floating contextual toolbar over the canvas** (Canva). It covers the tale and fights 2.4.11. Its controls live in the inspector.
 - **Rejected: free canvas size or multiple artboards.** A tale is one 9:16 stage (AD-15).
 - **Rejected: element groups.** The document has no group type. Multi-select covers alignment, and groups would need an AD-15 change.
-- **Rejected: copying another tool's wording, icons or layout.** We use paraphrase only (NFR-005).
 
 ## Owner decisions to confirm
 

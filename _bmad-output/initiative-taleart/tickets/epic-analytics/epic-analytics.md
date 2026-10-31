@@ -34,5 +34,5 @@ A team can see how each widget and its content perform, using definitions it can
 
 ## Notes
 
-- Open question: TaleArt definitions for Engagement Rate and CTR must be written; another tool keeps its own definitions behind its customer success team.
+- Open question: TaleArt definitions for Engagement Rate and CTR must be written.
 - Decision (2026-10-20): TaleArt stores no sensitive end-user data (architecture AD-13, user). Events carry content, frame and zone ids and timestamps, never user attributes or other sensitive user data; Reach counts unique viewers by an anonymous identifier the SDK generates, not by user data `[ASSUMPTION]`.

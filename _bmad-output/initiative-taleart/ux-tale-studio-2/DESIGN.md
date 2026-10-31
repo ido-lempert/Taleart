@@ -165,4 +165,4 @@ Controls use `{rounded.control}`. Palette tiles and strip thumbnails use `{round
 | Show every value as a control and an exact number | Hide a value behind a slider with no number |
 | Draw interactive components as visitors see them | Show grey placeholder boxes on the canvas |
 | Keep targets at least 24px, even dense ones | Shrink handles or swatches below 24px of hit area |
-| Paraphrase competitors and draw our own icons | Copy another tool text, icons or layouts pixel for pixel |
+| Paraphrase competitors and draw our own icons | Copy another product's text, icons or layouts pixel for pixel |

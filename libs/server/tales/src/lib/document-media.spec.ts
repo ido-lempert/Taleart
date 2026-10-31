@@ -37,7 +37,7 @@ const projectId = '00000000-0000-4000-8000-0000000000aa';
 const IMAGE = 'media/0b7c9d4e-1111-4222-8333-944455556666.png';
 const GIF = 'media/0b7c9d4e-1111-4222-8333-944455556669.gif';
 const VIDEO = 'tales/0b7c9d4e-1111-4222-8333-944455556667.mp4';
-const BG = 'tales/imported-0b7c9d4e-1111-4222-8333-944455556668.jpg';
+const BG = 'tales/0b7c9d4e-1111-4222-8333-944455556668.jpg';
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 function media(

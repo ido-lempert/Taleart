@@ -36,7 +36,7 @@ R3 (parent R10): **Platform-neutral, extensible model**
 ## Constraints
 
 - **Apache-2.0** for all components. Source: initiative C1, decision recorded in the memlog.
-- **No another tool brand names** in code, UI or docs; names follow the approved terminology map. Source: initiative C3.
+- **No third-party brand names** in code, UI or docs. Source: initiative C3.
 - **Native clients consume the same data** through the same API. Source: initiative C6.
 
 ## Done when
@@ -47,23 +47,21 @@ R3 (parent R10): **Platform-neutral, extensible model**
 
 ## Boundaries
 
-- another tool import, rendering, targeting and analytics belong to sibling epics.
 - Native SDK work is post-MVP; this epic keeps the model ready for it.
-- Must not change: the approved entity names in the terminology map.
+- Must not change: the approved entity names.
 
 ## References
 
 - parent — `_bmad-output/initiative-taleart/initiative-taleart.md`, section Requirements (R3, R8, R10)
-- terminology — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/terminology-map.md`
 - architecture — `_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md`, AD-1 to AD-14, Consistency Conventions
 
 ## Notes
 
-- Decision: the approved entity names from the terminology map are used in the data model (user, approved).
+- Decision: the approved entity names are used in the data model (user, approved).
 - Decision: a project entity is added, so apps belong to projects and every content item has a project (user, approved).
 - Decision: stage and playbook move to the web zones epic (R11), and audience, member and external user key move to the targeting epic (R12) (user, approved). Renamed 2026-10-20: user list, segment, user attributes and external user ID; there is no member entity.
 - Decision: collections are added to the MVP data model, since R8 requires a project tag on them (user, approved). Superseded 2026-10-20, see below.
-- Decision: the dashboard uses user sessions, and the SDK uses a per-zone key, similar to another tool's zone token (user, approved).
+- Decision: the dashboard uses user sessions, and the SDK uses a per-zone key (user, approved).
 - Decision: PostgreSQL holds the model, with JSON columns for widget settings so new widget types need no migration (user, approved).
 - Decision (2026-10-20): no remote repository or hosted CI for now; work is committed locally only, so story 2 is dropped (user, approved).
 - Decision (2026-10-20): a tale exists only inside a tale group, never directly in a zone (user, approved).

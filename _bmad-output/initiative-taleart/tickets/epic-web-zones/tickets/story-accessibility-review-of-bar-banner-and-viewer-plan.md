@@ -90,7 +90,7 @@ deferred:
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false npx nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- passed (web-sdk 276 tests).
+- `NX_DAEMON=false npx nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- passed (web-sdk 276 tests).
 - `NX_DAEMON=false npx nx run web-sdk:size` -- 14.54 KB gzipped.
 - `NX_DAEMON=false npx nx run sdk-sample:a11y` -- no violations, all checks ok.
 - `NX_DAEMON=false npx nx run sdk-sample:a11y-review` -- all 123 checks passed, 0 axe violations in 19 states.

@@ -104,7 +104,7 @@ export async function getUserList(db: Db, projectId: string, userListId: string)
  * Creates an empty user list (epic targeting R3). The name is trimmed and checked
  * ({@link InvalidUserListNameError}), unique in the project ignoring case ({@link UserListExistsError});
  * a project holds at most {@link MAX_USER_LISTS_PER_PROJECT} lists ({@link UserListLimitError}). The
- * project's secret is created with its first list. Part of the public interface (importer story 2.12).
+ * project's secret is created with its first list.
  */
 export async function createUserList(
   db: TransactionalDb,
@@ -306,8 +306,8 @@ export async function addUserListRows(
 /**
  * Adds external user IDs to a user list, as {@link addUserListRows} does for a file: each value is
  * trimmed, a blank one skipped and one over 256 characters or with a control character refused,
- * numbered from 1 in the order given. For another module, such as the importer (story 2.12), that
- * holds IDs rather than a CSV. Part of the public interface.
+ * numbered from 1 in the order given. For a caller that
+ * holds IDs rather than a CSV.
  */
 export async function addUserListIds(
   db: TransactionalDb,

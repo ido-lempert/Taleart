@@ -6,7 +6,6 @@ import type { components } from '../generated/api';
 import {
   contentStatusValues,
   errorCodeValues,
-  importStatusValues,
   mediaContentTypeValues,
   userRoleValues,
 } from '../generated/api';
@@ -130,33 +129,6 @@ export type ProjectFont = Schemas['ProjectFont'];
 export type ProjectMedia = Schemas['ProjectMedia'];
 /** A delivered canvas: a media background's key is its public URL (AD-11). */
 export type DeliveryCanvas = Schemas['DeliveryCanvas'];
-export type Findanother toolAppsRequest = Schemas['Findanother toolAppsRequest'];
-export type another toolApp = Schemas['another toolApp'];
-export type StartImportRequest = Schemas['StartImportRequest'];
-export type ImportStatus = Schemas['ImportStatus'];
-export type ImportStarted = Schemas['ImportStarted'];
-export type ImportCount = Schemas['ImportCount'];
-export type ImportReport = Schemas['ImportReport'];
-export type ImportJob = Schemas['ImportJob'];
-export type ImportJobSummary = Schemas['ImportJobSummary'];
-export type ImportProgress = Schemas['ImportProgress'];
-export type ImportProgressCount = Schemas['ImportProgressCount'];
-export type ImportDifference = Schemas['ImportDifference'];
-export type ImportDifferenceEntity = Schemas['ImportDifferenceEntity'];
-export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
-export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
-export type ImportMediaFailure = Schemas['ImportMediaFailure'];
-export type ImportTagFailure = Schemas['ImportTagFailure'];
-export type ImportLinkFailure = Schemas['ImportLinkFailure'];
-export type ImportChangeCount = Schemas['ImportChangeCount'];
-export type ImportChanges = Schemas['ImportChanges'];
-export type ImportPreviewRequest = Schemas['ImportPreviewRequest'];
-export type ImportPreview = Schemas['ImportPreview'];
-export type ImportPreviewZone = Schemas['ImportPreviewZone'];
-export type ImportSelection = Schemas['ImportSelection'];
-export type ImportEntityChoice = Schemas['ImportEntityChoice'];
-export type ImportNotSelected = Schemas['ImportNotSelected'];
-export type ImportNotSelectedZone = Schemas['ImportNotSelectedZone'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 /**
@@ -180,23 +152,6 @@ export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
 
 /** Every role a user can have. */
 export const USER_ROLES: readonly UserRole[] = userRoleValues;
-
-/** Every state an import job can be in. */
-export const IMPORT_STATUSES: readonly ImportStatus[] = importStatusValues;
-
-/** True while an import job still has work ahead: queued or running. */
-export function isImportActive(status: ImportStatus): boolean {
-  return status === 'queued' || status === 'running';
-}
-
-/** What an import never brings across, listed once on every report. */
-export const IMPORT_NOT_IMPORTED_BY_DESIGN: readonly string[] = ['Conversion records', 'Stats'];
-
-/** The most differences one import report stores; the rest are only counted. */
-export const MAX_IMPORT_REPORT_DIFFERENCES = 5000;
-
-/** The most zones a preview lists and a selection may pick; the report lists as many not-selected zones. */
-export const MAX_IMPORT_SELECTED_ZONES = 500;
 
 /** The http-only cookie holding the session token (AD-9). */
 export const SESSION_COOKIE = 'taleart_session';
@@ -534,7 +489,7 @@ export const MEDIA_MAGIC_BYTES = 12;
 
 /**
  * True when the file's leading bytes match the declared type: the rule every
- * stored tale media passes, whether uploaded or imported.
+ * stored tale media passes.
  */
 export function matchesMagicNumber(contentType: MediaContentType, data: Uint8Array): boolean {
   return MEDIA_SIGNATURES[contentType](data);
@@ -801,11 +756,6 @@ export const ErrorCodes = {
   apiTokenNotFound: 'api_token_not_found',
   apiTokenLimitReached: 'api_token_limit_reached',
   rateLimited: 'rate_limited',
-  another toolTokenInvalid: 'another tool_token_invalid',
-  another toolUnavailable: 'another tool_unavailable',
-  importerNotConfigured: 'importer_not_configured',
-  importSelectionInvalid: 'import_selection_invalid',
-  previewBusy: 'preview_busy',
   invalidStatusTransition: 'invalid_status_transition',
   taleGroupArchived: 'tale_group_archived',
   unknownTemplate: 'unknown_template',

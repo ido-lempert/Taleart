@@ -172,4 +172,3 @@ same confirmation, stronger wording. A project's site key (`site-keys`) is for s
   `taleart groups unplace Summer --zone home-top --project "Shop" --json`.
 - Delete a tale (destructive, for good): `taleart tales delete <tale id> --yes --json`, only after the
   user agrees; `tales hide` is the undoable alternative.
-- Imports from another platform are read only here: `taleart imports list --project "Shop" --json`.

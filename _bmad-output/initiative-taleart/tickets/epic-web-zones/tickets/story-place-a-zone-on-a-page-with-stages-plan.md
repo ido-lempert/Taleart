@@ -123,7 +123,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool` -- expected: all succeed.
+- `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample` -- expected: all succeed.
 - `NX_DAEMON=false npm exec nx -- run web-sdk:size` -- expected: passes.
 - `NX_DAEMON=false npm exec nx -- run sdk-sample:a11y` -- expected: 0 violations, all checks ok.
 

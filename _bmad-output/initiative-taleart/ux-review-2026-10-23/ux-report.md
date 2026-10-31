@@ -1,7 +1,7 @@
 # UX review: dashboard first-run journey and concept model
 
 Date: 2026-10-23 · Branch `autopilot/foundation` (59de6c0) · Reviewer: UX (agent)
-Method: I read the PRD, the architecture (AD-2, AD-6, AD-14, AD-15), the web-zones and Tale Studio epics, the terminology map, the competitor digests and the dashboard code. Then I walked the built app as a new user on a throwaway database (API, dashboard and SDK sample page on spare ports) using Playwright, with a virtual passkey. Screenshots are in this folder, at 1440×900 (desktop) and 390×844 (files `40-45`, mobile).
+Method: I read the PRD, the architecture (AD-2, AD-6, AD-14, AD-15), the web-zones and Tale Studio epics, and the dashboard code. Then I walked the built app as a new user on a throwaway database (API, dashboard and SDK sample page on spare ports) using Playwright, with a virtual passkey. Screenshots are in this folder, at 1440×900 (desktop) and 390×844 (files `40-45`, mobile).
 
 ---
 
@@ -88,7 +88,6 @@ Method: I read the PRD, the architecture (AD-2, AD-6, AD-14, AD-15), the web-zon
 - **Stage** = a named spot on a page (`<taleart-view stage="key">`) that shows *one* of the zone's frames. Without a stage, the page shows all the zone's frames stacked.
 - **Playbook** = a one-time preset that creates a frame and a stage.
 - So the real estate is the **stage**, and the zone is closer to a **channel** (one content list, one key). Two spots on the same page show the same tale groups unless you create two zones, each with its own key.
-- The research terminology map defines a zone as "a location in an app that holds one Frame" (one frame per zone). The PRD and the build allow many. The owner's intuition matches the terminology map, not the build.
 
 **Recommendation.** See §3: a zone is one spot, with one display style. Stage is folded into zone. Playbook becomes a template you pick when you create a zone.
 
@@ -101,7 +100,7 @@ Method: I read the PRD, the architecture (AD-2, AD-6, AD-14, AD-15), the web-zon
 | Model | Zone means | Frame | Stage | Verdict |
 |---|---|---|---|---|
 | Today | Content channel + key + several frames | Several per zone | Spot on page showing one frame | 3 nouns for 1 idea ("put stories here"); real estate is hidden in "stage" |
-| **Proposed (fold)** | **A spot in your app or site** (page area) | **Its display style**, one per zone (a setting, not a list) | **Removed**: each stage becomes its own zone | 1 noun = 1 thing people point at; matches the owner's model and the competitor's placement |
+| **Proposed (fold)** | **A spot in your app or site** (page area) | **Its display style**, one per zone (a setting, not a list) | **Removed**: each stage becomes its own zone | 1 noun = 1 thing people point at; matches the owner's model |
 | Rename only | Keep 3, rename stage → "Placement" | – | – | Cheaper, but keeps the two-level indirection |
 
 ### Proposed definitions (glossary)
@@ -263,7 +262,7 @@ Suggested order: 2 → 1 → 3/4 → 9 → 5 (after D2/D3) → 6 → 7/8 → 10 
 
 ### Decisions for the owner (each with a recommendation)
 
-- **D1. Should a zone be one spot with one display style, with stages folded into zones?** *Recommend: yes.* It matches the owner's mental model, the terminology map ("holds one Frame") and the competitor's placement. It's the largest change (story 11).
+- **D1. Should a zone be one spot with one display style, with stages folded into zones?** *Recommend: yes.* It matches the owner's mental model. It's the largest change (story 11).
 - **D2. Should new tales be visible by default when their group is on, with per-tale "Hide"?** *Recommend: yes.* Studio edits stay private until "Update tale", so half-finished work doesn't leak.
 - **D3. Should the UI merge Draft and Paused into a single "Off" for groups and tales?** *Recommend: yes.* Keep the stored keys. Show Archive only in the ⋯ menu.
 - **D4. Should the Studio button become "Update tale", with "Publish" reserved for visibility?** *Recommend: yes.* (Alternative: autosave straight to the site, which isn't recommended because there's no review step.)

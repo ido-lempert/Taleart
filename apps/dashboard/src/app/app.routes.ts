@@ -113,20 +113,6 @@ export const appRoutes: Route[] = [
         title: 'Fonts · TaleArt',
         data: { heading: 'Projects' } satisfies ShellData,
       },
-      {
-        // Admins import a another tool app into this project.
-        path: 'projects/:projectId/import',
-        loadComponent: () => import('./pages/import').then((m) => m.ImportPage),
-        title: 'Import from another tool · TaleArt',
-        data: { heading: 'Projects' } satisfies ShellData,
-      },
-      {
-        // One import of the project: its progress while it runs, then its report.
-        path: 'projects/:projectId/import/:importId',
-        loadComponent: () => import('./pages/import-job').then((m) => m.ImportJobPage),
-        title: 'Import from another tool · TaleArt',
-        data: { heading: 'Projects' } satisfies ShellData,
-      },
       { path: 'settings', pathMatch: 'full', redirectTo: 'settings/api-tokens' },
       {
         // Settings > Sign-in methods (admins only): the passkey and password methods, and the providers.

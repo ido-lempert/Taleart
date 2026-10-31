@@ -71,23 +71,10 @@ describe('the tale media document (epic Tale Studio R16)', () => {
     expect(mergeTaleMedia(merged, VIDEO)).toBe(merged);
   });
 
-  it("on a re-import, replaces only media still holding the import's key, and adds none", () => {
-    const own = taleMediaDocument(IMAGE, ID).elements[0];
-    const kept = overlay({ elements: [{ ...own, props: { ...own.props, mediaKey: 'media/0c.png' } } as never] });
-    expect(mergeTaleMedia(kept, VIDEO, { expectedKey: IMAGE.key })).toBe(kept);
-    const removed = overlay();
-    expect(mergeTaleMedia(removed, VIDEO, { expectedKey: IMAGE.key })).toBe(removed);
-    const imported = overlay({ elements: [own] });
-    const merged = mergeTaleMedia(imported, VIDEO, { expectedKey: IMAGE.key }) as TaleDocument;
-    expect(merged.elements[0]).toMatchObject({ type: 'video', props: { mediaKey: VIDEO.key, taleMedia: true } });
-    // A tale with no document gets one either way.
-    expect(mergeTaleMedia(null, VIDEO, { expectedKey: IMAGE.key, id: ID })).toEqual(taleMediaDocument(VIDEO, ID));
-  });
-
   it('accepts only media a document can hold: a document key whose kind agrees with the stored type', () => {
     expect(documentTaleMedia('tales/0a.png', 'image/png')).toEqual(IMAGE);
-    expect(documentTaleMedia('tales/imported-0b.webm', 'video/webm')).toEqual({
-      key: 'tales/imported-0b.webm',
+    expect(documentTaleMedia('tales/0b.webm', 'video/webm')).toEqual({
+      key: 'tales/0b.webm',
       kind: 'video',
     });
     expect(documentTaleMedia(null, null)).toBeNull();

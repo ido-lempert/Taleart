@@ -51,7 +51,7 @@ risk = "medium"
 id = 14
 type = "story"
 title = "Modern dashboard: app shell and design system"
-description = "Requested by the user on 2026-10-20: the dashboard must look like a modern engagement product (comparable to another tool's dashboard), not a plain HTML page. Adds TaleArt's own design system (tokens, typography, components) and an app shell: a left navigation rail, a top bar with a project switcher, pages per area with routing, cards and a side panel (drawer) for create forms, and tale previews as 9:16 phone cards inside tale-group rows. Existing flows (projects, zones, frames, tale groups, tales) keep their behavior. TaleArt's own name, logo, colors and wording; no another tool assets, logo, colors or copied text."
+description = "Requested by the user on 2026-10-20: the dashboard must look like a modern engagement product (comparable to other engagement tools), not a plain HTML page. Adds TaleArt's own design system (tokens, typography, components) and an app shell: a left navigation rail, a top bar with a project switcher, pages per area with routing, cards and a side panel (drawer) for create forms, and tale previews as 9:16 phone cards inside tale-group rows. Existing flows (projects, zones, frames, tale groups, tales) keep their behavior. TaleArt's own name, logo, colors and wording; no third-party assets, logo, colors or copied text."
 verify = "Open the dashboard: a navigation rail and project switcher are shown; Zones lists zone cards for the chosen project; opening a zone shows its frames and its tale groups as rows of 9:16 tale cards; creating a project, zone, frame, tale group and tale works from side panels; the layout works at desktop and phone widths."
 covers = ["R1"]
 after = [3]
@@ -182,3 +182,15 @@ covers = []
 after = [1, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16]
 hitl = false
 risk = "low"
+
+[[entry]]
+id = 17
+type = "story"
+title = "Legal pages: terms of service, privacy policy and accessibility statement"
+description = "The product has no legal text yet. Add, with a qualified lawyer (a person provides and approves the wording; the model drafts only a starting outline), a terms of service, a privacy policy and an accessibility statement, plus the disclaimers the product needs (no warranty, limitation of liability, SDK licence terms and third-party notices, data processing roles when customers pass viewer properties or an external user ID, retention and deletion, cookie and storage use of the Web SDK and the native SDKs, support contact). The dashboard sign-in and registration show and link them; the docs site and the Web SDK README link them; the accessibility statement states the conformance target (WCAG 2.2 AA), the known gaps and a contact for reports; package metadata (npm, Maven POM, Package.swift README) links the terms and privacy pages. The goal is that the owner is not exposed to claims, demands or lawsuits by accident, so the texts name the legal entity, the jurisdiction and the contact."
+verify = "A lawyer has approved the three texts. The dashboard sign-in page, the docs footer, the Web SDK README and the package pages link to them; each page opens and names the owner, the jurisdiction and a contact; the accessibility statement lists the real conformance results from the a11y checks and the known gaps."
+covers = []
+after = []
+hitl = true # a person engages a lawyer and approves the wording
+risk = "high"
+notes = ["Added at the owner's request on 2026-10-31. Not a model-written legal opinion: the texts need a qualified lawyer for the owner's jurisdiction before they are published."]

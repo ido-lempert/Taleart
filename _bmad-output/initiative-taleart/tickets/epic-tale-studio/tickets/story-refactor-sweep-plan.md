@@ -96,10 +96,10 @@ Every plan's `deferred` frontmatter is empty except 7.4's two items, both closed
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool dashboard-e2e --parallel=2` -- expected: pass (bar the known auth clock test)
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample dashboard-e2e --parallel=2` -- expected: pass (bar the known auth clock test)
 - `web-sdk:size`, `web-sdk:types-check`, `sdk-sample:a11y`, `sdk-sample:a11y-review`, `sdk-sample:perf`, `sdk-sample:preview-parity`, `dashboard-e2e:e2e`, `dashboard-e2e:a11y`
 
 **Results (2026-10-23, `--skip-nx-cache`):**
-- run-many lint/test/build, 14 projects: pass except the known clock-skew auth test ("creates the admin, signs them in and stores only the token hash"). Tests: dashboard 656 (as baseline), api 598 of 599, contract 389, web-sdk 427, server-tales 280, server-importer 282, server-zones 60, server-access 33, server-targeting 24, server-storage 16, fake-another tool 18, dashboard-e2e 13 (node test).
+- run-many lint/test/build, 14 projects: pass except the known clock-skew auth test ("creates the admin, signs them in and stores only the token hash"). Tests: dashboard 656 (as baseline), api 598 of 599, contract 389, web-sdk 427, server-tales 280, 282, server-zones 60, server-access 33, server-targeting 24, server-storage 16, 18, dashboard-e2e 13 (node test).
 - `web-sdk:size` 24.29 KB gzipped (unchanged); `web-sdk:types-check` pass; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` 220 of 220; `sdk-sample:perf` cold p75 1.28 s, first tale frame p75 64 ms; `sdk-sample:preview-parity` 8 of 8; `dashboard-e2e:e2e` 8 passed; `dashboard-e2e:a11y` 28 passed (run alone: with `e2e` in one run-many Nx refuses the second web server as a recursive invocation).
 - Bundles: dashboard initial 394.38 KB (unchanged), studio chunk 231.79 → 231.80 KB raw (56.52 → 56.50 KB transfer).

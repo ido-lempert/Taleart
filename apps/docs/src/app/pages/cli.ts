@@ -50,10 +50,6 @@ import { RouterLink } from '@angular/router';
 <td>User lists</td>
 </tr>
 <tr>
-<td><code>imports</code></td>
-<td>Imports</td>
-</tr>
-<tr>
 <td><code>skill install</code>, <code>skill show</code></td>
 <td>The agent skill (see <a routerLink="/ai-agents">AI agents</a>)</td>
 </tr>

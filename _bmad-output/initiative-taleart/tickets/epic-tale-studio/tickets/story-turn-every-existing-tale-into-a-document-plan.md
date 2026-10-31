@@ -81,7 +81,6 @@ deferred: []
 
 **Acceptance Criteria:**
 - Given tales from before this story, when the API starts, then each renders on the sample page as before (pixel comparison against the legacy framing).
-- Given a new upload and a fresh import against the fake another tool server, then both tales have documents.
 - Given a group whose first tale is text on a colour and no cover, then the bar shows that colour with the group's title.
 
 ## Implementation Notes
@@ -92,8 +91,8 @@ deferred: []
 - Dashboard: the studio no longer paints `tale.media` behind the canvas; video limit, safe-area and long-video warnings skip the stage media; duplicating it drops the flag; cover editor default is the first tale.
 - sdk-sample: stubs are document-shaped (`mediaTale` in `a11y-shared.mjs`); `a11y-review` section 14 compares the legacy viewer framing with the migrated document pixel by pixel (6 picture/viewport cases and one overlay case: 0 pixels differ) and checks the colour cover.
 - `import-scale.scale.ts`: its TRUNCATE now lists `tale_media` and `project_media` (it failed on the foreign key since 7.5).
-- Verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`): `run-many -t lint test build` on the 12 projects passes (contract 206, server-tales 199, server-importer 276, web-sdk 320, dashboard 353, api 465 tests); `web-sdk:size` 18.82 KB; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 183 checks; `sdk-sample:perf` cold p75 1,285 ms, first tale frame p75 70 ms; `api:import-scale` 1,000 tales passes.
-- Review fixes verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`, on foundation d2bba46): `run-many -t lint test build` on the 12 projects passes (api 480, web-sdk 335, dashboard 367, server-importer 276, contract 251, server-tales 227 tests); `web-sdk:size` 19.70 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 198 checks (R16: 0 pixels differ in 6 cases against the 489b892 SDK); `sdk-sample:perf` cold p75 1,271 ms, first tale frame p75 68 ms; `api:import-scale` passes; dashboard initial bundle 492.14 kB; `api:tale-media-rollback` dry run reports and changes nothing.
+- Verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`): `run-many -t lint test build` on the 12 projects passes (contract 206, server-tales 199, 276, web-sdk 320, dashboard 353, api 465 tests); `web-sdk:size` 18.82 KB; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 183 checks; `sdk-sample:perf` cold p75 1,285 ms, first tale frame p75 70 ms; `api:import-scale` 1,000 tales passes.
+- Review fixes verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`, on foundation d2bba46): `run-many -t lint test build` on the 12 projects passes (api 480, web-sdk 335, dashboard 367, 276, contract 251, server-tales 227 tests); `web-sdk:size` 19.70 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 198 checks (R16: 0 pixels differ in 6 cases against the 489b892 SDK); `sdk-sample:perf` cold p75 1,271 ms, first tale frame p75 68 ms; `api:import-scale` passes; dashboard initial bundle 492.14 kB; `api:tale-media-rollback` dry run reports and changes nothing.
 - Not verified by hand: a signed-in browser walk of the studio on a migrated tale, a real screen reader, a production-size database (the batch test seeds 1,200 rows).
 
 ## Plan Change Log
@@ -114,7 +113,7 @@ deferred: []
   7. `[patch]` `document_created_by_migration` marks documents made from the media alone; the rollback sets only those back to null (when nothing else is in them), clears the mark in batches, reads without a transaction or row locks on a dry run, and words its counts accurately. Test (a person-edited migration document is kept).
   8. `[patch]` The Delivery API marks the no-media placeholder (`placeholder: true`, contract); only it paints the whole stage. Test (a stored empty document does not).
   9. `[patch]` `legacy-sdk.mjs` builds in a fresh temporary folder per run and removes it; a checkout without 489b892 skips the comparison with a SKIPPED line, or fails with TALEART_REQUIRE_LEGACY_SDK=1.
-- Verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`): `run-many -t lint test build` on the 12 projects passes (api 487, dashboard 368, web-sdk 335, server-importer 276, contract 251, server-tales 228 tests); `web-sdk:size` 19.68 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 204 checks (R16: 8 cases, 0 pixels differ against the 489b892 SDK); `sdk-sample:perf` cold p75 1,278 ms, first tale frame p75 68 ms; `api:import-scale` passes; dashboard initial bundle 492.14 kB; `api:tale-media-rollback` dry run reads only.
+- Verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`): `run-many -t lint test build` on the 12 projects passes (api 487, dashboard 368, web-sdk 335, 276, contract 251, server-tales 228 tests); `web-sdk:size` 19.68 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 204 checks (R16: 8 cases, 0 pixels differ against the 489b892 SDK); `sdk-sample:perf` cold p75 1,278 ms, first tale frame p75 68 ms; `api:import-scale` passes; dashboard initial bundle 492.14 kB; `api:tale-media-rollback` dry run reads only.
 - Note: one stray run of the whole workspace's tests from the repo root (a failed `cd`) used the default TEST_DATABASE_URL (`taleart_test`) instead of `taleart_w2_test`; its tables were truncated by the api tests.
 
 ### 2026-10-22 — Coordinator review (after merging `autopilot/foundation` d2bba46, Tale Studio 7.6)
@@ -135,7 +134,6 @@ deferred: []
   13. `[patch]` Chosen: restyling switches rules, made explicit. The inspector says how the tale's media plays and what changes it; the change that switches it announces it ("…a layer like any other: muted, and at most 15 seconds"). Test.
   14. `[patch]` `checkTaleMediaFlag`: on save and keep-as-copy, `taleMedia` only on the tale's own key and kind, else 400 at `/elements/i/props/taleMedia`; the studio's replace drops the mark. Test.
   15. `[patch]` A missing draft is made from the published document plus the media. Test.
-  16. `[patch]` The importer clears the public caches after its transaction commits (`setTaleMediaIfNone`/`replaceTaleMediaIf` no longer clear inside it).
   17. `[patch]` No-media tales seeded in the fixture and the Delivery tests; the accessible-name change (a group named by the title, decorative media) is a review check and noted here.
 
 ## Design Notes
@@ -154,5 +152,5 @@ Assumptions (none blocks):
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w2_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- all succeed.
+- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w2_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- all succeed.
 - `web-sdk:size`, `web-sdk:types-check`, `sdk-sample:a11y`, `sdk-sample:a11y-review`, `sdk-sample:perf`, `api:import-scale` -- pass.

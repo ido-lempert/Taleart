@@ -30,7 +30,7 @@ import {
 
 const IMAGE = 'media/0b7c9d4e-1111-4222-8333-944455556666.png';
 const VIDEO = 'tales/0b7c9d4e-1111-4222-8333-944455556667.mp4';
-const BG = 'tales/imported-0b7c9d4e-1111-4222-8333-944455556668.jpg';
+const BG = 'tales/0b7c9d4e-1111-4222-8333-944455556668.jpg';
 
 const element = (type: 'image' | 'video', key: string, extra: Record<string, unknown> = {}) => ({
   id: crypto.randomUUID(),

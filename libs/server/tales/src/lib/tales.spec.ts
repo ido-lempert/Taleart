@@ -20,23 +20,15 @@ import {
   placeTaleGroup,
   removeTaleGroup,
   renameTaleGroup,
-  renameTaleGroupWhen,
-  renameTaleWhen,
-  replaceTaleMediaIf,
-  orderTaleGroupsWhen,
-  orderTalesWhen,
   orderTaleGroups,
   orderTales,
   setTaleGroupCover,
   setTaleGroupSchedule,
   setTaleGroupStatus,
   setTaleMedia,
-  setTaleMediaIfNone,
   setTaleSchedule,
   setTaleStatus,
   taleExists,
-  taleGroupName,
-  taleTitle,
   taleGroupProjectId,
   taleProjectId,
   TaleGroupFullError,
@@ -122,36 +114,6 @@ describe('tale groups', () => {
     expect(statements()).toContain('COMMIT');
     expect(release).toHaveBeenCalledTimes(1);
   });
-
-  it('runs the callback in the same transaction once the group is placed, and rolls back when it throws', async () => {
-    const answers = () => [
-      { rows: [{ project_id: projectId }] },
-      { rows: [{}] },
-      { rows: [{}] },
-      { rows: [{ count: 0 }] },
-      { rows: [{ id: groupId, projectId, name: 'A' }] },
-      { rows: [{ position: 0 }] },
-    ];
-    const ok = fakeDb(answers());
-    const withGroup = vi.fn(async (tx: unknown, ids: unknown) => {
-      await (tx as TransactionalDb).query('SELECT link', []);
-      expect(ids).toEqual({ taleGroupId: groupId, projectId });
-    });
-    await createTaleGroup(ok.db, { zoneId, name: 'A' }, withGroup);
-    expect(withGroup).toHaveBeenCalledTimes(1);
-    const order = ok.statements();
-    expect(order.findIndex((s) => /INSERT INTO zone_tale_groups/.test(s))).toBeLessThan(order.indexOf('SELECT link'));
-    expect(order.indexOf('SELECT link')).toBeLessThan(order.indexOf('COMMIT'));
-
-    const failing = fakeDb(answers());
-    await expect(
-      createTaleGroup(failing.db, { zoneId, name: 'A' }, async () => {
-        throw new Error('link failed');
-      }),
-    ).rejects.toThrow('link failed');
-    expect(failing.statements()).toContain('ROLLBACK');
-    expect(failing.statements()).not.toContain('COMMIT');
-  });
 });
 
 describe('tale group cap (R14)', () => {
@@ -162,14 +124,12 @@ describe('tale group cap (R14)', () => {
       { rows: [{}] },
       { rows: [{ count: MAX_TALE_GROUPS_PER_PROJECT }] },
     ]);
-    const withGroup = vi.fn();
-    await expect(createTaleGroup(db, { zoneId, name: 'A' }, withGroup)).rejects.toBeInstanceOf(TaleGroupLimitError);
+    await expect(createTaleGroup(db, { zoneId, name: 'A' })).rejects.toBeInstanceOf(TaleGroupLimitError);
     // Archived groups do not count.
     const count = query.mock.calls.find((c) => /count\(\*\)/.test(c[0] as string));
     expect(count?.[0]).toMatch(/WHERE project_id = \$1 AND status <> 'archived'/);
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
     expect(statements()).toContain('ROLLBACK');
-    expect(withGroup).not.toHaveBeenCalled();
   });
 
   it('refuses a group in no zone of a project at the cap, and takes one under it', async () => {
@@ -480,31 +440,6 @@ describe('tales', () => {
     expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2, 'live']);
     expect(tale).toEqual({ id: 't1', ...NO_WINDOW, media: null, ...VIS });
   });
-
-  it('runs the callback in the same transaction once the tale exists, and rolls back when it throws', async () => {
-    const answers = () => [
-      { rows: [{ project_id: projectId }] },
-      { rows: [{ count: 0, next: 0 }] },
-      { rows: [{ id: 't1', mediaContentType: null }] },
-    ];
-    const ok = fakeDb(answers());
-    const withTale = vi.fn(async (tx: unknown, ids: unknown) => {
-      await (tx as TransactionalDb).query('SELECT link', []);
-      expect(ids).toEqual({ taleId: 't1', projectId });
-    });
-    await createTale(ok.db, { taleGroupId: groupId, title: 'T' }, withTale);
-    expect(withTale).toHaveBeenCalledTimes(1);
-    expect(ok.statements().indexOf('SELECT link')).toBeLessThan(ok.statements().indexOf('COMMIT'));
-
-    const failing = fakeDb(answers());
-    await expect(
-      createTale(failing.db, { taleGroupId: groupId, title: 'T' }, async () => {
-        throw new Error('link failed');
-      }),
-    ).rejects.toThrow('link failed');
-    expect(failing.statements()).toContain('ROLLBACK');
-    expect(failing.statements()).not.toContain('COMMIT');
-  });
 });
 
 describe('keep a document as a new tale', () => {
@@ -639,23 +574,6 @@ describe('tale media', () => {
       previousKey: 'tales/old.png',
       tale: { ...row, ...NO_WINDOW, media: { kind: 'image', contentType: 'image/gif', url: `/api/v1/tales/${taleId}/media` }, ...VIS },
     });
-  });
-
-  it('sets media only on a tale without media, never replacing what another writer stored', async () => {
-    const { db, query } = fakeDb([{ rows: [], rowCount: 1 }, { rows: [] }, { rows: [], rowCount: 0 }, { rows: [{}] }]);
-    expect(await setTaleMediaIfNone(db, taleId, { key: 'tales/a.png', contentType: 'image/png' })).toBe(true);
-    expect(query.mock.calls[0][0]).toMatch(/WHERE id = \$1 AND media_key IS NULL/);
-    expect(query.mock.calls[0][1]).toEqual([taleId, 'tales/a.png', 'image/png']);
-    // Then its documents are brought in step (R16), in the caller's transaction.
-    expect(query.mock.calls[1][0]).toMatch(/document_media_key AS "inStep"[\s\S]*FOR UPDATE/);
-    expect(await setTaleMediaIfNone(db, taleId, { key: 'tales/b.png', contentType: 'image/png' })).toBe(false);
-  });
-
-  it('refuses to set media if none on an unknown tale', async () => {
-    const { db } = fakeDb([{ rows: [], rowCount: 0 }, { rows: [] }]);
-    await expect(setTaleMediaIfNone(db, taleId, { key: 'k', contentType: 'image/png' })).rejects.toBeInstanceOf(
-      TaleNotFoundError,
-    );
   });
 
   it('refuses to set media on an unknown tale', async () => {
@@ -1565,91 +1483,6 @@ describe('covers', () => {
     expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_content_type text');
     expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_animated boolean NOT NULL DEFAULT false');
     expect(sql).toContain('CREATE INDEX IF NOT EXISTS tale_groups_cover_key_idx ON tale_groups (cover_key)');
-  });
-});
-
-describe('names by id', () => {
-  it("reads a group's name and a tale's title, null when the record or a UUID is missing", async () => {
-    expect(await taleGroupName(fakeDb([{ rows: [{ name: 'Summer' }] }]).db, groupId)).toBe('Summer');
-    expect(await taleTitle(fakeDb([{ rows: [{ title: 'A' }] }]).db, groupId)).toBe('A');
-    expect(await taleTitle(fakeDb([{ rows: [] }]).db, groupId)).toBeNull();
-    const { db, query } = fakeDb([]);
-    expect(await taleGroupName(db, 'nope')).toBeNull();
-    expect(query).not.toHaveBeenCalled();
-  });
-});
-
-describe('conditional updates (importer re-runs)', () => {
-  const taleId = '00000000-0000-4000-8000-000000000004';
-  const other = '00000000-0000-4000-8000-000000000005';
-
-  it('renames a group or a tale under its row lock only when decide answers a new value', async () => {
-    const { db, statements } = fakeDb([{ rows: [{ name: 'Old' }] }, { rowCount: 1 }]);
-    expect(await renameTaleGroupWhen(db, groupId, (current) => (current === 'Old' ? 'New' : null))).toEqual({
-      before: 'Old',
-      after: 'New',
-    });
-    expect(statements()[0]).toMatch(/FROM tale_groups WHERE id = \$1 FOR NO KEY UPDATE/);
-    expect(statements()[1]).toMatch(/UPDATE tale_groups SET name/);
-
-    const kept = fakeDb([{ rows: [{ title: 'Mine', taleGroupId: groupId }] }]);
-    expect(await renameTaleWhen(kept.db, taleId, () => null)).toEqual({
-      before: 'Mine',
-      after: 'Mine',
-      taleGroupId: groupId,
-    });
-    expect(kept.statements()).toHaveLength(1);
-    expect(kept.statements()[0]).toMatch(/FROM tales WHERE id = \$1 FOR NO KEY UPDATE/);
-
-    expect(await renameTaleWhen(fakeDb([{ rows: [] }]).db, taleId, () => 'x')).toBeNull();
-    expect(await renameTaleGroupWhen(fakeDb([]).db, 'not-a-uuid', () => 'x')).toBeNull();
-  });
-
-  it("orders a group's tales under the group's row lock, refusing an order that is not a permutation", async () => {
-    const { db, statements } = fakeDb([{ rows: [{}] }, { rows: [{ id: taleId }, { id: other }] }, { rowCount: 2 }]);
-    expect(await orderTalesWhen(db, groupId, (current) => [...current].reverse())).toEqual({
-      before: [taleId, other],
-      after: [other, taleId],
-    });
-    expect(statements()[0]).toMatch(/FROM tale_groups WHERE id = \$1 FOR NO KEY UPDATE/);
-    expect(statements()[2]).toMatch(/UPDATE tales SET position/);
-
-    const same = fakeDb([{ rows: [{}] }, { rows: [{ id: taleId }] }]);
-    expect(await orderTalesWhen(same.db, groupId, (current) => current)).toEqual({ before: [taleId], after: [taleId] });
-    expect(same.statements()).toHaveLength(2);
-
-    const wrong = fakeDb([{ rows: [{}] }, { rows: [{ id: taleId }, { id: other }] }]);
-    await expect(orderTalesWhen(wrong.db, groupId, () => [taleId])).rejects.toBeInstanceOf(OrderMismatchError);
-    expect(await orderTalesWhen(fakeDb([{ rows: [] }]).db, groupId, () => [])).toBeNull();
-  });
-
-  it("orders a zone's placements under the zone lock", async () => {
-    const { db, statements } = fakeDb([
-      { rows: [{ project_id: projectId }] },
-      { rows: [] },
-      { rows: [{ id: groupId }, { id: other }] },
-      { rowCount: 2 },
-    ]);
-    expect(await orderTaleGroupsWhen(db, zoneId, () => [other, groupId])).toEqual({
-      before: [groupId, other],
-      after: [other, groupId],
-    });
-    expect(statements()[1]).toMatch(/pg_advisory_xact_lock\(hashtextextended\('tale_groups:'/);
-    expect(statements()[3]).toMatch(/UPDATE zone_tale_groups SET position/);
-    expect(await orderTaleGroupsWhen(fakeDb([{ rows: [] }]).db, zoneId, () => [])).toBeNull();
-  });
-
-  it('replaces media only while the tale holds the expected key', async () => {
-    const media = { key: 'tales/new.jpg', contentType: 'image/jpeg' as const };
-    const replaced = fakeDb([{ rowCount: 1 }]);
-    expect(await replaceTaleMediaIf(replaced.db, taleId, 'tales/old.jpg', media)).toBe(true);
-    expect(replaced.query.mock.calls[0][0]).toMatch(/WHERE id = \$1 AND media_key = \$2/);
-    expect(replaced.query.mock.calls[0][1]).toEqual([taleId, 'tales/old.jpg', 'tales/new.jpg', 'image/jpeg']);
-
-    expect(await replaceTaleMediaIf(fakeDb([{ rowCount: 0 }, { rows: [{}] }]).db, taleId, 'k', media)).toBe(false);
-    await expect(
-      replaceTaleMediaIf(fakeDb([{ rowCount: 0 }, { rows: [] }]).db, taleId, 'k', media),
-    ).rejects.toBeInstanceOf(TaleNotFoundError);
   });
 });
 

@@ -15,7 +15,6 @@ review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-ux-rework/tickets/story-zones-list-and-tale-groups-page-show-status-plan.md'
-  - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-another tool-importer/tickets/story-import-tale-groups-and-tales-in-source-order-plan.md'
 warnings: []
 deferred: []
 ---
@@ -113,7 +112,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool dashboard-e2e --parallel=2` -- pass (except the known auth clock test).
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample dashboard-e2e --parallel=2` -- pass (except the known auth clock test).
 - `node_modules/.bin/nx run api:import-scale` -- pass.
 
 **Manual checks:**

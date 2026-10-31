@@ -80,7 +80,7 @@ R11 (architecture Quality Targets, NFR-007): **Accessibility**
 - **Public media for published content only.** Published media is served from public, unguessable URLs with no key; the zone key only calls the Delivery API; media of unpublished content is not public; no server transcoding. Source: architecture AD-11.
 - **No sensitive end-user data.** This epic sends no user data to TaleArt. Source: architecture AD-13.
 - **Project scope.** Stages and the project theme carry `project_id NOT NULL`; the applied playbook is a key on the zone. Source: architecture AD-4.
-- **No another tool brand names** in code, UI or docs. Source: initiative Constraints; architecture AD-12.
+- **No third-party brand names** in code, UI or docs. Source: initiative Constraints; architecture AD-12.
 - **Apache-2.0.** Source: initiative Constraints; PRD NFR-001.
 
 ## Done when
@@ -106,8 +106,6 @@ R11 (architecture Quality Targets, NFR-007): **Accessibility**
 - parent — `_bmad-output/initiative-taleart/initiative-taleart.md`, section Requirements (R6, R9, R11)
 - architecture — `_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md`, AD-2, AD-3, AD-4, AD-5, AD-6, AD-11, AD-13, Quality Targets
 - prd — `_bmad-output/initiative-taleart/prd-taleart/prd-taleart.md`, FR-006 to FR-009, FR-013
-- status scheme — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/research-another tool-competitive-teardown.md`, section 11.3
-- terminology — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/terminology-map.md` (stage, playbook, frame)
 
 ## Notes
 

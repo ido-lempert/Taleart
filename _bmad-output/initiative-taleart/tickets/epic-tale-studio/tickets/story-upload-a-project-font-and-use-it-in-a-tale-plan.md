@@ -105,7 +105,7 @@ deferred: []
 
 - After the security review (see the triage log): `tale_fonts` replaces the document scans; the upload is a transaction with the file stored before the commit; the public lookup has an in-process cache; the loader remembers failed faces. Residual risk: the server checks only the WOFF2 container structure (no decompression, no table parsing); the font tables are parsed by the visitor's browser, OTS (OpenType Sanitizer) in Chromium and Firefox and CoreText in Safari, and a flaw there is not mitigated beyond the caps, the licence confirmation and loading only in an opened tale's viewer. Recorded in the epic's Notes as well. The body-parser mapping of `request.aborted` and `request.size.invalid` is in the router but not exercised by an HTTP test (fetch cannot send a short body); `encoding.unsupported` and the early `Connection: close` are tested.
 
-- Verification after the security review fixes (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 194, server-tales 154, server-importer 276, web-sdk 301, dashboard 338, api 445 tests). `web-sdk:size` 17.48 KB gzipped (the WOFF2 structure check in the shared loader adds about 0.9 KB); `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 157 checks pass; `sdk-sample:perf` cold p75 first content 1,257 ms, warm 770 ms, 0 font requests on the font-free zone, p75 first tale frame 67 ms, font swapped in at p75 242 ms. Dashboard initial bundle 490.58 KB.
+- Verification after the security review fixes (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 194, server-tales 154, 276, web-sdk 301, dashboard 338, api 445 tests). `web-sdk:size` 17.48 KB gzipped (the WOFF2 structure check in the shared loader adds about 0.9 KB); `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 157 checks pass; `sdk-sample:perf` cold p75 first content 1,257 ms, warm 770 ms, 0 font requests on the font-free zone, p75 first tale frame 67 ms, font swapped in at p75 242 ms. Dashboard initial bundle 490.58 KB.
 
 ## Plan Change Log
 
@@ -140,6 +140,6 @@ Assumptions (none blocks; each is recorded for review):
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w1_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- expected: all succeed.
+- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w1_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- expected: all succeed.
 - `npm exec nx -- run web-sdk:size`, `web-sdk:types-check` -- ≤ 50 KB gzipped; types pass.
 - `npm exec nx -- run sdk-sample:a11y`, `sdk-sample:a11y-review`, `sdk-sample:perf` -- 0 violations; project-font checks pass; no font request on the font-free zone; cold p75 ≤ 1.5 s.

@@ -8,7 +8,6 @@
 #   Then 8 (component events, after 7) and 9 (SDK budget, after 8).
 #   Native lane (libs/mobile-sdk, after 9.5): 10 (after 4) -> 11 (after 7 and 10).
 # Then 12 (accessibility review, hitl), 13 (sweep).
-# Importer story 2.13 waits on 7 (every component type exists).
 
 [[entry]]
 id = 1

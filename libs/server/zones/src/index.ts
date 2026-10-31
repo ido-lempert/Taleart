@@ -8,7 +8,6 @@ export {
   listZones,
   createZone,
   updateZone,
-  renameZoneWhen,
   markZonesFirstVisible,
   ProjectNotFoundError,
   InvalidZoneError,

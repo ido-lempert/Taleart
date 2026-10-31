@@ -54,7 +54,6 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
       { verifier: unused as PasskeyVerifier },
       { publicApiUrl: 'https://media.example.com/' },
       undefined,
-      undefined,
       { rateLimit: null },
       { bundleFile },
     ).listen(0);
@@ -192,7 +191,6 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
       { verifier: unused as PasskeyVerifier },
       {},
       undefined,
-      undefined,
       { rateLimit: null },
       { bundleFile: join(dir, 'missing.js') },
     ).listen(0);
@@ -312,7 +310,6 @@ describe('pinned URLs of earlier builds (story 8.21)', () => {
       unused as MediaStorage,
       { verifier: unused as PasskeyVerifier },
       { publicApiUrl: 'https://api.example.com' },
-      undefined,
       undefined,
       { rateLimit: null },
       {
@@ -612,7 +609,6 @@ describe('chunks of the bundle (AD-16): served by name, and kept with the build 
       unused as MediaStorage,
       { verifier: unused as PasskeyVerifier },
       { publicApiUrl: 'https://api.example.com' },
-      undefined,
       undefined,
       { rateLimit: null },
       { bundleFile, buildsDir, buildsKept: kept, warn: () => undefined, stableMs: 0 },

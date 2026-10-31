@@ -128,7 +128,7 @@ R18 (parent R9; architecture Quality Targets, NFR-007): **Accessible rework**
 - **Forward-only migrations, owned by their module.** Source: architecture Consistency Conventions.
 - **Web SDK budget** of 50 KB gzipped and 1.5 s p75 first content. Source: architecture Quality Targets.
 - **WCAG 2.2 AA** for the dashboard and Web SDK UI. Source: architecture Quality Targets.
-- **No another tool brand names.** Source: AD-12, PRD NFR-004.
+- **No third-party brand names.** Source: AD-12, PRD NFR-004.
 
 ## Done when
 
@@ -143,7 +143,6 @@ R18 (parent R9; architecture Quality Targets, NFR-007): **Accessible rework**
 - Not in this epic: a card or grid view of tale groups (D5, later); folding the schedule into the visibility control ("On between…", report Note 1 option C, later); campaigns and journeys (post-MVP).
 - The tale document, its draft and published copies and the Studio editor belong to epic-tale-studio; this epic only renames the Studio's update control and its status line (R15).
 - Analytics events keep `zone_id` and `frame_id` (AD-10); a display keeps its frame id, so no event field changes.
-- Touch point: importer — a another tool zone imports as one TaleArt zone; status mapping (importer story 2.11) uses the stored keys and R6's defaults; owner: epic-another tool-importer.
 - Touch point: Tale Studio publish bar and tale status calls — renamed and re-worded here (R15); owner: epic-tale-studio.
 - Must not change: what any existing host page shows (R2, R4), the tale document and its delivery (AD-15), frame rendering, theme resolution order, and the 50 KB / 1.5 s budget.
 - Tracer path: status model (story 1) and indicator (story 2) change what every later screen shows; the zone fold (stories 5 to 8) changes the API and SDK the Install tab (13) and docs (16) describe.
@@ -167,7 +166,7 @@ R18 (parent R9; architecture Quality Targets, NFR-007): **Accessible rework**
 - Decision (2026-10-23, owner, D6): the SDK uses one site key per project plus a zone name (`zone="home-top"`); old zone keys keep working (R3, R4).
 - Decision (2026-10-23, owner, D7): playbooks become templates chosen when creating a zone; no lasting Playbook card (R5).
 - Decision (2026-10-23, Sofia): build order is status model and migrations first (stories 1 to 8), then layout (9 to 14), then polish, docs, accessibility review and the refactor sweep (15 to 18). The tracer bullet is story 1: it changes the contract, the API, the Delivery filter and the dashboard labels at once, and every later screen depends on its words.
-- Decision (2026-10-23, Sofia): the epic runs before the remaining Tale Studio stories (7.7 onward): 7.7 waits on stories 1 and 4 (it shares the studio publish bar), 7.9 waits on the SDK changes (story 7) and the last group-view layout story (12), 7.14 on story 7, 7.12 on story 1, and 7.15 on this epic's accessibility review (story 17). Importer story 2.11 waits on story 1.
+- Decision (2026-10-23, Sofia): the epic runs before the remaining Tale Studio stories (7.7 onward): 7.7 waits on stories 1 and 4 (it shares the studio publish bar), 7.9 waits on the SDK changes (story 7) and the last group-view layout story (12), 7.14 on story 7, 7.12 on story 1, and 7.15 on this epic's accessibility review (story 17).
 - Assumption (2026-10-23): a zone key with no `stage` keeps showing every display migrated from its zone, stacked in the old order (R4), rather than only the first migrated zone as the report suggests, so no live page loses content. See Open question below.
 - Assumption (2026-10-23): migrated `draft` tales in never-live groups become `live`, and draft tales in live groups stay `draft` (Hidden), so the migration changes nothing any visitor sees (R6).
 - Assumption (2026-10-23): "Installed" means the zone has an active site key or legacy zone key; TaleArt does not detect whether the snippet is on a page. A "last seen" signal can be added with analytics.

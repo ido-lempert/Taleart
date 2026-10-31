@@ -85,13 +85,6 @@
         "command": "node apps/api/scripts/check-sdk-assets.mjs"
       }
     },
-    "import-scale": {
-      "executor": "nx:run-commands",
-      "cache": false,
-      "options": {
-        "command": "vitest run --config apps/api/vitest.scale.config.mts"
-      }
-    },
     "serve": {
       "continuous": true,
       "executor": "@nx/js:node",

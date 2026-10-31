@@ -67,7 +67,6 @@ const NAMES = {
   theme: '18-theme.png',
   fonts: '19-fonts.png',
   projects: '20-projects.png',
-  importPage: '21-import.png',
   visibility: '22-groups-visibility.png',
 };
 
@@ -739,9 +738,6 @@ async function main() {
     await page.goto(`${dashboardOrigin}/projects`);
     await settle(page);
     await save('projects', page);
-    await page.goto(`${dashboardOrigin}/projects/${project.id}/import`);
-    await settle(page);
-    await save('importPage', page);
 
     // 22: a group switched Off: its row says why it is not visible.
     await page.goto(`${dashboardOrigin}/tale-groups`);

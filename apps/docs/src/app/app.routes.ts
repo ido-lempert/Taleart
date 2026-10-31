@@ -17,7 +17,6 @@ import { InteractiveComponentsPage } from './pages/interactive-components';
 import { ThemeAndFontsPage } from './pages/theme-and-fonts';
 import { VisibilityPage } from './pages/visibility';
 import { ProjectsAndTeamPage } from './pages/projects-and-team';
-import { ImportFromAnotherToolPage } from './pages/import-from-another-tool';
 import { CliPage } from './pages/cli';
 import { CoverageAndLimitsPage } from './pages/coverage-and-limits';
 
@@ -178,14 +177,6 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'Workspace',
     file: 'sign-in-methods-guide',
     loadComponent: () => import('./pages/sign-in-methods-guide').then((m) => m.SignInMethodsGuidePage),
-  },
-  {
-    path: 'import-from-another-tool',
-    label: 'Import from another tool',
-    title: 'Import from another tool',
-    group: 'Workspace',
-    file: 'import-from-another-tool',
-    component: ImportFromAnotherToolPage,
   },
   {
     path: 'guides/web',

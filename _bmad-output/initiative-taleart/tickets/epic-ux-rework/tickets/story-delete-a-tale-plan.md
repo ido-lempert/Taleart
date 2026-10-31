@@ -92,7 +92,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool dashboard-e2e --parallel=2`
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample dashboard-e2e --parallel=2`
 - `dashboard-e2e:e2e`, `dashboard-e2e:a11y`, `api:import-scale`
 
 Results (2026-10-23): run-many passes except the known `api:test` "auth > creates the admin, signs them in and stores only the token hash" (`expected 606033 to be 604800`, local Postgres clock behind); API 633/634 (+10), server-tales 288 (+2), dashboard 690 (+5 new, 2 updated). `dashboard-e2e:e2e` 12 passed (new `delete-tale.spec.ts`); `dashboard-e2e:a11y` 28 passed (new state `delete-tale-confirmation`); `api:import-scale` 1 passed.
@@ -110,4 +110,4 @@ Results (2026-10-23): run-many passes except the known `api:test` "auth > create
 - **Import report:** a tale deleted after the run found it is counted skipped (not imported, not `unchanged`), noted "it was deleted during the import, so it was not updated", and its media is not copied (one note only).
 - **Tests:** API +6 (failed file delete then swept; archived tale and tale of an archived group; imported file removed when alone and kept when a duplicate shares it; start-up sweep of `import_media` then the file; delete during a running import, held at the tale's import lock). Dashboard +3 (store request bookkeeping; a request for a gone tale or an unshown group; Studio message).
 - **Importer unit test** "leaves a record deleted before its update uncounted as changed" now expects the new outcome (skipped with a note, not `unchanged`).
-- **Verification:** run-many lint/test/build (14 projects, `--parallel=2`) passes except the known clock test (`expected 606033 to be 604800`) and the importer unit test above, since updated (server-importer 284 passed on rerun); API 638/639, dashboard 693. `dashboard-e2e:e2e`: the first run had `first-run.spec.ts` time out (`Test timeout of 120000ms exceeded`, waiting for "New zone" on a page still showing "Create your first project"); the rerun passed 12/12. `dashboard-e2e:a11y` 28 passed; `api:import-scale` 1 passed.
+- **Verification:** run-many lint/test/build (14 projects, `--parallel=2`) passes except the known clock test (`expected 606033 to be 604800`); API 638/639, dashboard 693. `dashboard-e2e:e2e`: the first run had `first-run.spec.ts` time out (`Test timeout of 120000ms exceeded`, waiting for "New zone" on a page still showing "Create your first project"); the rerun passed 12/12. `dashboard-e2e:a11y` 28 passed; `api:import-scale` 1 passed.

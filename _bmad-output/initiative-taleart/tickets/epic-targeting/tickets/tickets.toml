@@ -8,7 +8,6 @@
 #   Segments:    6 (after 1 and 3, which builds the Audience page) -> 7 (after 4 and 6)
 #   Then 8 (preview, after 5 and 7), 9 (native SDK, after 7), 10 (docs), 11 (sweep), 12 (end-to-end suite).
 # Story 9 can run beside 8 and 10: it touches only libs/mobile-sdk and the contract test tables.
-# Importer story 2.12 (audiences as user lists) waits on story 3, which exposes the user-list interface.
 
 [[entry]]
 id = 1
@@ -20,7 +19,7 @@ covers = ["R1", "R2"]
 after = ["1.5", "3.1", "8.6", "8.10"]
 hitl = false
 risk = "high"
-references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-13", "_bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/flows-audiences-conversion-r2-3.md"]
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-13"]
 notes = ["Owner decision to confirm: with no tags passed, every delivered group shows (epic Notes)."]
 
 [[entry]]
@@ -38,7 +37,7 @@ risk = "low"
 id = 3
 type = "story"
 title = "Create a user list from a CSV, stored only as keyed hashes"
-description = "Adds user lists to the targeting module: a per-project secret, lists (name, count, updated), and their IDs stored only as HMAC-SHA-256 (epic R3, R5). The Management API creates, renames, lists and deletes lists (hard delete in one transaction) and takes a streamed single-column CSV upload with the limits of R3, answering added, already present and refused counts with the first refused line numbers, and never echoing an ID. The public interface exposes create-list and add-IDs for importer story 2.12. The dashboard gets an Audience page with a User lists tab: create, upload with the report and the email or phone warning, rename, delete with confirmation; IDs are never shown. Deleting a project deletes its lists and their hashes."
+description = "Adds user lists to the targeting module: a per-project secret, lists (name, count, updated), and their IDs stored only as HMAC-SHA-256 (epic R3, R5). The Management API creates, renames, lists and deletes lists (hard delete in one transaction) and takes a streamed single-column CSV upload with the limits of R3, answering added, already present and refused counts with the first refused line numbers, and never echoing an ID. The dashboard gets an Audience page with a User lists tab: create, upload with the report and the email or phone warning, rename, delete with confirmation; IDs are never shown. Deleting a project deletes its lists and their hashes."
 verify = "Upload a 10-row CSV with a duplicate, an empty row and a 300-character value: the list shows 8 IDs and the report names the refused line; a CSV of emails shows the warning and the list is created; a database dump and the API log contain none of the uploaded IDs in clear; delete the list: no row of it remains; delete a test project with a list: none of its lists or hashes remain."
 covers = ["R3", "R5"]
 after = [1, "1.14"]

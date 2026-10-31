@@ -1,6 +1,5 @@
 import { migrateAccess, migrateZoneKeys, withClient } from '@taleart/server-access';
 import { migrateAnalytics } from '@taleart/server-analytics';
-import { migrateImporter } from '@taleart/server-importer';
 import { migrateInteractive } from '@taleart/server-interactive';
 import { copyZonePlacements, migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
 import { migrateTargeting } from '@taleart/server-targeting';
@@ -50,8 +49,15 @@ export function createPool(connectionString?: string, max = databasePoolMax()): 
 // and extra frames into zones (AD-17) runs after tales, because each new zone
 // gets copies of its original zone's placements through the tales module
 // (AD-14). The interactive module's responses reference tales (and are deleted
-// with them). The analytics events reference projects only. The importer runs last: its jobs and links reference projects and
-// the records it imports.
+// with them). The analytics events reference projects only. The last step drops the tables of the removed
+// import feature.
+// Forward migration that retires the import feature: drops its four tables (job queue and reports, source-to-record
+// links, copied-media keys, last-written record fields) with their indexes. Nothing else referenced them, and
+// no column of another table was added by the feature. A fresh database has none, hence IF EXISTS.
+async function dropImportTables(db: DbConnection): Promise<void> {
+  await db.query('DROP TABLE IF EXISTS import_records, import_media, import_links, import_jobs');
+}
+
 const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Promise<void> }> = [
   { module: 'access', run: migrateAccess },
   { module: 'zones', run: migrateZones },
@@ -66,7 +72,7 @@ const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Pro
   { module: 'targeting', run: migrateTargeting },
   { module: 'interactive', run: migrateInteractive },
   { module: 'analytics', run: migrateAnalytics },
-  { module: 'importer', run: migrateImporter },
+  { module: 'retire import tables', run: dropImportTables },
 ];
 
 // Serializes migrations across API processes starting at once: their

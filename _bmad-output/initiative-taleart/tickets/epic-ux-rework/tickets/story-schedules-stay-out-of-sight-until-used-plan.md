@@ -83,7 +83,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool`: all pass (dashboard 429 tests).
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample`: all pass (dashboard 429 tests).
 - `web-sdk:size`, `web-sdk:types-check`: pass. Dashboard initial total: 494.20 kB.
 
 ## Review fixes (2026-10-22)

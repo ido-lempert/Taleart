@@ -87,7 +87,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- passed after merging 8.15 (api 552 tests, dashboard 497); dashboard initial 497.19 kB.
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- passed after merging 8.15 (api 552 tests, dashboard 497); dashboard initial 497.19 kB.
 - `web-sdk:size` 21.86 KB gzipped; `web-sdk:types-check` passed.
 - The keydown handler sits on each tab (lint: interactive elements must be focusable), not on the tablist.
 

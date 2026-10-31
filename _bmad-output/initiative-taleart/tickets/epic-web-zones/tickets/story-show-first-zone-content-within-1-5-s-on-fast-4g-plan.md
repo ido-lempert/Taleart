@@ -114,7 +114,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w3_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool` -- expected: all succeed.
+- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w3_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample` -- expected: all succeed.
 - `NX_DAEMON=false npm exec nx -- run web-sdk:size` -- expected: ≤ 50 KB gzipped.
 - `NX_DAEMON=false npm exec nx -- run sdk-sample:a11y` -- expected: 0 violations.
 - `NX_DAEMON=false TEST_DATABASE_URL=… npm exec nx -- run sdk-sample:perf` -- expected: PASS, cold p75 ≤ 1500 ms.
@@ -134,13 +134,13 @@ deferred: []
 **Follow-up review recommended:** true. The SDK's loading order changed for every frame (held URLs, lazy covers, banner warming), and the Delivery API gained cache headers on a keyed response.
 
 **Verification (after review fixes and the merge of 0f3401f):**
-- `nx run-many -t lint test build` for the twelve projects passed against `taleart_w3_test` (api 342, web-sdk 246, server-importer 193, contract 95 tests).
+- `nx run-many -t lint test build` for the twelve projects passed against `taleart_w3_test` (api 342, web-sdk 246, 193, contract 95 tests).
 - `nx run web-sdk:size`: 12.37 KB gzipped.
 - `nx run sdk-sample:a11y`: no WCAG 2.2 AA violations.
 - `nx run sdk-sample:perf`, three runs of 10 loads: cold p75 1253, 1258, 1255 ms (max 1268); warm p75 754–768 ms. Seeded rows, temp dir and child processes are gone after each run, and after an interrupted (SIGINT) run.
 
 **Verification (first build, before review):**
-- `nx run-many -t lint test build` for the twelve projects passed against `taleart_w3_test` (api 331, web-sdk 235, server-importer 171, contract 95 tests).
+- `nx run-many -t lint test build` for the twelve projects passed against `taleart_w3_test` (api 331, web-sdk 235, 171, contract 95 tests).
 - `nx run web-sdk:size`: 11.78 KB gzipped (was 11.49 KB).
 - `nx run sdk-sample:a11y`: no WCAG 2.2 AA violations, every behaviour check passed.
 - `nx run sdk-sample:perf`, three runs of 10 loads: cold p75 1251, 1255, 1251 ms (p50 ~1250, max 1264); warm p75 ~754 ms; layout shift 0. Baseline before the changes: cold p75 3412 ms, warm 1119 ms.

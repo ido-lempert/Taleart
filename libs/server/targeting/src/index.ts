@@ -6,11 +6,8 @@ export { migrateTargeting } from './lib/migration';
 // A tale group's audience rule (epic viewer properties): stored and read here; the Delivery API hands it to each SDK.
 export { audienceRulesForTaleGroups, copyTaleGroupAudience, setTaleGroupAudience } from './lib/audience';
 export {
-  addTaleGroupTagsByName,
-  addTaleGroupTagsByNameIn,
   copyTaleGroupTags,
   createTag,
-  ensureTags,
   listTags,
   setTaleGroupTags,
   tagMatchesForTaleGroups,
@@ -24,7 +21,6 @@ export {
   InvalidUserListNameError,
   TagExistsError,
   TagNotFoundError,
-  TagProjectNotFoundError,
   UserListExistsError,
   UserListFileNotUtf8Error,
   UserListFileTooLargeError,
@@ -32,8 +28,7 @@ export {
   UserListNotFoundError,
   UserListProjectNotFoundError,
 } from './lib/errors';
-// User lists (epic targeting R3, R5): the IDs are stored only as keyed hashes. `createUserList` and
-// `addUserListIds` are the interface the importer uses (story 2.12).
+// User lists (epic targeting R3, R5): the IDs are stored only as keyed hashes.
 export {
   addUserListIds,
   addUserListRows,

@@ -7,7 +7,6 @@ import {
   type SetScheduleRequest,
   type SetStatusRequest,
 } from '@taleart/contract';
-import { forgetImportedTale } from '@taleart/server-importer';
 import type { MediaStorage } from '@taleart/server-storage';
 import {
   copyTaleWithDocument,
@@ -79,15 +78,11 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
   });
 
   // Deletes the tale (story 8.20): the tale with its documents and its media and font references, in
-  // one transaction; then what imports recorded about it (its link stays, so a re-import does not
-  // bring it back); then each file it referenced, only when nothing references it any more (AD-11,
+  // one transaction; then each file it referenced, only when nothing references it any more (AD-11,
   // AD-14): a copy, another tale, a cover or the project's media keeps it.
   router.delete('/:taleId', taleAccess, async (req, res, next) => {
     try {
       const deleted = await deleteTale(pool, req.params.taleId);
-      await forgetImportedTale(pool, deleted.taleId).catch((err) =>
-        logError('could not forget the import records of a deleted tale', err),
-      );
       for (const key of deleted.mediaKeys) {
         // Decided and deleted under the key's lock, so no document write can start using it meanwhile.
         await withMediaKeyDeletionGuard(pool, key, async (inUse) => {

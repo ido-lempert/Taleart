@@ -46,16 +46,6 @@ export class TagNotFoundError extends Error {
   }
 }
 
-/** Thrown when the project of the tags is gone. */
-export class TagProjectNotFoundError extends Error {
-  readonly code = ErrorCodes.projectNotFound;
-
-  constructor(readonly projectId: string) {
-    super('The project no longer exists');
-    this.name = 'TagProjectNotFoundError';
-  }
-}
-
 /** Thrown when a user list name is blank, too long or holds a control character (epic targeting R3). */
 export class InvalidUserListNameError extends Error {
   readonly code = ErrorCodes.validationFailed;

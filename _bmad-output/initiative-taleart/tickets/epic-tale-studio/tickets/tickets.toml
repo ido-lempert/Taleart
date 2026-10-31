@@ -5,7 +5,6 @@
 # Lanes once story 1 is done:
 #   Editor lane (one dashboard editor component, document renderers): 2 -> 3 -> 4 -> 17 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 #   Tales lane (tales module, Delivery, covers):                       11 (after 5) -> 12
-#   Importer touch point:                                              13 (after 7 and 11)
 # Then 14 (performance, after 10, 11 and 17), 15 (accessibility review, hitl), 16 (sweep).
 #
 # UX rework (epic-ux-rework, owner decisions 2026-10-23) runs before 7.7 onward:
@@ -144,8 +143,8 @@ risk = "medium"
 id = 11
 type = "story"
 title = "Turn every existing tale into a document"
-description = "A forward-only migration gives every tale with media a version 1 document holding one full-bleed media element (cover fit, decorative until someone adds alt text), so it renders as before. From then on the tales module's create-with-media path, used by the dashboard upload and the importer, creates that document through its public interface; the Delivery API returns documents for every tale and the SDK renders only documents. The default tale group cover (web-zones story 3.14) becomes the first tale's lowest media element; a tale without media shows its background colour with the group title in the bar."
-verify = "On a database with tales from before this story, run the migration and reload the sample page: every tale renders as before; upload media to a new tale and run an import against the fake another tool server: both tales have documents; a group whose first tale is text on a colour shows that colour and its title in the bar."
+description = "A forward-only migration gives every tale with media a version 1 document holding one full-bleed media element (cover fit, decorative until someone adds alt text), so it renders as before. From then on the tales module's create-with-media path, used by the dashboard upload, creates that document through its public interface; the Delivery API returns documents for every tale and the SDK renders only documents. The default tale group cover (web-zones story 3.14) becomes the first tale's lowest media element; a tale without media shows its background colour with the group title in the bar."
+verify = "On a database with tales from before this story, run the migration and reload the sample page: every tale renders as before; upload media to a new tale: both tales have documents; a group whose first tale is text on a colour shows that colour and its title in the bar."
 covers = ["R16"]
 after = [5, "3.14"]
 hitl = false
@@ -161,18 +160,6 @@ covers = ["R11"]
 after = [11, "8.1"]
 hitl = false
 risk = "low"
-
-[[entry]]
-id = 13
-type = "story"
-title = "Imported tales keep their call to action"
-description = "Touch point in the importer module (owner epic-another tool-importer). A another tool story with button_text and an http or https outlink (or deep_link) imports as a document with its background media and a button element at the bottom of the safe area; other link schemes are not imported and are listed. The report lists, per tale, that text, stickers and components are not readable through the External API (digest studio-r4-1), replacing the button_text, outlink and deep_link rows for tales whose CTA was carried. Re-import updates the button through import links (AD-7) unless a person edited it."
-verify = "Import a fake-server fixture whose story has button_text and outlink: the tale shows a button that opens the link on the sample page; the report lists the unreadable layers; a myapp:// deep link is listed and not imported; re-import after changing the source button_text updates the label."
-covers = ["R17"]
-after = [7, 11, "2.6", "2.7"]
-hitl = false
-risk = "medium"
-references = ["_bmad-output/initiative-taleart/tickets/epic-another tool-importer/import-mapping.md", "_bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/studio-r4-1.md"]
 
 [[entry]]
 id = 14
@@ -192,7 +179,7 @@ title = "Accessibility review of Tale Studio and composed tales"
 description = "Re-runs the automated WCAG 2.2 AA scans of the studio and the sample page and fixes what they find; a person then composes a tale with text, an image, a shape, an emoji and a button using only the keyboard and a screen reader (VoiceOver or NVDA), and walks the published tale on the sample page; the walk is recorded and its issues are fixed."
 verify = "Both scans report no WCAG 2.2 AA violations, and the walk record shows every studio action done without a pointer and every element of the published tale announced in visual order."
 covers = ["R12", "R13"]
-after = [10, 12, 13, "8.17"]
+after = [10, 12, "8.17"]
 hitl = true # a person does the keyboard and screen-reader walk
 risk = "medium"
 
@@ -203,6 +190,6 @@ title = "Refactor sweep"
 description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
 verify = "The full test suite passes and Tale Studio, the preview and the sample page behave as before, with no behavior change."
 covers = []
-after = [1, 2, 3, 4, 17, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+after = [1, 2, 3, 4, 17, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15]
 hitl = false
 risk = "low"

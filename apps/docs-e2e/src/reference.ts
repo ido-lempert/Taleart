@@ -4,7 +4,7 @@ import { workspaceRoot } from '@nx/devkit';
 import { expect, type Page } from '@playwright/test';
 
 /** The docs' pages, by path, as the navigation lists them (apps/docs/src/app/app.routes.ts). */
-export const DOCS_PATHS = ['/', '/concepts', '/coverage-and-limits', '/guides-install', '/install', '/guides-connect-website', '/guides-create-campaign', '/zones-and-displays', '/tale-groups-and-tales', '/tale-studio', '/interactive-components', '/theme-and-fonts', '/visibility', '/targeting', '/guides/analytics', '/projects-and-team', '/guides/sign-in-methods', '/import-from-another-tool', '/guides/web', '/android-guide', '/ios-guide', '/reference/web-sdk', '/reference/performance', '/reference/android-sdk', '/reference/ios-sdk', '/reference/analytics', '/reference/sign-in-methods', '/api-reference', '/api-tokens', '/cli', '/ai-agents', '/moving-from-stages'];
+export const DOCS_PATHS = ['/', '/concepts', '/coverage-and-limits', '/guides-install', '/install', '/guides-connect-website', '/guides-create-campaign', '/zones-and-displays', '/tale-groups-and-tales', '/tale-studio', '/interactive-components', '/theme-and-fonts', '/visibility', '/targeting', '/guides/analytics', '/projects-and-team', '/guides/sign-in-methods', '/guides/web', '/android-guide', '/ios-guide', '/reference/web-sdk', '/reference/performance', '/reference/android-sdk', '/reference/ios-sdk', '/reference/analytics', '/reference/sign-in-methods', '/api-reference', '/api-tokens', '/cli', '/ai-agents', '/moving-from-stages'];
 
 /** The localStorage key of the API reference's API URL (`API_URL_STORAGE_KEY` in api-reference-spec.ts). */
 export const API_URL_KEY = 'taleart-docs:api-reference:api-url';

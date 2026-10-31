@@ -5,7 +5,7 @@ parent: initiative-taleart
 id: 5
 covers: [R5, R12]
 sources: [_bmad-output/initiative-taleart/initiative-taleart.md, _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md]
-companions: [_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, _bmad-output/initiative-taleart/research-another tool-competitive-teardown/naming-targeting-and-campaigns.md]
+companions: [_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md]
 after: []
 refined: true
 risk: high
@@ -25,7 +25,7 @@ Targeting narrows what the Delivery API and the SDKs show; it does not change wh
 - User attributes never leave the viewer's device: tag and segment rules are evaluated in the SDK (AD-13). Only user-list matching happens on the server, from the external user ID.
 - The dashboard says who a targeted group is for, and can preview a zone as a given viewer.
 
-Already built (foundation story 1.5, importer story 2.8): tags per project (`tags`, unique by lower-cased name, 1 to 40 characters), tags on tale groups (`tale_group_tags`), the tag endpoints, the tag picker in the dashboard, and another tool labels imported as tags, all in `libs/server/targeting`. No match mode, user list, segment, user attribute or external user ID exists in code yet, and no SDK sends any viewer identity.
+Already built (foundation story 1.5): tags per project (`tags`, unique by lower-cased name, 1 to 40 characters), tags on tale groups (`tale_group_tags`), the tag endpoints, the tag picker in the dashboard, all in `libs/server/targeting`. No match mode, user list, segment, user attribute or external user ID exists in code yet, and no SDK sends any viewer identity.
 
 ## Outcome
 
@@ -37,7 +37,7 @@ R1 (parent R5; PRD FR-017): **Targeting tags combine with All or Any**
    A tale group's Audience section shows its targeting tags and a match mode: **Any** (OR, the default) or **All** (AND). The mode is stored per group in the targeting module and returned with the group by the Management API. A group copied or duplicated keeps its tags and mode. Tags themselves stay as built (project-scoped, case-insensitive names).
    Verify: set two tags and All on a group, reload: both and All are kept; copy the group to another zone: the copy has the same tags and mode.
 
-R2 (parent R5; PRD FR-017, FR-018; research digest flows-audiences-conversion-r2-3, Labels): **The tag rule a viewer is matched by**
+R2 (parent R5; PRD FR-017, FR-018): **The tag rule a viewer is matched by**
    The host passes the viewer's tags to the SDK. Matching ignores case and surrounding spaces. A group delivered by the Delivery API shows to a viewer when its tag rule passes:
    - the group has no tags: it passes;
    - the host passed no tags: it passes (every delivered group shows, as on the source platform);
@@ -47,7 +47,7 @@ R2 (parent R5; PRD FR-017, FR-018; research digest flows-audiences-conversion-r2
    Verify: the contract test table covers no group tags, no viewer tags, Any with one, none and all matching, All with one missing and all present, and case and space differences; each SDK passes the table, and the sample page shows exactly the expected groups for three viewer tag sets.
 
 R3 (parent R12; PRD FR-019): **User lists from a CSV**
-   A project's admin or editor creates a **user list** (name unique in the project, at most 100 lists per project) and uploads a single-column CSV (UTF-8, at most 50 MB, at most 1,000,000 rows). Each non-empty row, trimmed, is one external user ID of at most 256 characters with no control characters; matching is exact and case-sensitive. The upload reports added, already present, and refused rows (with the first refused line numbers). The dashboard warns, without refusing, when most values look like email addresses or phone numbers, and recommends opaque IDs. A list shows its name, its ID count, the groups it targets, and when it last changed; it never shows the IDs. The targeting module's public interface lets another module (the importer, story 2.12) create a list and add IDs to it.
+   A project's admin or editor creates a **user list** (name unique in the project, at most 100 lists per project) and uploads a single-column CSV (UTF-8, at most 50 MB, at most 1,000,000 rows). Each non-empty row, trimmed, is one external user ID of at most 256 characters with no control characters; matching is exact and case-sensitive. The upload reports added, already present, and refused rows (with the first refused line numbers). The dashboard warns, without refusing, when most values look like email addresses or phone numbers, and recommends opaque IDs. A list shows its name, its ID count, the groups it targets, and when it last changed; it never shows the IDs.
    Verify: upload a 10-row CSV with a duplicate, an empty row and a 300-character value: the list shows 8 IDs and the report names the refused line; upload a CSV of emails: the warning appears and the list is still created.
 
 R4 (parent R12; PRD FR-020): **Target a group to user lists by external user ID**
@@ -88,7 +88,7 @@ R10 (parent R5, R12; architecture AD-12): **Docs for targeting and its privacy**
 - **Contract first.** Match mode, the Delivery group targeting fields, the header name, segment rule shapes and the rule functions with their test tables start in `libs/contract`. Source: AD-3.
 - **Module owns its tables.** Match modes, user lists, their hashes and segments are tables of `libs/server/targeting`; other modules reach them through its public interface. Source: AD-1.
 - **Project-scoped.** Every targeting table carries `project_id`; a group can only be targeted to lists and segments of its own project. Source: AD-4.
-- **Names.** `tags`, `userLists`, `segments`, `setUserAttributes`, `externalUserId`; "Audience" only as a heading; no another tool names. Source: AD-12.
+- **Names.** `tags`, `userLists`, `segments`, `setUserAttributes`, `externalUserId`; "Audience" only as a heading; no third-party names. Source: AD-12.
 - **Web SDK budget** of 50 KB gzipped and 1.5 s p75 first content; Delivery reads p95 at most 300 ms. Source: architecture Quality Targets.
 - **WCAG 2.2 AA** for the Audience screens and the preview. Source: architecture Quality Targets, NFR-007.
 
@@ -106,7 +106,6 @@ R10 (parent R5, R12; architecture AD-12): **Docs for targeting and its privacy**
 
 - Not in this epic: exclude rules ("not tagged", "not in list"); user lists fed from third-party tools (CleverTap, Braze and the like); event- or behaviour-based segments; A/B tests and frequency caps; campaigns and journeys (post-MVP); per-tale targeting (targeting is per tale group).
 - Schedules and the On/Off status stay in epic UX rework and web zones; targeting never changes a stored status.
-- Touch point: another tool audiences imported as user lists, importer story 2.12, through R3's interface; owner: epic-another tool-importer.
 - Touch point: analytics events must carry no external user ID or attribute (AD-13); owner: epic-analytics.
 - Touch point: `delivery-rule.ts` and the indicator, extended by one reason (R7); owner: epic-ux-rework (built).
 - Must not change: what an untargeted group shows to anyone; what a page that calls none of the new SDK functions shows (only groups with user lists or segments disappear for it); the Delivery API's site key and slug contract; the SDK budget.
@@ -117,8 +116,6 @@ R10 (parent R5, R12; architecture AD-12): **Docs for targeting and its privacy**
 - parent — `_bmad-output/initiative-taleart/initiative-taleart.md`, section Requirements (R5, R12)
 - prd — `_bmad-output/initiative-taleart/prd-taleart/prd-taleart.md`, section "Tags, segments, user lists and targeting" (FR-017 to FR-020)
 - architecture — `_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md`, AD-1, AD-2, AD-3, AD-4, AD-6, AD-12, AD-13, data model, Quality Targets
-- naming — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/naming-targeting-and-campaigns.md`, sections 1 to 5
-- research — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/flows-audiences-conversion-r2-3.md` (custom audience CSV, labels AND/OR) and `digests/entities-content-r1-1.md` (Q4)
 - ux rework — `_bmad-output/initiative-taleart/tickets/epic-ux-rework/epic-ux-rework.md`, R7 (indicator), R10 (group row ⋯ menu)
 - code — `libs/server/targeting` (tags), `libs/server/tales/src/lib/delivery-rule.ts`, `apps/api/src/http/delivery.router.ts`, `libs/web-sdk/src/lib/delivery-client.ts`, `libs/mobile-sdk/.../delivery/DeliveryClient.kt`
 

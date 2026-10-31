@@ -106,10 +106,6 @@ describe('docs terms (epic UX rework R17)', () => {
     const probe = 'Create a <em>stage</em> and apply the <strong>playbook</strong>.';
     expect(probe.replace(/<\/?[a-z][^>]*>/gi, '')).toMatch(RETIRED[0][1]);
   });
-
-  it('names no other vendor in the docs or the README (AD-12)', () => {
-    expect(offenders(docsSources, /another tool/i)).toEqual([]);
-  });
 });
 
 describe('the docs snippet', () => {

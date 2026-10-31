@@ -2,7 +2,7 @@
 //
 // E2E_DATABASE_URL names the database (see e2e-database.mjs for what it must be): it is dropped and
 // created again first, so the run starts on an empty install (the first admin's setup). The API runs
-// as a child with only the settings below, never the caller's (WEB_SDK_FILE, IMPORT_TOKEN_KEY,
+// as a child with only the settings below, never the caller's (WEB_SDK_FILE,
 // TRUST_PROXY…). Media go to a new temporary folder. Playwright starts this as a web server (see
 // playwright.config.mts).
 import { spawn } from 'node:child_process';

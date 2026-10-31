@@ -115,7 +115,6 @@ deferred: []
   - The Display card shows the type, a summary of the settings, a Settings button (opens the drawer) and a type picker with "Change type". A change is announced in the live region.
   - A zone without a display has "Choose display".
   - The New zone drawer takes an optional slug. The header and the zone cards show the slug.
-- Importer: its code is unchanged. A another tool instance imports as one zone without a display, with a slug made from its name (asserted in the API importer test). `api:import-scale` passes.
 - The sample page and its scripts (`a11y-scan.mjs`, `a11y-review.mjs`) use the new shape after the review fixes below.
 
 ## Follow-up review fixes (2026-10-22)
@@ -167,7 +166,7 @@ A rolling deploy must not be used. The fold runs once, under the migration lock,
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool` -- expected: all pass.
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample` -- expected: all pass.
 - `web-sdk:size`, `web-sdk:types-check` -- expected: pass. Dashboard initial bundle under 500 kB.
 
 **Manual checks:**

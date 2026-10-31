@@ -32,11 +32,6 @@ export interface TaleMediaRef {
 /** How {@link mergeTaleMedia} brings a document in step. */
 export interface TaleMediaMergeOptions {
   /**
-   * An import's re-import (AD-7): only `taleMedia` elements still holding this key take the new
-   * key, so a person's edit in Tale Studio (other media picked, the element removed) is kept.
-   */
-  expectedKey?: string;
-  /**
    * The first merge into a document from before documents held media: a document without
    * `durationMs` gets the 5 s tale media always showed for, where it would now play 7 s.
    */
@@ -59,8 +54,7 @@ export function taleMediaDocument(media: TaleMediaRef, id: string = randomUUID()
  * The document in step with the tale's media (R16), or the same object when nothing changes. No
  * document gets {@link taleMediaDocument}. A document's `taleMedia` element takes the key (and the
  * element type, image or video); with none, the media goes in at the bottom of the z-order, under
- * everything a person composed. With `expectedKey`, only elements still holding it change, and
- * nothing is added.
+ * everything a person composed.
  */
 export function mergeTaleMedia<D extends { elements: readonly unknown[]; durationMs?: number }>(
   doc: D | null,
@@ -75,14 +69,11 @@ export function mergeTaleMedia<D extends { elements: readonly unknown[]; duratio
     elements = doc.elements.map((element) => {
       if (!isTaleMediaElement(element)) return element;
       const e = element as { type: string; props: { mediaKey?: unknown } };
-      if (options.expectedKey !== undefined && e.props.mediaKey !== options.expectedKey) return element;
       if (e.type === media.kind && e.props.mediaKey === media.key) return element;
       changed = true;
       return { ...e, type: media.kind, props: { ...e.props, mediaKey: media.key } };
     });
     if (!changed) return doc;
-  } else if (options.expectedKey !== undefined) {
-    return doc;
   } else {
     elements = [taleMediaElement(options.id ?? randomUUID(), media.key, media.kind), ...doc.elements];
   }
@@ -170,25 +161,12 @@ interface TaleRowForMedia {
 /** How {@link bringTaleMediaInStep} brings a tale in step. */
 export interface InStepOptions {
   /**
-   * An import's re-import (AD-7): the import's earlier key. Only when the documents were last in
-   * step with it does the re-import mode apply (a `taleMedia` element still showing it takes the new
-   * key; a person's edit is kept); a tale out of step is merged in full.
-   */
-  expectedKey?: string;
-  /**
    * The media migration's run (R16), which writes the published document a `live` tale with none
-   * would have been delivered as. A media write (upload, replace, import) instead leaves a `live`
+   * would have been delivered as. A media write (upload, replace) instead leaves a `live`
    * tale with a studio draft and nothing published without a published document: the draft is
    * "not updated yet" until the person publishes it (epic UX rework R6).
    */
   migration?: boolean;
-  /**
-   * An import's first media for a tale whose draft is still exactly what the import made (epic Tale
-   * Studio R17: its button): a `live` tale with nothing published publishes that draft, with the
-   * media merged in, so an imported tale is delivered with its media and button together, never
-   * as a button alone.
-   */
-  publishDraft?: boolean;
 }
 
 // The tale row as the media steps read it, locked; absent columns read as null.
@@ -250,20 +228,14 @@ export async function bringTaleMediaInStep(
   const merge: TaleMediaMergeOptions = {
     id: randomUUID(),
     legacyTiming: row.inStep === null,
-    // The re-import mode only while the documents were in step with the import's key.
-    ...(options.expectedKey !== undefined &&
-      row.inStep === options.expectedKey && { expectedKey: options.expectedKey }),
   };
   const draft = mergeTaleMedia(row.draft ?? row.published, media, merge) as TaleDocument;
   // A tale with nothing published gets a media document only while it is `live` and, outside the
   // migration, has no studio draft either (a new tale from media is published at creation).
-  const publishDraft = options.publishDraft === true && row.published === null && row.draft !== null;
   const published =
     row.published !== null ||
-    (row.status === 'live' && (options.migration === true || row.draft === null || publishDraft))
-      ? publishDraft
-        ? draft
-        : (mergeTaleMedia(row.published, media, merge) as TaleDocument)
+    (row.status === 'live' && (options.migration === true || row.draft === null))
+      ? (mergeTaleMedia(row.published, media, merge) as TaleDocument)
       : null;
   for (const [before, after] of [
     [row.draft ?? row.published, draft],
@@ -277,7 +249,7 @@ export async function bringTaleMediaInStep(
   const publishedChanged = published !== row.published;
   // Made from the media alone: the migration's, which a rollback takes away again.
   const created =
-    (row.draft === null && row.published === null) || (row.published === null && published !== null && !publishDraft);
+    (row.draft === null && row.published === null) || (row.published === null && published !== null);
   await tx.query(
     `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + $3,
        document = $4::jsonb, document_revision = document_revision + $5, document_media_key = media_key,

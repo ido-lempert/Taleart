@@ -29,7 +29,6 @@ test('groups operations by tag in the document order', async ({ page }) => {
     'Media',
     'Theme and fonts',
     'Targeting',
-    'Imports',
     'API tokens',
     'Delivery',
     'Sign-in',

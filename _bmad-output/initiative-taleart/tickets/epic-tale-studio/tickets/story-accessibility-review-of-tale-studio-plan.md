@@ -98,7 +98,7 @@ Review 1 (coordinator), all patched:
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool dashboard-e2e --parallel=2` -- expected: pass (bar the known auth clock test)
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample dashboard-e2e --parallel=2` -- expected: pass (bar the known auth clock test)
 - `E2E_DATABASE_URL=…_e2e_test E2E_API_PORT=3407 E2E_DASHBOARD_PORT=4407 node_modules/.bin/nx run dashboard-e2e:a11y` -- expected: 0 findings
 - `node_modules/.bin/nx run dashboard-e2e:e2e`, `sdk-sample:a11y`, `sdk-sample:a11y-review` -- expected: pass
 

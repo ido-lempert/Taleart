@@ -117,7 +117,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w1_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool` -- expected: all succeed.
+- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w1_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample` -- expected: all succeed.
 
 **Manual checks (if no CLI):**
 - On dev servers: set a tale's end one minute ahead, wait, reload the sample page (cover moves to the next tale; dashboard shows Expired); set a group's start one minute ahead (hidden, then shown); an end before the start is refused.

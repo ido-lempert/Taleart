@@ -60,7 +60,7 @@ data class TaleartEvent(
 )
 
 /**
- * The hooks a host app sets (another tool-style, as the Web SDK's `hooks`): set them for every view with
+ * The hooks a host app sets (as the Web SDK's `hooks`): set them for every view with
  * [TaleartSdk.init] and [TaleartConfig.listener], or for one view with its `listener`. Both run, the
  * view's first, then the global one; [onEvent] gets every event. Each hook's default does nothing, so
  * override only what you need. A hook that throws is logged and the SDK goes on.

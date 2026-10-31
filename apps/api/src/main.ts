@@ -2,13 +2,6 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, SDK_BUNDLE_PATH } from '@taleart/contract';
 import { parseSecretKey, SECRET_KEY_ENV, SimpleWebAuthnVerifier } from '@taleart/server-access';
-import {
-  DEFAULT_another tool_API_URL,
-  parseAllowedAddresses,
-  parseTokenKey,
-  startImportWorker,
-  type ImportWorker,
-} from '@taleart/server-importer';
 import { purgeAnalyticsEvents } from '@taleart/server-analytics';
 import { ANALYTICS_RETENTION_DAYS } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
@@ -22,7 +15,7 @@ import { createApp, MANAGEMENT_API_BASE } from './app';
 import { USER_LIST_UPLOAD_DEADLINE_MS } from './http/user-lists.router';
 import { defaultSdkFiles, hasKeptBuilds, sdkBuildsFromEnv, webSdkFileFromEnv } from './http/sdk.router';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
-import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
+import { createPool, databasePoolMax, migrate } from './db';
 import { configureTestElementTypes } from './element-types-config';
 import { ADDRESS_BACKSTOP_FACTOR, deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
 
@@ -93,50 +86,10 @@ async function start(): Promise<void> {
     );
   }
 
-  // The importer (AD-8): source tokens are encrypted with IMPORT_TOKEN_KEY while
-  // a job runs. Without a valid key the import routes answer 503 and no worker runs.
-  const another toolApiUrl = process.env['another tool_API_URL'] || DEFAULT_another tool_API_URL;
-  const tokenKey = parseTokenKey(process.env['IMPORT_TOKEN_KEY']);
-  if (tokenKey === null) {
-    log(
-      'info',
-      process.env['IMPORT_TOKEN_KEY']
-        ? 'Importer off: IMPORT_TOKEN_KEY is not 32 bytes of base64'
-        : 'Importer off: IMPORT_TOKEN_KEY is not set',
-    );
-  }
-  // Imported media comes from URLs the source names, so the importer fetches only
-  // public addresses. IMPORT_MEDIA_ALLOWED_ADDRESSES exempts exact address:port
-  // endpoints, for local reviews against the fake server; it is empty by default.
-  const allowed = parseAllowedAddresses(process.env['IMPORT_MEDIA_ALLOWED_ADDRESSES']);
-  if (allowed.invalid.length > 0) {
-    log(
-      'warn',
-      `IMPORT_MEDIA_ALLOWED_ADDRESSES: ${allowed.invalid.length} entry(ies) are not address:port and were ignored`,
-    );
-  }
-  if (allowed.addresses.length > 0) {
-    log('warn', `Imported media may be fetched from these non-public endpoints: ${allowed.addresses.join(', ')}`);
-  }
-  // Per-import media budgets: bytes and time, after which the rest is listed as not imported.
   const positive = (name: string): number | undefined => {
     const value = Number(process.env[name]);
     return process.env[name] && Number.isFinite(value) && value > 0 ? value : undefined;
   };
-  const maxSeconds = positive('IMPORT_MEDIA_MAX_SECONDS_PER_JOB');
-  const mediaPolicy = {
-    allowedAddresses: allowed.addresses,
-    maxBytesPerJob: positive('IMPORT_MEDIA_MAX_BYTES_PER_JOB'),
-    maxMsPerJob: maxSeconds === undefined ? undefined : maxSeconds * 1000,
-  };
-  let worker: ImportWorker | null = null;
-  if (tokenKey !== null) {
-    // The media copies' database work stays below the pool's size, so requests keep their connections.
-    const dbConcurrency = Math.max(1, databasePoolMax() - DATABASE_CONNECTIONS_FOR_REQUESTS);
-    worker = startImportWorker(pool, { tokenKey, another toolApiUrl, storage, mediaPolicy, dbConcurrency, log });
-    log('info', `Import worker started; source ${another toolApiUrl}`);
-  }
-  const importer = { tokenKey, another toolApiUrl, wake: () => worker?.wake() };
 
   const port = process.env['PORT'] || 3333;
   // Delivery media URLs are absolute and start with the API's public origin.
@@ -178,7 +131,7 @@ async function start(): Promise<void> {
       `SDK_BUILDS_DIR ${sdkBuildsConfig.buildsDir} holds no earlier Web SDK builds. Unless this is the first deploy, it does not persist across deploys: put it on a volume, or pages pinned to earlier builds answer 404.`,
     );
   }
-  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit }, sdk);
+  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, media, { rateLimit }, sdk);
   if (trustProxy !== undefined) {
     app.set('trust proxy', trustProxy);
     log('info', `Trusting X-Forwarded-For from ${JSON.stringify(trustProxy)}`);
@@ -213,9 +166,7 @@ async function start(): Promise<void> {
   void purgeAnalytics();
   setInterval(purgeAnalytics, 24 * 60 * 60 * 1000).unref();
 
-  // On shutdown the API stops taking requests first, then the worker gets up
-  // to SHUTDOWN_DEADLINE_MS to finish the job in progress. A job cut off by the
-  // deadline stops sending heartbeats, so a later worker recovers it.
+  // On shutdown the API stops taking requests first, then has SHUTDOWN_DEADLINE_MS to finish the requests in progress.
   const SHUTDOWN_DEADLINE_MS = 20_000;
   let stopping = false;
   const shutdown = async (signal: string) => {
@@ -225,7 +176,7 @@ async function start(): Promise<void> {
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     server.closeIdleConnections();
     const deadline = new Promise<'deadline'>((resolve) => setTimeout(() => resolve('deadline'), SHUTDOWN_DEADLINE_MS).unref());
-    const outcome = await Promise.race([Promise.all([closed, worker?.stop()]).then(() => 'stopped' as const), deadline]);
+    const outcome = await Promise.race([closed.then(() => 'stopped' as const), deadline]);
     if (outcome === 'deadline') {
       log('error', `Shutdown deadline of ${SHUTDOWN_DEADLINE_MS} ms passed; exiting with work in progress`);
       process.exit(1);

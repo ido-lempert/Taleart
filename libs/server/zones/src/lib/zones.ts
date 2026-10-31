@@ -151,28 +151,6 @@ export async function updateZone(
 }
 
 /**
- * Renames a zone when `decide` says so: the zone row is locked, `decide` gets
- * its current name and answers the new one, or null to leave it. Run it on a
- * transaction, so the decision and the write see the same name (the importer
- * keeps names a person changed). Returns the name before and after, or null
- * when the zone does not exist. The slug stays.
- */
-export async function renameZoneWhen(
-  db: Db,
-  zoneId: string,
-  decide: (current: string) => string | null,
-): Promise<{ before: string; after: string } | null> {
-  if (!UUID.test(zoneId)) return null;
-  const { rows } = await db.query<{ name: string }>('SELECT name FROM zones WHERE id = $1 FOR NO KEY UPDATE', [zoneId]);
-  if (rows.length === 0) return null;
-  const before = rows[0].name;
-  const next = decide(before);
-  if (next === null || next === before) return { before, after: before };
-  await db.query('UPDATE zones SET name = $2 WHERE id = $1', [zoneId, next]);
-  return { before, after: next };
-}
-
-/**
  * Records that the zones `zoneIds` were read as visible on the site (epic UX rework R9): each one's
  * `first_visible_at` is set the first time and never changed or cleared afterwards, so the
  * dashboard's setup checklist stays gone for every user. It is the first time the API read the

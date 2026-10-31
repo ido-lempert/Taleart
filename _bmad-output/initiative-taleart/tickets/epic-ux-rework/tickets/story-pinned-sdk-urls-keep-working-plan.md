@@ -97,7 +97,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool dashboard-e2e --parallel=2` -- pass but the known clock test
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample dashboard-e2e --parallel=2` -- pass but the known clock test
 - `web-sdk:size`, `api:check-sdk-assets`, `sdk-sample:perf`, `dashboard-e2e:e2e` -- pass
 
 **Results (2026-10-23):** lint, test and build pass for all 14 projects except the known clock test "creates the admin, signs them in and stores only the token hash" (api 608 of 609; dashboard 659, contract 391, docs 28). `web-sdk:size` 24.30 KB gzipped; `api:check-sdk-assets` pass; `sdk-sample:perf` PASS (cold p75 1271 ms, API-served 1327 ms); dashboard initial 394.57 kB; `dashboard-e2e:e2e` 10 passed (first run in 15 actions, both pinned-SDK tests).

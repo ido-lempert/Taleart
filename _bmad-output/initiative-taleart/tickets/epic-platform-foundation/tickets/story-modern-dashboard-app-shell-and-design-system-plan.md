@@ -23,7 +23,7 @@ deferred: []
 
 ## Intent
 
-**Problem:** The dashboard is one unstyled HTML page; the user wants it to look and feel like a modern engagement product (comparable to another tool's dashboard), not "a website from the 90s".
+**Problem:** The dashboard is one unstyled HTML page; the user wants it to look and feel like a modern engagement product (comparable to other engagement tools), not "a website from the 90s".
 
 **Approach:** Add TaleArt's own design system (tokens and reusable components) and an app shell with routing: a navigation rail, a top bar with a project switcher, a Zones page of cards, a Zone page with frames and tale-group rows of 9:16 tale cards, a Projects page, and right-side drawers for every create form. Behavior of every existing flow stays the same.
 
@@ -31,7 +31,7 @@ deferred: []
 
 **Always:** TaleArt's own identity: wordmark "TaleArt" with an inline SVG mark; primary color ember `#F2542D` (hover `#D9441F`), ink `#111827`, text muted `#6B7280`, surface `#FFFFFF`, canvas `#F6F6F9`, border `#E5E7EB`, success `#12B76A`, danger `#D92D20`; radius 12px cards, 8px controls, 999px pills; 4px spacing scale; font Inter (self-hosted through `@fontsource-variable/inter`, OFL-1.1) with a system-ui fallback. All colors and sizes are CSS custom properties in `apps/dashboard/src/styles.css`. WCAG 2.2 AA (NFR-007): text contrast at least 4.5:1, visible focus rings, every control labeled, drawers close on Escape, move focus inside on open and return it on close. Works at 1440px and at 390px wide (the rail becomes a bottom bar under 640px). Icons are inline SVG, no icon font. Every API error message still shows next to the form that caused it. SSR-safe: browser-only APIs (`localStorage`) are guarded.
 
-**Never:** another tool's logo, name, colors (its purple), screenshots, icons or copied text. A UI component library (Material, PrimeNG, Tailwind). New API endpoints or contract changes. Fake data in the product: empty states say what to do instead.
+**Never:** another product's logo, name, colors, screenshots, icons or copied text. A UI component library (Material, PrimeNG, Tailwind). New API endpoints or contract changes. Fake data in the product: empty states say what to do instead.
 
 ## I/O & Edge-Case Matrix
 

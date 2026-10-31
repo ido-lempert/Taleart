@@ -91,5 +91,5 @@ Sources: `tickets/*-plan.md` (Deferred, follow-up, Not done, later) and `autopil
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool dashboard-e2e --parallel=2` -- expected: all pass except the known clock-skew auth test
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample dashboard-e2e --parallel=2` -- expected: all pass except the known clock-skew auth test
 - `web-sdk:size`, `web-sdk:types-check`, `sdk-sample:a11y`, `sdk-sample:a11y-review` (2 known landscape failures), `sdk-sample:perf`, `sdk-sample:preview-parity`, `dashboard-e2e:e2e`, `dashboard-e2e:a11y`

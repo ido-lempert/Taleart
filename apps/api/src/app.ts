@@ -1,6 +1,5 @@
 import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, SDK_BASE, type Health } from '@taleart/contract';
 import openapiDocument from '@taleart/contract/openapi.json';
-import { DEFAULT_another tool_API_URL } from '@taleart/server-importer';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
@@ -17,7 +16,6 @@ import { deliveryRouter } from './http/delivery.router';
 import { projectFontsRouter } from './http/fonts.router';
 import { frameTypesRouter } from './http/frame-types.router';
 import { OPENAPI_DOCUMENT_PATH, openapiRouter } from './http/openapi.router';
-import { importsRouter, type ImporterConfig } from './http/imports.router';
 import { errorHandler, notFoundHandler } from './http/errors';
 import { projectMediaRouter, type ProjectMediaOptions } from './http/project-media.router';
 import { projectsRouter } from './http/projects.router';
@@ -93,22 +91,19 @@ export interface AppUrls {
   publicApiUrl?: string;
 }
 
-export type { ImporterConfig } from './http/imports.router';
 export type { SdkFiles } from './http/sdk.router';
 export type { ProjectMediaOptions } from './http/project-media.router';
 export type { UserListOptions } from './http/user-lists.router';
 
 // Builds the API. Takes its pool, frame-type registry, media storage, passkey
-// verifier and importer settings so tests can point it at a real database,
-// their own frame types, a temporary folder, a fake authenticator and a fake
-// import source. Without an importer token key the import routes answer 503.
+// verifier so tests can point it at a real database, their own frame types, a
+// temporary folder and a fake authenticator.
 export function createApp(
   pool: Pool,
   frameTypes: FrameTypeRegistry,
   storage: MediaStorage,
   auth: AppAuth,
   urls: AppUrls = {},
-  importer: ImporterConfig = { tokenKey: null, another toolApiUrl: DEFAULT_another tool_API_URL },
   media: ProjectMediaOptions = {},
   delivery: AppDelivery = {},
   sdk: Partial<SdkFiles> = {},
@@ -219,7 +214,6 @@ export function createApp(
   v1.use('/projects', projectTagsRouter(pool));
   v1.use('/projects', userListsRouter(pool, userLists));
   v1.use('/projects', projectTaleGroupsRouter(pool));
-  v1.use('/projects', importsRouter(pool, importer));
   v1.use('/projects', projectThemeRouter(pool));
   v1.use('/projects', siteKeyRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));

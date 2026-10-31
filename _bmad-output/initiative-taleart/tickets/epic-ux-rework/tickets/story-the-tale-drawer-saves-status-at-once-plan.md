@@ -91,7 +91,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool` -- pass (dashboard 569); initial 497.09 kB.
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample` -- pass (dashboard 569); initial 497.09 kB.
 - `node_modules/.bin/nx run web-sdk:size`, `web-sdk:types-check` -- pass.
 
 **Manual checks:**

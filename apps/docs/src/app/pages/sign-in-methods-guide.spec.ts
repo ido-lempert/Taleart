@@ -94,9 +94,4 @@ describe('the Sign-in methods guide', () => {
       expect(String(size.height), file).toBe(img?.getAttribute('height'));
     });
   });
-
-  it('does not name any competing product other than the identity providers it configures', () => {
-    const text = (page.textContent ?? '').toLowerCase();
-    expect(text).not.toContain('another tool');
-  });
 });

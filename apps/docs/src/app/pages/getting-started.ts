@@ -130,7 +130,6 @@ import { DOCS_SNIPPET } from '../docs-content';
     <ul>
       <li><a routerLink="/projects-and-team">Projects, team and sign-in</a></li>
       <li><a routerLink="/guides/sign-in-methods">Sign-in methods</a></li>
-      <li><a routerLink="/import-from-another-tool">Import from another tool</a></li>
     </ul>
     <h3 id="index-sdk-guides">SDK guides</h3>
     <ul>

@@ -59,7 +59,6 @@ import {
   UserListNotFoundError,
   UserListProjectNotFoundError,
 } from '@taleart/server-targeting';
-import { another toolTokenInvalidError, another toolUnavailableError } from '@taleart/server-importer';
 import type express from 'express';
 
 /** An error that maps directly to an HTTP status and the standard error body. */
@@ -182,15 +181,9 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof InvalidUserListNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||
-    err instanceof InvalidScheduleError ||
-    err instanceof another toolTokenInvalidError
+    err instanceof InvalidScheduleError
   ) {
     res.status(400).json(errorBody(err.code, err.message));
-    return;
-  }
-  // The import source failed or answered a shape the importer does not expect.
-  if (err instanceof another toolUnavailableError) {
-    res.status(502).json(errorBody(err.code, err.message));
     return;
   }
   // A body parser rejects a body over its limit this way: express.raw() on the

@@ -13,7 +13,7 @@ function startsWith(data: Buffer, bytes: number[], offset = 0): boolean {
 
 const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0));
 
-// The type rules live in the contract, shared with the importer (same rules for uploads and imports).
+// The type rules live in the contract.
 export { matchesMagicNumber, mediaExtension } from '@taleart/contract';
 
 // The number of images in a GIF, read from its blocks; null when the file cannot be walked.

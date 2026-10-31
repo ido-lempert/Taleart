@@ -104,7 +104,7 @@ deferred: []
 - Not verified by hand: a signed-in browser walk of the studio picker and inspector, and a real screen reader.
 
 - After the security review: deletion of replaced files goes through `withMediaKeyDeletionGuard` (exclusive key lock, reference read and delete in one transaction); uploads stream to storage (`putStream`) with the type sniffed from the first bytes, need a `Content-Length`, are stored before the row's transaction and capped per project (`PROJECT_MEDIA_MAX_FILES` 500, `PROJECT_MEDIA_MAX_BYTES` 2 GB) and per process (4 at once); the worker's start-up sweep removes `media/` files with no row. A document's video ends its tale at 15 s or after a 5 s stall, and a document video beside a tale video follows pause and play. Note for story 7.11 (also in the epic's Notes): the R16 migration must write `durationMs: 5000` to keep legacy timing; until then a legacy image tale with a document overlay plays 7 s instead of 5 s.
-- Verification after the security review fixes (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 203, server-tales 192, server-importer 276, web-sdk 316, dashboard 351, api 459 tests); `web-sdk:size` 18.46 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 165 checks; `sdk-sample:perf` cold p75 1,275 ms, p75 first tale frame 69 ms. Dashboard initial bundle 491.63 KB.
+- Verification after the security review fixes (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 203, server-tales 192, 276, web-sdk 316, dashboard 351, api 459 tests); `web-sdk:size` 18.46 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 165 checks; `sdk-sample:perf` cold p75 1,275 ms, p75 first tale frame 69 ms. Dashboard initial bundle 491.63 KB.
 
 ## Plan Change Log
 
@@ -141,6 +141,6 @@ Assumptions (none blocks; each recorded for review):
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w1_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- expected: all succeed.
+- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w1_test npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- expected: all succeed.
 - `npm exec nx -- run web-sdk:size`, `web-sdk:types-check` -- ≤ 50 KB gzipped; types pass.
 - `npm exec nx -- run sdk-sample:a11y`, `sdk-sample:a11y-review`, `sdk-sample:perf` -- 0 violations; checks pass; cold p75 ≤ 1.5 s.

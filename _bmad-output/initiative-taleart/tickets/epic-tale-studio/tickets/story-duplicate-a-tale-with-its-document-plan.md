@@ -84,7 +84,7 @@ deferred: []
 - The HTTP call lives in the lazy drawer, not the root store, so the initial bundle stays 494.95 kB; the card button's icon is inline SVG for the same reason.
 - Tale Studio flushes autosave before opening the drawer (the copy is made from what is saved); a failed save shows "…so the tale was not duplicated" and opens nothing.
 - Browser check (Playwright, virtual WebAuthn passkey, API 3386 / dashboard 4286 / sample 4386, own database): duplicated a styled tale (tale media, project image, styled text) from its card into another group (announced, card Hidden), edited the copy's text in the studio (original documents byte-identical, element ids all new), showed and updated both (Delivery serves both, every media URL 200), archived the original (copy's media URLs 200, sample page renders it), duplicated from the studio (notice and link). Screenshots in the scratchpad `shots-7.12/`.
-- Verification (2026-10-22, `--skip-nx-cache`, `taleart_w12_test`): `run-many -t lint test build` on the 12 projects passes (api 539, dashboard 411, web-sdk 335, server-importer 276, contract 266, server-tales 230 tests; api:build re-run after a type fix in the route); `web-sdk:size` 21.69 KB gzipped; `web-sdk:types-check` passes; dashboard initial bundle 494.95 kB.
+- Verification (2026-10-22, `--skip-nx-cache`, `taleart_w12_test`): `run-many -t lint test build` on the 12 projects passes (api 539, dashboard 411, web-sdk 335, 276, contract 266, server-tales 230 tests; api:build re-run after a type fix in the route); `web-sdk:size` 21.69 KB gzipped; `web-sdk:types-check` passes; dashboard initial bundle 494.95 kB.
 
 ## Plan Change Log
 
@@ -103,7 +103,7 @@ deferred: []
   6. `[patch]` Duplicating an archived tale gives a Hidden copy. Test.
   7. `[patch]` Duplicate while Update tale runs says "Wait until the tale is updated, then duplicate it." Test.
 - Added tests: the copy's `tale_fonts` rows for draft and published, and 409 `font_in_use` when only the copy uses a font; an out-of-step original gives an out-of-step copy delivered with the media composed under the copy's own id and merged by the media migration; `document_media_key`/`document_created_by_migration` carried; duplicates racing a reorder, an add, a status change and a save on the same groups (no 5xx, positions 0..n-1, the cap holds: two of three adds into a group with two places); studio POST failure, full group, focus return.
-- Verification after merging `autopilot/foundation` b3b99e5 (8.5) (2026-10-22, `--skip-nx-cache`, `taleart_w12_test`): `run-many -t lint test build` on the 12 projects passes (api 532, dashboard 412, web-sdk 327, server-importer 276, contract 267, server-tales 230, server-zones 61 tests); `web-sdk:size` 21.53 KB gzipped; `web-sdk:types-check` passes; dashboard initial bundle 493.07 kB. One earlier full run (before the merge) failed only in the existing autosave-timing test (40 ms debounce, under load), whose open request then failed the rest of that file; `dashboard` alone and the next two full runs passed.
+- Verification after merging `autopilot/foundation` b3b99e5 (8.5) (2026-10-22, `--skip-nx-cache`, `taleart_w12_test`): `run-many -t lint test build` on the 12 projects passes (api 532, dashboard 412, web-sdk 327, 276, contract 267, server-tales 230, server-zones 61 tests); `web-sdk:size` 21.53 KB gzipped; `web-sdk:types-check` passes; dashboard initial bundle 493.07 kB. One earlier full run (before the merge) failed only in the existing autosave-timing test (40 ms debounce, under load), whose open request then failed the rest of that file; `dashboard` alone and the next two full runs passed.
 
 ## Design Notes
 
@@ -114,5 +114,5 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w12_test node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- all succeed.
+- `NX_DAEMON=false TEST_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_w12_test node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample --skip-nx-cache` -- all succeed.
 - `web-sdk:size`, `web-sdk:types-check` -- pass.

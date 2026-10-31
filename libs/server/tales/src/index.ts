@@ -17,17 +17,13 @@ export {
   listProjectTaleGroups,
   createProjectTaleGroup,
   renameTaleGroup,
-  renameTaleGroupWhen,
-  renameTaleWhen,
   createTale,
   copyTaleWithDocument,
   duplicateTale,
   taleGroupExists,
   taleExists,
   getTale,
-  taleGroupName,
   taleGroupNames,
-  taleTitle,
   taleGroupProjectId,
   taleProjectId,
   getTaleMedia,
@@ -40,8 +36,6 @@ export {
   orderTaleGroups,
   copyZonePlacements,
   orderTales,
-  orderTaleGroupsWhen,
-  orderTalesWhen,
   listDeliveryTaleGroups,
   findPublishedMedia,
   SHOWN_STATUS_STEP,
@@ -91,26 +85,6 @@ export const setTaleSchedule = thenClearFonts(tales.setTaleSchedule);
 export const deleteTale = thenClearFonts(tales.deleteTale);
 // A tale's media is an element of its documents (R16), so setting it can make a key public or private.
 export const setTaleMedia = thenClearFonts(tales.setTaleMedia);
-// These two run inside the importer's transaction: the importer clears the public caches once it
-// commits (clearPublicMediaCache), so no answer read before the commit is kept.
-export { setTaleMediaIfNone, replaceTaleMediaIf } from './lib/tales';
-
-// The button an import carries into a tale (epic Tale Studio R17): written in the importer's transaction.
-export {
-  findImportedButton,
-  importedButtonElement,
-  isTaleMediaOnlyDocument,
-  setImportedButtonWhen,
-  taleDocumentFingerprints,
-  withImportedButton,
-  type DocumentFingerprints,
-  type ImportedButton,
-  type ImportedButtonOptions,
-  type ImportedButtonResult,
-  type ImportedButtonSkip,
-  type ImportedButtonWrite,
-} from './lib/imported-button';
-
 export {
   bringTaleMediaInStep,
   classifyMigrationError,

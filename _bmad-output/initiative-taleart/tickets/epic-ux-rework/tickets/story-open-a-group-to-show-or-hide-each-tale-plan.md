@@ -94,7 +94,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool` -- pass (dashboard 557 tests after merging `autopilot/foundation` 8906799); initial 494.43 kB.
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample` -- pass (dashboard 557 tests after merging `autopilot/foundation` 8906799); initial 494.43 kB.
 - `node_modules/.bin/nx run web-sdk:size`, `web-sdk:types-check` -- pass.
 
 **Manual checks:**

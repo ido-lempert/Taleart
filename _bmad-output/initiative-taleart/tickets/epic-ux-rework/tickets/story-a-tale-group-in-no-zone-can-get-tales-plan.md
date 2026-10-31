@@ -94,7 +94,7 @@ deferred: []
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool dashboard-e2e --parallel=2` -- all pass except the known `api:test` "auth > creates the admin, signs them in and stores only the token hash" (`expected 606033 to be 604800`, local Postgres clock behind). API 599/600, dashboard 667.
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard docs contract server-access server-zones server-tales server-storage server-targeting web-sdk sdk-sample dashboard-e2e --parallel=2` -- all pass except the known `api:test` "auth > creates the admin, signs them in and stores only the token hash" (`expected 606033 to be 604800`, local Postgres clock behind). API 599/600, dashboard 667.
 - `dashboard-e2e:e2e` -- 8 passed; `dashboard-e2e:a11y` -- 28 passed (new state `tale-groups-group-view`).
 
 **Manual checks:**

@@ -5,7 +5,7 @@ parent: initiative-taleart
 id: 4
 covers: [R4, R10, R7]
 sources: [_bmad-output/initiative-taleart/initiative-taleart.md, _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md]
-companions: [_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, _bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/studio-r4-1.md, _bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/event-analytics-r2-2.md]
+companions: [_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md]
 after: []
 refined: true
 risk: high
@@ -19,7 +19,7 @@ Content managers add seven interactive components to a tale in Tale Studio: poll
 
 Each component is an **element type** in the tale document (architecture AD-15), added through the element-type registry that Tale Studio story 7.8 built (`libs/contract/tale-document/element-types/registry.json`, steps in `libs/contract/README.md`): a props schema, server rules, a studio descriptor and an SDK renderer. Responses are owned by a new `interactive` module (`libs/server/interactive`). The SDK posts them to the Delivery API, which today only reads (`GET /delivery/v1/zone`).
 
-another tool's components are the reference for the feature set (digest `studio-r4-1.md`, section Interactive components). Where another tool documents no behaviour, the scope stays lean.
+The scope stays lean.
 
 The native mobile SDK (`libs/mobile-sdk`, epic-native-mobile story 9.5) already renders documents and skips types it does not know. It learns the seven components in two native stories at the end of this epic, not inside each web story (C1).
 
@@ -38,40 +38,40 @@ R1 (parent R4, R10; PRD FR-014; AD-15): **Components are element types**
    - **Unknown types:** an SDK that does not know a component type skips it and shows the rest of the tale. This is true today for both the Web and the native SDK.
    Verify: each component type appears in the Add menu, saves and is refused when it breaks its schema; a second poll in one tale is refused, and an eleventh product pin is refused; an SDK build without a component's renderer shows the tale without it.
 
-R2 (parent R4; PRD FR-014, FR-015; digest: Poll): **Poll**
+R2 (parent R4; PRD FR-014, FR-015): **Poll**
    A poll has a question and two options. The visitor taps or presses one option. The vote is recorded, and the poll then shows each option's percentage with the visitor's choice marked.
    Verify: vote on the sample page and see the percentages; reload and see the choice and percentages again, with no second vote possible.
 
-R3 (parent R4; PRD FR-014; digest: Multiple choice): **Quiz**
+R3 (parent R4; PRD FR-014): **Quiz**
    A quiz has a question and two to four answers.
    - The author can mark one answer as correct. After answering, the visitor sees whether their answer was right, the correct answer is marked, and each answer's percentage is shown.
    - With no correct answer marked, the quiz works as a survey and shows only the percentages.
    Verify: answer a quiz wrongly and see the right answer marked and the percentages; a quiz without a correct answer shows only the percentages.
 
-R4 (parent R4; PRD FR-014; digest: Emoji reaction): **Emoji reaction**
+R4 (parent R4; PRD FR-014): **Emoji reaction**
    An emoji reaction has three to five emoji in a horizontal or vertical bar. The visitor picks one, and the pick is recorded.
    - The chosen emoji is marked, with a short animation that is skipped under reduced motion.
    - Visitors are not shown counts (C5).
    Verify: pick an emoji on the sample page and see it marked; the studio's count for that emoji goes up by one.
 
-R5 (PRD FR-014; digest: Rating): **Rating**
+R5 (PRD FR-014): **Rating**
    Rating comes from PRD FR-014 and the split review; initiative R4's list of six omits it (initiative Open question).
    A Rating has a question and one emoji on a slider from 0 to 100. The visitor sets a value by dragging, or by arrow keys in steps of 10, and it is recorded when released or confirmed. The Rating then shows the average of all ratings.
    Dragging on the slider never moves to another tale or tale group.
    Verify: drag the slider on the sample page and see the average; set a value with the keyboard alone; dragging the slider does not swipe to the next group.
 
-R6 (parent R4; PRD FR-014; digest: Countdown): **Countdown**
+R6 (parent R4; PRD FR-014): **Countdown**
    A countdown has a title and an end time (stored in UTC, entered in the author's time zone). It shows days, hours, minutes and seconds left, in the visitor's locale, and an ended text after the end time.
    - It can offer **Remind me**, with the reminder's text and time. Pressing it gives the visitor a calendar file (`.ics`) and records the press as the countdown's response (C6).
    - A countdown without a reminder records nothing.
    Verify: a countdown to a time two minutes ahead counts down on the sample page and shows the ended text after it; Remind me downloads a calendar file with the reminder's text and time, and the studio counts one reminder.
 
-R7 (parent R4; PRD FR-014; digest: Promo code): **Promo code**
+R7 (parent R4; PRD FR-014): **Promo code**
    A promo code shows a code and a label. Pressing it copies the code to the clipboard, says "Copied", and records the copy.
    - Where the clipboard is not available, the code is selected so the visitor can copy it by hand.
    Verify: press the promo code on the sample page, paste it elsewhere, and see the same code; the studio counts one copy.
 
-R8 (parent R4; PRD FR-014; digest: Product tag): **Product pins**
+R8 (parent R4; PRD FR-014): **Product pins**
    A product pin is a marker placed on the canvas. Pressing it opens a product card with:
    - a title,
    - an optional price, as text,
@@ -139,8 +139,7 @@ R15 (parent R4; AD-15, AD-16): **Security of components**
 - **No HTML or CSS from content:** this covers text nodes and CSSOM. Source: AD-16.
 - **Web SDK budget:** 50 KB gzipped and 1.5 s first content. Source: architecture Quality Targets.
 - **WCAG 2.2 AA:** applies to the studio and the rendered components. Source: architecture Quality Targets.
-- **No another tool brand names** in code, UI or docs. "Product tag" is named product pin. Source: AD-12, NFR-004.
-- **No copied another tool docs text and no screenshots.** Source: NFR-005.
+- **No third-party brand names** in code, UI or docs. "Product tag" is named product pin. Source: AD-12, NFR-004.
 - **Apache-2.0.** Source: NFR-001.
 
 ## Done when
@@ -156,12 +155,11 @@ R15 (parent R4; AD-15, AD-16): **Security of components**
 - **Out:**
   - **Product feeds and product sets** (PRD FR-021, FR-022). They remain owned by this epic in name, as decided on 2026-10-20, but have no stories until product feeds exist. Product pins take data entered by hand.
   - **Metrics and analytics:** charts, CSV export, date filters, and Reach, Impression, Engagement Rate and CTR. These belong to epic-analytics, which consumes R9's rows and R12's events.
-  - **Audiences from answers** (another tool's audience builder) and journeys routed by answers. Both are post-MVP.
+  - **Audiences from answers** and journeys routed by answers. Both are post-MVP.
   - **An image quiz** and components beyond the seven. Each is a later element type.
   - **Push or e-mail reminders** for a countdown. The Web reminder is a calendar file.
   - **Showing a viewer their past answers on another device.**
 - **Touch points:**
-  - **Importer:** story 2.13 of epic-another tool-importer maps another tool components to these element types. Its owner is epic-another tool-importer, and the mapping is in Notes.
   - **Analytics:** epic-analytics reads the response rows through the `interactive` public interface and adds the R12 events to its store.
 - **Must not change:** the document version, the delivery of the zone response (`GET /delivery/v1/zone`), and the rendering of existing element types.
 
@@ -170,18 +168,16 @@ R15 (parent R4; AD-15, AD-16): **Security of components**
 - parent — `_bmad-output/initiative-taleart/initiative-taleart.md`, section Requirements (R4, R7, R10)
 - prd — `_bmad-output/initiative-taleart/prd-taleart/prd-taleart.md`, FR-014, FR-015, FR-021, FR-022, FR-023, NFR-004, NFR-005, NFR-006, NFR-007
 - architecture — `_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md`, AD-1, AD-2, AD-3, AD-6, AD-10, AD-13, AD-15, AD-16, Quality Targets, Capability Map
-- research — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/studio-r4-1.md` (Interactive components; what the External API exposes); `digests/event-analytics-r2-2.md` (component events)
 - tale studio — `_bmad-output/initiative-taleart/tickets/epic-tale-studio/epic-tale-studio.md`, R1, R8, R9, R10, R12, R14, R15; `libs/contract/README.md`, section Element types
 - native mobile — `_bmad-output/initiative-taleart/tickets/epic-native-mobile/epic-native-mobile.md`, story 9.5
-- importer — `_bmad-output/initiative-taleart/tickets/epic-another tool-importer/import-mapping.md`
 
 ## Owner decisions to confirm
 
-Sofia made these product decisions on 2026-10-23, working headless. The stories are planned on them, and each one stands until the owner changes it; a change re-slices the affected stories. Also: importer story 2.13 waits on story 7 at story level, and the importer epic keeps its earlier place in the build order (importer decision, 2026-10-20).
+Sofia made these product decisions on 2026-10-23, working headless. The stories are planned on them, and each one stands until the owner changes it; a change re-slices the affected stories.
 
 - **C1 Native rendering:** native rendering is not part of each web story. It comes in two native stories at the end of the epic (stories 10 and 11, after 9.5). The reason is that each web story is already one session of work, the native SDK skips unknown types safely meanwhile, and native review needs both emulators.
 - **C2 Visitor id:** responses are kept per visitor, using the device's visitor id that story 8.23 adds (owner decision 2026-10-23). The external user ID is not attached in the MVP. epic-analytics can count Reach with the same id.
-- **C3 Limits per tale:** each component type appears at most once per tale, except product pins, which allow up to 10. This follows another tool, where product tags are the only repeatable component.
+- **C3 Limits per tale:** each component type appears at most once per tale, except product pins, which allow up to 10.
 - **C4 Product data:** product pins take product data entered by hand (title, price as text, image, URL). Product feeds and product sets stay unsliced.
 - **C5 Results shown to visitors:** a poll and a quiz show percentages, and a Rating shows the average. An emoji reaction shows no counts to visitors, only in the studio.
 - **C6 Countdown reminder:** on the Web, the countdown's reminder is a calendar file the visitor saves, and pressing it is the countdown's recorded response. A countdown without a reminder records nothing, which is how R4's "records a response" is read for countdown.
@@ -193,14 +189,13 @@ Sofia made these product decisions on 2026-10-23, working headless. The stories 
 
 ## Notes
 
-- Decision (2026-10-23, Sofia, headless): refined from R4, PRD FR-014 and FR-015, AD-15, the another tool digests and the built code (registry from 7.8, Web renderer, Delivery router, `libs/mobile-sdk`). Product decisions C1 to C11 are listed above for the owner to confirm.
+- Decision (2026-10-23, Sofia, headless): refined from R4, PRD FR-014 and FR-015, AD-15, and the built code (registry from 7.8, Web renderer, Delivery router, `libs/mobile-sdk`). Product decisions C1 to C11 are listed above for the owner to confirm.
 - Decision (2026-10-23): the tracer bullet is story 1, "Tracer: add a poll to a tale and see a visitor's vote counted". It passes through every layer the epic touches: the contract type, server rules, the studio descriptor and the inspector's counts, the SDK renderer in the viewer, the device's visitor id (8.23), the new Delivery response endpoint and the `interactive` module with its migration.
 - Decision (2026-10-23): Rating is second because it is the least certain: its drag must not trigger the viewer's swipe between groups, and it needs a keyboard slider. The other components follow in one ordered lane (3 to 7), since each touches the registry, the studio descriptors and the renderer table.
 - Decision (2026-10-23): the studio's configured inspector supports only `text`, `number`, `color` and `select` fields. Rating (story 2) adds an emoji field, the quiz (3) a list field with a correct-answer pick, the countdown (5) a date-time field, and product pins (7) the media and link fields from 7.5 and 7.7.
 - Decision (2026-10-23): the initiative breakdown changes as follows.
   - **Epic 1:** the epic-level `after` on epic 1 ("the data model and API") is dropped. Story 1 reaches the foundation through 7.8, 8.2 and 8.7.
   - **Epic 9:** epic-native-mobile moves before this epic in the initiative order, since stories 10 and 11 wait on 9.5.
-  - **Importer:** importer story 2.13 now waits on story 7.
 - Decision (2026-10-23): the refactor sweep (13) is proposed by default. A closing end-to-end suite is not proposed, since the source has no test plan.
 - Note (2026-10-23, from the code): `registry.json` holds nine MVP types plus `test-badge` (test only). The Web renderer skips an unknown type with one console warning per type per page. `libs/mobile-sdk` (`TaleDocument.kt`) lists the nine types in `DOCUMENT_ELEMENT_TYPES` and skips the others. The Delivery API has only `GET /delivery/v1/zone`, with a rate limit. No events table, analytics module or `interactive` module exists yet. The Web SDK keeps only `taleart.seen`, never sent; the device's visitor id is planned in epic-ux-rework story 8.23 (owner decision 2026-10-23).
 - Note (2026-10-24, story 1 review): response counts are indicative, not tamper-proof. Responses are kept once per visitor id (C2, C9), and the visitor id is made on the device (8.23): clearing site data, a private window or a script that invents ids can respond again, within the Delivery API's rate limits (the per-visitor and per-address limits, and the stricter write limit of `POST /delivery/v1/responses`). The SDK README and the docs say so; no component should be used where a result must be trusted.
@@ -210,13 +205,3 @@ Sofia made these product decisions on 2026-10-23, working headless. The stories 
   - the device's visitor id (8.23), for Reach.
 
   Engagement Rate needs component responses over tale impressions; impressions are analytics' own events.
-- Note (2026-10-23, for importer story 2.13): the another tool-to-TaleArt mapping is:
-  - Poll → `poll`
-  - Multiple choice/Quiz → `quiz`
-  - Emoji Reaction → `emoji-reaction`
-  - Rating → `rating`
-  - Countdown → `countdown`
-  - Product Tag → `product-pin`
-  - Promo Code → `promo-code`
-
-  The External API exposes no component fields or endpoint (digest `studio-r4-1.md`). Unless the real run (2.3) finds them, 2.13 can only list "components not readable through the API" per tale, which Tale Studio story 7.13 already reports. another tool's response history is not imported (importer decision, 2026-10-20, stats history). Story 2.13 now waits on story 4.7, the last web component.
