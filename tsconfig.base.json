@@ -25,6 +25,7 @@
       "@taleart/contract/text-style": ["./libs/contract/src/lib/text-style.ts"],
       "@taleart/contract/theme": ["./libs/contract/src/lib/theme.ts"],
       "@taleart/agent-skill/*": ["./skills/taleart/*"],
+      "@taleart/seed-demo": ["./libs/seed-demo/src/index.ts"],
       "@taleart/server-access": ["./libs/server/access/src/index.ts"],
       "@taleart/server-analytics": ["./libs/server/analytics/src/index.ts"],
       "@taleart/server-interactive": ["./libs/server/interactive/src/index.ts"],

@@ -25,8 +25,9 @@ export default [
           // the contract depends on nothing.
           depConstraints: [
             {
+              // The demo seed (TALEART_SEED_DEMO) is the one lib besides the modules the API bundles.
               sourceTag: 'scope:api',
-              onlyDependOnLibsWithTags: ['type:server-module', 'type:contract'],
+              onlyDependOnLibsWithTags: ['type:server-module', 'type:contract', 'type:seed'],
             },
             {
               sourceTag: 'type:server-module',
@@ -47,7 +48,12 @@ export default [
               // The taleart CLI (epic developer experience 10.3) calls the Management API over HTTP,
               // and carries the agent skill (10.4) for `taleart skill install`.
               sourceTag: 'scope:cli',
-              onlyDependOnLibsWithTags: ['type:contract', 'type:skill'],
+              onlyDependOnLibsWithTags: ['type:contract', 'type:skill', 'type:seed'],
+            },
+            {
+              // The demo seed speaks the Management API through a client it is given, and the contract's types.
+              sourceTag: 'type:seed',
+              onlyDependOnLibsWithTags: ['type:contract'],
             },
             {
               sourceTag: 'type:sdk',

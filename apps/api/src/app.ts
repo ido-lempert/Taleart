@@ -1,4 +1,4 @@
-import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, SDK_BASE, type Health } from '@taleart/contract';
+import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, SDK_BASE, type Health, type User } from '@taleart/contract';
 import openapiDocument from '@taleart/contract/openapi.json';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
@@ -68,6 +68,11 @@ export interface AppAuth {
   providerFlowLimit?: RateLimitOptions | null;
   /** TALEART_SETUP_PASSWORD=true: the first admin may set up with a username and password. Off by default. */
   setupPassword?: boolean;
+  /**
+   * Called once with the first admin right after setup has created them (not for later users). The demo
+   * seed uses it (TALEART_SEED_DEMO=true); it runs beside the request, so it must handle its own errors.
+   */
+  onSetup?: (user: User) => void;
   /**
    * Tests only: the issuers the Google and Apple presets are discovered from, so a fake provider on
    * localhost stands in for them. Never set from the environment; left out, the real issuers are used.
@@ -171,6 +176,7 @@ export function createApp(
       secureCookies: auth.secureCookies ?? false,
       secretsAvailable: (auth.secretKey ?? null) !== null,
       setupPasswordAllowed: auth.setupPassword === true,
+      onSetup: auth.onSetup,
     }),
   );
   v1.use(
@@ -184,6 +190,7 @@ export function createApp(
       allowHttpIssuer: auth.allowHttpIssuer ?? process.env['NODE_ENV'] !== 'production',
       passwordAddressLimit: auth.passwordAddressLimit,
       setupPasswordAllowed: auth.setupPassword === true,
+      onSetup: auth.onSetup,
     }),
   );
   // Provider sign-in (OpenID Connect, Google, Apple): the start, the callbacks and the admin's test.

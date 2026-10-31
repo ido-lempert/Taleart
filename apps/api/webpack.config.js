@@ -28,6 +28,10 @@ class RequireAssets {
 }
 
 module.exports = {
+  // `import jpg from '…/picture.jpg?inline'`: the demo seed's pictures (libs/seed-demo) as data URLs.
+  module: {
+    rules: [{ resourceQuery: /inline/, type: 'asset/inline' }],
+  },
   output: {
     path: join(__dirname, '../../dist/apps/api'),
     clean: true,

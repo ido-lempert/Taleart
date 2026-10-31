@@ -43,6 +43,8 @@ Edit `.env`:
 4. `TALEART_SECRET_KEY`: `openssl rand -base64 32`. Keep a copy: it encrypts the sign-in provider secrets
    stored in the database.
 5. `TALEART_SETUP_PASSWORD=false` (the default) so the first admin must use a passkey.
+6. `TALEART_SEED_DEMO=false` (the default when the variable is missing), so no demo project is made. The quick
+   try file turns it on.
 
 Then:
 
@@ -60,6 +62,36 @@ when `TALEART_SETUP_PASSWORD=true`); setup is available only until the first adm
 project, copy its key and add the Web SDK to your site:
 `<script src="https://taleart.example.com/sdk/v1/taleart.js"></script>`.
 
+## Demo data
+
+A new install is empty, which makes for dull screens and screenshots. The demo seed fills it with a made-up
+furniture store's campaign, "Spring Campaign" (brand "Nordic Home", fictional products, pictures drawn for this
+repository): a theme, three zones (a ring bar, a rotating banner and a poster bar), five tale groups with
+covers and tags, thirteen tales (pictures, text, buttons, a countdown, a promo code, a poll, a quiz, a rating
+and a reaction; one scheduled, one hidden), a user list and a small team.
+
+In the Docker quick try it is on (`TALEART_SEED_DEMO=true` in `.env.docker.example`): when the first admin
+finishes setup, the API makes the project for them within a few seconds, through its own Management API. It
+runs once, only for the first admin of an install that has no other user, and its short-lived token is revoked
+at the end. Leave it `false` on a real install. Turning it on later does nothing: setup has happened already.
+
+On any other install, an admin runs one command with an API token (Settings > API tokens in the dashboard):
+
+```sh
+export TALEART_API_URL=http://localhost:8080 TALEART_TOKEN=tat_...
+taleart seed-demo --dry-run     # checks the install and says what it would make
+taleart seed-demo
+```
+
+Each zone gets a zone key (so the zones read as installed); `taleart seed-demo` prints them once, and the dashboard's
+rotate button shows a fresh one. A second run does nothing: a project called "Spring Campaign" is the marker. The command refuses an install
+whose admin already has other projects; `--force` adds the demo anyway (as "Spring Campaign 2" when the first
+one exists). The command makes everything but the team: no API token may create a user or an invitation, so
+the team comes only with `TALEART_SEED_DEMO`: Pia (publisher), Elin (editor), Viktor (viewer, access ends in
+14 days) and Olle (editor, access already ended) with `example.com` emails and no way to sign in (no passkey,
+password or provider), and two pending invitations (publisher, viewer). A project cannot be deleted through
+the API, so remove the demo by starting from a fresh database (`docker compose down -v`).
+
 ## Passkeys need https
 
 Browsers register passkeys only on `https://` addresses and on `http://localhost`. `http://192.168.x.x` or an
@@ -74,6 +106,7 @@ Browsers register passkeys only on `https://` addresses and on `http://localhost
 | `POSTGRES_PASSWORD` | yes | none | Password of the `taleart` database user. |
 | `TALEART_SECRET_KEY` | recommended | empty | 32 random bytes, base64. Without it the API refuses to save sign-in provider secrets. |
 | `TALEART_SETUP_PASSWORD` | no | `false` | `true`: the first admin may use a username and password instead of a passkey. |
+| `TALEART_SEED_DEMO` | no | `false` | `true`: right after the first admin finishes setup, make the demo project (see Demo data). Quick try only. |
 | `TALEART_HTTP_PORT`, `TALEART_HTTPS_PORT` | no | `80`, `443` | Host ports of the proxy. |
 | `TALEART_VERSION` | no | `local` | Tag of the images compose builds. |
 | `TRUST_PROXY` | no | `1` | Proxies in front of the API (hop count or addresses); used for per-address rate limits. |
