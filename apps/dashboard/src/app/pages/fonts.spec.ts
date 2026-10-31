@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import type { ProjectFont } from '@taleart/contract/core';
-import { API_BASE } from '../dashboard.store';
+import { API_BASE, DashboardStore } from '../dashboard.store';
 import { FontsPage } from './fonts';
 
 const listUrl = `${API_BASE}/projects/p1/fonts`;
@@ -79,6 +79,7 @@ describe('FontsPage (story 7.17)', () => {
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
     http = TestBed.inject(HttpTestingController);
+    TestBed.inject(DashboardStore).projects.set([{ id: 'p1', name: 'Acme', role: 'publisher' }]);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 

@@ -106,6 +106,7 @@ export function opensFromRowClick(event: MouseEvent): boolean {
             [label]="g.name + ' on site'"
             [stateText]="stateText()"
             [disabled]="saving()"
+            [reason]="switchReason()"
             (toggled)="toggled.emit($event)"
           />
         }
@@ -139,6 +140,10 @@ export class GroupRow {
   /** A ⋯ menu item was chosen. */
   readonly picked = output<MenuPick>();
 
+  /** Why the switch is off limits for this caller: turning content on or off needs the Publisher role. */
+  protected readonly switchReason = computed(() =>
+    this.store.can('content.publish', this.group().projectId) ? '' : this.store.roleNeeded('content.publish'),
+  );
   protected readonly count = computed(() => shownCount(this.group()));
   protected readonly switchable = computed(() => isSwitchable(this.group().storedStatus));
   protected readonly badge = computed(() => needsBadge(this.group().status));

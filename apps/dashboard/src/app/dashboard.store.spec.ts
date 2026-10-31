@@ -79,17 +79,37 @@ describe('DashboardStore', () => {
 
   describe("projects' tale group lists (epic UX rework R14)", () => {
     const vis = (visible: boolean) => ({ visible, reasons: visible ? [] : [{ code: 'group-off', subject: 'group' }] });
-    const tale = (id: string, storedStatus: string) => ({ id, taleGroupId: 'g1', projectId: 'p1', title: id, storedStatus, status: storedStatus });
+    const tale = (id: string, storedStatus: string) => ({
+      id,
+      taleGroupId: 'g1',
+      projectId: 'p1',
+      title: id,
+      storedStatus,
+      status: storedStatus,
+    });
     const listed = {
-      id: 'g1', projectId: 'p1', name: 'Summer', status: 'paused', storedStatus: 'paused', startsAt: null, endsAt: null,
-      cover: null, tags: [], zoneIds: ['z1'], visibility: vis(false), taleCount: 2, shownTaleCount: 1,
+      id: 'g1',
+      projectId: 'p1',
+      name: 'Summer',
+      status: 'paused',
+      storedStatus: 'paused',
+      startsAt: null,
+      endsAt: null,
+      cover: null,
+      tags: [],
+      zoneIds: ['z1'],
+      visibility: vis(false),
+      taleCount: 2,
+      shownTaleCount: 1,
     };
 
     // Answers one refresh: project p1 with zone z1 listing g1 with `tales`, and the p1 list when asked.
     async function answerWith(tales: unknown[]): Promise<void> {
-      http.expectOne(`${API_BASE}/projects`).flush([{ id: 'p1', name: 'Acme' }]);
+      http.expectOne(`${API_BASE}/projects`).flush([{ id: 'p1', name: 'Acme', role: 'admin' }]);
       await tick();
-      http.expectOne(`${API_BASE}/zones`).flush([{ id: 'z1', projectId: 'p1', name: 'Home', slug: 'home', frame: null }]);
+      http
+        .expectOne(`${API_BASE}/zones`)
+        .flush([{ id: 'z1', projectId: 'p1', name: 'Home', slug: 'home', frame: null }]);
       await tick();
       http.expectOne(`${API_BASE}/frame-types`).flush([]);
       await tick();
@@ -131,11 +151,22 @@ describe('DashboardStore', () => {
       await done;
 
       const changing = store.changeTaleGroupStatus('g1', 'live');
-      const saved = { ...listed, status: 'live', storedStatus: 'live', visibility: vis(true), tales: [tale('t1', 'live'), tale('t2', 'live')] };
+      const saved = {
+        ...listed,
+        status: 'live',
+        storedStatus: 'live',
+        visibility: vis(true),
+        tales: [tale('t1', 'live'), tale('t2', 'live')],
+      };
       http.expectOne(`${API_BASE}/tale-groups/g1/status`).flush(saved);
       await tick();
       // Before the refresh that follows answers: from the PUT's answer.
-      expect(store.projectTaleGroupsOf('p1')[0]).toMatchObject({ storedStatus: 'live', visibility: vis(true), taleCount: 2, shownTaleCount: 2 });
+      expect(store.projectTaleGroupsOf('p1')[0]).toMatchObject({
+        storedStatus: 'live',
+        visibility: vis(true),
+        taleCount: 2,
+        shownTaleCount: 2,
+      });
       await answerWith([tale('t1', 'live'), tale('t2', 'live')]);
       expect((await changing).group?.id).toBe('g1');
 
@@ -163,6 +194,55 @@ describe('DashboardStore', () => {
     http.expectOne(`${API_BASE}/tales/t1`).flush(null, { status: 500, statusText: 'Error' });
     expect(await failed).toBeNull();
     expect(store.apiDown()).toBe(false);
+  });
+});
+
+describe('DashboardStore project roles', () => {
+  let store: DashboardStore;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    store = TestBed.inject(DashboardStore);
+    store.projects.set([
+      { id: 'p1', name: 'Acme', role: 'editor' },
+      { id: 'p2', name: 'Globex', role: 'admin' },
+      { id: 'p3', name: 'Initech', role: 'viewer' },
+    ]);
+  });
+
+  it('exposes the role of the selected project and what it can do', () => {
+    store.selectProject('p1');
+    expect(store.role()).toBe('editor');
+    expect(store.can('project.view')).toBe(true);
+    expect(store.can('content.edit')).toBe(true);
+    expect(store.can('content.publish')).toBe(false);
+    expect(store.can('members.manage')).toBe(false);
+  });
+
+  it('follows the selected project, and reads another project when one is named', () => {
+    store.selectProject('p3');
+    expect(store.role()).toBe('viewer');
+    expect(store.can('content.edit')).toBe(false);
+    expect(store.can('analytics.view')).toBe(true);
+    expect(store.can('keys.manage', 'p2')).toBe(true);
+    expect(store.can('keys.manage')).toBe(false);
+    store.selectProject('p2');
+    expect(store.role()).toBe('admin');
+    expect(store.can('members.manage')).toBe(true);
+  });
+
+  it('grants nothing without a project or for an unknown one', () => {
+    store.projects.set([]);
+    expect(store.role()).toBeNull();
+    expect(store.can('project.view')).toBe(false);
+    expect(store.can('project.view', 'nope')).toBe(false);
+  });
+
+  it('names the lowest role that grants a permission', () => {
+    expect(store.roleNeeded('content.edit')).toBe('Needs the Editor role or higher.');
+    expect(store.roleNeeded('content.publish')).toBe('Needs the Publisher role or higher.');
+    expect(store.roleNeeded('members.manage')).toBe('Needs the Admin role or higher.');
+    expect(store.roleNeeded('project.view')).toBe('Needs the Viewer role or higher.');
   });
 });
 

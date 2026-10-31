@@ -78,6 +78,11 @@
       >
         <app-icon name="eye" /> <span class="studio-top__label">Preview</span>
       </button>
+      @if (viewOnly()) {
+        <span class="role-badge" id="studio-view-only" role="status">View only</span>
+      } @else if (!mayPublish()) {
+        <span class="muted studio-publish-hint" id="studio-ask-publisher">Ask a publisher to publish</span>
+      } @else {
       <button
         type="button"
         class="btn btn--primary btn--sm"
@@ -88,6 +93,7 @@
       >
         Update tale
       </button>
+      }
       <div class="studio-menu" (focusout)="taleMenuFocusOut($event)">
         <button
           #taleMenuButton
@@ -250,6 +256,11 @@
             </button>
           </div>
         }
+      }
+      @if (viewOnly()) {
+        <p class="studio-notice" id="studio-view-only-note">
+          View only: your role in this project can look at this tale but not change it.
+        </p>
       }
       @if (error()) {
         <p class="form-error studio-alert" role="alert">{{ error() }}</p>

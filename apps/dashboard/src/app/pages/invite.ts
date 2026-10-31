@@ -7,6 +7,7 @@ import { Mark } from '../icon';
 import { PasswordFields, ProviderButtons } from '../sign-in-controls';
 import { authErrorMessage, checkPasswordForm, type PasswordFieldErrors } from '../sign-in-methods';
 import { LegalLinks } from '../legal-links';
+import { roleWithArticle, shortDate } from '../project-roles';
 
 /**
  * Opened from an invitation link: the invitee joins the project as a content manager, with a passkey,
@@ -45,8 +46,16 @@ import { LegalLinks } from '../legal-links';
           @case ('ready') {
             <h1 class="auth-card__title" id="invite-heading">Join {{ preview()?.projectName }} on TaleArt</h1>
             <p class="auth-card__help">
-              You join as a content manager. Choose how you sign in: a passkey stored on this device or in your password
-              manager, a username and password, or a provider.
+              @if (preview(); as invitation) {
+                <strong id="invite-role-line"
+                  >You'll join {{ invitation.projectName }} as {{ roleText(invitation.role) }}.</strong
+                >
+                @if (invitation.accessExpiresAt) {
+                  Your access lasts until {{ accessEnd(invitation.accessExpiresAt) }}.
+                }
+              }
+              Choose how you sign in: a passkey stored on this device or in your password manager, a username and
+              password, or a provider.
             </p>
             @if (authError(); as message) {
               <p class="form-error" role="alert">{{ message }}</p>
@@ -165,6 +174,14 @@ export class InvitePage implements OnInit {
     (this.methods() ?? []).filter((m) => m.kind !== 'passkey' && m.kind !== 'password'),
   );
   protected readonly authError = signal(authErrorMessage(this.route.snapshot.queryParamMap.get('auth_error')));
+
+  protected roleText(role: InvitationPreview['role']): string {
+    return roleWithArticle(role);
+  }
+
+  protected accessEnd(iso: string): string {
+    return shortDate(iso);
+  }
 
   protected readonly error = signal('');
   /** Why a provider button did not start: the email is missing or malformed. */

@@ -2,14 +2,20 @@ import { computed, inject, Injectable, PLATFORM_ID, signal } from '@angular/core
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient, HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import {
+  DEFAULT_INVITATION_ROLE,
   ErrorCodes,
   isErrorBody,
+  lowestRoleWith,
   MAX_TALE_GROUPS_PER_PROJECT,
+  roleHasPermission,
   type AudienceRule,
   type Frame,
   type FrameType,
   type Invitation,
+  type ProjectMember,
   type Project,
+  type ProjectPermission,
+  type ProjectRole,
   type ProjectTaleGroup,
   type SetScheduleRequest,
   type SettableStatus,
@@ -47,7 +53,8 @@ export interface MediaUploadOptions {
 
 export type DrawerRequest =
   | { kind: 'project' }
-  | { kind: 'invite'; projectId: string }
+  /** An invitation link or an existing user for the project, with a role (Settings > Team). */
+  | { kind: 'invite'; projectId: string; mode?: 'add' | 'link' }
   | { kind: 'zone' }
   | { kind: 'editZone'; zoneId: string }
   | { kind: 'display'; zoneId: string }
@@ -256,6 +263,26 @@ export class DashboardStore {
     return projects.some((p) => p.id === stored) ? stored : (projects[0]?.id ?? '');
   });
   readonly selectedProject = computed(() => this.projects().find((p) => p.id === this.selectedProjectId()));
+  /** The caller's role in the selected project (a global admin is an admin everywhere); null before projects load. */
+  readonly role = computed<ProjectRole | null>(() => this.selectedProject()?.role ?? null);
+  /** Bumped when a drawer changed the team (a member added, an invitation made), so the Team page reads again. */
+  readonly teamVersion = signal(0);
+
+  /**
+   * True when the caller's role in the project (the selected one when none is named) grants the
+   * permission. Reads signals, so a template or computed using it updates when projects reload.
+   * The API still checks every call; this only decides what to show.
+   */
+  can(permission: ProjectPermission, projectId?: string): boolean {
+    const project = projectId ? this.projects().find((p) => p.id === projectId) : this.selectedProject();
+    return roleHasPermission(project?.role, permission);
+  }
+
+  /** Why a control is unavailable: "Needs the Publisher role or higher." for the lowest role with the permission. */
+  roleNeeded(permission: ProjectPermission): string {
+    const role = lowestRoleWith(permission);
+    return `Needs the ${role.charAt(0).toUpperCase()}${role.slice(1)} role or higher.`;
+  }
   readonly projectZones = computed(() => this.zones().filter((z) => z.projectId === this.selectedProjectId()));
 
   selectProject(projectId: string): void {
@@ -648,12 +675,42 @@ export class DashboardStore {
     return '';
   }
 
-  /** Creates a one-time invitation link to a project (admins only); the link is shown only now. */
-  async createInvitation(projectId: string): Promise<{ invitation: Invitation | null; message: string }> {
+  /** Adds an existing user to a project with a role (members.manage). Resolves to the member, or the message to show. */
+  async addProjectMember(
+    projectId: string,
+    email: string,
+    role: ProjectRole,
+    expiresAt: string | null,
+  ): Promise<{ member: ProjectMember | null; message: string }> {
+    try {
+      const member = await firstValueFrom(
+        this.http.post<ProjectMember>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/members`, {
+          email,
+          role,
+          ...(expiresAt ? { expiresAt } : {}),
+        }),
+      );
+      this.teamVersion.update((n) => n + 1);
+      return { member, message: '' };
+    } catch (err) {
+      return { member: null, message: apiErrorMessage(err, 'The person was not added. Try again.') };
+    }
+  }
+
+  /** Creates a one-time invitation link to a project with a role (members.manage); the link is shown only now. */
+  async createInvitation(
+    projectId: string,
+    role: ProjectRole = DEFAULT_INVITATION_ROLE,
+    accessExpiresAt: string | null = null,
+  ): Promise<{ invitation: Invitation | null; message: string }> {
     try {
       const invitation = await firstValueFrom(
-        this.http.post<Invitation>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/invitations`, {}),
+        this.http.post<Invitation>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/invitations`, {
+          role,
+          ...(accessExpiresAt ? { accessExpiresAt } : {}),
+        }),
       );
+      this.teamVersion.update((n) => n + 1);
       return { invitation, message: '' };
     } catch (err) {
       return { invitation: null, message: apiErrorMessage(err, 'The invitation was not created. Try again.') };

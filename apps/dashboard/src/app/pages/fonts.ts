@@ -158,113 +158,119 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
       <section class="card section fonts-section" aria-labelledby="fonts-upload-title">
         <h3 class="section__title" id="fonts-upload-title">Upload a font</h3>
+        @if (!canEdit()) {
+          <p class="muted" id="fonts-readonly">View only: {{ store.roleNeeded('content.edit') }}</p>
+        }
         <form class="fonts-form" (submit)="$event.preventDefault(); upload()" novalidate>
-          <div class="field">
-            <label class="field__label" for="font-file">Font file</label>
-            <input
-              #fileInput
-              id="font-file"
-              class="input"
-              type="file"
-              accept=".woff2,font/woff2"
-              aria-required="true"
-              [attr.aria-invalid]="errors().file ? 'true' : null"
-              [attr.aria-describedby]="errors().file ? 'font-file-hint font-file-error' : 'font-file-hint'"
-              (change)="pickFile(fileInput.files)"
-            />
-            <span class="field__hint" id="font-file-hint"
-              >WOFF2 only, at most {{ maxKb }} KB. One file is one face.</span
-            >
-            @if (errors().file) {
-              <span class="field__error" id="font-file-error">{{ errors().file }}</span>
-            }
-          </div>
-
-          <div class="field">
-            <label class="field__label" for="font-family">Family name</label>
-            <input
-              id="font-family"
-              class="input"
-              type="text"
-              spellcheck="false"
-              autocomplete="off"
-              aria-required="true"
-              [attr.maxlength]="maxFamily"
-              [value]="family()"
-              [attr.aria-invalid]="errors().family ? 'true' : null"
-              [attr.aria-describedby]="errors().family ? 'font-family-hint font-family-error' : 'font-family-hint'"
-              (input)="family.set($any($event.target).value)"
-            />
-            <span class="field__hint" id="font-family-hint">
-              The name people pick in Tale Studio, such as Brand Sans: letters, digits, spaces and hyphens.
-            </span>
-            @if (errors().family) {
-              <span class="field__error" id="font-family-error">{{ errors().family }}</span>
-            }
-          </div>
-
-          <div class="fonts-row">
+          <fieldset class="view-only-fieldset" [disabled]="!canEdit()">
             <div class="field">
-              <label class="field__label" for="font-weight">Weight</label>
-              <select id="font-weight" class="select" (change)="weight.set(+$any($event.target).value)">
-                @for (w of weights; track w) {
-                  <option [value]="w" [selected]="weight() === w">{{ w }} {{ weightNames[w] }}</option>
-                }
-              </select>
-            </div>
-            <div class="field">
-              <label class="field__label" for="font-style">Style</label>
-              <select id="font-style" class="select" (change)="style.set($any($event.target).value)">
-                @for (s of styles; track s) {
-                  <option [value]="s" [selected]="style() === s">{{ s === 'italic' ? 'Italic' : 'Normal' }}</option>
-                }
-              </select>
-            </div>
-            <div class="field">
-              <label class="field__label" for="font-fallback">Fallback font</label>
-              <select
-                id="font-fallback"
-                class="select"
-                aria-describedby="font-fallback-hint"
-                (change)="fallback.set($any($event.target).value)"
-              >
-                @for (key of stacks; track key) {
-                  <option [value]="key" [selected]="fallback() === key">{{ stackNames[key] }}</option>
-                }
-              </select>
-            </div>
-          </div>
-          <span class="field__hint" id="font-fallback-hint">
-            Text shows the fallback until the font has loaded, and keeps it if the font does not load within 3 seconds.
-          </span>
-
-          <div class="field">
-            <label class="checkbox fonts-licence">
+              <label class="field__label" for="font-file">Font file</label>
               <input
-                id="font-licence"
-                type="checkbox"
+                #fileInput
+                id="font-file"
+                class="input"
+                type="file"
+                accept=".woff2,font/woff2"
                 aria-required="true"
-                [checked]="licence()"
-                [attr.aria-invalid]="errors().licence ? 'true' : null"
-                [attr.aria-describedby]="errors().licence ? 'font-licence-error' : null"
-                (change)="licence.set($any($event.target).checked)"
+                [attr.aria-invalid]="errors().file ? 'true' : null"
+                [attr.aria-describedby]="errors().file ? 'font-file-hint font-file-error' : 'font-file-hint'"
+                (change)="pickFile(fileInput.files)"
               />
-              I confirm that I may use this font and distribute it to every site that shows this project's tales.
-            </label>
-            @if (errors().licence) {
-              <span class="field__error" id="font-licence-error">{{ errors().licence }}</span>
-            }
-          </div>
+              <span class="field__hint" id="font-file-hint"
+                >WOFF2 only, at most {{ maxKb }} KB. One file is one face.</span
+              >
+              @if (errors().file) {
+                <span class="field__error" id="font-file-error">{{ errors().file }}</span>
+              }
+            </div>
 
-          @if (uploadError()) {
-            <p class="form-error" role="alert">{{ uploadError() }}</p>
-          }
-          <div>
-            <button type="submit" class="btn btn--primary" [disabled]="busy()">
-              <app-icon name="plus" /> Upload font
-            </button>
-          </div>
-          <p class="fonts-saved" role="status">{{ said() }}</p>
+            <div class="field">
+              <label class="field__label" for="font-family">Family name</label>
+              <input
+                id="font-family"
+                class="input"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                aria-required="true"
+                [attr.maxlength]="maxFamily"
+                [value]="family()"
+                [attr.aria-invalid]="errors().family ? 'true' : null"
+                [attr.aria-describedby]="errors().family ? 'font-family-hint font-family-error' : 'font-family-hint'"
+                (input)="family.set($any($event.target).value)"
+              />
+              <span class="field__hint" id="font-family-hint">
+                The name people pick in Tale Studio, such as Brand Sans: letters, digits, spaces and hyphens.
+              </span>
+              @if (errors().family) {
+                <span class="field__error" id="font-family-error">{{ errors().family }}</span>
+              }
+            </div>
+
+            <div class="fonts-row">
+              <div class="field">
+                <label class="field__label" for="font-weight">Weight</label>
+                <select id="font-weight" class="select" (change)="weight.set(+$any($event.target).value)">
+                  @for (w of weights; track w) {
+                    <option [value]="w" [selected]="weight() === w">{{ w }} {{ weightNames[w] }}</option>
+                  }
+                </select>
+              </div>
+              <div class="field">
+                <label class="field__label" for="font-style">Style</label>
+                <select id="font-style" class="select" (change)="style.set($any($event.target).value)">
+                  @for (s of styles; track s) {
+                    <option [value]="s" [selected]="style() === s">{{ s === 'italic' ? 'Italic' : 'Normal' }}</option>
+                  }
+                </select>
+              </div>
+              <div class="field">
+                <label class="field__label" for="font-fallback">Fallback font</label>
+                <select
+                  id="font-fallback"
+                  class="select"
+                  aria-describedby="font-fallback-hint"
+                  (change)="fallback.set($any($event.target).value)"
+                >
+                  @for (key of stacks; track key) {
+                    <option [value]="key" [selected]="fallback() === key">{{ stackNames[key] }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+            <span class="field__hint" id="font-fallback-hint">
+              Text shows the fallback until the font has loaded, and keeps it if the font does not load within 3
+              seconds.
+            </span>
+
+            <div class="field">
+              <label class="checkbox fonts-licence">
+                <input
+                  id="font-licence"
+                  type="checkbox"
+                  aria-required="true"
+                  [checked]="licence()"
+                  [attr.aria-invalid]="errors().licence ? 'true' : null"
+                  [attr.aria-describedby]="errors().licence ? 'font-licence-error' : null"
+                  (change)="licence.set($any($event.target).checked)"
+                />
+                I confirm that I may use this font and distribute it to every site that shows this project's tales.
+              </label>
+              @if (errors().licence) {
+                <span class="field__error" id="font-licence-error">{{ errors().licence }}</span>
+              }
+            </div>
+
+            @if (uploadError()) {
+              <p class="form-error" role="alert">{{ uploadError() }}</p>
+            }
+            <div>
+              <button type="submit" class="btn btn--primary" [disabled]="busy()">
+                <app-icon name="plus" /> Upload font
+              </button>
+            </div>
+            <p class="fonts-saved" role="status">{{ said() }}</p>
+          </fieldset>
         </form>
       </section>
 
@@ -312,7 +318,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
                           class="btn btn--secondary btn--sm"
                           [attr.aria-label]="'Delete ' + group.family + ' ' + faceLabel(font)"
                           [attr.aria-describedby]="font.inUse ? 'font-in-use-' + font.id : null"
-                          [disabled]="busy() || font.inUse"
+                          [disabled]="busy() || font.inUse || !canEdit()"
                           (click)="remove(font, group.family)"
                         >
                           Delete
@@ -333,6 +339,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
 })
 export class FontsPage implements OnInit {
   protected readonly store = inject(DashboardStore);
+  protected readonly canEdit = computed(() => this.store.can('content.edit', this.projectId()));
   private readonly service = inject(ProjectFontsService);
 
   /** The project whose fonts these are, bound from the route's `:projectId`. */

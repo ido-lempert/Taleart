@@ -232,7 +232,7 @@ function readSample(file: Blob): Promise<string> {
         <section class="card section" aria-labelledby="user-lists-title">
           <div class="section__header">
             <h3 class="section__title" id="user-lists-title">User lists</h3>
-            @if (projectId()) {
+            @if (projectId() && canEdit()) {
               <button
                 type="button"
                 class="btn btn--primary"
@@ -276,32 +276,34 @@ function readSample(file: Blob): Promise<string> {
                       </span>
                       <span class="muted user-list__groups">{{ targets(list) }}</span>
                     </div>
-                    <div class="user-list__actions">
-                      <button
-                        type="button"
-                        class="btn btn--secondary btn--sm"
-                        [attr.aria-label]="'Add IDs to ' + list.name"
-                        (click)="open({ kind: 'upload', list, returnTo: $any($event.currentTarget) })"
-                      >
-                        Add IDs
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn--secondary btn--sm"
-                        [attr.aria-label]="'Rename ' + list.name"
-                        (click)="open({ kind: 'rename', list, returnTo: $any($event.currentTarget) })"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn--secondary btn--sm"
-                        [attr.aria-label]="'Delete ' + list.name"
-                        (click)="open({ kind: 'delete', list, returnTo: $any($event.currentTarget) })"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    @if (canEdit()) {
+                      <div class="user-list__actions">
+                        <button
+                          type="button"
+                          class="btn btn--secondary btn--sm"
+                          [attr.aria-label]="'Add IDs to ' + list.name"
+                          (click)="open({ kind: 'upload', list, returnTo: $any($event.currentTarget) })"
+                        >
+                          Add IDs
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn--secondary btn--sm"
+                          [attr.aria-label]="'Rename ' + list.name"
+                          (click)="open({ kind: 'rename', list, returnTo: $any($event.currentTarget) })"
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn--secondary btn--sm"
+                          [attr.aria-label]="'Delete ' + list.name"
+                          (click)="open({ kind: 'delete', list, returnTo: $any($event.currentTarget) })"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    }
                   </li>
                 }
               </ul>
@@ -489,6 +491,7 @@ function readSample(file: Blob): Promise<string> {
 })
 export class AudiencePage {
   protected readonly store = inject(DashboardStore);
+  protected readonly canEdit = computed(() => this.store.can('content.edit', this.projectId()));
   private readonly service = inject(UserListsService);
 
   protected readonly projectId = this.store.selectedProjectId;

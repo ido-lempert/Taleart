@@ -204,6 +204,10 @@ function isDefault(field: ThemeField, value: unknown): boolean {
         <h3 class="section__title" id="theme-title">Project theme</h3>
         @if (theme(); as t) {
           <form class="theme-form" (submit)="$event.preventDefault(); save()" novalidate>
+            @if (!canEdit()) {
+              <p class="muted" id="theme-readonly">View only: {{ store.roleNeeded('content.edit') }}</p>
+            }
+            <fieldset class="view-only-fieldset" [disabled]="!canEdit()">
             <fieldset class="theme-group">
               <legend>Appearance</legend>
               <div class="field">
@@ -500,6 +504,7 @@ function isDefault(field: ThemeField, value: unknown): boolean {
               </button>
             </div>
             <p class="theme-saved" role="status">{{ saved() }}</p>
+            </fieldset>
           </form>
         } @else if (error()) {
           <p class="form-error" role="alert">{{ error() }}</p>
@@ -512,6 +517,7 @@ function isDefault(field: ThemeField, value: unknown): boolean {
 })
 export class ThemePage implements OnInit {
   protected readonly store = inject(DashboardStore);
+  protected readonly canEdit = computed(() => this.store.can('content.edit', this.projectId()));
   private readonly themes = inject(ThemeService);
 
   /** The project whose theme this is, bound from the route's `:projectId`. */

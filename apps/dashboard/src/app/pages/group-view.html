@@ -33,6 +33,7 @@
           [label]="group().name + ' on site'"
           [stateText]="shownLabel(group().storedStatus, 'group')"
           [disabled]="groupSaving()"
+          [reason]="publishReason()"
           (toggled)="switched.emit($event)"
         />
       }
@@ -81,16 +82,20 @@
       </div>
     }
     <div class="group-view__toolbar">
-      <button
-        type="button"
-        class="btn btn--secondary btn--sm"
-        id="group-view-add-tale"
-        [attr.aria-label]="'Add tale to ' + group().name"
-        (click)="store.openDrawer({ kind: 'tale', taleGroupId: group().id }, $event)"
-      >
-        <app-icon name="plus" /> Add tale
-      </button>
-      @if (group().tales.length > 1) {
+      @if (!canEdit()) {
+        <p class="muted group-view__hint" id="group-view-readonly">View only: your role cannot change this group.</p>
+      } @else {
+        <button
+          type="button"
+          class="btn btn--secondary btn--sm"
+          id="group-view-add-tale"
+          [attr.aria-label]="'Add tale to ' + group().name"
+          (click)="store.openDrawer({ kind: 'tale', taleGroupId: group().id }, $event)"
+        >
+          <app-icon name="plus" /> Add tale
+        </button>
+      }
+      @if (canEdit() && group().tales.length > 1) {
         <p class="muted group-view__hint">Drag a tale, or use its arrows, to change the order.</p>
       }
     </div>
@@ -102,10 +107,11 @@
         [attr.aria-label]="'Tales in ' + group().name"
         cdkDropList
         cdkDropListOrientation="mixed"
+        [cdkDropListDisabled]="!canEdit()"
         (cdkDropListDropped)="dropTale($event)"
       >
         @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
-          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag cdkDragPreviewContainer="parent">
+          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent">
             @if (tale.media; as media) {
               @if (media.kind === 'video') {
                 <!-- Loads and plays only while on screen: a group can hold 100 tales. -->
@@ -132,6 +138,7 @@
                 [label]="'Show ' + tale.title"
                 [stateText]="shownLabel(tale.storedStatus, 'tale')"
                 [disabled]="saving().has(tale.id)"
+                [reason]="publishReason()"
                 (toggled)="switchTale(tale, $event)"
               />
             }
@@ -146,18 +153,21 @@
               }
               <span class="tale-card__name">{{ tale.title }}</span>
             </span>
-            <button
-              type="button"
-              class="tale-card__open"
-              [attr.aria-label]="'Open tale ' + tale.title"
-              (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
-            ></button>
+            @if (canEdit()) {
+              <button
+                type="button"
+                class="tale-card__open"
+                [attr.aria-label]="'Open tale ' + tale.title"
+                (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
+              ></button>
+            }
             <app-menu-button
               class="tale-card__menu"
               [label]="'More for ' + tale.title"
               [items]="taleMenus().get(tale.id) ?? []"
               (picked)="talePicked(tale, $event)"
             />
+            @if (canEdit()) {
             <span class="drag-handle tale-card__handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
               <app-icon name="grip" />
             </span>
@@ -183,6 +193,7 @@
                 <app-icon name="right" />
               </button>
             </div>
+            }
           </li>
         }
       </ol>

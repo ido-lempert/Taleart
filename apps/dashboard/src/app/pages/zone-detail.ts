@@ -31,6 +31,7 @@ import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { GroupRow, opensFromRowClick } from '../group-row';
 import type { MenuItem, MenuPick } from '../menu-button';
+import { gateMenu } from '../project-roles';
 import { describeSettings, type Settings } from '../settings-form';
 import { statusActions, statusLabel } from '../status';
 import { visibilityLine, visibilityReasons, VisibilityIndicator } from '../visibility';
@@ -292,6 +293,10 @@ type Direction = 'earlier' | 'later';
 })
 export class ZoneDetailPage {
   protected readonly store = inject(DashboardStore);
+  // What the caller's role in the zone's project allows (the API checks every call; this only decides what to show).
+  protected readonly canEdit = computed(() => this.store.can('content.edit', this.zone()?.projectId));
+  protected readonly canZones = computed(() => this.store.can('zones.manage', this.zone()?.projectId));
+  protected readonly canKeys = computed(() => this.store.can('keys.manage', this.zone()?.projectId));
   protected readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -581,18 +586,25 @@ export class ZoneDetailPage {
           ? { id: `status:${status.status}`, label: status.label, disabledReason: 'Saving…' }
           : { id: `status:${status.status}`, label: status.label }
         : null;
-      menus.set(group.id, [
-        { id: 'rename', label: 'Rename' },
-        { id: 'cover', label: 'Cover' },
-        { id: 'tags', label: 'Audience' },
-        { id: 'schedule', label: 'Schedule' },
-        this.store.zonesToPlace(group.id).length > 0
-          ? { id: 'place', label: 'Show in another zone' }
-          : { id: 'place', label: 'Show in another zone', disabledReason: 'Already in every zone' },
-        { id: 'copy', label: 'Copy to zone' },
-        { id: 'remove', label: 'Remove from this zone' },
-        ...(statusItem ? [statusItem] : []),
-      ]);
+      menus.set(
+        group.id,
+        gateMenu(
+          [
+            { id: 'rename', label: 'Rename' },
+            { id: 'cover', label: 'Cover' },
+            { id: 'tags', label: 'Audience' },
+            { id: 'schedule', label: 'Schedule' },
+            this.store.zonesToPlace(group.id).length > 0
+              ? { id: 'place', label: 'Show in another zone' }
+              : { id: 'place', label: 'Show in another zone', disabledReason: 'Already in every zone' },
+            { id: 'copy', label: 'Copy to zone' },
+            { id: 'remove', label: 'Remove from this zone' },
+            ...(statusItem ? [statusItem] : []),
+          ],
+          (permission) => this.store.can(permission, group.projectId),
+          (permission) => this.store.roleNeeded(permission),
+        ),
+      );
     }
     return menus;
   });

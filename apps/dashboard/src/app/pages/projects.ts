@@ -3,10 +3,11 @@ import { Router, RouterLink } from '@angular/router';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
+import { ROLE_LABELS } from '../project-roles';
 
 /**
  * The caller's projects as cards; opening one makes it the selected project.
- * Admins also get "Invite" on each card and can create projects.
+ * Each card shows the caller's role and links to the Team page; admins of a project also get "Invite" on it and can create projects.
  */
 @Component({
   selector: 'app-projects-page',
@@ -75,6 +76,9 @@ import { Icon } from '../icon';
                   <span class="avatar avatar--lg" aria-hidden="true">{{ project.name.charAt(0) }}</span>
                   <span>
                     <span class="project-card__name">{{ project.name }}</span>
+                    <span class="role-badge" [attr.data-role]="project.role"
+                      ><span class="visually-hidden">Your role: </span>{{ roleLabels[project.role] }}</span
+                    >
                     <span class="muted">{{ zoneCountLabel(project.id) }}</span>
                   </span>
                 </button>
@@ -93,7 +97,15 @@ import { Icon } from '../icon';
                   >
                     Fonts
                   </a>
-                  @if (auth.isAdmin()) {
+                  <a
+                    class="btn btn--secondary btn--sm"
+                    routerLink="/settings/team"
+                    [attr.aria-label]="'Team of ' + project.name"
+                    (click)="store.selectProject(project.id)"
+                  >
+                    Team
+                  </a>
+                  @if (store.can('members.manage', project.id)) {
                     <button
                       type="button"
                       class="btn btn--secondary btn--sm"
@@ -131,6 +143,8 @@ export class ProjectsPage {
   protected readonly store = inject(DashboardStore);
   protected readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
+
+  protected readonly roleLabels = ROLE_LABELS;
 
   protected zoneCountLabel(projectId: string): string {
     const count = this.store.zones().filter((z) => z.projectId === projectId).length;

@@ -17,6 +17,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import {
+  DEFAULT_INVITATION_ROLE,
+  PROJECT_ROLES,
   MAX_TALES_PER_GROUP,
   MAX_ZONE_SLUG_LENGTH,
   MEDIA_CONTENT_TYPES,
@@ -32,6 +34,8 @@ import {
   zoneSlugFromName,
   type ContentStatus,
   type Invitation,
+  type ProjectMember,
+  type ProjectRole,
   type SetScheduleRequest,
   type SettableStatus,
   type Tale,
@@ -44,6 +48,7 @@ import { AudienceRuleSection } from './audience-rule-section';
 import { CoverEditor } from './cover-editor';
 import { DashboardStore, isAudienceHeld, type DrawerRequest, type ZoneField } from './dashboard.store';
 import { Drawer } from './drawer';
+import { accessText, describeRole, ROLE_LABELS, roleWithArticle } from './project-roles';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { initialSettings, settingsFields, SettingsForm, type Settings } from './settings-form';
 import { DisplayOptionPicker } from './display-option-picker';
@@ -167,6 +172,18 @@ export class CreateDrawer implements OnInit {
   protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
   /** The invitation an invite drawer created; its link is shown only now. */
   protected readonly invitation = signal<Invitation | null>(null);
+  /** The existing user an invite drawer added to the project, shown as the result. */
+  protected readonly addedMember = signal<ProjectMember | null>(null);
+  /** How the invite drawer brings someone in: an existing user by email, or an invitation link. */
+  protected readonly inviteMode = signal<'add' | 'link'>('link');
+  protected readonly inviteRole = signal<ProjectRole>(DEFAULT_INVITATION_ROLE);
+  protected readonly inviteRoles = PROJECT_ROLES;
+  protected readonly roleLabels = ROLE_LABELS;
+  /** What the chosen role can and cannot do, in words. */
+  protected readonly inviteRoleHint = computed(() => describeRole(this.inviteRole()));
+  protected inviteEmail = '';
+  /** The last day of access as `yyyy-mm-dd`, or '' for permanent access. */
+  protected inviteEnds = '';
   /** '' or the outcome of the last "Copy link" or "Copy key", announced to screen readers. */
   protected readonly copyStatus = signal('');
   /** The tags checked in a tags drawer. */
@@ -521,7 +538,7 @@ export class CreateDrawer implements OnInit {
       case 'cover':
         return 'Save cover';
       case 'invite':
-        return 'Create link';
+        return this.inviteMode() === 'add' ? 'Add to project' : 'Create link';
       case 'tags':
       case 'renameTaleGroup':
       case 'schedule':
@@ -541,7 +558,7 @@ export class CreateDrawer implements OnInit {
 
   /** True when the drawer's work is done and it shows only the result (a link) and "Done". */
   protected readonly showsResult = computed(
-    () => this.invitation() !== null || this.copied() !== null || this.groupCreated(),
+    () => this.invitation() !== null || this.addedMember() !== null || this.copied() !== null || this.groupCreated(),
   );
 
   protected readonly heading = computed(() => {
@@ -565,7 +582,7 @@ export class CreateDrawer implements OnInit {
       case 'cover':
         return 'Cover';
       case 'invite':
-        return 'Invite to project';
+        return 'Add or invite';
       case 'tags':
         return 'Audience';
       case 'renameTaleGroup':
@@ -640,6 +657,8 @@ export class CreateDrawer implements OnInit {
   });
 
   ngOnInit(): void {
+    const request = this.request();
+    if (request.kind === 'invite') this.inviteMode.set(request.mode ?? 'link');
     this.projectId = this.onlyProject()?.id ?? this.store.selectedProjectId();
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
@@ -841,6 +860,25 @@ export class CreateDrawer implements OnInit {
     });
   }
 
+  /** Access in words: "Permanent" or "Until 12 Dec 2026". */
+  protected accessLabel(expiresAt: string | null): string {
+    return accessText(expiresAt, false);
+  }
+
+  protected pickInviteMode(mode: 'add' | 'link'): void {
+    this.inviteMode.set(mode);
+    this.error.set('');
+  }
+
+  protected pickInviteRole(event: Event): void {
+    this.inviteRole.set((event.target as HTMLSelectElement).value as ProjectRole);
+  }
+
+  /** The end of access as an ISO time: the end of the picked day, UTC; null for permanent access. */
+  private accessEnd(): string | null {
+    return this.inviteEnds ? `${this.inviteEnds}T23:59:59.000Z` : null;
+  }
+
   protected selectAll(event: Event): void {
     (event.target as HTMLInputElement).select();
   }
@@ -854,7 +892,7 @@ export class CreateDrawer implements OnInit {
     try {
       await navigator.share({
         title: `Join ${project} on TaleArt`,
-        text: `You're invited to ${project} on TaleArt. The link works once, until ${this.expiryDate(invitation)}.`,
+        text: `You're invited to ${project} on TaleArt as ${roleWithArticle(invitation.role)}. The link works once, until ${this.expiryDate(invitation)}.`,
         url: invitation.url,
       });
       this.copyStatus.set('Link shared');
@@ -966,7 +1004,26 @@ export class CreateDrawer implements OnInit {
         }
         break;
       case 'invite': {
-        const created = await this.store.createInvitation(request.projectId);
+        if (this.inviteMode() === 'add') {
+          const email = this.inviteEmail.trim();
+          if (!email) {
+            this.saving.set(false);
+            this.error.set('Enter the email of the person to add.');
+            this.refocus('#invite-email', false);
+            return;
+          }
+          const added = await this.store.addProjectMember(
+            request.projectId,
+            email,
+            this.inviteRole(),
+            this.accessEnd(),
+          );
+          this.addedMember.set(added.member);
+          this.saving.set(false);
+          this.error.set(added.message);
+          return;
+        }
+        const created = await this.store.createInvitation(request.projectId, this.inviteRole(), this.accessEnd());
         this.invitation.set(created.invitation);
         this.saving.set(false);
         this.error.set(created.message);

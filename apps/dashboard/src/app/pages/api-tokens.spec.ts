@@ -2,13 +2,14 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import type { Project } from '@taleart/contract/core';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { ApiTokensPage, tokenScope } from './api-tokens';
 
 const url = `${API_BASE}/api-tokens`;
-const projects = [
-  { id: 'p1', name: 'Acme' },
-  { id: 'p2', name: 'Beta' },
+const projects: Project[] = [
+  { id: 'p1', name: 'Acme', role: 'admin' },
+  { id: 'p2', name: 'Beta', role: 'viewer' },
 ];
 const listed = {
   id: 't1',

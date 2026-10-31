@@ -35,6 +35,7 @@ import { DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
 import { Icon } from '../icon';
 import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
+import { gateMenu } from '../project-roles';
 import { describeWindow, windowChip } from '../schedule';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
@@ -270,6 +271,13 @@ export class GroupView implements OnDestroy {
    * Each tale card's ⋯ menu, by tale id (epic UX rework R8, R11): one computed map, so an open
    * menu keeps its items across change detection. Archive is Restore for an archived tale.
    */
+  /** True when the caller's role may change content (viewers see the group but not its controls). */
+  protected readonly canEdit = computed(() => this.store.can('content.edit', this.group().projectId));
+  /** Why the On/Off and Shown/Hidden switches are off limits for this caller; '' when they may use them. */
+  protected readonly publishReason = computed(() =>
+    this.store.can('content.publish', this.group().projectId) ? '' : this.store.roleNeeded('content.publish'),
+  );
+
   protected readonly taleMenus = computed(() => {
     const menus = new Map<string, readonly MenuItem[]>();
     const saving = this.saving();
@@ -280,14 +288,21 @@ export class GroupView implements OnDestroy {
           ? { id: `status:${status.status}`, label: status.label, disabledReason: 'Saving…' }
           : { id: `status:${status.status}`, label: status.label }
         : null;
-      menus.set(tale.id, [
-        { id: 'studio', label: 'Edit in Tale Studio' },
-        { id: 'media', label: 'Replace media' },
-        { id: 'schedule', label: 'Schedule' },
-        { id: 'duplicate', label: 'Duplicate' },
-        ...(statusItem ? [statusItem] : []),
-        { id: 'delete', label: 'Delete' },
-      ]);
+      menus.set(
+        tale.id,
+        gateMenu(
+          [
+            { id: 'studio', label: this.canEdit() ? 'Edit in Tale Studio' : 'Open in Tale Studio' },
+            { id: 'media', label: 'Replace media' },
+            { id: 'schedule', label: 'Schedule' },
+            { id: 'duplicate', label: 'Duplicate' },
+            ...(statusItem ? [statusItem] : []),
+            { id: 'delete', label: 'Delete' },
+          ],
+          (permission) => this.store.can(permission, this.group().projectId),
+          (permission) => this.store.roleNeeded(permission),
+        ),
+      );
     }
     return menus;
   });

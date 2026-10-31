@@ -6,7 +6,7 @@ import { AuthStore, PasskeyClient } from '../auth';
 import { API_BASE } from '../dashboard.store';
 import { InvitePage } from './invite';
 
-const PREVIEW = { projectName: 'Acme', expiresAt: '2026-11-05T10:00:00.000Z' };
+const PREVIEW = { projectName: 'Acme', role: 'editor', accessExpiresAt: null, expiresAt: '2026-11-05T10:00:00.000Z' };
 const STATE = {
   setupRequired: false,
   user: null,
@@ -103,6 +103,18 @@ describe('InvitePage: joining by invitation with a passkey, a password or a prov
     expect(root().querySelector('h1')?.textContent).toContain('Join TaleArt');
     expect(root().querySelector('[role="alert"]')?.textContent).toContain('Could not reach the API');
     expect(input('invite-password')).toBeNull();
+  });
+
+  it('says the role the invitee will get: "You\'ll join Acme as an Editor"', async () => {
+    await open(STATE.methods);
+    expect(root().querySelector('#invite-role-line')?.textContent?.trim()).toBe("You'll join Acme as an Editor.");
+    expect(text()).not.toContain('Your access lasts until');
+  });
+
+  it('uses the right article and tells when the access ends', async () => {
+    await open(STATE.methods, { ...PREVIEW, role: 'publisher', accessExpiresAt: '2026-12-12T23:59:59.000Z' });
+    expect(root().querySelector('#invite-role-line')?.textContent?.trim()).toBe("You'll join Acme as a Publisher.");
+    expect(text()).toContain('Your access lasts until 12 Dec 2026.');
   });
 
   it('names the project and offers each method that is on', async () => {

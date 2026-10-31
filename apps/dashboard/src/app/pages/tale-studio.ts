@@ -210,6 +210,9 @@ interface Drag {
 
 /** How far a mouse or pen moves on a tile before the press is a drag (px). */
 const DRAG_START_PX = 4;
+/** What a viewer is told when they try to change the tale. */
+const VIEW_ONLY = 'View only. Your role in this project cannot change tales.';
+
 /** How long a finger is held on a tile before it drags (ms); a quicker move scrolls the panel. */
 export const TOUCH_HOLD_MS = 250;
 /** How far a finger may move during the hold and still drag (px). */
@@ -442,7 +445,21 @@ export class TaleStudioPage implements OnChanges {
    * Editing is held: while the draft is discarded, or once the version is kept as a new tale until
    * that tale opens. Changes are refused with a message instead of going to the wrong place.
    */
-  private readonly held = signal('');
+  private readonly heldBusy = signal('');
+  /** True for a caller whose role cannot change content (a viewer): the studio opens read-only. */
+  protected readonly viewOnly = computed(() => {
+    const id = this.projectId();
+    const project = id ? this.store.projects().find((p) => p.id === id) : undefined;
+    return !!project && !this.store.can('content.edit', id);
+  });
+  /** True when the caller may update the tale on the site; an editor saves drafts and asks a publisher. */
+  protected readonly mayPublish = computed(() => {
+    const id = this.projectId();
+    const project = id ? this.store.projects().find((p) => p.id === id) : undefined;
+    return !project || this.store.can('content.publish', id);
+  });
+  // Why editing is held: the reason a viewer cannot change anything, else a busy action's wait.
+  private readonly held = computed(() => (this.viewOnly() ? VIEW_ONLY : this.heldBusy()));
   // Leaving to open the kept copy: nothing here is to be saved any more.
   private leavingForCopy = false;
   /** True once the server holds a draft: after a read of one, or after any save. */
@@ -1287,7 +1304,7 @@ export class TaleStudioPage implements OnChanges {
   // studio came from changing (`?zone=`) keeps the tale as it is.
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['taleId']) return;
-    this.held.set('');
+    this.heldBusy.set('');
     this.leavingForCopy = false;
     this.draftStored.set(false);
     this.doc.set(null);
@@ -1417,7 +1434,7 @@ export class TaleStudioPage implements OnChanges {
    * visibility and says it with the update.
    */
   protected async updateTale(): Promise<void> {
-    if (this.updating() || this.held() || !this.canUpdate()) return;
+    if (this.updating() || this.held() || !this.canUpdate() || !this.mayPublish()) return;
     const taleId = this.taleId();
     if (!(await this.draftAction('publish'))) return;
     // The other pages' lists follow in the background.
@@ -1464,7 +1481,7 @@ export class TaleStudioPage implements OnChanges {
     const what = action === 'publish' ? 'the tale was not updated' : 'the changes were not discarded';
     this.updating.set(true);
     this.error.set('');
-    if (action === 'discard') this.held.set('Wait until the changes are discarded.');
+    if (action === 'discard') this.heldBusy.set('Wait until the changes are discarded.');
     try {
       if (!(await this.autosave.flush())) {
         if (this.saveState().kind !== 'conflict') {
@@ -1537,7 +1554,7 @@ export class TaleStudioPage implements OnChanges {
       return true;
     } finally {
       this.updating.set(false);
-      if (action === 'discard') this.held.set('');
+      if (action === 'discard') this.heldBusy.set('');
       // Changes kept while it was on its way now save, on the draft revision it left.
       this.autosave.resume();
     }
@@ -1661,11 +1678,11 @@ export class TaleStudioPage implements OnChanges {
     this.error.set('');
     // Nothing more goes to the original tale: autosave stops, and editing is held until the copy opens.
     this.autosave.pause();
-    this.held.set('Wait until your version is kept as a new tale.');
+    this.heldBusy.set('Wait until your version is kept as a new tale.');
     const result = await this.documents.keepAsNewTale(taleId, doc);
     this.keeping.set(false);
     if (result.value === null) {
-      this.held.set('');
+      this.heldBusy.set('');
       this.autosave.resume();
       this.error.set(
         result.code === ErrorCodes.taleGroupFull
@@ -1685,7 +1702,7 @@ export class TaleStudioPage implements OnChanges {
     if (!opened || this.taleId() === taleId) {
       // Still on the original: it stays in the stale choice, with the version on screen.
       this.leavingForCopy = false;
-      this.held.set('');
+      this.heldBusy.set('');
       this.autosave.resume();
       this.error.set(
         `Your version is kept as a new draft tale, “${tale.title}”, in the same group, but it could not be opened. ` +
