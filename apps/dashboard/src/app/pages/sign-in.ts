@@ -5,6 +5,7 @@ import { AuthStore, PasskeyClient, safeReturnUrl } from '../auth';
 import { ProviderButtons } from '../sign-in-controls';
 import { authErrorMessage } from '../sign-in-methods';
 import { Mark } from '../icon';
+import { LegalLinks } from '../legal-links';
 
 /**
  * The sign-in page: the sign-in methods an admin has turned on (`/auth/state.methods`). A passkey
@@ -14,7 +15,7 @@ import { Mark } from '../icon';
  */
 @Component({
   selector: 'app-sign-in-page',
-  imports: [FormsModule, Mark, ProviderButtons],
+  imports: [FormsModule, Mark, ProviderButtons, LegalLinks],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="auth-page">
@@ -97,6 +98,7 @@ import { Mark } from '../icon';
         <div class="auth-card__form">
           <app-provider-buttons [methods]="methods()" purpose="sign-in" />
         </div>
+        <app-legal-links />
       </section>
     </main>
   `,

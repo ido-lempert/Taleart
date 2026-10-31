@@ -66,6 +66,15 @@ describe('InvitePage: joining by invitation with a passkey, a password or a prov
     vi.restoreAllMocks();
   });
 
+  it('links the Terms of service and the Privacy policy on the docs site', async () => {
+    await open(STATE.methods);
+    const links = [...root().querySelectorAll<HTMLAnchorElement>('.auth-card__legal a')];
+    expect(links.map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+      ['Terms of service', 'https://taleart.lempert.site/legal/terms'],
+      ['Privacy policy', 'https://taleart.lempert.site/legal/privacy'],
+    ]);
+  });
+
   it('shows every method the state lists on a fresh visit to the link, with no state read before', async () => {
     // Nothing has read /auth/state yet: the page must read it itself.
     fixture = TestBed.createComponent(InvitePage);

@@ -53,6 +53,7 @@ describe('PasswordResetPage: /reset/<token>', () => {
       ?.dispatchEvent(new Event('submit', { cancelable: true }));
   }
 
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [PasswordResetPage],
@@ -104,6 +105,15 @@ describe('PasswordResetPage: /reset/<token>', () => {
     expect(input('reset-username')).toBeNull();
     expect(input('reset-password').getAttribute('autocomplete')).toBe('new-password');
     expect(root().querySelector('label[for="reset-password"]')?.textContent?.trim()).toBe('Password');
+  });
+
+  it('links the Terms of service and the Privacy policy on the docs site', async () => {
+    await open();
+    const links = [...root().querySelectorAll<HTMLAnchorElement>('.auth-card__legal a')];
+    expect(links.map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+      ['Terms of service', 'https://taleart.lempert.site/legal/terms'],
+      ['Privacy policy', 'https://taleart.lempert.site/legal/privacy'],
+    ]);
   });
 
   it('asks for a username when the user has no password yet', async () => {

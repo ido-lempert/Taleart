@@ -102,6 +102,15 @@ describe('SetupPage: the first admin chooses a method', () => {
     expect(text()).not.toContain('Create passkey');
   });
 
+  it('links the Terms of service and the Privacy policy on the docs site', () => {
+    open([{ id: 'passkey', label: 'Passkey', kind: 'passkey' }]);
+    const links = [...root().querySelectorAll<HTMLAnchorElement>('.auth-card__legal a')];
+    expect(links.map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+      ['Terms of service', 'https://taleart.lempert.site/legal/terms'],
+      ['Privacy policy', 'https://taleart.lempert.site/legal/privacy'],
+    ]);
+  });
+
   it('offers a passkey, a password and the providers the state lists', () => {
     open([
       { id: 'passkey', label: 'Passkey', kind: 'passkey' },

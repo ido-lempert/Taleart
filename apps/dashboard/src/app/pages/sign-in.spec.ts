@@ -86,6 +86,15 @@ describe('SignInPage: the sign-in methods on (/auth/state.methods)', () => {
     expect(links[1]?.getAttribute('href')).toBe(`${API_BASE}/auth/providers/corp/start?purpose=sign-in`);
   });
 
+  it('links the Terms of service and the Privacy policy on the docs site', () => {
+    setUp(METHODS);
+    const links = [...root().querySelectorAll<HTMLAnchorElement>('.auth-card__legal a')];
+    expect(links.map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+      ['Terms of service', 'https://taleart.lempert.site/legal/terms'],
+      ['Privacy policy', 'https://taleart.lempert.site/legal/privacy'],
+    ]);
+  });
+
   it('leaves out what is not on: no passkey, no password form', () => {
     setUp([{ id: 'google', label: 'Google', kind: 'google' }]);
     expect(text()).not.toContain('Sign in with a passkey');

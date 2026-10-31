@@ -120,5 +120,13 @@
 </div>
 
 <footer class="site-footer">
-  <p>TaleArt docs · <a [href]="repo">Source and issues on GitHub</a></p>
+  <nav aria-label="Legal and source">
+    <ul class="site-footer__links">
+      <li>TaleArt docs</li>
+      <li><a routerLink="/legal/terms">Terms</a></li>
+      <li><a routerLink="/legal/privacy">Privacy</a></li>
+      <li><a routerLink="/legal/accessibility">Accessibility</a></li>
+      <li><a [href]="repo">GitHub</a></li>
+    </ul>
+  </nav>
 </footer>

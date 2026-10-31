@@ -18,6 +18,12 @@ workflow runs it, and `check` and every publish task of the Android SDKs depend 
 
 Licence: Apache-2.0 (`LICENSE`), for every component.
 
+Legal pages: the package pages should link to the Terms of service (<https://taleart.lempert.site/legal/terms>) and the
+Privacy policy (<https://taleart.lempert.site/legal/privacy>). The npm page shows the README of `libs/web-sdk`, which
+links both under "Legal". For Maven Central, add the links to the POM description or URL when the package is next
+published (the POM `url` is the repository, whose README has a "Legal" line); the Swift package's page is the
+repository README. Keep the texts' version date current when a release changes what the SDKs store or send.
+
 ## One-time setup (the owner)
 
 ### 1. npm

@@ -136,10 +136,13 @@ describe('docs app', () => {
       'reference/analytics',
       'reference/sign-in-methods',
       'ai-agents',
+      'legal/terms',
+      'legal/privacy',
+      'legal/accessibility',
     ]);
   });
 
-  it('groups the pages in six groups, none with a single page, in the navigation order', () => {
+  it('groups the pages in seven groups, none with a single page, in the navigation order', () => {
     expect([...DOCS_GROUPS]).toEqual([
       'Introduction',
       'Installation',
@@ -147,6 +150,7 @@ describe('docs app', () => {
       'Workspace',
       'SDK guides',
       'Reference',
+      'Legal',
     ]);
     const groups = DOCS_PAGES.map((p) => p.group).filter((g, i, all) => all.indexOf(g) === i);
     expect(groups).toEqual([...DOCS_GROUPS]);

@@ -24,6 +24,10 @@ Node.js 22 or later. A PostgreSQL database.
 
 Web SDK is the main path. The Android and iOS SDKs have been reviewed in source but not tested on devices yet.
 
+## Legal
+
+[Terms of service](https://taleart.lempert.site/legal/terms) · [Privacy policy](https://taleart.lempert.site/legal/privacy) · [Accessibility statement](https://taleart.lempert.site/legal/accessibility)
+
 ## Built with AI help
 
 Docs and the demo were prepared with an AI assistant. The creator reviews all changes.

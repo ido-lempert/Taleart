@@ -5,6 +5,7 @@ import { AuthStore } from '../auth';
 import { Mark } from '../icon';
 import { PasswordFields } from '../sign-in-controls';
 import { checkPasswordForm, type PasswordFieldErrors } from '../sign-in-methods';
+import { LegalLinks } from '../legal-links';
 
 /**
  * Opened from a password reset link an admin issued: sets a new password and signs the person in.
@@ -12,7 +13,7 @@ import { checkPasswordForm, type PasswordFieldErrors } from '../sign-in-methods'
  */
 @Component({
   selector: 'app-password-reset-page',
-  imports: [RouterLink, Mark, PasswordFields],
+  imports: [RouterLink, Mark, PasswordFields, LegalLinks],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="auth-page">
@@ -63,6 +64,7 @@ import { checkPasswordForm, type PasswordFieldErrors } from '../sign-in-methods'
             </form>
           }
         }
+        <app-legal-links />
       </section>
     </main>
   `,

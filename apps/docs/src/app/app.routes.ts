@@ -30,6 +30,7 @@ export const DOCS_GROUPS = [
   'Workspace',
   'SDK guides',
   'Reference',
+  'Legal',
 ] as const;
 
 /**
@@ -289,6 +290,30 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'Reference',
     file: 'moving',
     component: MovingPage,
+  },
+  {
+    path: 'legal/terms',
+    label: 'Terms of service',
+    title: 'Terms of service',
+    group: 'Legal',
+    file: 'legal-terms',
+    loadComponent: () => import('./pages/legal-terms').then((m) => m.LegalTermsPage),
+  },
+  {
+    path: 'legal/privacy',
+    label: 'Privacy policy',
+    title: 'Privacy policy',
+    group: 'Legal',
+    file: 'legal-privacy',
+    loadComponent: () => import('./pages/legal-privacy').then((m) => m.LegalPrivacyPage),
+  },
+  {
+    path: 'legal/accessibility',
+    label: 'Accessibility statement',
+    title: 'Accessibility statement',
+    group: 'Legal',
+    file: 'legal-accessibility',
+    loadComponent: () => import('./pages/legal-accessibility').then((m) => m.LegalAccessibilityPage),
   },
 ];
 

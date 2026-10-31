@@ -6,6 +6,7 @@ import { AuthStore, PasskeyClient } from '../auth';
 import { Mark } from '../icon';
 import { PasswordFields, ProviderButtons } from '../sign-in-controls';
 import { authErrorMessage, checkPasswordForm, type PasswordFieldErrors } from '../sign-in-methods';
+import { LegalLinks } from '../legal-links';
 
 /**
  * Opened from an invitation link: the invitee joins the project as a content manager, with a passkey,
@@ -13,7 +14,7 @@ import { authErrorMessage, checkPasswordForm, type PasswordFieldErrors } from '.
  */
 @Component({
   selector: 'app-invite-page',
-  imports: [FormsModule, RouterLink, Mark, PasswordFields, ProviderButtons],
+  imports: [FormsModule, RouterLink, Mark, PasswordFields, ProviderButtons, LegalLinks],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="auth-page">
@@ -138,6 +139,7 @@ import { authErrorMessage, checkPasswordForm, type PasswordFieldErrors } from '.
             }
           }
         }
+        <app-legal-links />
       </section>
     </main>
   `,

@@ -1337,6 +1337,19 @@ select {
   width: 100%;
 }
 
+/* The Terms and Privacy line under the form: muted text on the card's surface (4.8:1), links in the brand colour. */
+.auth-card__legal {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.auth-card__legal a {
+  display: inline-block;
+  min-height: 24px;
+  text-decoration: underline;
+}
+
 @media (max-width: 639.98px) {
   .auth-card {
     padding: var(--space-6) var(--space-4);

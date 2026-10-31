@@ -151,6 +151,12 @@ import { DOCS_SNIPPET } from '../docs-content';
       <li><a routerLink="/ai-agents">AI agents</a></li>
       <li><a routerLink="/moving-from-stages">Stages and zone keys</a></li>
     </ul>
+    <h3 id="index-legal">Legal</h3>
+    <ul>
+      <li><a routerLink="/legal/terms">Terms of service</a></li>
+      <li><a routerLink="/legal/privacy">Privacy policy</a></li>
+      <li><a routerLink="/legal/accessibility">Accessibility statement</a></li>
+    </ul>
   `,
 })
 export class GettingStartedPage {

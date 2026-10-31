@@ -9,6 +9,7 @@ import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Mark } from '../icon';
 import { PasswordFields, ProviderButtons } from '../sign-in-controls';
 import { authErrorMessage, checkPasswordForm, type PasswordFieldErrors } from '../sign-in-methods';
+import { LegalLinks } from '../legal-links';
 
 /** The first project's name until the admin types another (epic UX rework: first run in 15 actions). */
 export const FIRST_PROJECT_NAME = 'My project';
@@ -24,7 +25,7 @@ export const MAX_FIRST_PROJECT_NAME = 100;
  */
 @Component({
   selector: 'app-setup-page',
-  imports: [FormsModule, RouterLink, Mark, PasswordFields, ProviderButtons],
+  imports: [FormsModule, RouterLink, Mark, PasswordFields, ProviderButtons, LegalLinks],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="auth-page">
@@ -143,6 +144,7 @@ export const MAX_FIRST_PROJECT_NAME = 100;
             </p>
           </div>
         }
+        <app-legal-links />
       </section>
     </main>
   `,

@@ -845,6 +845,13 @@ waits while one has focus), but without `href` or target, and clicks on them are
 never becomes a live link in the dashboard. `nx run sdk-sample:preview-parity` compares the preview with the sample
 page's viewer pixel by pixel at 390 × 844, in a phone-sized window and inside a 1440 × 1000 window.
 
+## Legal
+
+[Terms of service](https://taleart.lempert.site/legal/terms) · [Privacy policy](https://taleart.lempert.site/legal/privacy) · [Accessibility statement](https://taleart.lempert.site/legal/accessibility)
+
+The SDK is licensed under the Apache License, version 2.0. The Privacy policy lists what the SDK stores on a device and
+what it sends; the site or app that uses the SDK is the controller of its end-users' data.
+
 ## Building
 
 Run `nx build web-sdk` to build the library, and `nx run web-sdk:size` to check the size budget (all chunks at most

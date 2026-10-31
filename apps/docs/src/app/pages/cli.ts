@@ -58,7 +58,7 @@ import { RouterLink } from '@angular/router';
 <p>Run any command with <code>--help</code> for its options. Full HTTP details are in the <a routerLink="/api-reference">API reference</a>.</p>
 <h2 id="audience-rules">Viewer property rules</h2>
 <p>A group's audience rule (its <a routerLink="/targeting">viewer properties</a>) is set with <code>groups rule</code>. Give the rule as JSON, or clear it so every viewer passes it:</p>
-<pre><code>taleart groups rule Summer --audience-json '&#123;"match":"all","conditions":[&#123;"property":"plan","operator":"eq","value":"pro"&#125;]&#125;'
+<pre tabindex="0" role="region" aria-label="Example command"><code>taleart groups rule Summer --audience-json '&#123;"match":"all","conditions":[&#123;"property":"plan","operator":"eq","value":"pro"&#125;]&#125;'
 taleart groups rule Summer --clear</code></pre>
 <p>Give one of <code>--audience-json</code> or <code>--clear</code>. The command checks the rule as the dashboard does, and reports the rule it saved.</p>
 <h2 id="read-only-tokens">Read-only tokens</h2>

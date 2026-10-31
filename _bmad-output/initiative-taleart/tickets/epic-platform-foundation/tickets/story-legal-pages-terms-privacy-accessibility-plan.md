@@ -3,12 +3,16 @@
 Ticket 17 in `tickets.toml`. Added at the owner's request on 2026-10-31 so that the owner is not exposed to claims,
 demands or lawsuits by accident.
 
-## Owner's part (cannot be done by the model)
+## Decision (2026-10-31)
 
-- Engage a qualified lawyer for the owner's jurisdiction; they approve every text before it is published.
-- Decide the legal entity name, the jurisdiction, the contact address and the support e-mail that the texts name.
+The owner decided not to wait for a lawyer: the project is unfunded, non-profit for now and run by one person, and the
+goal is that the owner is not exposed to claims by accident. The agent wrote the three texts from what the code does.
+They are the owner's best-effort texts, not legal advice, and the owner may have them reviewed later.
 
-## Content to cover (outline for the lawyer, not legal advice)
+Assumptions for the owner to confirm: the owner is named as an individual (Ido Lempert); the governing law and courts are
+those of the State of Israel; the only contact is GitHub issues (no e-mail address or phone is published).
+
+## Content covered
 
 - **Terms of service:** who may use the product, acceptable use, accounts and keys, no warranty, limitation of liability,
   termination, governing law, changes to the terms, the SDK licence (Apache-2.0) and third-party notices.
@@ -22,9 +26,9 @@ demands or lawsuits by accident.
 
 ## Where it appears
 
-- Dashboard sign-in and registration pages (links and acceptance where the lawyer requires it).
+- Dashboard sign-in, setup, invitation and password reset pages (a line with links to the Terms and the Privacy policy).
 - Docs site footer and a docs page per text; Web SDK README; npm, Maven POM and Swift package pages.
 
 ## Done when
 
-The lawyer has approved the texts, and the verify line of ticket 17 holds.
+The verify line of ticket 17 holds. Pages: `apps/docs/src/app/pages/legal-terms.ts`, `legal-privacy.ts` and `legal-accessibility.ts`.
