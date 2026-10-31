@@ -6,7 +6,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -20,6 +22,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.Json
@@ -208,6 +211,48 @@ class InteractiveUiTest : ComposeUiTestBase() {
         assertEquals(1, responder.sent.size)
         assertTrue(responder.sent.single().startsWith("rating:"))
         onNodeWithContentDescription("Your rating").assertIsNotEnabled()
+    }
+
+    @Test
+    fun aScreenReaderMovesTheRatingAndSendsItWithTheClickAction() = runComposeUiTest {
+        val props = """{"question":"How was it?","emoji":"🔥","theme":"light"}"""
+        val responder = FakeResponder(answered("80", RatingResult(total = 2, average = 60)))
+        setContent {
+            CompositionLocalProvider(LocalElementResponder provides responder) {
+                Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layerOf(element("rating", props, h = 0.5))) }
+            }
+        }
+        waitForIdle()
+        val slider = onNodeWithContentDescription("Your rating")
+        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(0.8f) }
+        waitForIdle()
+        assertTrue(responder.sent.isEmpty())
+        slider.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "80 out of 100"))
+        slider.assert(SemanticsMatcher("has the send click action") { n ->
+            n.config.getOrNull(SemanticsActions.OnClick)?.label == "Send rating" &&
+                n.config.getOrNull(SemanticsActions.CustomActions)?.any { it.label == "Send rating" } == true
+        })
+        slider.performSemanticsAction(SemanticsActions.OnClick)
+        waitUntil("the average", 5_000) { onAllNodesWithText("Average 60 from 2 ratings").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(listOf("rating:80"), responder.sent)
+        // Rated: no send action is left.
+        slider.assert(SemanticsMatcher("has no click action") { n -> n.config.getOrNull(SemanticsActions.OnClick) == null })
+    }
+
+    @Test
+    fun aRatedRatingExposesNoSendAction() = runComposeUiTest {
+        val props = """{"question":"How was it?","emoji":"🔥","theme":"light"}"""
+        val responder = FakeResponder(kept = StoredResponse("70", RatingResult(total = 3, average = 65)))
+        setContent {
+            CompositionLocalProvider(LocalElementResponder provides responder) {
+                Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layerOf(element("rating", props, h = 0.5))) }
+            }
+        }
+        waitForIdle()
+        onNodeWithContentDescription("Your rating").assert(SemanticsMatcher("has no click action") { n ->
+            n.config.getOrNull(SemanticsActions.OnClick) == null && n.config.getOrNull(SemanticsActions.CustomActions).isNullOrEmpty()
+        })
+        assertTrue(responder.sent.isEmpty())
     }
 
     @Test

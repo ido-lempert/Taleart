@@ -48,13 +48,16 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -707,6 +710,13 @@ internal fun RatingElement(element: DocumentElement.Rating, canvas: CanvasMetric
                             set((fraction * 100f).roundToInt())
                             true
                         }
+                    }
+                    // A screen reader moves the value with setProgress but cannot press Enter or release a drag: a
+                    // click action (double-tap) sends it, also listed as a custom action. Locked or busy: none.
+                    if (!locked && !busy) {
+                        val sendLabel = t("rating.send")
+                        onClick(label = sendLabel) { submit(); true }
+                        customActions = listOf(CustomAccessibilityAction(sendLabel) { submit(); true })
                     }
                 }
                 .focusable(enabled = !locked)

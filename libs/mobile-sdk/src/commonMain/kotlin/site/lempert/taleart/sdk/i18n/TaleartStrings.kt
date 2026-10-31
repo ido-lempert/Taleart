@@ -65,6 +65,7 @@ object TaleartStrings {
         "rating.sliderLabel" to "Your rating",
         "rating.valueText" to "{value} out of {max}",
         "rating.ratedValueText" to "You rated {value} out of {max}",
+        "rating.send" to "Send rating",
         "rating.sent" to "You rated {value}.",
         "rating.previewRated" to "You rated {value}. Ratings are not recorded in the preview.",
         "rating.failed" to "Your rating could not be sent. Try again.",

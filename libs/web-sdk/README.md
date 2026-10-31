@@ -315,6 +315,7 @@ init({ locale: 'he', strings: { he: { 'viewer.close': 'סגור', 'bar.seen': '{
 | `rating.sliderLabel` | Your rating |
 | `rating.valueText` | {value} out of {max} |
 | `rating.ratedValueText` | You rated {value} out of {max} |
+| `rating.send` | Send rating |
 | `rating.sent` | You rated {value}. |
 | `rating.previewRated` | You rated {value}. Ratings are not recorded in the preview. |
 | `rating.failed` | Your rating could not be sent. Try again. |

@@ -112,7 +112,7 @@ export function ratingOf(result: ResponseResult | null): RatingResult | null {
  * title and question as text nodes and a slider (`role="slider"`, 0 to 100) whose thumb is the
  * emoji. The visitor drags the emoji, or presses on the track, by pointer or touch, and the rating is
  * posted on release; or moves it with the arrow keys and Page keys in steps of 10, Home and End, and
- * posts it with Enter. Its pointer, click and key events stop at the Rating, so a drag never swipes
+ * posts it with Enter or, for assistive technology, with a visually hidden send button. Its pointer, click and key events stop at the Rating, so a drag never swipes
  * to another tale or group, a press never steps, and its keys never step the tale. Once rated, the
  * slider keeps the visitor's value, the track marks the average, and the count and average show and
  * are said in a polite live region; no second rating is taken. A rating this device made before
@@ -150,7 +150,10 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
   const out = text('p', 'ta-rate-out', '');
   const live = text('p', 'ta-sr', '');
   live.setAttribute('aria-live', 'polite');
-  card.append(track, out, live);
+  // Assistive technology moves the slider but has no Enter key to send it: a visually hidden button sends the value.
+  const send = text('button', 'ta-sr', t('rating.send')) as HTMLButtonElement;
+  send.type = 'button';
+  card.append(track, send, out, live);
 
   const responses = context.responses;
   const rtl = () => isRtl(card);
@@ -176,6 +179,7 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
     answered = true;
     card.classList.add('ta-rated');
     track.setAttribute('aria-disabled', 'true');
+    send.disabled = true;
     set(rated);
     if (result) {
       average.style.insetInlineStart = `${result.average}%`;
@@ -256,6 +260,9 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
   track.addEventListener('pointercancel', cancel);
   track.addEventListener('lostpointercapture', cancel);
   card.addEventListener('click', (e) => e.stopPropagation());
+  send.addEventListener('click', () => submit());
+  // Its Enter and Space are the button's own: they never step the tale.
+  send.addEventListener('keydown', (e) => e.stopPropagation());
   track.addEventListener('keydown', (e) => {
     // Once rated the slider is read-only: its keys go to the viewer again, as on any other part of the tale.
     if (answered || e.altKey || e.ctrlKey || e.metaKey) return;

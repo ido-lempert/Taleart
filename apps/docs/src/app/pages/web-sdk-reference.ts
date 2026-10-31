@@ -386,6 +386,7 @@ import { RouterLink } from '@angular/router';
           <tr><td><code>rating.sliderLabel</code></td><td>Your rating</td></tr>
           <tr><td><code>rating.valueText</code></td><td>&#123;value&#125; out of &#123;max&#125;</td></tr>
           <tr><td><code>rating.ratedValueText</code></td><td>You rated &#123;value&#125; out of &#123;max&#125;</td></tr>
+          <tr><td><code>rating.send</code></td><td>Send rating</td></tr>
           <tr><td><code>rating.sent</code></td><td>You rated &#123;value&#125;.</td></tr>
           <tr><td><code>rating.previewRated</code></td><td>You rated &#123;value&#125;. Ratings are not recorded in the preview.</td></tr>
           <tr><td><code>rating.failed</code></td><td>Your rating could not be sent. Try again.</td></tr>

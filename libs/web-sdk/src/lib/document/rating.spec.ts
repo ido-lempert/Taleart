@@ -298,6 +298,22 @@ describe('renderRating', () => {
     expect(ratingSummary({ total: 1, average: 7 }, t)).toBe('ממוצע 7 מ-1 דירוג');
     expect(ratingSummary({ total: 2, average: 7 }, t)).toBe('ממוצע 7 מ-2 דירוגים');
   });
+
+  it('has a visually hidden send button that posts the slider value, for assistive technology, and is disabled once rated', async () => {
+    const { client, send } = fakeClient();
+    const node = renderRating(rating(), { reducedMotion: false, responses: { client, taleId: 't1' } }) as HTMLElement;
+    const button = node.querySelector('button.ta-sr') as HTMLButtonElement;
+    expect(button.textContent).toBe('Send rating');
+    expect(button.disabled).toBe(false);
+    press(slider(node), 'ArrowUp');
+    expect(send).not.toHaveBeenCalled();
+    button.click();
+    await flush();
+    expect(send).toHaveBeenCalledWith('t1', ratingId, '60');
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('TaleViewer with a Rating (R5, C7)', () => {

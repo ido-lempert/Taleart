@@ -504,6 +504,7 @@ export const STRING_KEYS: readonly StringRow[] = [
   { key: 'rating.sliderLabel', english: 'Your rating', note: 'The slider’s name, for screen readers.' },
   { key: 'rating.valueText', english: '{value} out of {max}', note: 'The slider’s value before it is rated.' },
   { key: 'rating.ratedValueText', english: 'You rated {value} out of {max}', note: 'The slider’s value once rated.' },
+  { key: 'rating.send', english: 'Send rating', note: 'The screen-reader action that sends the slider’s value (double-tap), and the Web SDK’s hidden send button.' },
   { key: 'rating.sent', english: 'You rated {value}.', note: 'The live line after a rating, before the summary.' },
   { key: 'rating.previewRated', english: 'You rated {value}. Ratings are not recorded in the preview.', note: 'The live line after a release in a preview.' },
   { key: 'rating.failed', english: 'Your rating could not be sent. Try again.', note: 'The live line when the rating was refused or could not be sent; the slider stays open.' },
