@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 const ROOT = resolve(import.meta.dirname, '..');
 export const OPENAPI_YAML = join(ROOT, 'openapi/openapi.yaml');
 export const OPENAPI_JSON = join(ROOT, 'src/generated/openapi.json');
+export const ZONE_SCHEMA_JSON = join(ROOT, 'src/generated/zone.schema.json');
 
 function redocly() {
   const fromTypescript = createRequire(createRequire(import.meta.url).resolve('openapi-typescript'));
@@ -28,6 +29,51 @@ export async function openapiJson(file = OPENAPI_YAML) {
   return JSON.stringify(result.bundle.parsed, null, 2) + '\n';
 }
 
+/**
+ * The JSON Schema of zone data (the body of `GET /delivery/v1/zone`, schema `DeliveryZone`), for editors and for
+ * validating hand-written data (epic Web SDK without a backend). It is cut from the OpenAPI document: the
+ * `DeliveryZone` schema and every schema it reaches, kept under `components/schemas` so the `$ref`s still resolve.
+ * `format: uri` and `format: uuid` are dropped: a page may use page-relative or `data:` media URLs and any text as ids.
+ */
+export function zoneSchemaJson(openapi) {
+  const all = openapi.components.schemas;
+  const keep = {};
+  const visit = (value) => {
+    if (Array.isArray(value)) return value.forEach(visit);
+    if (typeof value !== 'object' || value === null) return;
+    const ref = value.$ref;
+    if (typeof ref === 'string') {
+      const name = ref.replace('#/components/schemas/', '');
+      if (ref.startsWith('#/components/schemas/') && !(name in keep)) {
+        keep[name] = all[name];
+        visit(all[name]);
+      }
+    }
+    Object.values(value).forEach(visit);
+  };
+  keep.DeliveryZone = all.DeliveryZone;
+  visit(all.DeliveryZone);
+  const plain = JSON.parse(JSON.stringify(keep), (key, value) =>
+    key === 'format' && (value === 'uri' || value === 'uuid') ? undefined : value,
+  );
+  return (
+    JSON.stringify(
+      {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        title: 'TaleArt zone data',
+        description:
+          'The body of GET /delivery/v1/zone: the data that <taleart-view>.data and Taleart.setZoneData take to show tales with no backend.',
+        $ref: '#/components/schemas/DeliveryZone',
+        components: { schemas: Object.fromEntries(Object.entries(plain).sort(([a], [b]) => a.localeCompare(b))) },
+      },
+      null,
+      2,
+    ) + '\n'
+  );
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
-  writeFileSync(OPENAPI_JSON, await openapiJson());
+  const json = await openapiJson();
+  writeFileSync(OPENAPI_JSON, json);
+  writeFileSync(ZONE_SCHEMA_JSON, zoneSchemaJson(JSON.parse(json)));
 }

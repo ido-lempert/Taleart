@@ -1,0 +1,671 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaleArt zone data",
+  "description": "The body of GET /delivery/v1/zone: the data that <taleart-view>.data and Taleart.setZoneData take to show tales with no backend.",
+  "$ref": "#/components/schemas/DeliveryZone",
+  "components": {
+    "schemas": {
+      "A11y": {
+        "description": "What assistive technology is told about the element.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "decorative": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AudienceCondition": {
+        "type": "object",
+        "description": "One test on one viewer property.",
+        "required": [
+          "property",
+          "operator"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "property": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$",
+            "description": "The viewer property's name, as the host page passes it (case-sensitive)."
+          },
+          "operator": {
+            "$ref": "#/components/schemas/AudienceOperator"
+          },
+          "value": {
+            "description": "The value compared with. Required for every operator but `exists` and `notExists`, which take none. A string is at most 256 characters; a list holds 1 to 50 strings of at most 256.",
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {
+                  "type": "string",
+                  "maxLength": 256
+                }
+              }
+            ]
+          }
+        }
+      },
+      "AudienceOperator": {
+        "type": "string",
+        "enum": [
+          "eq",
+          "neq",
+          "in",
+          "notIn",
+          "gt",
+          "gte",
+          "lt",
+          "lte",
+          "contains",
+          "exists",
+          "notExists"
+        ],
+        "description": "How a condition compares the viewer's property with its value. `eq` and `neq` compare strings ignoring case (Unicode NFC, trimmed), and numbers and booleans exactly. `in` and `notIn` take a list of strings. `gt`, `gte`, `lt` and `lte` compare numbers only. `contains` finds a substring of a string (ignoring case) or an item of a list of strings. `exists` and `notExists` take no value. A missing property is false, except for `neq`, `notIn` and `notExists`, which are true. A value of another type than the property's is false."
+      },
+      "AudienceRule": {
+        "type": "object",
+        "description": "A tale group's audience rule: all or any of its conditions must hold. It is evaluated in the browser or app with `audienceRulePasses` from the contract, against the viewer properties the host page passed; those never reach the server. The limits and the test table are in the contract (`audience-rule.cases.json`).",
+        "required": [
+          "match",
+          "conditions"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "description": "`all` needs every condition to hold, `any` one of them."
+          },
+          "conditions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "The conditions, 1 to 10. Rules do not nest.",
+            "items": {
+              "$ref": "#/components/schemas/AudienceCondition"
+            }
+          }
+        }
+      },
+      "Box": {
+        "description": "Where an element sits, as fractions (0 to 1) of the canvas width (x, w) and height (y, h), and its rotation in degrees about its centre.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "x",
+          "y",
+          "w",
+          "h",
+          "rotation"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "w": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "h": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "rotation": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        }
+      },
+      "Color": {
+        "description": "A colour as #RRGGBB or #RRGGBBAA.",
+        "type": "string",
+        "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+      },
+      "ColorBackground": {
+        "description": "A solid background colour.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "color"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "color"
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          }
+        }
+      },
+      "ColorScheme": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "light",
+          "dark"
+        ],
+        "description": "Which colour scheme the SDK draws: `auto` follows the host page's `prefers-color-scheme`, `light` and `dark` always draw that one."
+      },
+      "DeliveryCanvas": {
+        "type": "object",
+        "description": "The canvas as delivered: a colour background as stored; a media background with its storage key replaced by the public `url`.",
+        "required": [
+          "background"
+        ],
+        "properties": {
+          "background": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ColorBackground"
+              },
+              {
+                "$ref": "#/components/schemas/DeliveryMediaBackground"
+              }
+            ]
+          }
+        }
+      },
+      "DeliveryCover": {
+        "type": "object",
+        "required": [
+          "kind",
+          "contentType",
+          "animated",
+          "url"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/MediaKind"
+          },
+          "contentType": {
+            "$ref": "#/components/schemas/MediaContentType"
+          },
+          "animated": {
+            "type": "boolean",
+            "description": "True when the cover moves (a video, a GIF, an animated WebP or an APNG); clients show it still when the visitor prefers reduced motion."
+          },
+          "url": {
+            "type": "string",
+            "description": "Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/covers/<uuid>.webm`. Needs no key."
+          }
+        }
+      },
+      "DeliveryFont": {
+        "type": "object",
+        "required": [
+          "id",
+          "family",
+          "url",
+          "weight",
+          "style"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The font id a text's `font.fontId` names."
+          },
+          "family": {
+            "type": "string",
+            "description": "The face's family name as the project stores it (spaces collapsed). The Web SDK draws the face under its id's alias and does not use it; native SDKs, which do not download project fonts, draw the text in a font the host app installed under this family name, else its fallback stack."
+          },
+          "url": {
+            "type": "string",
+            "description": "The public `font/woff2` URL of the file, open to any origin."
+          },
+          "weight": {
+            "type": "integer"
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "italic"
+            ]
+          }
+        }
+      },
+      "DeliveryFrame": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "settings"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "A frame type key; clients skip types they don't know."
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The frame's settings, with every field the stored settings leave out filled with its default from the type's JSON Schema."
+          }
+        }
+      },
+      "DeliveryMedia": {
+        "type": "object",
+        "required": [
+          "kind",
+          "contentType",
+          "url"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/MediaKind"
+          },
+          "contentType": {
+            "$ref": "#/components/schemas/MediaContentType"
+          },
+          "url": {
+            "type": "string",
+            "description": "Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/tales/<uuid>.png`. Needs no key."
+          }
+        }
+      },
+      "DeliveryMediaBackground": {
+        "type": "object",
+        "required": [
+          "type",
+          "url",
+          "fit",
+          "color"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "media"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "description": "The public URL of the image."
+          },
+          "fit": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "contain"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "description": "The band colour, as `#RRGGBB` or `#RRGGBBAA`."
+          }
+        }
+      },
+      "DeliveryTale": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "media",
+          "document"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "media": {
+            "description": "The tale's image, GIF or video, or null when it has none. Kept for SDKs from before documents: the document holds the same media as its `taleMedia` element, and current SDKs render only the document.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryMedia"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document": {
+            "description": "The tale's document as SDKs render it. Every delivered tale has one: a tale whose media is not yet in its published document gets it composed in, and a tale with neither gets an empty one. Null only from older servers.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryTaleDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fonts": {
+            "type": "array",
+            "description": "The project fonts the document's visible text uses, left out when it uses none. SDKs fetch them only when the tale opens.",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryFont"
+            }
+          }
+        }
+      },
+      "DeliveryTaleDocument": {
+        "type": "object",
+        "description": "A tale document as delivered: hidden elements are removed, and so are the editor-only fields `hidden` and `locked`. Clients ignore fields they do not know and skip element types they do not know.",
+        "required": [
+          "version",
+          "canvas",
+          "elements"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer"
+          },
+          "canvas": {
+            "$ref": "#/components/schemas/DeliveryCanvas"
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "placeholder": {
+            "type": "boolean",
+            "description": "True only on the document the Delivery API makes for a tale with neither media nor a document: viewers paint its colour across the whole stage, as such a tale always showed."
+          },
+          "elements": {
+            "type": "array",
+            "description": "The visible elements, first at the bottom of the z-order.",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryTaleElement"
+            }
+          }
+        }
+      },
+      "DeliveryTaleElement": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "box",
+          "a11y",
+          "props"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll`, `rating`, `quiz`, `countdown`, `promo-code` or `reaction`."
+          },
+          "box": {
+            "$ref": "#/components/schemas/Box"
+          },
+          "a11y": {
+            "$ref": "#/components/schemas/A11y"
+          },
+          "props": {
+            "type": "object",
+            "description": "The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's, video's, image sticker's or image button's `mediaKey` is replaced by `url`, its public URL. A link's destination stays `href`."
+          }
+        }
+      },
+      "DeliveryTaleGroup": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "cover",
+          "tales",
+          "tags",
+          "tagMatch",
+          "audience"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "description": "The names of the group's targeting tags, ignoring case by name; empty when the group has none. The SDK compares them with the viewer's tags; every viewer gets the same list.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tagMatch": {
+            "$ref": "#/components/schemas/TagMatch"
+          },
+          "audience": {
+            "description": "The group's audience rule (viewer properties), or null when it has none. Every viewer gets the same rule; the SDK evaluates it against the properties the host page passed, which are never sent to the server.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AudienceRule"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "userListMatched": {
+            "type": "boolean",
+            "description": "True when the group is targeted to user lists and the viewer's external user ID (header `X-TaleArt-External-User-Id`) is in one of them; left out otherwise. A group targeted to lists the viewer is in none of is not in the response at all, so the SDK never needs the lists."
+          },
+          "cover": {
+            "description": "The group's cover, or null when it has none; the bar then shows its first tale's lowest media element (the document's media background, else its first image or video element), or, when that tale has no media, its canvas colour.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryCover"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tales": {
+            "type": "array",
+            "description": "The group's published tales by position.",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryTale"
+            }
+          }
+        }
+      },
+      "DeliveryZone": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "theme",
+          "frame",
+          "taleGroups"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "The zone's slug."
+          },
+          "theme": {
+            "$ref": "#/components/schemas/Theme",
+            "description": "The zone's project theme, every field filled with TaleArt's default where the project sets none."
+          },
+          "frame": {
+            "description": "The zone's display, or null when it has none; a zone without a display lists no tale group.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryFrame"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taleGroups": {
+            "type": "array",
+            "description": "The published tale groups placed in the zone, in this zone's order; the display shows all of them.",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryTaleGroup"
+            }
+          }
+        }
+      },
+      "MediaContentType": {
+        "type": "string",
+        "enum": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif",
+          "video/mp4",
+          "video/webm"
+        ]
+      },
+      "MediaKind": {
+        "type": "string",
+        "enum": [
+          "image",
+          "video"
+        ]
+      },
+      "RingStyle": {
+        "type": "string",
+        "enum": [
+          "gradient",
+          "solid",
+          "none"
+        ]
+      },
+      "TagMatch": {
+        "type": "string",
+        "enum": [
+          "any",
+          "all"
+        ],
+        "description": "How a tale group's targeting tags combine: `any` (the default) shows the group to a viewer with at least one of its tags, `all` only to a viewer with every one of them. A group with no tags, or a viewer whose page passed no tags, always passes. The SDK decides, with `tagRulePasses` from the contract."
+      },
+      "Theme": {
+        "type": "object",
+        "description": "A complete theme, every field present (TaleArt's default where the project sets none); `null` takes the host page's or the frame's own value.",
+        "required": [
+          "ringStyle",
+          "ringColors",
+          "seenRingColor",
+          "ringWidth",
+          "cornerRadius",
+          "fontFamily",
+          "titleColor",
+          "backgroundColor",
+          "accentColor",
+          "colorScheme",
+          "liveColor",
+          "successColor",
+          "errorColor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ringStyle": {
+            "$ref": "#/components/schemas/RingStyle"
+          },
+          "ringColors": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/ThemeColor"
+            }
+          },
+          "seenRingColor": {
+            "$ref": "#/components/schemas/ThemeColor"
+          },
+          "ringWidth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "cornerRadius": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 32
+          },
+          "fontFamily": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "titleColor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "backgroundColor": {
+            "type": "string"
+          },
+          "accentColor": {
+            "$ref": "#/components/schemas/ThemeColor"
+          },
+          "colorScheme": {
+            "$ref": "#/components/schemas/ColorScheme"
+          },
+          "liveColor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "successColor": {
+            "$ref": "#/components/schemas/ThemeColor"
+          },
+          "errorColor": {
+            "$ref": "#/components/schemas/ThemeColor"
+          }
+        }
+      },
+      "ThemeColor": {
+        "type": "string",
+        "pattern": "^#[0-9a-fA-F]{6}$",
+        "description": "A colour as `#rrggbb`; nothing else is accepted, so no value can inject CSS."
+      }
+    }
+  }
+}

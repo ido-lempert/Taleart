@@ -20,7 +20,8 @@
       "outputs": [
         "{projectRoot}/src/generated/api.ts",
         "{projectRoot}/src/generated/tale-document-schemas.ts",
-        "{projectRoot}/src/generated/openapi.json"
+        "{projectRoot}/src/generated/openapi.json",
+        "{projectRoot}/src/generated/zone.schema.json"
       ],
       "options": {
         "commands": [

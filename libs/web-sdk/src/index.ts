@@ -6,7 +6,9 @@ import {
   setProperties,
   setProperty,
   setTags,
+  setZoneData,
 } from './lib/taleart-element';
+import { validateZone } from './lib/validate-zone';
 
 export { getConfig, init } from './lib/config';
 export {
@@ -16,9 +18,12 @@ export {
   setProperties,
   setProperty,
   setTags,
+  setZoneData,
   TaleartElement,
   TALEART_ELEMENT_TAG,
 } from './lib/taleart-element';
+export { validateZone } from './lib/validate-zone';
+export type { ZoneValidation } from './lib/validate-zone';
 export type { ZoneOptions } from './lib/taleart-element';
 export type { ConfigKey, FallbackMode, ResolvedTaleartConfig, TaleartConfig } from './lib/config';
 export type { DirOption } from './lib/public-types';
@@ -54,5 +59,7 @@ if (typeof customElements !== 'undefined') defineTaleartElement();
   setTags,
   setProperties,
   setProperty,
+  setZoneData,
+  validateZone,
   defineTaleartElement,
 };

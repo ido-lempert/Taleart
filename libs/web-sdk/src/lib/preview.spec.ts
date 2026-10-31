@@ -101,6 +101,8 @@ describe('the preview entry point', () => {
         'setProperties',
         'setProperty',
         'setTags',
+        'setZoneData',
+        'validateZone',
       ].sort(),
     );
   });

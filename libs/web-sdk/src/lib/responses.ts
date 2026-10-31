@@ -1,5 +1,5 @@
 // Types only: nothing from the contract ends up in the bundle (AD-3).
-import type { ChoiceResult, InteractiveResponse, RatingResult, ReactionResult, ResponseResult } from '@taleart/contract';
+import type { ChoiceResult, DeliveryZone, InteractiveResponse, RatingResult, ReactionResult, ResponseResult } from '@taleart/contract';
 import { DeliveryError, type ZoneRequest } from './delivery-client';
 import { VISITOR_HEADER, visitorId } from './visitor';
 
@@ -112,6 +112,49 @@ export function responseClient(apiUrl: string, request: ZoneRequest, fetchImpl: 
         throw new DeliveryError(`The TaleArt API answered ${res.status}`, res.status);
       }
       const response = { value: body.value, result: body.result };
+      keepResponse(taleId, elementId, response);
+      return response;
+    },
+  };
+}
+
+/**
+ * The response client of zone data the page brought itself (no backend): it posts nothing. An answer is kept on
+ * this device (`taleart.responses`) with a result of this one visitor's answer: a choice shows 100% for the
+ * choice made, a Rating its own value, a Reaction its own emoji. The first answer wins, as with the API.
+ */
+export function localResponseClient(zone: DeliveryZone): ResponseClient {
+  const elementOf = (taleId: string, elementId: string): { type: string; props: Record<string, unknown> } | null => {
+    for (const group of zone.taleGroups) {
+      const tale = group.tales.find((t) => t.id === taleId);
+      const element = tale?.document?.elements?.find((e) => e.id === elementId);
+      if (element) return { type: element.type, props: (element.props ?? {}) as Record<string, unknown> };
+    }
+    return null;
+  };
+  return {
+    stored: storedResponse,
+    async send(taleId, elementId, value) {
+      const kept = storedResponse(taleId, elementId);
+      if (kept) return kept;
+      const element = elementOf(taleId, elementId);
+      if (!element) throw new DeliveryError('This component is not in the zone data');
+      let result: ResponseResult;
+      const idsOf = (prop: string): string[] => {
+        const list = element.props[prop];
+        return Array.isArray(list) ? list.map((c) => String((c as { id?: unknown })?.id ?? '')) : [];
+      };
+      if (element.type === 'rating') {
+        result = { total: 1, average: Number(value) || 0 };
+      } else if (element.type === 'reaction') {
+        const emojis = element.props['emojis'];
+        const list = Array.isArray(emojis) ? emojis.filter((e): e is string => typeof e === 'string') : [value];
+        result = { total: 1, reactions: list.map((emoji) => ({ emoji, count: emoji === value ? 1 : 0 })) };
+      } else {
+        const ids = idsOf(element.type === 'quiz' ? 'answers' : 'options');
+        result = { total: 1, choices: ids.map((id) => ({ id, count: id === value ? 1 : 0, percent: id === value ? 100 : 0 })) };
+      }
+      const response = { value, result };
       keepResponse(taleId, elementId, response);
       return response;
     },
