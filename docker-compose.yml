@@ -27,7 +27,7 @@ services:
 
   api:
     <<: *restart
-    image: taleart/api:${TALEART_VERSION:-local}
+    image: lempert/taleart-api:${TALEART_VERSION:-local}
     build:
       context: .
       target: api
@@ -51,7 +51,7 @@ services:
 
   dashboard:
     <<: *restart
-    image: taleart/dashboard:${TALEART_VERSION:-local}
+    image: lempert/taleart-dashboard:${TALEART_VERSION:-local}
     build:
       context: .
       target: dashboard

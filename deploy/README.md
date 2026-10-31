@@ -108,7 +108,7 @@ Browsers register passkeys only on `https://` addresses and on `http://localhost
 | `TALEART_SETUP_PASSWORD` | no | `false` | `true`: the first admin may use a username and password instead of a passkey. |
 | `TALEART_SEED_DEMO` | no | `false` | `true`: right after the first admin finishes setup, make the demo project (see Demo data). Quick try only. |
 | `TALEART_HTTP_PORT`, `TALEART_HTTPS_PORT` | no | `80`, `443` | Host ports of the proxy. |
-| `TALEART_VERSION` | no | `local` | Tag of the images compose builds. |
+| `TALEART_VERSION` | no | `local` | Tag of the images. `local` builds them here; `latest` or a version (`0.1.0`) pulls `lempert/taleart-api` and `lempert/taleart-dashboard` from Docker Hub (run `docker compose pull` first). |
 | `TRUST_PROXY` | no | `1` | Proxies in front of the API (hop count or addresses); used for per-address rate limits. |
 | `DELIVERY_RATE_LIMIT_BURST`, `DELIVERY_RATE_LIMIT_PER_SECOND` | no | built-in | Delivery API limit per visitor; burst `0` turns it off. |
 | `DATABASE_POOL_MAX` | no | `20` | Database connections the API holds. |
