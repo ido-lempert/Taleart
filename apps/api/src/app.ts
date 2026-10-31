@@ -18,7 +18,7 @@ import { frameTypesRouter } from './http/frame-types.router';
 import { OPENAPI_DOCUMENT_PATH, openapiRouter } from './http/openapi.router';
 import { errorHandler, notFoundHandler } from './http/errors';
 import { projectMediaRouter, type ProjectMediaOptions } from './http/project-media.router';
-import { projectsRouter } from './http/projects.router';
+import { projectsRouter, rolesRouter } from './http/projects.router';
 import { publicMediaRouter } from './http/public-media.router';
 import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
 import { projectTagsRouter } from './http/tags.router';
@@ -210,6 +210,7 @@ export function createApp(
   // Personal API tokens: a passkey session only.
   v1.use('/api-tokens', apiTokensRouter(pool));
   v1.use('/users', userApiTokensRouter(pool));
+  v1.use('/roles', rolesRouter());
   v1.use('/projects', projectsRouter(pool, { dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200' }));
   v1.use('/projects', projectTagsRouter(pool));
   v1.use('/projects', userListsRouter(pool, userLists));

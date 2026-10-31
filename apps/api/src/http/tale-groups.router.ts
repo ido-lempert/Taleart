@@ -198,6 +198,8 @@ export function projectTaleGroupsRouter(pool: Pool): Router {
 export function taleGroupsRouter(pool: Pool): Router {
   const router = Router();
   const groupAccess = authorizeParam(pool, 'taleGroup', 'taleGroupId');
+  // Making a group live, or scheduling it, is the publisher's.
+  const groupPublish = authorizeParam(pool, 'taleGroup', 'taleGroupId', 'content.publish');
 
   // One group with its tales, placed in a zone or not: the dashboard opens a group in no zone with it (story 8.19).
   router.get('/:taleGroupId', groupAccess, async (req, res, next) => {
@@ -222,7 +224,7 @@ export function taleGroupsRouter(pool: Pool): Router {
     }
   });
 
-  router.put('/:taleGroupId/status', groupAccess, async (req, res, next) => {
+  router.put('/:taleGroupId/status', groupPublish, async (req, res, next) => {
     try {
       // Tale group first (404), then the body (400), then the transition (409).
       const { taleGroupId } = req.params;
@@ -235,7 +237,7 @@ export function taleGroupsRouter(pool: Pool): Router {
     }
   });
 
-  router.put('/:taleGroupId/schedule', groupAccess, async (req, res, next) => {
+  router.put('/:taleGroupId/schedule', groupPublish, async (req, res, next) => {
     try {
       // Tale group first (404), then the body (400).
       const { taleGroupId } = req.params;
@@ -255,7 +257,7 @@ export function taleGroupsRouter(pool: Pool): Router {
       const { taleGroupId } = req.params;
       if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
       const input: CopyTaleGroupRequest = { zoneId: requiredString(req.body, 'zoneId') };
-      await authorize(pool, res, 'zone', input.zoneId);
+      await authorize(pool, res, 'zone', input.zoneId, 'content.edit');
       // The tales module copies the group and its tales; the targeting module
       // its tags and match mode, and its user lists when the copy stays in the
       // project, in the same transaction (AD-1, AD-14, epic targeting R1, R4).

@@ -1607,7 +1607,7 @@
         ],
         "operationId": "listProjects",
         "summary": "List the projects the caller can access, oldest first.",
-        "description": "Admins see every project; content managers see the projects they are members of.",
+        "description": "Admins see every project; content managers see the projects they are members of (an expired membership gives no access). Each project carries `role`, the caller's effective role in it.",
         "responses": {
           "200": {
             "description": "The accessible projects.",
@@ -1667,6 +1667,34 @@
         }
       }
     },
+    "/roles": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "listProjectRoles",
+        "summary": "The project roles and what each one may do.",
+        "description": "The role and permission matrix every project uses: `viewer` reads and sees analytics, `editor` also changes content (drafts), `publisher` also makes content live and manages zones, `admin` also manages keys and members. A global admin has the `admin` role on every project. Any signed-in caller may read it.",
+        "responses": {
+          "200": {
+            "description": "The roles, lowest to highest, with their permissions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRoleMatrix"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/projects/{projectId}/invitations": {
       "parameters": [
         {
@@ -1678,18 +1706,57 @@
           }
         }
       ],
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "listInvitations",
+        "summary": "The project's pending invitations (needs `members.manage`).",
+        "description": "Invitations that are neither used nor expired, newest first, with the role they give, who created them and when they expire. The link itself is never listed (only its hash is stored). A caller without the `members.manage` permission gets 403 `forbidden`; an unknown project the same, as for every project route.",
+        "responses": {
+          "200": {
+            "description": "The pending invitations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PendingInvitation"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
       "post": {
         "tags": [
           "Projects"
         ],
         "operationId": "createInvitation",
-        "summary": "Invite someone to a project (admins only).",
+        "summary": "Invite someone new to a project (needs `members.manage`).",
         "security": [
           {
             "session": []
           }
         ],
-        "description": "Creates a one-time invitation, valid for 7 days. The invitee opens `url`, registers a passkey and becomes a content manager of the project. The token in `url` is shown only in this response; only its SHA-256 hash is stored. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`. An API token gets 403 `forbidden`: invitations need a passkey session.",
+        "description": "Creates a one-time invitation, valid for 7 days. The invitee opens `url`, registers a passkey and becomes a content manager with `role` in the project (default `editor`), until `accessExpiresAt` when given. The token in `url` is shown only in this response; only its SHA-256 hash is stored. A caller without `members.manage` gets 403 `forbidden`; an unknown project 404 `project_not_found`. An API token gets 403 `forbidden`: invitations need a passkey session. To give someone who already has an account access, use `POST /projects/{projectId}/members`.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvitationRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "The invitation, with its one-time link.",
@@ -1701,10 +1768,314 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
           "403": {
             "$ref": "#/components/responses/Error"
           },
           "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/invitations/{invitationId}": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "invitationId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "revokeInvitation",
+        "summary": "Revoke a pending invitation (needs `members.manage`).",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "description": "The link stops working at once. An unknown, used, expired or already revoked invitation answers 404 `invitation_not_found`. A passkey session only.",
+        "responses": {
+          "204": {
+            "description": "The invitation is revoked."
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/members": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "listProjectMembers",
+        "summary": "The project's members and their roles (needs `project.view`).",
+        "description": "Explicit members only, oldest first, expired memberships included (`expired` is true; they give no access). Global admins reach every project as `admin` and are listed only when they were added as members. `you` marks the caller's own row.",
+        "responses": {
+          "200": {
+            "description": "The members.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectMember"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "addProjectMember",
+        "summary": "Give an existing user a role in the project (needs `members.manage`).",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "description": "Adds the user with this email, who must already have an account (404 `user_not_found`; invite a new person instead), with `role`, until `expiresAt` when given (it must be in the future). A user who is already a member, expired or not, gets 409 `member_exists`: change the role instead. A passkey session only.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddProjectMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMember"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/members/{userId}": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "userId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "updateProjectMember",
+        "summary": "Change a member's role or access expiry (needs `members.manage`).",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "description": "`role` changes the role; `expiresAt` sets when the access ends, and `null` clears the limit. A change that leaves the project without an active `admin` member answers 409 `last_project_admin`, unless the caller is a global admin. An unknown member answers 404 `member_not_found`. A passkey session only.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The member as changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMember"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "removeProjectMember",
+        "summary": "Remove a member from the project (needs `members.manage`).",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "description": "Removing the last active `admin` member answers 409 `last_project_admin`, unless the caller is a global admin. An unknown member answers 404 `member_not_found`. A passkey session only.",
+        "responses": {
+          "204": {
+            "description": "The member is removed."
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/audit-log": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "operationId": "listProjectAuditLog",
+        "summary": "The project's membership audit log (needs `members.manage`).",
+        "description": "Invitations, joins, additions, role and expiry changes and removals, newest first. Page with `limit` (default 50, at most 200) and `before`, the `nextBefore` of the previous page.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "description": "The `nextBefore` of the previous page; entries older than that entry are returned.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectAuditLog"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
             "$ref": "#/components/responses/Error"
           },
           "default": {
@@ -5303,11 +5674,71 @@
           }
         }
       },
+      "ProjectRole": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "publisher",
+          "editor",
+          "viewer"
+        ],
+        "description": "A member's role in one project. `viewer` reads, `editor` also changes content, `publisher` also makes it live and manages zones, `admin` also manages keys and members."
+      },
+      "ProjectPermission": {
+        "type": "string",
+        "enum": [
+          "project.view",
+          "analytics.view",
+          "content.edit",
+          "content.publish",
+          "zones.manage",
+          "keys.manage",
+          "members.manage"
+        ]
+      },
+      "ProjectRoleMatrix": {
+        "type": "object",
+        "required": [
+          "roles",
+          "permissions"
+        ],
+        "properties": {
+          "roles": {
+            "type": "array",
+            "description": "The roles, lowest to highest.",
+            "items": {
+              "type": "object",
+              "required": [
+                "role",
+                "permissions"
+              ],
+              "properties": {
+                "role": {
+                  "$ref": "#/components/schemas/ProjectRole"
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectPermission"
+                  }
+                }
+              }
+            }
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectPermission"
+            }
+          }
+        }
+      },
       "Project": {
         "type": "object",
         "required": [
           "id",
-          "name"
+          "name",
+          "role"
         ],
         "properties": {
           "id": {
@@ -5316,6 +5747,268 @@
           },
           "name": {
             "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          }
+        }
+      },
+      "ProjectMember": {
+        "type": "object",
+        "required": [
+          "userId",
+          "name",
+          "email",
+          "role",
+          "globalRole",
+          "expiresAt",
+          "expired",
+          "joinedAt",
+          "you"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "globalRole": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the access ends, or null for no limit."
+          },
+          "expired": {
+            "type": "boolean",
+            "description": "True when `expiresAt` has passed; the membership then gives no access."
+          },
+          "joinedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "you": {
+            "type": "boolean",
+            "description": "True for the caller's own row."
+          }
+        }
+      },
+      "AddProjectMemberRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "UpdateProjectMemberRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "A future time, or null to clear the limit."
+          }
+        }
+      },
+      "CreateInvitationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "accessExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the invitee's access ends once they have joined; null or left out for no limit."
+          }
+        }
+      },
+      "PendingInvitation": {
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "role",
+          "accessExpiresAt",
+          "createdBy",
+          "createdAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "accessExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the link stops working."
+          }
+        }
+      },
+      "ProjectAuditAction": {
+        "type": "string",
+        "enum": [
+          "invited",
+          "invitation_revoked",
+          "joined",
+          "member_added",
+          "role_changed",
+          "expiry_changed",
+          "removed"
+        ]
+      },
+      "ProjectAuditEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "actorId",
+          "actorName",
+          "targetUserId",
+          "targetEmail",
+          "detail",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ProjectAuditAction"
+          },
+          "actorId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Null when the actor's account was deleted since."
+          },
+          "actorName": {
+            "type": "string"
+          },
+          "targetUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "targetEmail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detail": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "What changed, such as `role`, `from`, `to`, `expiresAt`, `invitationId`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectAuditLog": {
+        "type": "object",
+        "required": [
+          "entries",
+          "nextBefore"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectAuditEntry"
+            }
+          },
+          "nextBefore": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `before` for the next page; null on the last page."
           }
         }
       },
@@ -6814,7 +7507,8 @@
           "role",
           "createdAt",
           "methods",
-          "projects"
+          "projects",
+          "projectRoles"
         ],
         "properties": {
           "id": {
@@ -6863,6 +7557,42 @@
             "type": "integer",
             "minimum": 0,
             "description": "How many projects the user is a member of."
+          },
+          "projectRoles": {
+            "type": "array",
+            "description": "The user's explicit project memberships with their roles (expired ones included).",
+            "items": {
+              "type": "object",
+              "required": [
+                "projectId",
+                "projectName",
+                "role",
+                "expiresAt",
+                "expired"
+              ],
+              "properties": {
+                "projectId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "projectName": {
+                  "type": "string"
+                },
+                "role": {
+                  "$ref": "#/components/schemas/ProjectRole"
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "expired": {
+                  "type": "boolean"
+                }
+              }
+            }
           }
         }
       },
@@ -8979,7 +9709,9 @@
           "id",
           "projectId",
           "url",
-          "expiresAt"
+          "expiresAt",
+          "role",
+          "accessExpiresAt"
         ],
         "properties": {
           "id": {
@@ -8989,6 +9721,17 @@
           "projectId": {
             "type": "string",
             "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "accessExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the invitee's access ends once they have joined, or null for no limit."
           },
           "url": {
             "type": "string",
@@ -9004,11 +9747,23 @@
         "type": "object",
         "required": [
           "projectName",
-          "expiresAt"
+          "expiresAt",
+          "role",
+          "accessExpiresAt"
         ],
         "properties": {
           "projectName": {
             "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "accessExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "expiresAt": {
             "type": "string",
@@ -9141,6 +9896,11 @@
           "session_required",
           "discovery_failed",
           "provider_unavailable",
+          "user_not_found",
+          "member_exists",
+          "member_not_found",
+          "invitation_not_found",
+          "last_project_admin",
           "internal_error"
         ]
       },

@@ -37,7 +37,14 @@ const verifier: PasskeyVerifier = {
 };
 
 const projectId = '00000000-0000-4000-8000-000000000001';
-const invitationRow = { id: 'i1', projectId, projectName: 'Acme', expiresAt: new Date('2026-10-27T00:00:00Z') };
+const invitationRow = {
+  id: 'i1',
+  projectId,
+  projectName: 'Acme',
+  expiresAt: new Date('2026-10-27T00:00:00Z'),
+  role: 'editor',
+  accessExpiresAt: null,
+};
 const challengeId = '00000000-0000-4000-8000-000000000000';
 
 describe('membership', () => {
@@ -51,7 +58,7 @@ describe('membership', () => {
   });
 
   it("gives a content manager only their projects", async () => {
-    const member = fakeDb({ project_members: [{ project_id: projectId }] });
+    const member = fakeDb({ project_members: [{ project_id: projectId, role: 'editor' }] });
     expect(await accessibleProjectIds(member, manager)).toEqual([projectId]);
     expect(await canAccessProject(member, manager, projectId)).toBe(true);
     expect(await canAccessProject(fakeDb({}), manager, projectId)).toBe(false);
@@ -65,16 +72,23 @@ describe('invitations', () => {
   it('stores only the hash of a 32-byte token and expires it after 7 days', async () => {
     const db = fakeDb({ 'INSERT INTO invitations': [{ id: 'i1' }] });
     const before = Date.now();
-    const invitation = await createInvitation(db, { projectId, createdBy: 'u1' });
+    const invitation = await createInvitation(db, { projectId, createdBy: { id: 'u1', name: 'Ann' } });
     expect(Buffer.from(invitation.token, 'base64url')).toHaveLength(32);
     expect(invitation.expiresAt.getTime() - before).toBeGreaterThanOrEqual(INVITATION_TTL_MS - 1000);
-    expect(db.query.mock.calls[0][1]).toEqual([projectId, sha256(invitation.token), 'u1', invitation.expiresAt]);
+    const insert = db.query.mock.calls.find(([text]) => String(text).includes('INSERT INTO invitations'));
+    expect(insert?.[1]).toEqual([projectId, sha256(invitation.token), 'u1', invitation.expiresAt, 'editor', null]);
+    expect(invitation.role).toBe('editor');
     expect(JSON.stringify(db.query.mock.calls)).not.toContain(invitation.token);
   });
 
   it('previews a valid invitation by the hash of its token', async () => {
     const db = fakeDb({ 'JOIN projects': [invitationRow] });
-    expect(await previewInvitation(db, 'tok')).toEqual({ projectName: 'Acme', expiresAt: '2026-10-27T00:00:00.000Z' });
+    expect(await previewInvitation(db, 'tok')).toEqual({
+      projectName: 'Acme',
+      expiresAt: '2026-10-27T00:00:00.000Z',
+      role: 'editor',
+      accessExpiresAt: null,
+    });
     expect(db.query.mock.calls[0][1]).toEqual([sha256('tok')]);
   });
 
@@ -117,8 +131,9 @@ describe('invitations', () => {
     expect(statements).toContain('BEGIN');
     expect(statements).toContain('COMMIT');
     expect(statements.some((s) => s.includes("'content_manager'"))).toBe(true);
+    // The invitation's own role and access end are copied to the membership in SQL.
     expect(db.query.mock.calls.find(([s]) => String(s).includes('INSERT INTO project_members'))?.[1]).toEqual([
-      projectId,
+      'i1',
       'u2',
     ]);
     expect(db.query.mock.calls.find(([s]) => String(s).startsWith('UPDATE invitations'))?.[1]).toEqual(['i1', 'u2']);

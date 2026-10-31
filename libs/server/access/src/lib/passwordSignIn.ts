@@ -13,7 +13,7 @@ import {
   SignInThrottledError,
   UsernameTakenError,
 } from './errors';
-import { addProjectMember } from './members';
+import { joinInvitedProject } from './projectMembers';
 import { checkPassword, hashPassword, normalizeUsername, verifyAgainstDummyHash, verifyPassword } from './passwords';
 import { emailTaken, validInvitation, type JoinedProject } from './invitations';
 import { createSession, hashSessionToken } from './sessions';
@@ -100,7 +100,7 @@ export async function redeemInvitationWithPassword(
       if (await emailTaken(tx, input.email)) throw new EmailTakenError();
       const user = await createUser(tx, { name: input.name, email: input.email, role: 'content_manager' });
       await insertPassword(tx, user.id, username, passwordHash);
-      await addProjectMember(tx, invitation.projectId, user.id);
+      await joinInvitedProject(tx, invitation.id, user);
       await tx.query('UPDATE invitations SET used_at = now(), used_by = $2 WHERE id = $1', [invitation.id, user.id]);
       return { user, projectId: invitation.projectId, session: await createSession(tx, user.id) };
     });

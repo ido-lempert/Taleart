@@ -3,7 +3,7 @@ import { issueSiteKey, projectExists, revokeSiteKey, siteKeyInfo } from '@talear
 import { clearPublicFontCache, clearPublicMediaCache } from '@taleart/server-tales';
 import { Router } from 'express';
 import type { Pool } from 'pg';
-import { authorizeParam, caller, requireAdmin } from './authorize';
+import { authorizeParam, caller } from './authorize';
 import { HttpError } from './errors';
 
 // An unknown project answers 404 `project_not_found`.
@@ -21,6 +21,7 @@ async function existingProject(pool: Pool, projectId: string): Promise<void> {
 export function siteKeyRouter(pool: Pool): Router {
   const router = Router();
   const projectAccess = authorizeParam(pool, 'project', 'projectId');
+  const keysAccess = authorizeParam(pool, 'project', 'projectId', 'keys.manage');
 
   router.get('/:projectId/site-key', projectAccess, async (req, res, next) => {
     try {
@@ -34,7 +35,7 @@ export function siteKeyRouter(pool: Pool): Router {
   // Issuing while a site key is active rotates it: the old key is revoked in the same transaction.
   // `{ ifNone: true }` issues only when none is active (409 `site_key_exists` otherwise), so a first
   // issue can never rotate a key some other admin just issued.
-  router.post('/:projectId/site-key', projectAccess, requireAdmin, async (req, res, next) => {
+  router.post('/:projectId/site-key', keysAccess, async (req, res, next) => {
     try {
       const body: unknown = req.body ?? {};
       const ifNone = typeof body === 'object' && body !== null ? (body as Record<string, unknown>)['ifNone'] : undefined;
@@ -55,7 +56,7 @@ export function siteKeyRouter(pool: Pool): Router {
     }
   });
 
-  router.delete('/:projectId/site-key', projectAccess, requireAdmin, async (req, res, next) => {
+  router.delete('/:projectId/site-key', keysAccess, async (req, res, next) => {
     try {
       await existingProject(pool, req.params.projectId);
       await revokeSiteKey(pool, req.params.projectId);

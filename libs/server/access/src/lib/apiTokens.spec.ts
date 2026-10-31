@@ -266,7 +266,7 @@ describe('a token narrows its user\'s access', () => {
     ]);
     expect(await accessibleProjectIds(member, { ...cm, tokenProjects: 'all' })).toEqual([projectA, projectB]);
     // Outside the token's projects nothing is looked up.
-    const db = fakeDb({ 'FROM project_members WHERE project_id': { rowCount: 1 } });
+    const db = fakeDb({ 'FROM project_members WHERE project_id': { rows: [{ role: 'editor' }], rowCount: 1 } });
     expect(await canAccessProject(db, { ...cm, tokenProjects: [projectA] }, projectB)).toBe(false);
     expect(db.query).not.toHaveBeenCalled();
     expect(await canAccessProject(db, { ...cm, tokenProjects: [projectA] }, projectA)).toBe(true);

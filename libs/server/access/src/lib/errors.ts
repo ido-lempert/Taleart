@@ -230,3 +230,53 @@ export class ProviderAuthError extends SignInRefusal {
     super(PROVIDER_AUTH_ERRORS[authCode].status, authCode as ErrorCode, PROVIDER_AUTH_ERRORS[authCode].message);
   }
 }
+
+/** Thrown when no user has the email a member is added by (invite a new person instead). */
+export class UserNotFoundError extends Error {
+  readonly code = ErrorCodes.userNotFound;
+
+  constructor() {
+    super('No user has this email. Invite them instead.');
+    this.name = 'UserNotFoundError';
+  }
+}
+
+/** Thrown when the user is already a member of the project (change their role instead). */
+export class MemberExistsError extends Error {
+  readonly code = ErrorCodes.memberExists;
+
+  constructor() {
+    super('This user is already a member of the project. Change their role instead.');
+    this.name = 'MemberExistsError';
+  }
+}
+
+/** Thrown when the user is not a member of the project. */
+export class MemberNotFoundError extends Error {
+  readonly code = ErrorCodes.memberNotFound;
+
+  constructor() {
+    super('This user is not a member of the project');
+    this.name = 'MemberNotFoundError';
+  }
+}
+
+/** Thrown when a project has no pending invitation with this id. */
+export class InvitationNotFoundError extends Error {
+  readonly code = ErrorCodes.invitationNotFound;
+
+  constructor() {
+    super('This project has no pending invitation with this id');
+    this.name = 'InvitationNotFoundError';
+  }
+}
+
+/** Thrown when a change would leave a project without an active admin member, and no global admin makes it. */
+export class LastProjectAdminError extends Error {
+  readonly code = ErrorCodes.lastProjectAdmin;
+
+  constructor() {
+    super('A project needs at least one active admin. Make someone else an admin first.');
+    this.name = 'LastProjectAdminError';
+  }
+}

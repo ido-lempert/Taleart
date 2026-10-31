@@ -9,12 +9,12 @@ import {
   ZONE_KEY_PREFIX,
   type AnalyticsAccepted,
 } from '@taleart/contract';
-import { canAccessProject, zoneForKey } from '@taleart/server-access';
+import { zoneForKey } from '@taleart/server-access';
 import { recordAnalyticsEvents, zoneAnalytics } from '@taleart/server-analytics';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 import express, { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
-import { caller } from './authorize';
+import { allowed } from './authorize';
 import { HttpError, refuseInvalidSiteKey } from './errors';
 import { rateLimit, VISITOR_HEADER, visitorId, type RateLimitOptions } from './rate-limit';
 
@@ -116,8 +116,8 @@ export function deliveryEventsRouter(pool: Pool): Router {
 }
 
 /**
- * `GET /zones/{zoneId}/analytics` of the Management API, mounted at `/zones`. Needs a zone the
- * caller's access reaches: any other zone, and an unknown one, answers 404 `zone_not_found`, so a
+ * `GET /zones/{zoneId}/analytics` of the Management API, mounted at `/zones`. Needs a zone whose project the
+ * caller's role gives `analytics.view` in: any other zone, and an unknown one, answers 404 `zone_not_found`, so a
  * zone of another project cannot be told from a missing one. `period` is 7d, 30d or 90d (30d when
  * left out); anything else answers 400.
  */
@@ -127,7 +127,7 @@ export function zoneAnalyticsRouter(pool: Pool): Router {
     try {
       const zoneId = req.params['zoneId'] ?? '';
       const projectId = await zoneProjectId(pool, zoneId);
-      if (projectId === null || !(await canAccessProject(pool, caller(res), projectId))) {
+      if (projectId === null || !(await allowed(pool, res, projectId, 'analytics.view'))) {
         throw new ZoneNotFoundError(zoneId);
       }
       const period = req.query['period'] ?? DEFAULT_ANALYTICS_PERIOD;

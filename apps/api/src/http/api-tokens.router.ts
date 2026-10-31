@@ -120,7 +120,7 @@ export function apiTokensRouter(pool: Pool): Router {
         if (!(await projectExists(pool, projectId))) {
           throw new HttpError(400, ErrorCodes.projectNotFound, `No project has the id ${projectId}`);
         }
-        await authorize(pool, res, 'project', projectId);
+        await authorize(pool, res, 'project', projectId, 'project.view');
       }
       const issued = await createApiToken(pool, { userId: caller(res).id, ...input });
       // The secret is in this body only: no cache keeps it.

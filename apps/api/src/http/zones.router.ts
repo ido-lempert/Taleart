@@ -56,6 +56,7 @@ function bodySettings(body: unknown): unknown {
 
 export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
   const router = Router();
+  const zoneManage = authorizeParam(pool, 'zone', 'zoneId', 'zones.manage');
 
   router.get('/', async (_req, res, next) => {
     try {
@@ -76,7 +77,7 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
         // A template from the registry (400 `unknown_template`) sets the display in the same transaction (R5).
         ...(body?.template !== undefined && { template: body.template }),
       };
-      await authorize(pool, res, 'project', input.projectId);
+      await authorize(pool, res, 'project', input.projectId, 'zones.manage');
       const [zone] = await withZoneVisibility(pool, [await createZoneFromTemplate(pool, frameTypes, input)]);
       res.status(201).json(zone);
     } catch (err) {
@@ -85,7 +86,7 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
   });
 
   // A zone's name and slug (epic UX rework R1).
-  router.patch('/:zoneId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+  router.patch('/:zoneId', zoneManage, async (req, res, next) => {
     try {
       const body = (req.body ?? {}) as Partial<Record<keyof UpdateZoneRequest, unknown>>;
       const zone = await updateZone(pool, req.params.zoneId, { name: body.name, slug: body.slug });
@@ -98,7 +99,7 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
   });
 
   // A zone's display: its one frame (AD-5, AD-17).
-  router.post('/:zoneId/frame', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+  router.post('/:zoneId/frame', zoneManage, async (req, res, next) => {
     try {
       // Zone first (404), then the body (400), then the registry (400) and the zone's display (409).
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
@@ -112,7 +113,7 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
     }
   });
 
-  router.patch('/:zoneId/frame', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+  router.patch('/:zoneId/frame', zoneManage, async (req, res, next) => {
     try {
       // Zone first (404), then the body (400), then the display (404) and its type's schema (400).
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);

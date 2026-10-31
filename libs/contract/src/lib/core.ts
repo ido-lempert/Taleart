@@ -57,6 +57,18 @@ export type TaleGroupCover = Schemas['TaleGroupCover'];
 export type MediaKind = Schemas['MediaKind'];
 export type MediaContentType = Schemas['MediaContentType'];
 export type UserRole = Schemas['UserRole'];
+/** The role matrix (`GET /roles`): each role with its permissions. */
+export type ProjectRoleMatrix = Schemas['ProjectRoleMatrix'];
+/** A user's membership of a project as members.manage and project.view callers see it. */
+export type ProjectMember = Schemas['ProjectMember'];
+export type AddProjectMemberRequest = Schemas['AddProjectMemberRequest'];
+export type UpdateProjectMemberRequest = Schemas['UpdateProjectMemberRequest'];
+export type CreateInvitationRequest = Schemas['CreateInvitationRequest'];
+/** A pending invitation as the project's managers list it (never its link). */
+export type PendingInvitation = Schemas['PendingInvitation'];
+export type ProjectAuditAction = Schemas['ProjectAuditAction'];
+export type ProjectAuditEntry = Schemas['ProjectAuditEntry'];
+export type ProjectAuditLog = Schemas['ProjectAuditLog'];
 export type User = Schemas['User'];
 export type AuthState = Schemas['AuthState'];
 /** A sign-in method on for the sign-in page: its id, label and kind (no configuration, no secret). */
@@ -146,6 +158,7 @@ export * from './audience';
 export * from './user-lists';
 export * from './external-user-id';
 export * from './analytics';
+export * from './project-roles';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
@@ -795,6 +808,11 @@ export const ErrorCodes = {
   sessionRequired: 'session_required',
   discoveryFailed: 'discovery_failed',
   providerUnavailable: 'provider_unavailable',
+  userNotFound: 'user_not_found',
+  memberExists: 'member_exists',
+  memberNotFound: 'member_not_found',
+  invitationNotFound: 'invitation_not_found',
+  lastProjectAdmin: 'last_project_admin',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

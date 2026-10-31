@@ -47,6 +47,11 @@ import {
   SiteKeyExistsError,
   ZoneKeyNotFoundError,
   SiteKeyNotFoundError,
+  UserNotFoundError,
+  MemberExistsError,
+  MemberNotFoundError,
+  InvitationNotFoundError,
+  LastProjectAdminError,
 } from '@taleart/server-access';
 import {
   InvalidAudienceRuleError,
@@ -118,6 +123,9 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof ZoneKeyNotFoundError ||
     err instanceof SiteKeyNotFoundError ||
     err instanceof ApiTokenNotFoundError ||
+    err instanceof UserNotFoundError ||
+    err instanceof MemberNotFoundError ||
+    err instanceof InvitationNotFoundError ||
     err instanceof FontNotFoundError ||
     err instanceof UserListNotFoundError ||
     err instanceof UserListProjectNotFoundError
@@ -147,6 +155,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof OrderMismatchError ||
     err instanceof SetupClosedError ||
     err instanceof EmailTakenError ||
+    err instanceof MemberExistsError ||
+    err instanceof LastProjectAdminError ||
     err instanceof TagExistsError ||
     err instanceof UserListExistsError ||
     err instanceof UserListLimitError ||
