@@ -36,7 +36,7 @@ Licence: Apache-2.0 (`LICENSE`), for every component.
    TXT record: the portal shows a verification key, which goes in a TXT record on `lempert.site` (the apex, not a
    subdomain). Wait until the portal shows the namespace as verified (DNS can take a while).
 3. Generate a user token at the account menu, "Generate User Token". It shows a username and a password, once.
-   These become the `MAVEN_CENTRAL_USERNAME` and `MAVEN_CENTRAL_PASSWORD` secrets. They are not your login.
+   Joined as base64 of `<name>:<password>` (the value the portal shows for the Authorization header, without `Bearer`), they become the `MAVEN_TOKEN` secret. They are not your login.
 4. Uploads are not public until someone clicks "Publish" on the deployment in the portal (the workflow only uploads;
    see "Per release" below). Maven Central does not allow a version to be replaced once published.
 
@@ -66,8 +66,7 @@ Settings > Secrets and variables > Actions > New repository secret, for `ido-lem
 | Secret | Value |
 | --- | --- |
 | `NPM_TOKEN` | the npm granular token (step 1) |
-| `MAVEN_CENTRAL_USERNAME` | the Central Portal user token name (step 2) |
-| `MAVEN_CENTRAL_PASSWORD` | the Central Portal user token password (step 2) |
+| `MAVEN_TOKEN` | the Central Portal user token as base64 of `<name>:<password>` (step 2) |
 | `SIGNING_KEY` | the armored GPG private key (step 3) |
 | `SIGNING_KEY_PASSWORD` | the GPG key's passphrase (step 3) |
 

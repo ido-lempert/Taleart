@@ -4,8 +4,8 @@
 #     deployment there (Deployments > Publish), see RELEASING.md; a published Maven version can never be replaced.
 #
 # Secrets (repository settings > Secrets and variables > Actions):
-#   MAVEN_CENTRAL_USERNAME    Central Portal user token name (Account > Generate user token).
-#   MAVEN_CENTRAL_PASSWORD    Central Portal user token password.
+#   MAVEN_TOKEN               The Central Portal user token as base64 of "<name>:<password>" (the value the portal's
+#                             "Generate user token" shows for the Authorization header, without the word Bearer).
 #   SIGNING_KEY               The GPG private key, ASCII-armored (gpg --armor --export-secret-keys <KEYID>).
 #   SIGNING_KEY_PASSWORD      The passphrase of that key.
 name: Release Maven only
@@ -63,10 +63,23 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      - name: Split the token into the portal user name and password
+        env:
+          MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+        run: |
+          DECODED="$(printf '%s' "$MAVEN_TOKEN" | base64 --decode)"
+          NAME="${DECODED%%:*}"
+          PASSWORD="${DECODED#*:}"
+          if [ -z "$NAME" ] || [ -z "$PASSWORD" ] || [ "$NAME" = "$DECODED" ]; then
+            echo "MAVEN_TOKEN must be base64 of <name>:<password>." >&2
+            exit 1
+          fi
+          echo "::add-mask::$NAME"
+          echo "::add-mask::$PASSWORD"
+          echo "ORG_GRADLE_PROJECT_mavenCentralUsername=$NAME" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_mavenCentralPassword=$PASSWORD" >> "$GITHUB_ENV"
       - name: Upload to the Central Portal (a person releases it there)
         run: ./gradlew :mobile-sdk:publishToMavenCentral :android-sdk:publishToMavenCentral --console=plain
         env:
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
