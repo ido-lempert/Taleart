@@ -21,6 +21,16 @@ import {
   XML_ATTRIBUTES,
 } from './native-docs-content';
 
+
+const NO_BACKEND_MEMBERS = [
+  { name: 'TaleartZone(zoneJson = …)', type: '@Composable', meaning: 'Shows the zone JSON (the body of GET /delivery/v1/zone) with no request. Also takes modifier, onGroupClick, onError, seenGroups, titleStyle, opensViewer, locale, strings, listener and fallback.' },
+  { name: 'TaleartView.zoneJson', type: 'String?', meaning: 'The zone JSON to show, with no key or API URL. Null clears it.' },
+  { name: 'TaleartView.setZone(zone)', type: '(DeliveryZone) -> Unit', meaning: 'Shows a DeliveryZone object the app already holds.' },
+  { name: 'TaleartZoneController.configureLocalJson(json)', type: '(String) -> Unit', meaning: 'The same for a controller you hold: shows the zone JSON, or fails like a failed read.' },
+  { name: 'TaleartZoneController.configureLocal(zone)', type: '(DeliveryZone) -> Unit', meaning: 'The same for a DeliveryZone object.' },
+  { name: 'TaleartSdk.parseZoneJson(json)', type: 'ZoneParse', meaning: 'Checks a text without showing it: ZoneParse.Success with the zone, or ZoneParse.Failure with errors, a readable list of what is wrong. Never throws.' },
+];
+
 @Component({
   selector: 'docs-android-sdk-reference',
   imports: [RouterLink],
@@ -175,6 +185,38 @@ import {
         </tbody>
       </table>
     </div>
+
+    <h2 id="no-backend">Without a backend</h2>
+    <p>The entry points that take the zone as JSON (or an object) instead of a key, all in <code>site.lempert.taleart.sdk</code>.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="local-caption">
+      <table id="local">
+        <caption id="local-caption">Zone data without a backend</caption>
+        <thead>
+          <tr>
+            <th scope="col">Member</th>
+            <th scope="col">Type</th>
+            <th scope="col">Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of noBackendMembers; track row.name) {
+            <tr>
+              <td><code>{{ row.name }}</code></td>
+              <td><code>{{ row.type }}</code></td>
+              <td>{{ row.meaning }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <p>
+      With zone data the view makes no call to the Delivery API: no zone request, no analytics events and no poll answer
+      is sent (an answer is marked on the device only). Targeting by tags, properties and audience, the frequency cap,
+      the theme, the listener events (<code>onLoaded</code> and <code>onLoadFailed</code>, with an empty key prefix),
+      right-to-left layouts, and the bar, banner and viewer behave as with a fetched zone. Media URLs must be absolute
+      <code>http(s)</code> addresses. Text that is not a zone is a failed read: logged once, <code>onLoadFailed</code>,
+      never a crash. Setting a zone key or API URL afterwards reads from the API again.
+    </p>
 
     <h2 id="theme">TaleartTheme</h2>
     <p>The project's theme as the native SDK reads it. The fields and their rules are the Web SDK's (see <a routerLink="/theme-and-fonts">Theme and fonts</a>); a field left out or not valid takes its default.</p>
@@ -454,6 +496,7 @@ export class AndroidSdkReferencePage {
   protected readonly xmlAttributes = XML_ATTRIBUTES;
   protected readonly viewMembers = ANDROID_VIEW_MEMBERS;
   protected readonly zoneParams = ANDROID_ZONE_PARAMS;
+  protected readonly noBackendMembers = NO_BACKEND_MEMBERS;
   protected readonly themeFields = NATIVE_THEME_FIELDS;
   protected readonly barLayouts = BAR_LAYOUTS;
   protected readonly barSettings = BAR_SETTING_FIELDS;

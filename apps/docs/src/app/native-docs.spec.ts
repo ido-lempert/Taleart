@@ -105,21 +105,21 @@ describe('native docs: pages and navigation', () => {
       for (const img of imgs) {
         expect(img.getAttribute('alt')?.length ?? 0).toBeGreaterThan(40);
         const src = img.getAttribute('src') ?? '';
-        expect(src).toMatch(path === '/android-guide' ? /^images\/android-/ : /^images\/ios-/);
+        expect(src).toMatch(path === '/android-guide' ? /^images\/(nobackend-)?android-/ : /^images\/(nobackend-)?ios-/);
         expect(existsSync(join(IMAGES, src.replace(/^images\//, '')))).toBe(true);
         referenced.push(src.replace(/^images\//, ''));
       }
       // The clips are video sources (the guides' own clips), not images: they count as used too.
       for (const source of [...page.querySelectorAll('video source')]) {
         const src = source.getAttribute('src') ?? '';
-        expect(src).toMatch(path === '/android-guide' ? /^images\/android-/ : /^images\/ios-/);
+        expect(src).toMatch(path === '/android-guide' ? /^images\/(nobackend-)?android-/ : /^images\/(nobackend-)?ios-/);
         expect(existsSync(join(IMAGES, src.replace(/^images\//, '')))).toBe(true);
         referenced.push(src.replace(/^images\//, ''));
       }
       expect(page.textContent).toContain('Backups and the visitor id');
     }
-    // Every android-* and ios-* image in the folder is used by a guide, and no guide names a missing one.
-    const own = readdirSync(IMAGES).filter((f) => /^(android|ios)-/.test(f));
+    // Every android-*, ios-*, nobackend-android-* and nobackend-ios-* image in the folder is used by a guide, and no guide names a missing one.
+    const own = readdirSync(IMAGES).filter((f) => /^(nobackend-)?(android|ios)-/.test(f));
     expect(sorted(referenced)).toEqual(sorted(own));
   });
 

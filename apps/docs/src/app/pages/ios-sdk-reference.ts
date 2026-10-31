@@ -20,6 +20,14 @@ import {
   TALEART_SDK_MEMBERS,
 } from './native-docs-content';
 
+
+const NO_BACKEND_MEMBERS = [
+  { name: 'TaleartZoneView(zoneJson:)', type: 'init(String)', meaning: 'A zone view that shows the zone JSON (the body of GET /delivery/v1/zone) with no request, no key and no API URL.' },
+  { name: 'zoneJson', type: 'String?', meaning: 'The zone JSON a TaleartZoneView shows; set it to show new data. Null clears it.' },
+  { name: 'TaleartViewController(zoneJson:)', type: 'UIViewController', meaning: 'A controller that shows the zone JSON, for data that does not change later.' },
+  { name: 'TaleartSdk.shared.parseZoneJson(json:)', type: 'ZoneParse', meaning: 'Checks a text without showing it: ZoneParseSuccess with the zone, or ZoneParseFailure with errors, a readable list of what is wrong. Never throws.' },
+];
+
 @Component({
   selector: 'docs-ios-sdk-reference',
   imports: [RouterLink],
@@ -155,6 +163,38 @@ import {
         </tbody>
       </table>
     </div>
+
+    <h2 id="no-backend">Without a backend</h2>
+    <p>The entry points that take the zone as JSON instead of a key.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="local-caption">
+      <table id="local">
+        <caption id="local-caption">Zone data without a backend</caption>
+        <thead>
+          <tr>
+            <th scope="col">Member</th>
+            <th scope="col">Type</th>
+            <th scope="col">Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of noBackendMembers; track row.name) {
+            <tr>
+              <td><code>{{ row.name }}</code></td>
+              <td><code>{{ row.type }}</code></td>
+              <td>{{ row.meaning }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <p>
+      With zone data the view makes no call to the Delivery API: no zone request, no analytics events and no poll answer
+      is sent (an answer is marked on the device only). Targeting by tags, properties and audience, the frequency cap,
+      the theme, the listener events (<code>onLoaded</code> and <code>onLoadFailed</code>, with an empty key prefix),
+      right-to-left layouts, and the bar, banner and viewer behave as with a fetched zone. Media URLs must be absolute
+      <code>http(s)</code> addresses. Text that is not a zone is a failed read: logged once, <code>onLoadFailed</code>,
+      never a crash. Setting a zone key or API URL afterwards reads from the API again.
+    </p>
 
     <h2 id="theme">TaleartTheme</h2>
     <p>The project's theme as the native SDK reads it. The fields and their rules are the Web SDK's (see <a routerLink="/theme-and-fonts">Theme and fonts</a>); a field left out or not valid takes its default.</p>
@@ -430,6 +470,7 @@ export class IosSdkReferencePage {
   protected readonly sdkMembers = TALEART_SDK_MEMBERS;
   protected readonly configFields = CONFIG_FIELDS;
   protected readonly zoneMembers = IOS_ZONE_MEMBERS;
+  protected readonly noBackendMembers = NO_BACKEND_MEMBERS;
   protected readonly themeFields = NATIVE_THEME_FIELDS;
   protected readonly barLayouts = BAR_LAYOUTS;
   protected readonly barSettings = BAR_SETTING_FIELDS;
