@@ -19,6 +19,7 @@ on:
       - .github/workflows/docker-publish.yml
       - 'apps/api/**'
       - 'apps/dashboard/**'
+      - 'deploy/dockerhub/**'
       - 'libs/**'
       - package.json
       - package-lock.json
@@ -75,3 +76,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Docker Hub description
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: lempert/${{ matrix.image }}
+          short-description: Taleart self-host ${{ matrix.target }} (Apache-2.0)
+          readme-filepath: deploy/dockerhub/${{ matrix.image }}.md
