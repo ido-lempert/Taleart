@@ -50,6 +50,10 @@ import { RouterLink } from '@angular/router';
 <td>User lists</td>
 </tr>
 <tr>
+<td><code>seed-demo</code></td>
+<td>Make the <a routerLink="/demo-data">demo project</a> (options <code>--dry-run</code>, <code>--force</code>; exit code 6, <code>seed_refused</code>, when the install already has projects)</td>
+</tr>
+<tr>
 <td><code>skill install</code>, <code>skill show</code></td>
 <td>The agent skill (see <a routerLink="/ai-agents">AI agents</a>)</td>
 </tr>

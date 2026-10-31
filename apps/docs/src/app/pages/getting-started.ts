@@ -112,6 +112,7 @@ import { DOCS_SNIPPET } from '../docs-content';
     <ul>
       <li><a routerLink="/guides-install">Install TaleArt locally</a></li>
       <li><a routerLink="/docker">Install with Docker</a></li>
+      <li><a routerLink="/demo-data">Demo data</a></li>
       <li><a routerLink="/install">Install a zone</a></li>
       <li><a routerLink="/guides-connect-website">Connect a website</a></li>
     </ul>

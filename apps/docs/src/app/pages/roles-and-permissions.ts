@@ -18,6 +18,11 @@ import { RouterLink } from '@angular/router';
       <a routerLink="/projects-and-team">Projects, team and sign-in</a>.
     </p>
 
+    <p>
+      To see every role at work without building a team, the <a routerLink="/demo-data">demo data</a> of the Docker quick try
+      adds four members (a Publisher, two Editors and a Viewer, one with an access that has ended) and two pending invitations.
+    </p>
+
     <h2 id="the-four-roles">The four roles</h2>
     <p>Each role includes everything the one before it can do.</p>
     <ul>

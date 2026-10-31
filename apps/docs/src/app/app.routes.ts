@@ -19,6 +19,7 @@ import { VisibilityPage } from './pages/visibility';
 import { ProjectsAndTeamPage } from './pages/projects-and-team';
 import { RolesAndPermissionsPage } from './pages/roles-and-permissions';
 import { DockerPage } from './pages/docker';
+import { DemoDataPage } from './pages/demo-data';
 import { CliPage } from './pages/cli';
 import { CoverageAndLimitsPage } from './pages/coverage-and-limits';
 
@@ -84,6 +85,14 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'Installation',
     file: 'docker',
     component: DockerPage,
+  },
+  {
+    path: 'demo-data',
+    label: 'Demo data',
+    title: 'Demo data',
+    group: 'Installation',
+    file: 'demo-data',
+    component: DemoDataPage,
   },
   {
     path: 'install',

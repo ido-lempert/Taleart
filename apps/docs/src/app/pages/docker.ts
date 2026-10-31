@@ -74,6 +74,11 @@ import { RouterLink } from '@angular/router';
     <pre tabindex="0" role="region" aria-label="Quick try commands"><code class="language-sh">{{ quickTry }}</code></pre>
     <p>Open <code>http://localhost:8080</code>. The setup screen allows a username and password, as well as a passkey.</p>
     <p>
+      The quick try also fills the install with <a routerLink="/demo-data">demo data</a>: <code>TALEART_SEED_DEMO=true</code> is
+      on in <code>.env.docker.example</code>, so a few seconds after the first admin finishes setup there is a ready project, with
+      zones, tale groups, tales and a small team. Set it to <code>false</code> on a real install.
+    </p>
+    <p>
       <strong>Warning:</strong> the database password, the secret key and the setup password in that file are
       <strong>public values</strong>, printed in the repository. Use them only on your own machine, never on a server.
     </p>
@@ -127,6 +132,7 @@ import { RouterLink } from '@angular/router';
           <tr data-env="POSTGRES_PASSWORD"><td><code>POSTGRES_PASSWORD</code></td><td>Yes</td><td>None</td><td>Password of the <code>taleart</code> database user. Letters and digits are safest, because it goes into a connection URL. Only set it before the first start.</td></tr>
           <tr data-env="TALEART_SECRET_KEY"><td><code>TALEART_SECRET_KEY</code></td><td>Recommended</td><td>Empty</td><td>32 random bytes, base64. Encrypts the sign-in provider secrets (Google, Apple, OIDC) stored in the database. Keep it: if it is lost, the saved secrets cannot be read. Left empty, the API runs but refuses to save provider secrets.</td></tr>
           <tr data-env="TALEART_SETUP_PASSWORD"><td><code>TALEART_SETUP_PASSWORD</code></td><td>No</td><td><code>false</code> (the example file sets <code>true</code>)</td><td><code>true</code> lets the first admin set up with a username and password instead of a passkey.</td></tr>
+          <tr data-env="TALEART_SEED_DEMO"><td><code>TALEART_SEED_DEMO</code></td><td>No</td><td><code>false</code> (the example file sets <code>true</code>)</td><td><code>true</code> makes the <a routerLink="/demo-data">demo project</a> for the first admin right after setup. Quick try only; once, and only on an install with no other user.</td></tr>
           <tr data-env="TALEART_VERSION"><td><code>TALEART_VERSION</code></td><td>No</td><td><code>local</code></td><td>Tag of the images compose builds (<code>taleart/api</code>, <code>taleart/dashboard</code>).</td></tr>
           <tr data-env="TRUST_PROXY"><td><code>TRUST_PROXY</code></td><td>No</td><td><code>1</code></td><td>How many proxies in front of the API are trusted for <code>X-Forwarded-For</code>: a number of hops, or a list of addresses. 1 is the bundled proxy; 2 when your own proxy sits in front of it. Used for the per-visitor rate limit.</td></tr>
           <tr data-env="DELIVERY_RATE_LIMIT_BURST"><td><code>DELIVERY_RATE_LIMIT_BURST</code></td><td>No</td><td>Empty (built-in default)</td><td>Delivery API requests a visitor may make at once. <code>0</code> turns the limit off.</td></tr>
@@ -163,15 +169,15 @@ import { RouterLink } from '@angular/router';
       <li><strong>Username and password.</strong> Set <code>TALEART_SETUP_PASSWORD=true</code> in <code>.env</code> and restart the api to offer this on the setup screen. It is off by default; turn it on only if you cannot use a passkey, and consider turning it off after setup.</li>
       <li><strong>The domain is fixed.</strong> The passkey is bound to the domain in <code>TALEART_URL</code>. Changing the domain later makes existing passkeys unusable.</li>
     </ul>
-    <p>After setup you land on the Zones page of your first project.</p>
+    <p>After setup you land on the Zones page of your first project. In the quick try, the <a routerLink="/demo-data">demo data</a> appears a few seconds later.</p>
     <figure>
       <img
-        src="images/docker-shot-first-login.png"
-        alt="The dashboard after setup: the Zones page of My project, signed in as Ada Admin, with the message No zones in My project yet and a New zone button."
+        src="images/docker-shot-demo-zones.png"
+        alt="The dashboard after setup on the quick try: the Zones page of the Spring Campaign demo project, signed in as Ada Admin, with three zone cards, Home stories, Sale banner and Collection posters."
         width="1280"
         height="800"
       />
-      <figcaption>The first sign-in on the Docker stack, a real screenshot: an empty project, ready for its first zone.</figcaption>
+      <figcaption>The first sign-in on the Docker quick try, a real screenshot: the demo project, with three zones. Without the demo data, the page shows an empty project.</figcaption>
     </figure>
     <p>Next: <a routerLink="/">Getting started</a> walks through the first zone, and <a routerLink="/install">Install a zone</a> shows the snippet.</p>
 
