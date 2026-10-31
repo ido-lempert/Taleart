@@ -52,6 +52,7 @@ describe('the "Use without a backend" page', () => {
       'get-the-json',
       'validate',
       'frameworks',
+      'mobile',
       'screenshots',
       'see-also',
     ]);

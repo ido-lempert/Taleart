@@ -381,6 +381,46 @@ type DataElement = HTMLElement & { data: unknown };
     <h3 id="framework-vue">Vue</h3>
     <pre tabindex="0" role="region" aria-label="Vue"><code class="language-html">{{ vueSnippet }}</code></pre>
 
+    <h2 id="mobile">On Android and iOS</h2>
+    <p>
+      The native SDKs take the same JSON: the exact body of <code>GET /delivery/v1/zone</code>. Nothing is read from or
+      sent to the API: no zone request, no analytics, and a poll answer is marked on the device only. Tags, properties,
+      audience rules, the frequency cap, the theme, listener events (<code>onLoaded</code> and
+      <code>onLoadFailed</code>, with an empty key prefix), right-to-left layouts, and the bar, banner and viewer behave
+      as with a fetched zone. Media URLs must be absolute <code>http(s)</code> URLs. JSON that is not a zone is a
+      failed read (logged once, <code>onLoadFailed</code>, the fallback shown), never a crash.
+    </p>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="mobile-caption">
+    <table id="mobile-calls">
+      <caption id="mobile-caption">The calls on Android and iOS</caption>
+      <thead>
+        <tr><th scope="col">Platform</th><th scope="col">Show the JSON</th><th scope="col">Check it</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Compose</td><td><code>TaleartZone(zoneJson = json)</code></td><td><code>TaleartSdk.parseZoneJson(json)</code></td></tr>
+        <tr><td>Android view</td><td><code>view.zoneJson = json</code></td><td>the same</td></tr>
+        <tr><td>iOS</td><td><code>TaleartZoneView(zoneJson: json)</code></td><td><code>TaleartSdk.shared.parseZoneJson(json: json)</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <h3 id="mobile-kotlin">Kotlin</h3>
+    <pre tabindex="0" role="region" aria-label="Kotlin"><code class="language-kotlin">{{ kotlinSnippet }}</code></pre>
+    <h3 id="mobile-swift">Swift</h3>
+    <pre tabindex="0" role="region" aria-label="Swift"><code class="language-swift">{{ swiftSnippet }}</code></pre>
+    <p>
+      More in the <a routerLink="/android-guide">Android guide</a> and the <a routerLink="/ios-guide">iOS guide</a>,
+      and every member in the <a routerLink="/reference/android-sdk">Android</a> and
+      <a routerLink="/reference/ios-sdk">iOS</a> references.
+    </p>
+    <figure>
+      <img src="images/nobackend-android-bar.png" alt="The Android bar drawn from inline JSON on an emulator, with no backend running." width="720" height="330" />
+      <figcaption>Android emulator: the bar from inline JSON, nothing listening on the API.</figcaption>
+    </figure>
+    <figure>
+      <img src="images/nobackend-ios-bar.png" alt="The iOS bar drawn from inline JSON on the simulator, with no backend running." width="720" height="391" />
+      <figcaption>iOS simulator: the same zone JSON.</figcaption>
+    </figure>
+
     <h2 id="screenshots">What it looks like</h2>
     <p>Real screenshots of the live examples above, for when you read this page without scripts.</p>
     <figure>
@@ -487,6 +527,19 @@ export function Stories({ zone }) {
 
   protected readonly angularSnippet = `<!-- import '${SDK_NPM_PACKAGE}' once, and add CUSTOM_ELEMENTS_SCHEMA to the component -->
 <taleart-view [data]="zone"></taleart-view>`;
+
+  protected readonly kotlinSnippet = `// Compose or View, no key and no API URL
+TaleartZone(zoneJson = ZONE_JSON)
+taleartView.zoneJson = ZONE_JSON
+
+when (val parsed = TaleartSdk.parseZoneJson(ZONE_JSON)) {
+    is ZoneParse.Success -> Log.d("TaleArt", "valid: " + parsed.zone.slug)
+    is ZoneParse.Failure -> parsed.errors.forEach { Log.w("TaleArt", it) }
+}`;
+
+  protected readonly swiftSnippet = `let zone = TaleartZoneView(zoneJson: zoneJson)   // embed zone.viewController
+let parsed = TaleartSdk.shared.parseZoneJson(json: zoneJson)
+if let failure = parsed as? ZoneParseFailure { failure.errors.forEach { print($0) } }`;
 
   protected readonly vueSnippet = `<!-- import '${SDK_NPM_PACKAGE}' once, and list taleart-view in compilerOptions.isCustomElement -->
 <taleart-view :data.prop="zone" />`;
