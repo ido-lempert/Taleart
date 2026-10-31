@@ -331,7 +331,7 @@ let zoneJson = """
         width="720"
         height="391"
         loading="lazy"
-        alt="Screenshot of the TaleArt sample app on iOS showing a bar of three round covers in gradient rings, labelled Welcome, Vote and News, drawn from JSON held in the app."
+        alt="Screenshot of the TaleArt sample app on iOS showing a bar of three round covers labelled Welcome, Vote and News, the first in a gradient ring and the other two in grey rings because they were already viewed, drawn from JSON held in the app."
       />
       <figcaption class="muted">
         A bar drawn from zone JSON inside the app, with no TaleArt server running: a real screenshot taken on the iOS simulator (the sample app's <code>taller.noBackend</code> debug option).
