@@ -42,7 +42,7 @@ const SOURCE_STRINGS = new Map(
 );
 const SOURCE_HOOKS = [...block(hooks, 'export interface TaleartHooks {', '\n}').matchAll(/^\s*(on[A-Z]\w*)\??:/gm)].map((m) => m[1]);
 const SOURCE_EVENTS = [...hooks.matchAll(/name: '(\w+)';/g)].map((m) => m[1]);
-const SOURCE_OPTIONS = [...block(config, 'export interface TaleartConfig {', '\n}').matchAll(/^  (\w+)\??:/gm)].map((m) => m[1]);
+const SOURCE_OPTIONS = [...block(config, 'export interface TaleartConfig {', '\n}').matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1]);
 const attributeValues = new Map([...element.matchAll(/const (\w+) = '([^']+)'/g)].map((m) => [m[1], m[2]]));
 const SOURCE_ATTRIBUTES = [.../observedAttributes\(\): string\[\] \{\s*return \[([^\]]+)\]/.exec(element)![1].split(',')].map(
   (name) => attributeValues.get(name.trim()),

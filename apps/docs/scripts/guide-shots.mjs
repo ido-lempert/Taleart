@@ -267,7 +267,11 @@ function drawArt(names) {
       ctx.fillRect(215, 786, 26, 260);
       ctx.fillRect(479, 786, 26, 260);
       ctx.fillStyle = '#c7a57b';
-      for (const x of [140, 580]) ctx.beginPath(), ctx.roundRect(x - 40, 820, 80, 130, 22), ctx.fill();
+      for (const x of [140, 580]) {
+        ctx.beginPath();
+        ctx.roundRect(x - 40, 820, 80, 130, 22);
+        ctx.fill();
+      }
     },
     reading(ctx) {
       const g = ctx.createLinearGradient(0, 0, 0, H);
@@ -499,7 +503,7 @@ const GROUPS = [
 
 // Lets transitions and the first data calls finish before a screen is taken.
 async function settle(page) {
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForLoadState('networkidle').catch(() => undefined);
   await page.waitForTimeout(800);
 }
 
