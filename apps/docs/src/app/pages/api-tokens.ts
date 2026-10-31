@@ -42,8 +42,10 @@ import { RouterLink } from '@angular/router';
     <h2 id="what-a-token-can-do">What a token can do</h2>
     <ul>
       <li>
-        It acts as you, as you are at the time of each request: your role and your projects. It reaches the projects you
-        gave it and can access, and nothing else. If you lose a project, the token loses it too.
+        It acts as you, as you are at the time of each request: your role in each project (Viewer, Editor, Publisher or
+        Admin, see <a routerLink="/roles-and-permissions">Roles and permissions</a>) and your projects. It reaches the
+        projects you gave it and can access, and nothing else. If you lose a project, or your role is lowered, the token
+        loses that power too: a token never has more than its owner.
       </li>
       <li>
         A token for <em>all my projects</em> follows your role: if you are made an admin, it reaches every project from
@@ -51,8 +53,8 @@ import { RouterLink } from '@angular/router';
       </li>
       <li>A read-only token can read but never change anything.</li>
       <li>
-        An admin's read-write token can do what the admin can in its projects, including issuing, rotating and revoking
-        zone keys and the project's site key, which can stop a page showing its zone. Give such a token only to scripts you trust
+        A read-write token can do what its owner's role allows in each project. Only an Admin of a project can issue,
+        rotate or revoke its zone keys and site key, which can stop a page showing its zone. Give such a token only to scripts you trust
         with that.
       </li>
     </ul>
@@ -61,7 +63,7 @@ import { RouterLink } from '@angular/router';
     <ul>
       <li>Create, list or revoke API tokens.</li>
       <li>Sign in or out, set up TaleArt, or manage passkeys and sessions.</li>
-      <li>Invite people to a project.</li>
+      <li>Invite people to a project, add them, change their roles or remove them: the member and invitation operations need a dashboard session.</li>
       <li>Create a project, unless it is an admin's read-write token for all projects.</li>
     </ul>
     <p>Those need you, signed in to the dashboard with one of your sign-in methods (a passkey, a password or a linked provider).</p>

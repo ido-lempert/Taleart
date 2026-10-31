@@ -55,6 +55,7 @@ import { RouterLink } from '@angular/router';
 </tr>
 </tbody>
 </table></div>
+<p>The tool acts with your role in each project (see <a routerLink="/roles-and-permissions">Roles and permissions</a>): <code>site-keys</code> and <code>zone-keys</code> need the project's Admin role, publishing needs Publisher, and an Editor can only save drafts. A refused command reports 403 <code>forbidden</code>. The tool cannot manage the team.</p>
 <p>Run any command with <code>--help</code> for its options. Full HTTP details are in the <a routerLink="/api-reference">API reference</a>.</p>
 <h2 id="audience-rules">Viewer property rules</h2>
 <p>A group's audience rule (its <a routerLink="/targeting">viewer properties</a>) is set with <code>groups rule</code>. Give the rule as JSON, or clear it so every viewer passes it:</p>
