@@ -10,10 +10,8 @@
 	# (media 100 MB, user list CSV 50 MB, 300 s per request).
 	@api path /api/* /delivery/* /media/* /sdk/*
 	handle @api {
-		reverse_proxy api:3333 {
-			# Send the client's address; the API trusts one proxy (TRUST_PROXY=1).
-			header_up X-Forwarded-For {remote_host}
-		}
+		# Caddy sends the client's address as X-Forwarded-For; the API trusts one proxy (TRUST_PROXY=1).
+		reverse_proxy api:3333
 	}
 	handle {
 		reverse_proxy dashboard:4000
