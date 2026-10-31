@@ -1,0 +1,92 @@
+# TaleArt: dashboard + API + PostgreSQL behind one origin. See deploy/README.md.
+#
+#   cp .env.docker.example .env      # then edit it
+#   docker compose up -d --build
+#
+name: taleart
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  db:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: taleart
+      POSTGRES_DB: taleart
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (a long random password, see .env.docker.example)}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taleart -d taleart"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # No ports: the database is reachable only from the other services.
+
+  api:
+    <<: *restart
+    image: taleart/api:${TALEART_VERSION:-local}
+    build:
+      context: .
+      target: api
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://taleart:${POSTGRES_PASSWORD}@db:5432/taleart
+      TALEART_URL: ${TALEART_URL:?Set TALEART_URL in .env, the address people open (https://taleart.example.com)}
+      TALEART_SECRET_KEY: ${TALEART_SECRET_KEY:-}
+      TALEART_SETUP_PASSWORD: ${TALEART_SETUP_PASSWORD:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      DELIVERY_RATE_LIMIT_BURST: ${DELIVERY_RATE_LIMIT_BURST:-}
+      DELIVERY_RATE_LIMIT_PER_SECOND: ${DELIVERY_RATE_LIMIT_PER_SECOND:-}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-20}
+      SDK_BUILDS_KEPT: ${SDK_BUILDS_KEPT:-5}
+    volumes:
+      - media:/data/media
+      - sdk-builds:/data/sdk-builds
+
+  dashboard:
+    <<: *restart
+    image: taleart/dashboard:${TALEART_VERSION:-local}
+    build:
+      context: .
+      target: dashboard
+    init: true
+    environment:
+      TALEART_URL: ${TALEART_URL}
+
+  proxy:
+    <<: *restart
+    image: caddy:2-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+    environment:
+      TALEART_URL: ${TALEART_URL}
+    ports:
+      - "${TALEART_HTTP_PORT:-80}:80"
+      - "${TALEART_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/caddy-entrypoint.sh:/usr/local/bin/caddy-entrypoint.sh:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    entrypoint: ["/bin/sh", "/usr/local/bin/caddy-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:
+  media:
+  sdk-builds:
+  caddy-data:
+  caddy-config:

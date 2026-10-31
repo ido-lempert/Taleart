@@ -1,0 +1,16 @@
+# Run TaleArt behind a reverse proxy you already have: no bundled Caddy; the api and the dashboard
+# listen on 127.0.0.1 only, and your proxy sends the API's paths to the api and the rest to the dashboard.
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.external-proxy.yml up -d --build
+#
+# TALEART_URL must be the address your proxy serves (https://taleart.example.com). Your proxy must send
+# X-Forwarded-For; TRUST_PROXY=1 trusts one proxy (set 2 when another proxy sits in front of yours).
+services:
+  proxy:
+    profiles: ["bundled-proxy"]
+  api:
+    ports:
+      - "127.0.0.1:${TALEART_API_PORT:-3333}:3333"
+  dashboard:
+    ports:
+      - "127.0.0.1:${TALEART_DASHBOARD_PORT:-4000}:4000"
