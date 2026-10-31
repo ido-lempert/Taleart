@@ -1,0 +1,49 @@
+# Publishes only @lempert/taleart to npm when a tag web-v<version> is pushed (the version is
+# libs/web-sdk/package.json). The full release of all three SDKs is release.yml (tag v<version>).
+#
+# Secret (repository settings > Secrets and variables > Actions):
+#   NPM_TOKEN   npm granular access token with read and write rights to the @lempert scope.
+name: Release npm only
+
+on:
+  push:
+    tags:
+      - 'web-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    name: Test and publish @lempert/taleart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    env:
+      NX_DAEMON: 'false'
+      NX_NO_CLOUD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - name: Tag equals the package version
+        run: |
+          TAG="${GITHUB_REF_NAME#web-v}"
+          VERSION="$(node -p "require('./libs/web-sdk/package.json').version")"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match the version ${VERSION} in libs/web-sdk/package.json." >&2
+            exit 1
+          fi
+      - name: Web SDK tests, types and size
+        run: npx nx run-many -t test types-check size --projects=web-sdk
+      - run: npx nx run web-sdk:build
+      - name: Publish with provenance (access public from publishConfig)
+        working-directory: dist/libs/web-sdk
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

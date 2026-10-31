@@ -121,6 +121,18 @@ If a job fails after npm or Central accepted its part, fix the cause and re-run 
 page where that is safe: a version that already exists on npm or Central cannot be published again. In that case bump
 the version and release again.
 
+## Publishing only the Web SDK to npm
+
+Tag `web-v<version>` (for example `web-v0.1.0`) runs `.github/workflows/release-npm.yml`: it checks the tag against
+`libs/web-sdk/package.json`, runs the Web SDK tests, types and size checks, and publishes `@lempert/taleart` with
+provenance. It needs only the `NPM_TOKEN` secret. Maven Central and the iOS XCFramework are not touched; they keep the
+full `v<version>` release above.
+
+```sh
+npx nx run web-sdk:pack          # dry run: dist/libs/web-sdk-tarball/*.tgz
+git tag web-v0.1.0 && git push origin web-v0.1.0
+```
+
 ## Open decisions and TODOs
 
 - The Central deployment is released by hand in the portal (the workflow only uploads). To release automatically,
