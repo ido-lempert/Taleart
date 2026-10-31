@@ -124,7 +124,7 @@ import { RouterLink } from '@angular/router';
       </li>
       <li>
         <strong>Native sizes and contrast are not measured on devices.</strong> The Android and iOS SDKs have been
-        reviewed in source and not tested on a wide range of devices. The frosted backdrop blur behind the viewer
+        run on the Android emulator and the iOS simulator, not on a range of physical devices. The frosted backdrop blur behind the viewer
         controls is not drawn natively, so a plain translucent disc is used there, and its contrast was not measured
         on real media.
       </li>
