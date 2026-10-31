@@ -4,7 +4,10 @@ import Ajv2020 from 'ajv/dist/2020';
 import { MAX_TALE_ELEMENTS, TALE_DOCUMENT_V1_SCHEMA, TALE_ELEMENT_TYPE_REGISTRY, taleMediaElement } from '@taleart/contract/tale-document';
 import { ASSET_NAMES, assetBytes } from './assets';
 import { DEMO_GROUPS, DEMO_PROJECT_NAME, demoCounts } from './content';
-import { ElementBuilder, INK, withElements } from './documents';
+import { resolveTextStyle, textContrast } from '@taleart/contract/text-style';
+import { contrastRatio } from '@taleart/contract/theme';
+import { TALE_SAFE_AREA } from '@taleart/contract/tale-document';
+import { ElementBuilder, INK, PANEL_COLOR, withElements } from './documents';
 import { seedDemo, SeedRefusedError, type SeedClient } from './seed';
 
 const assetsDir = join(__dirname, '../assets');
@@ -125,6 +128,62 @@ function fakeApi(existing: { id: string; name: string }[] = []) {
   };
   return { client, calls };
 }
+
+// What the canvas is 9:16 wide, as a fraction of its height.
+const CANVAS_RATIO = 9 / 16;
+
+describe('the demo texts and components read well', () => {
+  const tales = DEMO_GROUPS.flatMap((g) => g.tales).map((tale) => {
+    const builder = new ElementBuilder(INK[tale.ink], 1);
+    tale.compose(builder, NOW);
+    return { tale, elements: builder.elements };
+  });
+
+  for (const { tale, elements } of tales) {
+    it(`${tale.title}: texts wrap inside their card and the safe area, with enough contrast`, () => {
+      for (const element of elements) {
+        const { x, y, w, h } = element.box;
+        if (element.type !== 'swipe-up') {
+          expect(x).toBeGreaterThanOrEqual(TALE_SAFE_AREA.side);
+          expect(x + w).toBeLessThanOrEqual(1 - TALE_SAFE_AREA.side);
+          expect(y).toBeGreaterThanOrEqual(TALE_SAFE_AREA.top);
+          expect(y + h).toBeLessThanOrEqual(1 - TALE_SAFE_AREA.bottom + 1e-9);
+        }
+        if (element.type === 'text') {
+          const props = element.props as { text: string; size: number; lineHeight: number };
+          // A character is at most 0.6 em wide in bold, 0.55 in regular; the card keeps 3% of the box as padding on each side.
+          const lineWidth = w * CANVAS_RATIO * 0.94;
+          const lines = Math.ceil((props.text.length * (props.size > 0.03 ? 0.6 : 0.55) * props.size) / lineWidth);
+          expect(lines * props.size * props.lineHeight, `${props.text}: ${lines} lines`).toBeLessThanOrEqual(h);
+          expect(props.size).toBeGreaterThanOrEqual(0.026);
+          const verdict = textContrast(resolveTextStyle(props as never), { canvasColor: '#000000', overMedia: true });
+          expect(verdict.kind, props.text).toBe('ok');
+        }
+        if (element.type === 'button' || element.type === 'swipe-up') {
+          const p = element.props as { color: string; fill?: string; background?: string };
+          expect(contrastRatio(p.color, (p.fill ?? p.background) as string)).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
+    it(`${tale.title}: each interactive component sits on a dark panel and its Studio stand-in fits on one line`, () => {
+      elements.forEach((element, i) => {
+        if (!['poll', 'quiz', 'rating', 'reaction', 'countdown', 'promo-code'].includes(element.type)) return;
+        const panel = elements[i - 1];
+        expect(panel.type).toBe('shape');
+        expect(panel.box).toEqual(element.box);
+        expect((panel.props as { fill: string }).fill).toBe(PANEL_COLOR);
+        // The Studio draws a stand-in in white on one line: no wrapping, so it must fit (tale-studio.ts configuredView).
+        expect(contrastRatio('#ffffff', PANEL_COLOR)).toBeGreaterThanOrEqual(4.5);
+        const props = element.props as Record<string, string>;
+        const standIn = element.type === 'promo-code' ? props['code'] : element.type === 'countdown' ? props['title'] : [props['emoji'], props['question']].filter(Boolean).join(' ');
+        const size = Math.min(element.box.h * 0.45, 0.05);
+        expect([...standIn].length * 0.6 * size, standIn).toBeLessThanOrEqual(element.box.w * CANVAS_RATIO);
+        expect(props['theme']).toBe('dark');
+      });
+    });
+  }
+});
 
 describe('seedDemo', () => {
   it('makes the project, its zones, groups and tales on an empty install, and says what it made', async () => {

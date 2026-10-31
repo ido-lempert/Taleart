@@ -100,9 +100,9 @@ export const DEMO_GROUPS: readonly GroupSpec[] = [
         ink: 'sage',
         compose: (b) =>
           b
-            .heading('Meet Lumi', 0.55, 0.07)
-            .body('Rounded back, oak legs and a seat made for a blanket and a book.', 0.62, 0.08)
-            .reaction('Reaction', 'How do you like Lumi?', ['😍', '👍', '🤔'], 0.7),
+            .heading('Meet Lumi', 0.54, 0.075)
+            .body('Rounded back, oak legs, made for a blanket and a book.', 0.62, 0.075)
+            .reaction('Reaction', 'Love Lumi?', ['😍', '👍', '🤔'], 0.7),
       },
       {
         title: 'Aura floor lamp',
@@ -128,8 +128,8 @@ export const DEMO_GROUPS: readonly GroupSpec[] = [
         ink: 'sun',
         compose: (b, now) =>
           b
-            .heading('Up to 40% off', 0.54, 0.08)
-            .countdown('Sale ends in', inDays(now, 7), 'The sale has ended', 0.63)
+            .heading('Up to 40% off', 0.54, 0.075)
+            .countdown('Sale ends in', inDays(now, 7), 'The sale has ended', 0.62)
             .button('Shop the sale', `${SHOP}/sale`, 0.78),
       },
       {
@@ -139,8 +139,8 @@ export const DEMO_GROUPS: readonly GroupSpec[] = [
         schedule: { startsInDays: 2, lastsDays: 7 },
         compose: (b) =>
           b
-            .heading('A little extra', 0.54, 0.08)
-            .promoCode('Spring code', 'SPRING25', '25% off your first order over 200', 0.63)
+            .heading('A little extra', 0.54, 0.075)
+            .promoCode('Spring code', 'SPRING25', '25% off your first order over 200', 0.62)
             .button('Use it at checkout', `${SHOP}/checkout`, 0.78),
       },
       {
@@ -148,10 +148,10 @@ export const DEMO_GROUPS: readonly GroupSpec[] = [
         picture: 's06-sofa-duel',
         ink: 'sand',
         compose: (b) =>
-          b.poll('Poll', 'What does your living room need most?', [
+          b.poll('Poll', 'Sofa or chair?', [
             ['sofa', 'A big sofa'],
-            ['chair', 'A cosy armchair'],
-          ]),
+            ['chair', 'A cosy chair'],
+          ], 0.56),
       },
     ],
   },
@@ -178,20 +178,21 @@ export const DEMO_GROUPS: readonly GroupSpec[] = [
         compose: (b) =>
           b.quiz(
             'Quick quiz',
-            'Which wood warms a living room the most?',
+            'Warmest wood?',
             [
               ['oak', 'Oak'],
               ['pine', 'Pine'],
               ['birch', 'Birch'],
             ],
             'oak',
+            0.55,
           ),
       },
       {
         title: 'Rate the room',
         picture: 's09-rate-room',
         ink: 'sun',
-        compose: (b) => b.rating('Rating', 'How cosy is this room?', '😍'),
+        compose: (b) => b.rating('Rating', 'How cosy?', '😍', 0.62),
       },
     ],
   },
@@ -246,7 +247,7 @@ export const DEMO_GROUPS: readonly GroupSpec[] = [
         compose: (b) =>
           b
             .heading('Inside the workshop')
-            .body('Eleven makers, one bench and one rule: nothing leaves until we would put it in our own homes.')
+            .body('Eleven makers, one bench, one rule: nothing leaves unless we would keep it ourselves.')
             .button('Meet the team', `${SHOP}/about`),
       },
     ],
