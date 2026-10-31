@@ -106,7 +106,7 @@ fun TaleartZone(
         strings ?: controller.strings,
         listener ?: controller.listener,
         controller.tracker,
-        ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
+        if (controller.isLocal) null else ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
     )
     ProvideTaleartDirection {
         CompositionLocalProvider(LocalTaleartContext provides context) {
@@ -121,6 +121,44 @@ fun TaleartZone(
             }
         }
     }
+}
+
+/**
+ * A zone shown without any backend: [zoneJson] is the body of `GET /delivery/v1/zone` the app holds
+ * (inline, a bundled asset, copied from the dashboard). Nothing is read from or sent to the API: no
+ * zone request, no analytics, and a poll answer is marked on the device only. The viewer's tags,
+ * properties and audience rules, the frequency cap, the theme, the listener and the RTL layout work as
+ * for a zone read from the API. JSON that is no zone is a failed read: logged once, passed to [onError]
+ * and the listener's `onLoadFailed`, and [fallback] shown if given; it never throws (check it first
+ * with `TaleartSdk.parseZoneJson`). Media URLs in the zone must be absolute http(s) URLs. Changing
+ * [zoneJson] shows the new zone; [locale], [strings] and [listener] are as on the keyed overload.
+ */
+@Composable
+fun TaleartZone(
+    zoneJson: String,
+    modifier: Modifier = Modifier,
+    onGroupClick: (DeliveryTaleGroup) -> Unit = {},
+    onError: (ZoneResult.Failure) -> Unit = {},
+    seenGroups: SeenGroups = rememberSeenGroups(),
+    titleStyle: TextStyle = TextStyle.Default,
+    opensViewer: Boolean = true,
+    locale: String? = null,
+    strings: Map<String, StringOverrides>? = null,
+    listener: TaleartListener? = null,
+    fallback: (@Composable () -> Unit)? = null,
+) {
+    val scope = rememberCoroutineScope()
+    val controller = remember { TaleartZoneController(scope = scope) }
+    val reportError by rememberUpdatedState(onError)
+    SideEffect {
+        controller.onError = { reportError(it) }
+        controller.locale = locale
+        controller.strings = strings
+        controller.listener = listener
+    }
+    DisposableEffect(controller) { onDispose { controller.close() } }
+    LaunchedEffect(zoneJson) { controller.configureLocalJson(zoneJson) }
+    TaleartZone(controller, modifier, onGroupClick, seenGroups, titleStyle, opensViewer, fallback)
 }
 
 /**
@@ -148,7 +186,7 @@ fun TaleartZone(
         controller.strings,
         controller.listener,
         controller.tracker,
-        ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
+        if (controller.isLocal) null else ZoneResponses(controller.effectiveApiUrl, controller.zoneKey, controller.client),
     )
     ProvideTaleartDirection {
         CompositionLocalProvider(LocalTaleartContext provides context) {

@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import site.lempert.taleart.sdk.delivery.DeliveryClient
+import site.lempert.taleart.sdk.delivery.ZoneParse
+import site.lempert.taleart.sdk.delivery.parseZoneJsonText
 import site.lempert.taleart.sdk.i18n.Translate
 import site.lempert.taleart.sdk.i18n.createTranslate
 
@@ -31,6 +33,13 @@ object TaleartSdk {
     fun init(config: TaleartConfig) {
         current = config
     }
+
+    /**
+     * Checks zone JSON the app holds, to show tales without a backend (`TaleartZone(zoneJson = ...)`,
+     * `TaleartView.zoneJson`, `TaleartZoneView.zoneJson`): the zone, or the readable list of what is wrong.
+     * The input is the body of `GET /delivery/v1/zone`. It reads nothing from the network and never throws.
+     */
+    fun parseZoneJson(json: String): ZoneParse = parseZoneJsonText(json)
 
     /** The configuration in use: the last [init], or the defaults. */
     val config: TaleartConfig get() = current

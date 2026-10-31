@@ -61,6 +61,18 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  * From Swift: `let zone = TaleartZoneView(apiUrl: url, zoneKey: key)`, then `zone.viewController`.
  */
 class TaleartZoneView(apiUrl: String?, zoneKey: String) {
+    /**
+     * Shows a zone without any backend: [zoneJson] is the body of `GET /delivery/v1/zone` (inline, a
+     * bundled file, copied from the dashboard). Nothing is read from or sent to the API: no zone
+     * request, no analytics, and a poll answer is marked on the device only. Tags and properties, the
+     * frequency cap, the theme, the listener and RTL work as for a fetched zone. JSON that is no zone is
+     * a failed read (logged once, [onError], `onLoadFailed`), never a crash; check it first with
+     * `TaleartSdk.parseZoneJson`. From Swift: `TaleartZoneView(zoneJson: json)`.
+     */
+    constructor(zoneJson: String) : this(null, "") {
+        this.zoneJson = zoneJson
+    }
+
     /** The zone shown, read with the process's shared Delivery client unless [client] is set. */
     val controller = TaleartZoneController()
 
@@ -124,10 +136,24 @@ class TaleartZoneView(apiUrl: String?, zoneKey: String) {
         get() = controller.client
         set(value) { controller.client = value }
 
+    /**
+     * The zone as JSON text, shown without a backend (see the `zoneJson` constructor). Setting [apiUrl] or
+     * [zoneKey] afterwards reads from the API again (this is then null); null clears the zone data.
+     */
+    var zoneJson: String?
+        get() = json
+        set(value) {
+            json = value
+            if (value != null) controller.configureLocalJson(value) else controller.configure(apiUrl.orEmpty(), zoneKey)
+        }
+
+    private var json: String? = null
+
     /** The TaleArt API origin; null or empty uses the one of `TaleartSdk.init`. */
     var apiUrl: String? = apiUrl
         set(value) {
             field = value
+            json = null
             controller.configure(this.apiUrl.orEmpty(), this.zoneKey)
         }
 
@@ -135,6 +161,7 @@ class TaleartZoneView(apiUrl: String?, zoneKey: String) {
     var zoneKey: String = zoneKey
         set(value) {
             field = value
+            json = null
             controller.configure(this.apiUrl.orEmpty(), this.zoneKey)
         }
 
@@ -189,6 +216,9 @@ class TaleartZoneView(apiUrl: String?, zoneKey: String) {
         onHeightChange?.invoke(value)
     }
 }
+
+/** A view controller showing the zone JSON [zoneJson] without any backend (see [TaleartZoneView.zoneJson]). */
+fun TaleartViewController(zoneJson: String): UIViewController = TaleartZoneView(zoneJson).viewController
 
 /** A view controller showing the zone with key [zoneKey] (see [TaleartZoneView], which can also change it later). */
 fun TaleartViewController(apiUrl: String?, zoneKey: String): UIViewController =
