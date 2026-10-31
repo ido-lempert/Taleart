@@ -9,7 +9,7 @@ import {
 import { defaultTranslate, type Translate } from '../i18n';
 import { canvasColor } from './canvas-color';
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
-import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type ComponentFire, type RenderContext } from './media';
+import { mayAnimate, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type ComponentFire, type RenderContext } from './media';
 import { COUNTDOWN_STYLES, renderCountdown } from './countdown';
 import { POLL_STYLES, renderPoll } from './poll';
 import { PROMO_STYLES, renderPromoCode } from './promo-code';
@@ -205,7 +205,7 @@ function backgroundMedia(doc: DeliveryTaleDocument, reducedMotion: boolean): HTM
   const url = background?.type === 'media' ? mediaUrl(background.url) : null;
   if (!url) return null;
   let node: HTMLElement;
-  if (reducedMotion && MAY_ANIMATE.test(new URL(url).pathname)) node = stillImage(url);
+  if (reducedMotion && mayAnimate(url)) node = stillImage(url);
   else {
     const img = document.createElement('img');
     img.alt = '';

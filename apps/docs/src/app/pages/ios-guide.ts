@@ -19,6 +19,31 @@ import {
   SWIFTUI_REPRESENTABLE,
 } from './native-docs-content';
 
+
+const SWIFT_NO_BACKEND = `// UIKit or SwiftUI: no key, no API URL
+let zone = TaleartZoneView(zoneJson: zoneJson)   // zoneJson: String
+// embed zone.viewController as before; keep zone alive as long as the controller
+// Later, new data: zone.zoneJson = newJson
+
+// Check the text first: a readable list of what is wrong
+let parsed = TaleartSdk.shared.parseZoneJson(json: zoneJson)
+if let failure = parsed as? ZoneParseFailure {
+    failure.errors.forEach { print($0) }
+}`;
+
+const SWIFT_NO_BACKEND_JSON = `// The body of GET /delivery/v1/zone, copied from the dashboard or kept in your app
+let zoneJson = """
+{
+  "frame": { "type": "bar", "settings": { "layout": "ring", "size": "large" } },
+  "taleGroups": [
+    { "id": "welcome", "name": "Welcome", "tales": [
+      { "id": "welcome-1", "title": "Hello",
+        "media": { "kind": "image", "contentType": "image/jpeg", "url": "https://example.com/hello.jpg" } }
+    ] }
+  ]
+}
+"""`;
+
 @Component({
   selector: 'docs-ios-guide',
   imports: [RouterLink],
@@ -285,6 +310,45 @@ import {
         </figure>
       </li>
     </ol>
+
+    <h2 id="no-backend">Without a backend</h2>
+    <p>
+      The SDK can show tales with no TaleArt server at all: give it the zone as JSON, the exact body of
+      <code>GET /delivery/v1/zone</code>, held in your app (a string, a bundled file, or a file you copied from the
+      dashboard). Nothing is read from or sent to the API: no zone request, no analytics events, and a poll answer is
+      marked on the device only. Everything else works as with a fetched zone: tags, viewer properties and audience
+      rules, the frequency cap, the theme, the listener (<code>onLoaded</code> comes with an empty key prefix),
+      right-to-left layouts, and the bar, the banner and the viewer. Media URLs in the JSON must be absolute
+      <code>https://</code> (or <code>http://</code>) addresses. JSON that is not a zone is a failed read: it is logged
+      once, <code>onLoadFailed</code> fires and the view shows its fallback, never a crash.
+      <code>TaleartSdk.shared.parseZoneJson(json:)</code> checks a text and lists the problems.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Zone from JSON without a backend"><code>{{ noBackend }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Zone JSON held in the app"><code>{{ noBackendJson }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/nobackend-ios-bar.png"
+        width="720"
+        height="391"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on iOS showing a bar of three round covers labelled Welcome, Vote and News, the first in a gradient ring and the other two in grey rings because they were already viewed, drawn from JSON held in the app."
+      />
+      <figcaption class="muted">
+        A bar drawn from zone JSON inside the app, with no TaleArt server running: a real screenshot taken on the iOS simulator (the sample app's <code>taller.noBackend</code> debug option).
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/nobackend-ios-viewer.png"
+        width="360"
+        height="780"
+        loading="lazy"
+        alt="Screenshot of the tale viewer on iOS over a dark blue tale: a poll card titled 'Day or night?' with the line 'Results appear after you vote' and two options, Day and Night."
+      />
+      <figcaption class="muted">
+        The viewer opened on the same local zone: a poll answers on the device only (a real screenshot taken on the iOS simulator).
+      </figcaption>
+    </figure>
 
     <h2 id="fallback">Show a message when a zone fails</h2>
     <p>
@@ -1005,6 +1069,8 @@ export class IosGuidePage {
   protected readonly swiftHooks = SWIFT_HOOKS;
   protected readonly swiftLocale = SWIFT_LOCALE;
   protected readonly swiftProperties = SWIFT_PROPERTIES;
+  protected readonly noBackend = SWIFT_NO_BACKEND;
+  protected readonly noBackendJson = SWIFT_NO_BACKEND_JSON;
   protected readonly swiftFallback = SWIFT_FALLBACK;
   protected readonly swiftFrequency = SWIFT_FREQUENCY;
   protected readonly swiftAnalytics = SWIFT_ANALYTICS;

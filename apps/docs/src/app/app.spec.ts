@@ -127,6 +127,7 @@ describe('docs app', () => {
       'guides/analytics',
       'guides/sign-in-methods',
       'guides/web',
+      'guides/no-backend',
       'android-guide',
       'ios-guide',
       'reference/web-sdk',

@@ -2,7 +2,7 @@
 // reference loads is openapi.yaml as generated, and every operation sits in exactly one declared tag.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { OPENAPI_JSON, OPENAPI_YAML, openapiJson } from '../../scripts/generate-openapi-json.mjs';
+import { OPENAPI_JSON, OPENAPI_YAML, ZONE_SCHEMA_JSON, openapiJson, zoneSchemaJson } from '../../scripts/generate-openapi-json.mjs';
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
 const document = JSON.parse(readFileSync(OPENAPI_JSON, 'utf8'));
@@ -69,5 +69,20 @@ describe('the generated OpenAPI JSON', () => {
     const route = document.paths['/openapi.json'];
     expect(route.servers).toEqual([{ url: '/api', description: expect.any(String) }]);
     expect(route.get.security).toEqual([]);
+  });
+});
+
+describe('the zone data JSON Schema', () => {
+  it('is cut from the OpenAPI document as generated (run contract:generate after a change)', () => {
+    expect(readFileSync(ZONE_SCHEMA_JSON, 'utf8')).toBe(zoneSchemaJson(document));
+  });
+
+  it('is self-contained: every reference resolves inside it, and no format rejects a relative or data: URL', () => {
+    const schema = JSON.parse(readFileSync(ZONE_SCHEMA_JSON, 'utf8'));
+    expect(schema.$ref).toBe('#/components/schemas/DeliveryZone');
+    const text = JSON.stringify(schema);
+    const refs = [...new Set([...text.matchAll(/"\$ref":"#\/components\/schemas\/([A-Za-z0-9]+)"/g)].map((m) => m[1]))];
+    expect(refs.filter((name) => !(name in schema.components.schemas))).toEqual([]);
+    expect(text).not.toMatch(/"format":"(uri|uuid)"/);
   });
 });

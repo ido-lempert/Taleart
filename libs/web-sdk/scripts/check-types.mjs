@@ -41,6 +41,8 @@ const consumer = `import {
   init,
   setExternalUserId,
   setTags,
+  setZoneData,
+  validateZone,
   TaleartElement,
   TALEART_ELEMENT_TAG,
   type TaleartEvent,
@@ -78,7 +80,16 @@ init({ locale: null, strings: null, hooks: null });
 // @ts-expect-error the locale is text
 init({ locale: 1 });
 
+// Zone data with no backend: the Delivery API's zone body as an object or JSON text; null removes it.
+setZoneData('home-top', { frame: null, taleGroups: [] });
+setZoneData('home-top', '{"frame":null,"taleGroups":[]}');
+setZoneData('home-top', null);
+const checked = validateZone('{}');
+if (!checked.ok) console.log(checked.errors.join('\\n'));
+
 const element = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+element.data = { frame: null, taleGroups: [] };
+element.data = null;
 element.zoneKey = 'tak_example';
 const key: string = element.zoneKey;
 element.zone = 'home-top';

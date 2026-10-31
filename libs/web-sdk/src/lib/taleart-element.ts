@@ -40,7 +40,8 @@ import { fetchZone } from './delivery-client';
 import { parseDir } from './direction';
 import { emit, type GroupRef, type TaleRef, type TaleartHooks } from './hooks';
 import { cappedGroupIds, type FrequencyRule, parseFrequency, recordView } from './frequency';
-import { responseClient } from './responses';
+import { localResponseClient, responseClient } from './responses';
+import { readLocalZone, registerZoneData, registeredZoneData } from './local-zone';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import { createTranslate, type StringsConfig, type Translate } from './i18n';
 import type { Theme, ViewerProperties, ViewerPropertyValue } from './public-types';
@@ -241,6 +242,20 @@ onConfigChange((changed: ReadonlySet<ConfigKey>) => {
   }
 });
 
+/**
+ * Gives the zone named `zone` (the `zone` attribute of `<taleart-view>`) its data, the body of `GET /delivery/v1/zone`
+ * as an object or as JSON text, so the page shows tales with no backend: no zone key, no API URL and no request to the
+ * Delivery API. Connected elements of that zone render it now, and again on every later call; `null` removes it (an
+ * element then reads its zone from the API again, if it has a key). An element's own `data` property wins over this.
+ * Data that is not valid fails like a failed load (one console error, `loadFailed`); see `validateZone`.
+ */
+export function setZoneData(zone: string, data: unknown): void {
+  registerZoneData(zone.trim(), data);
+  for (const element of connected) {
+    if (element.zone.trim() === zone.trim()) element.reload();
+  }
+}
+
 // The rendered display: its element, and how it takes focus back for a group (its first item for null).
 interface DisplayView {
   readonly element: HTMLElement;
@@ -283,6 +298,8 @@ export class TaleartElement extends ElementBase {
   private loadId = 0;
   private scheduled = false;
   private viewer: LazyTaleViewer | null = null;
+  // The zone data the page gave this element (`data`): an object or JSON text, or null for none.
+  private ownData: unknown = null;
   // Where the viewer's interactive components send responses: the zone last read.
   private responses: ReturnType<typeof responseClient> | null = null;
   private view: DisplayView | null = null;
@@ -425,6 +442,20 @@ export class TaleartElement extends ElementBase {
     this.setAttribute(API_URL_ATTR, value);
   }
 
+  /**
+   * The zone to show, as the body of `GET /delivery/v1/zone` (an object or JSON text), for a page with no backend: the
+   * element then renders it with no zone key and no API URL, and sends nothing to the Delivery API (no read, no analytics,
+   * no poll votes; answers stay on this device). It wins over {@link setZoneData} and over the network. Set `null` to
+   * remove it. Invalid data fails like a failed load. Reading it returns what was set.
+   */
+  get data(): unknown {
+    return this.ownData;
+  }
+  set data(value: unknown) {
+    this.ownData = value === undefined ? null : value;
+    if (this.isConnected) this.scheduleLoad();
+  }
+
   /** The zone key (`tak_…`) of the zone to show, issued in the dashboard; it names one zone. */
   get zoneKey(): string {
     return this.getAttribute(ZONE_KEY_ATTR) ?? '';
@@ -537,7 +568,7 @@ export class TaleartElement extends ElementBase {
       console.warn(`TaleArt: the ${SITE_KEY_ATTR} attribute is no longer read; place the zone with ${ZONE_KEY_ATTR}`);
     }
     // Properties set before the SDK defined the element shadow the accessors: pass them through.
-    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings', 'hooks', 'fallback', 'frequency', 'analytics'] as const) {
+    for (const name of ['apiUrl', 'zoneKey', 'locale', 'strings', 'hooks', 'fallback', 'frequency', 'analytics', 'data'] as const) {
       if (!Object.prototype.hasOwnProperty.call(this, name)) continue;
       const value: unknown = (this as unknown as Record<string, unknown>)[name];
       delete (this as unknown as Record<string, unknown>)[name];
@@ -645,20 +676,22 @@ export class TaleartElement extends ElementBase {
   private async load(): Promise<void> {
     const id = ++this.loadId;
     const apiUrl = this.apiUrl || getConfig().apiUrl;
-    const key = this.zoneKey;
+    // Zone data the page gave (the element's own, else registered for its zone) replaces the network entirely.
+    const local = this.ownData ?? registeredZoneData(this.zone.trim()) ?? null;
+    const key = local === null ? this.zoneKey : '';
     this.loaded = null;
     this.removeAttribute(STATE_ATTR);
     const focusGroup = this.clear();
     this.impressed.clear();
     this.hookKeyPrefix = key.slice(0, KEY_PREFIX_LENGTH);
-    if (!apiUrl || !key || !this.isConnected) return;
-    this.showSkeleton();
+    if (!this.isConnected || (local === null && (!apiUrl || !key))) return;
+    if (local === null) this.showSkeleton();
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
       const request = { key };
-      const zone = await fetchZone(apiUrl, request, undefined, externalUserIdHeader());
+      const zone = local === null ? await fetchZone(apiUrl, request, undefined, externalUserIdHeader()) : readLocalZone(local);
       if (id !== this.loadId) return;
-      this.responses = responseClient(apiUrl, request);
+      this.responses = local === null ? responseClient(apiUrl, request) : localResponseClient(zone);
       if (!this.zoneMarked) {
         this.zoneMarked = true;
         mark(ZONE_MARK);
@@ -666,7 +699,7 @@ export class TaleartElement extends ElementBase {
       // The zone's slug names its configureZone theme; the response carries it.
       const configName = typeof zone.slug === 'string' && zone.slug ? zone.slug : this.zone;
       this.loaded = { zone, configName };
-      this.analyticsTarget = { apiUrl, key };
+      this.analyticsTarget = local === null ? { apiUrl, key } : null;
       emit(this, 'loaded', { zoneKeyPrefix: this.hookKeyPrefix, zoneSlug: configName });
       this.render(targeted(zone), focusGroup, configName);
     } catch (err) {

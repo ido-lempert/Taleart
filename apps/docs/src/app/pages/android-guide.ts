@@ -27,6 +27,33 @@ import {
   XML_LAYOUT,
 } from './native-docs-content';
 
+
+const ANDROID_NO_BACKEND = `// Jetpack Compose
+TaleartZone(zoneJson = ZONE_JSON)
+
+// XML or code: no key, no API URL
+val view = TaleartView(context)
+view.zoneJson = ZONE_JSON                   // Java: view.setZoneJson(ZONE_JSON)
+
+// Check the text first: a readable list of what is wrong
+when (val parsed = TaleartSdk.parseZoneJson(ZONE_JSON)) {
+    is ZoneParse.Success -> Log.d("TaleArt", "Zone " + parsed.zone.slug + " is valid")
+    is ZoneParse.Failure -> parsed.errors.forEach { Log.w("TaleArt", it) }
+}`;
+
+const ANDROID_NO_BACKEND_JSON = `// The body of GET /delivery/v1/zone, copied from the dashboard or kept in your app
+const val ZONE_JSON = """
+{
+  "frame": { "type": "bar", "settings": { "layout": "ring", "size": "large" } },
+  "taleGroups": [
+    { "id": "welcome", "name": "Welcome", "tales": [
+      { "id": "welcome-1", "title": "Hello",
+        "media": { "kind": "image", "contentType": "image/jpeg", "url": "https://example.com/hello.jpg" } }
+    ] }
+  ]
+}
+"""`;
+
 @Component({
   selector: 'docs-android-guide',
   imports: [RouterLink],
@@ -284,6 +311,45 @@ import {
     </figure>
       </li>
     </ol>
+
+    <h2 id="no-backend">Without a backend</h2>
+    <p>
+      The SDK can show tales with no TaleArt server at all: give it the zone as JSON, the exact body of
+      <code>GET /delivery/v1/zone</code>, held in your app (a constant, a bundled asset, or a file you copied from the
+      dashboard). Nothing is read from or sent to the API: no zone request, no analytics events, and a poll answer is
+      marked on the device only. Everything else works as with a fetched zone: tags, viewer properties and audience
+      rules, the frequency cap, the theme, the listener (<code>onLoaded</code> comes with an empty key prefix),
+      right-to-left layouts, and the bar, the banner and the viewer. Media URLs in the JSON must be absolute
+      <code>https://</code> (or <code>http://</code>) addresses. JSON that is not a zone is a failed read: it is logged
+      once, <code>onLoadFailed</code> fires and the view shows its fallback, never a crash.
+      <code>TaleartSdk.parseZoneJson</code> checks a text and lists the problems.
+    </p>
+    <pre tabindex="0" role="region" aria-label="Zone from JSON without a backend"><code>{{ noBackend }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Zone JSON held in the app"><code>{{ noBackendJson }}</code></pre>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/nobackend-android-bar.png"
+        width="720"
+        height="330"
+        loading="lazy"
+        alt="Screenshot of the TaleArt sample app on Android showing a bar of three round covers in gradient rings, labelled Welcome, Vote and News, drawn from JSON held in the app."
+      />
+      <figcaption class="muted">
+        A bar drawn from zone JSON inside the app, with no TaleArt server running: a real screenshot taken on an emulator (the sample app's <code>taller.noBackend</code> debug option).
+      </figcaption>
+    </figure>
+    <figure class="native-figure native-shot">
+      <img
+        src="images/nobackend-android-viewer.png"
+        width="360"
+        height="640"
+        loading="lazy"
+        alt="Screenshot of the tale viewer on Android over a dark blue tale: a poll card titled 'Day or night?' with the line 'Results appear after you vote' and two options, Day and Night."
+      />
+      <figcaption class="muted">
+        The viewer opened on the same local zone: a poll answers on the device only (a real screenshot taken on an emulator).
+      </figcaption>
+    </figure>
 
     <h2 id="fallback">Show a message when a zone fails</h2>
     <p>
@@ -992,6 +1058,8 @@ export class AndroidGuidePage {
   protected readonly androidLocale = ANDROID_LOCALE;
   protected readonly androidProperties = ANDROID_PROPERTIES;
   protected readonly androidPropertiesView = ANDROID_PROPERTIES_VIEW;
+  protected readonly noBackend = ANDROID_NO_BACKEND;
+  protected readonly noBackendJson = ANDROID_NO_BACKEND_JSON;
   protected readonly androidFallback = ANDROID_FALLBACK;
   protected readonly androidFrequency = ANDROID_FREQUENCY;
   protected readonly androidAnalytics = ANDROID_ANALYTICS;

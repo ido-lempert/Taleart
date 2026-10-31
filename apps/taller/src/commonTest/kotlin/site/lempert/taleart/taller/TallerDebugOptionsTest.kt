@@ -236,4 +236,12 @@ class TallerDebugOptionsTest {
         assertEquals(700L, debug.autoDelayMs)
         assertEquals(60_000L, TallerDebugOptions.load(InMemoryStore(mapOf(TallerDebugOptions.AUTO_DELAY_MS to "999999"))).autoDelayMs)
     }
+
+    @Test
+    fun noBackendIsAnOptionAndItsZoneJsonIsAValidZone() {
+        assertFalse(TallerDebugOptions.load(InMemoryStore()).noBackend)
+        assertTrue(TallerDebugOptions.load(InMemoryStore(mapOf(TallerDebugOptions.NO_BACKEND to "true"))).noBackend)
+        val parsed = site.lempert.taleart.sdk.TaleartSdk.parseZoneJson(NO_BACKEND_ZONE_JSON)
+        assertEquals(3, (parsed as site.lempert.taleart.sdk.delivery.ZoneParse.Success).zone.taleGroups.size)
+    }
 }

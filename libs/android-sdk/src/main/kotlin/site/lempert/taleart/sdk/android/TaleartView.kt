@@ -15,6 +15,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import site.lempert.taleart.sdk.TaleartListener
 import site.lempert.taleart.sdk.delivery.DeliveryClient
+import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 import site.lempert.taleart.sdk.delivery.ZoneResult
 import site.lempert.taleart.sdk.ui.TaleartZone
@@ -118,10 +119,35 @@ class TaleartView @JvmOverloads constructor(
         get() = controller.client
         set(value) { controller.client = value }
 
+    /**
+     * Shows a zone without any backend: the body of `GET /delivery/v1/zone` as JSON text (inline, a bundled
+     * asset, copied from the dashboard). Nothing is read from or sent to the API: no zone request, no
+     * analytics, and a poll answer is marked on the device only. Targeting by tags and properties, the
+     * frequency cap, the theme, the listener and RTL work as for a fetched zone; JSON that is no zone is a
+     * failed read (logged once, [onErrorListener], `onLoadFailed`), never a crash; check it first with
+     * `TaleartSdk.parseZoneJson`. Setting [zoneKey] or [apiUrl] afterwards reads from the API again (this
+     * is then null). Null clears the zone data.
+     */
+    var zoneJson: String?
+        get() = json
+        set(value) {
+            json = value
+            if (value != null) controller.configureLocalJson(value) else controller.configure(apiUrl, zoneKey)
+        }
+
+    private var json: String? = null
+
+    /** Shows [zone], a zone the app already holds, as [zoneJson] does for its JSON text. */
+    fun setZone(zone: DeliveryZone) {
+        json = null
+        controller.configureLocal(zone)
+    }
+
     /** The TaleArt API origin, such as `https://api.example.com`; empty uses the one of `TaleartSdk.init`. */
     var apiUrl: String = ""
         set(value) {
             field = value.trim()
+            json = null
             controller.configure(apiUrl, zoneKey)
         }
 
@@ -129,6 +155,7 @@ class TaleartView @JvmOverloads constructor(
     var zoneKey: String = ""
         set(value) {
             field = value.trim()
+            json = null
             controller.configure(apiUrl, zoneKey)
         }
 

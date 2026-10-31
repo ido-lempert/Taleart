@@ -25,7 +25,9 @@ import site.lempert.taleart.sdk.analytics.sharedAnalytics
 import site.lempert.taleart.sdk.cappedGroupIds
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryZone
+import site.lempert.taleart.sdk.delivery.ZoneParse
 import site.lempert.taleart.sdk.delivery.ZoneRequest
+import site.lempert.taleart.sdk.delivery.parseZoneJsonText
 import site.lempert.taleart.sdk.delivery.encodeExternalUserIdHeader
 import site.lempert.taleart.sdk.targeting.audienceRulePasses
 import site.lempert.taleart.sdk.targeting.tagRulePasses
@@ -59,13 +61,26 @@ import site.lempert.taleart.sdk.storage.deviceKeyValueStoreOrNull
  * [close] cancels it when the controller made it.
  */
 class TaleartZoneController(
-    var client: DeliveryClient = TaleartSdk.sharedClient,
+    client: DeliveryClient? = null,
     scope: CoroutineScope? = null,
 ) {
+    private var ownClient: DeliveryClient? = client
+
+    /**
+     * The Delivery client the reads use: the one given, else the process's [TaleartSdk.sharedClient],
+     * which is not made until a read needs it (a controller on local data never makes it).
+     */
+    var client: DeliveryClient
+        get() = ownClient ?: TaleartSdk.sharedClient
+        set(value) { ownClient = value }
+
     private val ownsScope = scope == null
     private val scope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var load: Job? = null
     private var configured = false
+    // Zone data the app holds (no backend): the zone read from JSON or given, or why it could not be read.
+    // Null while the controller reads from the API.
+    private var local: ZoneParse? = null
     // The API origin the last read used, to tell when the SDK's own one changed.
     private var readApiUrl: String? = null
 
@@ -143,8 +158,9 @@ class TaleartZoneController(
     /** Names the zone to show; reads it when the inputs change. Values are trimmed. */
     fun configure(apiUrl: String, zoneKey: String) {
         val (u, k) = apiUrl.trim() to zoneKey.trim()
-        val changed = u != this.apiUrl || k != this.zoneKey
+        val changed = u != this.apiUrl || k != this.zoneKey || local != null
         if (!changed && configured) return
+        local = null
         configured = true
         this.apiUrl = u
         this.zoneKey = k
@@ -155,12 +171,41 @@ class TaleartZoneController(
         start()
     }
 
+    /** True while the controller shows zone data the app holds ([configureLocal], [configureLocalJson]), with no request to the API. */
+    val isLocal: Boolean get() = local != null
+
+    /**
+     * Shows [zone], the body of `GET /delivery/v1/zone` the app already holds, instead of reading one:
+     * no request is made (not the zone, not the analytics, not a poll answer). The viewer's tags,
+     * properties and audience rules, the frequency cap, the theme and the listener's `onLoaded` apply as
+     * for a zone read from the API. It replaces the API inputs ([configure]); a view that is reconfigured
+     * with an API origin and a key reads from the API again.
+     */
+    fun configureLocal(zone: DeliveryZone) = showLocal(ZoneParse.Success(zone))
+
+    /**
+     * As [configureLocal], for the zone as JSON text (the body of `GET /delivery/v1/zone`). Text that is
+     * no zone takes the path of a failed read: logged once, passed to [onError], `onLoadFailed` to the
+     * listeners and the fallback shown; it never throws. `TaleartSdk.parseZoneJson` says what is wrong.
+     */
+    fun configureLocalJson(json: String) = showLocal(parseZoneJsonText(json))
+
+    private fun showLocal(parse: ZoneParse) {
+        configured = true
+        apiUrl = ""
+        zoneKey = ""
+        local = parse
+        zone = null
+        loaded = false
+        start()
+    }
+
     /** Reads the zone again, keeping the current one on screen until the new one arrives. */
     fun reload() = start()
 
     /** Reads the zone again when the SDK's API origin changed since it was last read (a view on screen while `init` changes it). */
     fun refreshApi() {
-        if (configured && effectiveApiUrl != readApiUrl) start()
+        if (configured && local == null && effectiveApiUrl != readApiUrl) start()
     }
 
     /** Stops a read in progress, and the scope when the controller made it. */
@@ -172,6 +217,7 @@ class TaleartZoneController(
     private fun start() {
         load?.cancel()
         load = null
+        local?.let { startLocal(it); return }
         if (!isComplete) {
             zone = null
             failure = null
@@ -208,6 +254,35 @@ class TaleartZoneController(
                     println("TaleArt: ${result.message}")
                     onError?.invoke(result)
                     val event = TaleartEvent(name = "loadFailed", zoneKeyPrefix = keyPrefix(key), error = result.message)
+                    deliver(listener, event) { it.onLoadFailed(event) }
+                }
+            }
+        }
+    }
+
+    // The zone data the app holds goes the way a read does, without the request: on the scope, so a view
+    // that sets its listener right after its zone still hears `onLoaded`, and settings made together apply once.
+    private fun startLocal(parse: ZoneParse) {
+        readApiUrl = null
+        failure = null
+        analyticsTarget = null
+        reading = false
+        load = scope.launch {
+            when (parse) {
+                is ZoneParse.Success -> {
+                    val event = TaleartEvent(name = "loaded", zoneKeyPrefix = "", zoneSlug = parse.zone.slug)
+                    deliver(listener, event) { it.onLoaded(event) }
+                    zone = withinFrequency(targeted(parse.zone), "")
+                    loaded = true
+                }
+                is ZoneParse.Failure -> {
+                    zone = null
+                    loaded = false
+                    val result = ZoneResult.InvalidResponse(parse.message, 0)
+                    failure = result
+                    println("TaleArt: ${result.message}")
+                    onError?.invoke(result)
+                    val event = TaleartEvent(name = "loadFailed", zoneKeyPrefix = "", error = result.message)
                     deliver(listener, event) { it.onLoadFailed(event) }
                 }
             }

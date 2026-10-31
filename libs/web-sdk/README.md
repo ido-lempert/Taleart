@@ -133,6 +133,39 @@ Properties without an attribute:
 
 Methods: `retry()` reads the zone again after a failed load (see Load failures).
 
+## Without a backend
+
+A page can show tales with no TaleArt server at all: it passes the zone itself, the JSON that
+`GET /delivery/v1/zone` answers (copy that answer once, or write it by hand). With zone data the element needs no zone
+key and no API URL, and makes **no request to the Delivery API**: no read of the zone, no analytics events, no poll,
+quiz, rating or reaction answer posted. Answers stay on the device (`localStorage`, key `taleart.responses`) and show
+that one viewer's answer. Everything else works as with a fetched zone: tags and audience rules, the frequency cap, the
+seen ring, the theme, `configureZone`, hooks (with an empty `zoneKeyPrefix`), right-to-left pages, locales, the bar, the
+banner and the viewer. Media URLs may be absolute, relative to the page or `data:` URIs.
+
+```html
+<script type="module" src="/vendor/taleart/index.js"></script>
+<taleart-view id="stories"></taleart-view>
+<script>
+  // 1. On one element: an object or the JSON text.
+  document.getElementById('stories').data = zoneJson;
+  // 2. By zone name, for every <taleart-view zone="home-top"> now and later; a new call re-renders them, null removes it.
+  Taleart.setZoneData('home-top', zoneJson);
+  // 3. Check the JSON while you write it.
+  const result = Taleart.validateZone(zoneJson); // { ok: true } or { ok: false, errors: ['taleGroups[0].name: …'] }
+</script>
+```
+
+| API | What it does |
+| --- | --- |
+| `el.data = zone` | The element renders `zone` (an object or JSON text). `null` removes it. Reading returns what was set. |
+| `Taleart.setZoneData(zone, data)` | Registers `data` for the zone named `zone` (the `zone` attribute). Also exported from the ES module. |
+| `Taleart.validateZone(json)` | `{ ok: true }` or `{ ok: false, errors }`, one readable line per problem with its path. Also exported. |
+
+The order is: the element's `data`, then the data registered for its `zone`, then the network. Invalid data takes the
+failed-load path (one console error, `onLoadFailed`, the fallback slot) and never throws. The JSON Schema of the data is
+at `/schemas/zone.schema.json` on the docs site (generated from the OpenAPI document).
+
 ## Bar layouts
 
 A bar zone draws its groups in one of four layouts. The zone's Display tab in the dashboard sets the layout (the frame
