@@ -93,7 +93,7 @@ fun App(
     DisposableEffect(deliveryClient) { onDispose { if (client == null) deliveryClient.close() } }
     val options = remember(debug, store) { debug ?: TallerDebugOptions.load(store) }
     var settings by remember { mutableStateOf(DebugSettings.load(store)) }
-    var showSettings by remember { mutableStateOf(!settings.complete) }
+    var showSettings by remember { mutableStateOf(!settings.complete && !options.noBackend) }
     val scope = rememberCoroutineScope()
     val controller = remember(deliveryClient) { TaleartZoneController(deliveryClient, scope) }
     DisposableEffect(controller) { onDispose { controller.close() } }
@@ -110,7 +110,8 @@ fun App(
                 strings = TallerStrings.bar,
             ),
         )
-        controller.configure(with.apiUrl, with.zoneKey)
+        // No backend: the zone JSON the app holds is shown, with no request.
+        if (options.noBackend) controller.configureLocalJson(NO_BACKEND_ZONE_JSON) else controller.configure(with.apiUrl, with.zoneKey)
     }
 
     // A saved zone loads as the app opens.
@@ -124,7 +125,7 @@ fun App(
 
     MaterialTheme {
         Box(Modifier.fillMaxSize()) {
-            if (options.zoneOnly && !showSettings && settings.complete) {
+            if (options.zoneOnly && !showSettings && (settings.complete || options.noBackend)) {
                 ZoneOnlyScreen(settings, controller, seen, options)
             } else Column(
                 modifier = Modifier
@@ -254,7 +255,7 @@ private fun HomeScreen(
     val failure = controller.failure
     Column {
         // The zone's display as a host app shows it: the SDK's own, which also shows the fallback placeholder.
-        if (settings.complete) {
+        if (settings.complete || options.noBackend) {
             // The host's title colour and font, as the web bar inherits the page's.
             val titleStyle = TextStyle(color = LocalContentColor.current, fontFamily = LocalTextStyle.current.fontFamily)
             // The debug option draws the zone's bar in its layout; without it (or before the zone reads) the controller shows it.
@@ -292,7 +293,7 @@ private fun HomeScreen(
         }
         Spacer(Modifier.height(8.dp))
         when {
-            !settings.complete -> Text("Set the API URL, site key and zone in Settings.")
+            !settings.complete && !options.noBackend -> Text("Set the API URL, site key and zone in Settings.")
             zone != null -> ZoneList(zone)
             // With the fallback message shown by the display, the text of the failure is left out.
             failure != null -> if (options.fallback != FallbackMode.Message) {

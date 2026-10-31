@@ -58,6 +58,9 @@ data class DebugSettings(val apiUrl: String, val zoneKey: String) {
  * is drawn in), and `taller.pollView` (`sticker`, `embed`, `this-or-that`, `grid` or `inline`: the view every poll of the
  * zone's tales is drawn in, whatever the document's own `view`). An unset key keeps the SDK's default.
  *
+ * `taller.noBackend` (`true`) shows [NO_BACKEND_ZONE_JSON], zone JSON held in the app, with no API URL, key or request at all
+ * (`TaleartZoneController.configureLocalJson`); the settings screen is skipped.
+ *
  * `taller.zoneOnly` (`true`) shows only the zone on a plain page: no title, Settings, Reload line, group list or spinner,
  * as the Web SDK's bare sample page does, so a screenshot or a clip frames the SDK's own output. The timed actions act on
  * the screen without a tap, so a clip needs no finger: [DebugAction]s run in this order, each [autoDelayMs] (default 700 ms)
@@ -83,6 +86,7 @@ data class TallerDebugOptions(
     val autoCopy: Boolean = false,
     val autoSwipeNext: Boolean = false,
     val autoDelayMs: Long = DEFAULT_AUTO_DELAY_MS,
+    val noBackend: Boolean = false,
 ) {
     companion object {
         const val AUTO_OPEN_GROUP = "taller.autoOpenGroup"
@@ -101,6 +105,7 @@ data class TallerDebugOptions(
         const val AUTO_COPY = "taller.autoCopy"
         const val AUTO_SWIPE_NEXT = "taller.autoSwipeNext"
         const val AUTO_DELAY_MS = "taller.autoDelayMs"
+        const val NO_BACKEND = "taller.noBackend"
 
         /** The wait before each timed action, in milliseconds, when `taller.autoDelayMs` is not set. */
         const val DEFAULT_AUTO_DELAY_MS = 700L
@@ -123,6 +128,7 @@ data class TallerDebugOptions(
                 autoPress = read(AUTO_PRESS)?.toIntOrNull()?.takeIf { it >= 0 },
                 autoCopy = read(AUTO_COPY).isTrue(),
                 autoSwipeNext = read(AUTO_SWIPE_NEXT).isTrue(),
+                noBackend = read(NO_BACKEND).isTrue(),
                 autoDelayMs = read(AUTO_DELAY_MS)?.toLongOrNull()?.coerceIn(0L, 60_000L) ?: DEFAULT_AUTO_DELAY_MS,
             )
         }
