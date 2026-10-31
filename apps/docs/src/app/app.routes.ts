@@ -18,6 +18,7 @@ import { ThemeAndFontsPage } from './pages/theme-and-fonts';
 import { VisibilityPage } from './pages/visibility';
 import { ProjectsAndTeamPage } from './pages/projects-and-team';
 import { RolesAndPermissionsPage } from './pages/roles-and-permissions';
+import { DockerPage } from './pages/docker';
 import { CliPage } from './pages/cli';
 import { CoverageAndLimitsPage } from './pages/coverage-and-limits';
 
@@ -75,6 +76,14 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'Installation',
     file: 'guides-install',
     component: GuidesInstallPage,
+  },
+  {
+    path: 'docker',
+    label: 'Install with Docker',
+    title: 'Install with Docker',
+    group: 'Installation',
+    file: 'docker',
+    component: DockerPage,
   },
   {
     path: 'install',
