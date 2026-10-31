@@ -200,9 +200,6 @@
       "DeliveryCover": {
         "type": "object",
         "required": [
-          "kind",
-          "contentType",
-          "animated",
           "url"
         ],
         "properties": {
@@ -259,9 +256,7 @@
       "DeliveryFrame": {
         "type": "object",
         "required": [
-          "id",
-          "type",
-          "settings"
+          "type"
         ],
         "properties": {
           "id": {
@@ -281,8 +276,6 @@
       "DeliveryMedia": {
         "type": "object",
         "required": [
-          "kind",
-          "contentType",
           "url"
         ],
         "properties": {
@@ -334,9 +327,7 @@
         "type": "object",
         "required": [
           "id",
-          "title",
-          "media",
-          "document"
+          "title"
         ],
         "properties": {
           "id": {
@@ -380,8 +371,6 @@
         "type": "object",
         "description": "A tale document as delivered: hidden elements are removed, and so are the editor-only fields `hidden` and `locked`. Clients ignore fields they do not know and skip element types they do not know.",
         "required": [
-          "version",
-          "canvas",
           "elements"
         ],
         "properties": {
@@ -441,11 +430,7 @@
         "required": [
           "id",
           "name",
-          "cover",
-          "tales",
-          "tags",
-          "tagMatch",
-          "audience"
+          "tales"
         ],
         "properties": {
           "id": {
@@ -502,10 +487,6 @@
       "DeliveryZone": {
         "type": "object",
         "required": [
-          "id",
-          "name",
-          "slug",
-          "theme",
           "frame",
           "taleGroups"
         ],
@@ -581,21 +562,6 @@
       "Theme": {
         "type": "object",
         "description": "A complete theme, every field present (TaleArt's default where the project sets none); `null` takes the host page's or the frame's own value.",
-        "required": [
-          "ringStyle",
-          "ringColors",
-          "seenRingColor",
-          "ringWidth",
-          "cornerRadius",
-          "fontFamily",
-          "titleColor",
-          "backgroundColor",
-          "accentColor",
-          "colorScheme",
-          "liveColor",
-          "successColor",
-          "errorColor"
-        ],
         "additionalProperties": false,
         "properties": {
           "ringStyle": {
