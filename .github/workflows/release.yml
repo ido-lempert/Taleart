@@ -16,9 +16,9 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # By hand only (Actions > Release > Run workflow, on the tag's ref): the tag push is taken by release-ios.yml, and
+  # npm by release-npm.yml, until Maven Central is set up and the three can ship from one tag again.
+  workflow_dispatch:
 
 permissions:
   contents: read

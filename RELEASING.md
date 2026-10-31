@@ -133,6 +133,17 @@ npx nx run web-sdk:pack          # dry run: dist/libs/web-sdk-tarball/*.tgz
 git tag web-v0.1.0 && git push origin web-v0.1.0
 ```
 
+## Publishing only the iOS SDK
+
+Tag `v<version>` (for example `v0.1.0`; SwiftPM reads versions from such tags) runs `.github/workflows/release-ios.yml`:
+it checks the tag against the versions (`:verifyTaleartVersions`), builds `TaleartSDK.xcframework.zip` on macOS, writes its
+url and checksum into `Package.swift`, commits that, moves the tag to the commit and creates the GitHub release with that
+one zip as its only asset (GitHub adds its own source archives to every release). It needs no secret. A local dry run:
+`./gradlew :ios-sdk:releaseXcframeworkChecksum` (about 4 minutes, an 87 MB zip in `build/release/`).
+
+The all-in-one `release.yml` (npm, Maven Central and iOS together) is started by hand (Actions > Release > Run
+workflow) until Maven Central is set up; a tag push no longer starts it.
+
 ## Open decisions and TODOs
 
 - The Central deployment is released by hand in the portal (the workflow only uploads). To release automatically,
