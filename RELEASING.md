@@ -144,6 +144,13 @@ one zip as its only asset (GitHub adds its own source archives to every release)
 The all-in-one `release.yml` (npm, Maven Central and iOS together) is started by hand (Actions > Release > Run
 workflow) until Maven Central is set up; a tag push no longer starts it.
 
+## Publishing only Maven Central
+
+Tag `maven-v<version>` (for example `maven-v0.1.0`) runs `.github/workflows/release-maven.yml`: it checks the tag against
+`taleartVersion` and the other SDK versions, runs the Android host tests, and uploads the signed `mobile-sdk` and
+`android-sdk` to the Central Portal. It needs the four secrets in "GitHub repository secrets". Then a person releases
+the deployment in the portal (Deployments > Publish); Maven Central never accepts a replacement for a published version.
+
 ## Open decisions and TODOs
 
 - The Central deployment is released by hand in the portal (the workflow only uploads). To release automatically,
