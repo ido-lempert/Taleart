@@ -401,13 +401,32 @@ describe('<taleart-view> with zone data', () => {
     expect(el.hasAttribute('data-state')).toBe(false);
   });
 
-  it('accepts page-relative, absolute and data: media URLs', async () => {
+  const imageOf = (el: TaleartElement, index: number) => {
+    const img = el.shadowRoot?.querySelectorAll('button.item')[index]?.querySelector('img');
+    return img?.getAttribute('src') ?? img?.dataset['hold'] ?? null;
+  };
+
+  it('draws page-relative, absolute and data: media URLs of the data', async () => {
     const data = zone();
     data.taleGroups[0].tales[0].media = { kind: 'image', contentType: 'image/png', url: 'data:image/png;base64,iVBORw0KGgo=' };
     data.taleGroups[1].tales[0].media = { kind: 'image', contentType: 'image/png', url: 'https://cdn.example.com/a.png' };
     const el = await mount({}, data);
     expect(names(el)).toEqual(['Summer', 'Winter']);
+    expect(imageOf(el, 0)).toBe('data:image/png;base64,iVBORw0KGgo=');
+    expect(imageOf(el, 1)).toBe('https://cdn.example.com/a.png');
+    const relative = await mount({}, zone());
+    expect(imageOf(relative, 0)).toBe(new URL('images/beach.png', document.baseURI).href);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps refusing relative and data: URLs of a zone read from the Delivery API', async () => {
+    // Only the exact URLs the page gave in its own data are trusted: this one it never gave.
+    const fetched = zone();
+    fetched.taleGroups[0].tales[0].media = { kind: 'image', contentType: 'image/png', url: 'images/only-the-server-sent-this.png' };
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(fetched), { status: 200 }));
+    const el = await mount({ 'api-url': 'https://api.example.com', 'zone-key': 'tak_testkey0001' });
+    expect(names(el)).toEqual(['Summer', 'Winter']);
+    expect(imageOf(el, 0)).toBeNull();
   });
 
   it('shows the bar right to left on a page with dir=rtl, as with fetched data', async () => {

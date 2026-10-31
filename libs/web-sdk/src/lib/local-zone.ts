@@ -2,6 +2,7 @@
 // JSON text through `el.data` or `Taleart.setZoneData`. This file reads it into the zone the renderers take (after
 // the checks of validate-zone.ts) and keeps the data registered by zone name. Types only from the contract (AD-3).
 import type { DeliveryZone } from '@taleart/contract';
+import { trustPageMedia } from './document/media';
 import { problemsOf } from './validate-zone';
 
 /**
@@ -17,7 +18,20 @@ export function readLocalZone(input: unknown): DeliveryZone {
     group.tagMatch ??= 'any';
     group.audience ??= null;
   }
+  trustPageMedia(urlsOf(zone));
   return zone;
+}
+
+// Every text under a `url` key of the zone: a tale's media, a cover, a canvas background, an image or video element.
+function urlsOf(value: unknown, found: string[] = []): string[] {
+  if (Array.isArray(value)) value.forEach((item) => urlsOf(item, found));
+  else if (typeof value === 'object' && value !== null) {
+    for (const [key, item] of Object.entries(value)) {
+      if (key === 'url' && typeof item === 'string') found.push(item);
+      else urlsOf(item, found);
+    }
+  }
+  return found;
 }
 
 // The data registered by zone name (`setZoneData`): the value as given, checked when an element reads it.

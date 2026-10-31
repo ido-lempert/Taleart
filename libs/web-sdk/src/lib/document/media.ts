@@ -47,15 +47,49 @@ export interface ComponentFire {
 /** Images that may move: a GIF, an animated WebP, an APNG or an animated AVIF. Under reduced motion they are drawn once. */
 export const MAY_ANIMATE = /\.(gif|webp|png|avif)$/i;
 
-/** The URL when it is an absolute http(s) URL, as the Delivery API builds them; else null (AD-16). */
+/** True for a picture that may move: its path ends like one, or it is a `data:` image of such a type. */
+export function mayAnimate(url: string): boolean {
+  if (url.startsWith('data:')) return /^data:image\/(gif|webp|png|avif)[;,]/i.test(url);
+  return MAY_ANIMATE.test(new URL(url).pathname);
+}
+
+// The media URLs a page gave itself in zone data (no backend): page-relative or `data:` URLs, trusted exactly as written.
+// A zone read from the Delivery API never adds to it, so its URLs must still be absolute http(s) (AD-16).
+const pageMedia = new Set<string>();
+const MAX_PAGE_MEDIA = 5000;
+
+/** Trusts the media URLs of zone data the page brought itself, so relative and `data:` URLs render. */
+export function trustPageMedia(urls: Iterable<string>): void {
+  for (const url of urls) {
+    if (pageMedia.size >= MAX_PAGE_MEDIA) pageMedia.clear();
+    pageMedia.add(url);
+  }
+}
+
+// A page's own URL as the browser will load it: a `data:` image or video as is, a relative URL resolved against the page.
+function pageUrl(value: string): string | null {
+  if (/^data:(image|video)\//i.test(value)) return value;
+  try {
+    const url = new URL(value, document.baseURI);
+    return /^(https?|file):$/.test(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The URL when it is an absolute http(s) URL, as the Delivery API builds them; else, only for a URL the page gave in its
+ * own zone data ({@link trustPageMedia}), that URL resolved for the page; else null (AD-16).
+ */
 export function mediaUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
   } catch {
-    return null;
+    // Not absolute: a page's own relative URL, below.
   }
+  return pageMedia.has(value) ? pageUrl(value) : null;
 }
 
 // A number in range, else the default: the server checked it, the SDK checks again.
@@ -115,7 +149,7 @@ export function renderImage(element: DeliveryTaleElement, context: RenderContext
   if (!url) return null;
   const alt = altText(element);
   let node: HTMLElement;
-  if (context.reducedMotion && MAY_ANIMATE.test(new URL(url).pathname)) {
+  if (context.reducedMotion && mayAnimate(url)) {
     node = stillImage(url);
     if (alt) {
       node.setAttribute('role', 'img');
