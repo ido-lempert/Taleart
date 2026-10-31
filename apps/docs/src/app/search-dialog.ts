@@ -332,7 +332,7 @@ export class DocsSearch {
     });
   }
 
-  /** Fetches the index once, when the dialog first opens; relative to the base href (the site may be under /Taleart/). */
+  /** Fetches the index once, when the dialog first opens; relative to the base href. */
   private load(): void {
     if (this.prepared() || this.loading) return;
     this.loadState.set('loading');

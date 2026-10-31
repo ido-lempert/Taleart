@@ -14,7 +14,7 @@ You create a zone (a spot on your site), add a tale group with images, video or 
 2. Create a zone: Stories bar, Promo banner or Blank.
 3. Add a tale group with images or video.
 4. Turn the group On.
-5. Copy the snippet from the Install tab. Full steps: https://ido-lempert.github.io/Taleart/
+5. Copy the snippet from the Install tab. Full steps: https://taleart.lempert.site/
 
 ## Requirements
 

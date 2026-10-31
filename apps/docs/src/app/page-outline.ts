@@ -9,7 +9,7 @@ export interface OutlineHeading {
   id: string;
   text: string;
   level: 2 | 3;
-  /** The page's own address and the heading's id, so the link works with the base href (`/Taleart/` on GitHub Pages). */
+  /** The page's own address and the heading's id, so the link works with the base href (`/`). */
   href: string;
 }
 

@@ -31,6 +31,18 @@ describe('ThemeService', () => {
     expect(TestBed.inject(ThemeService).dark()).toBe(true);
   });
 
+  it('starts with the system theme when nothing is saved, and sets no attribute', () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes('dark'), media: q, addEventListener: () => {} })) as never;
+    try {
+      const theme = TestBed.inject(ThemeService);
+      expect(theme.dark()).toBe(true);
+      expect(TestBed.inject(DOCUMENT).documentElement.hasAttribute('data-theme')).toBe(false);
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
   it('ignores a saved value that is not a theme', () => {
     localStorage.setItem(THEME_KEY, 'purple');
     const theme = TestBed.inject(ThemeService);

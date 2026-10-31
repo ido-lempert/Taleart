@@ -1,6 +1,7 @@
 # Publishes the docs (apps/docs, prerendered Angular) on GitHub Pages:
-# https://ido-lempert.github.io/Taleart/
-# Repository settings: Settings > Pages > Build and deployment > Source: GitHub Actions.
+# https://taleart.lempert.site/
+# Repository settings: Settings > Pages > Build and deployment > Source: GitHub Actions. Custom domain: set in
+# Settings > Pages (taleart.lempert.site); with the Actions source no CNAME file is needed.
 name: Docs on GitHub Pages
 
 on:
@@ -38,7 +39,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # The production build under the /Taleart/ base href, with .nojekyll and 404.html.
+      # The production build at the root base href (/) of the custom domain, with .nojekyll and 404.html.
       - run: npx nx run docs:build-pages
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4

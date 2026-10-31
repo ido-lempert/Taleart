@@ -35,7 +35,7 @@
     "url": "git+https://github.com/ido-lempert/Taleart.git",
     "directory": "libs/web-sdk"
   },
-  "homepage": "https://ido-lempert.github.io/Taleart/",
+  "homepage": "https://taleart.lempert.site/",
   "bugs": {
     "url": "https://github.com/ido-lempert/Taleart/issues"
   },

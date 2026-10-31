@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 
-// The docs are served from the root ("/") and, on GitHub Pages, from "/Taleart/". Every page sets a
+// The docs are served from the root ("/") of https://taleart.lempert.site/. Every page sets a
 // <base href> to that root, so an image reference must be relative ("images/x.png") and never
-// absolute ("/images/x.png", which the Pages site resolves to the host root and 404s).
+// absolute ("/images/x.png", which would ignore the base href).
 
 function workspaceRoot(): string {
   let dir = process.cwd();
@@ -89,7 +89,7 @@ describe('docs image references', () => {
     expect(images.length).toBeGreaterThan(100);
   });
 
-  it('never uses an absolute src or an absolute image href (GitHub Pages serves under /Taleart/)', () => {
+  it('never uses an absolute src or an absolute image href (the site base href is a root, but keep references relative)', () => {
     const ABSOLUTE = /\bsrc="\/|\bhref="\/(?:guides\/)?images\//g;
     const offenders = templates.flatMap(({ name, text }) => [...text.matchAll(ABSOLUTE)].map((m) => `${name}: ${m[0]}`));
     expect(offenders).toEqual([]);

@@ -64,6 +64,7 @@
       },
       "configurations": {
         "production": {
+          "optimization": { "scripts": true, "styles": { "minify": true, "inlineCritical": false }, "fonts": true },
           "budgets": [
             {
               "type": "initial",
@@ -91,8 +92,9 @@
               "maximumError": "8kb"
             }
           ],
+          "optimization": { "scripts": true, "styles": { "minify": true, "inlineCritical": false }, "fonts": true },
           "outputHashing": "all",
-          "baseHref": "/Taleart/",
+          "baseHref": "/",
           "outputPath": "dist/apps/docs-pages"
         },
         "development": {
@@ -111,7 +113,7 @@
       }
     },
     "build-pages": {
-      "// note": "The docs for GitHub Pages (https://ido-lempert.github.io/Taleart/, .github/workflows/docs-pages.yml): the production build under the /Taleart/ base href in dist/apps/docs-pages/browser, with .nojekyll and 404.html (the prerendered not-found page).",
+      "// note": "The docs for GitHub Pages (https://taleart.lempert.site/, .github/workflows/docs-pages.yml): the production build at the domain root (base href /) in dist/apps/docs-pages/browser, with .nojekyll and 404.html (the prerendered not-found page).",
       "executor": "nx:run-commands",
       "cache": false,
       "options": {

@@ -1408,9 +1408,36 @@ docs-root {
   color: var(--text);
 }
 
-.theme-toggle[aria-pressed='true'] {
+.theme-toggle .theme-toggle__sun {
+  display: none;
+}
+
+/* Dark: the sun icon (the action) and the pressed look, from the same selectors as the dark tokens, so the
+   first paint is right before JavaScript runs. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .theme-toggle {
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+  :root:not([data-theme='light']) .theme-toggle .theme-toggle__sun {
+    display: block;
+  }
+  :root:not([data-theme='light']) .theme-toggle .theme-toggle__moon {
+    display: none;
+  }
+}
+
+:root[data-theme='dark'] .theme-toggle {
   border-color: var(--line-strong);
   color: var(--text);
+}
+
+:root[data-theme='dark'] .theme-toggle .theme-toggle__sun {
+  display: block;
+}
+
+:root[data-theme='dark'] .theme-toggle .theme-toggle__moon {
+  display: none;
 }
 
 .ui-icon {

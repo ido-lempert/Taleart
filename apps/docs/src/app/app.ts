@@ -83,8 +83,8 @@ export class App {
   });
   /**
    * The skip link's target: this page's own URL and `#main`. A bare `#main` resolves against the
-   * `<base href>`, so it would open the home page instead (the docs' base is `/`, or `/Taleart/` on
-   * GitHub Pages). Prerendered with each page, so it works without JavaScript too.
+   * `<base href>`, so it would open the home page instead (the docs base is `/`).
+   * Prerendered with each page, so it works without JavaScript too.
    */
   protected readonly skipHref = signal(this.mainHref());
 

@@ -15,7 +15,7 @@ export interface SkillFile {
   content: string;
 }
 
-/** Where the docs serve the skill's files for download, relative to the base href (`/` or `/Taleart/` on GitHub Pages). */
+/** Where the docs serve the skill's files for download, relative to the base href (`/`). */
 export const SKILL_DOWNLOAD_BASE = 'skill/taleart/';
 
 export const SKILL_FILES: readonly SkillFile[] = [
