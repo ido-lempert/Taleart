@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
       - name: Tag equals the SDKs' version
         run: |
           TAG="${GITHUB_REF_NAME#maven-v}"
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
       - name: Mobile and Android SDK tests (host)
         run: ./gradlew :mobile-sdk:testAndroidHostTest :android-sdk:testDebugUnitTest --console=plain
 
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
       - name: Split the token into the portal user name and password
         env:
           MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}

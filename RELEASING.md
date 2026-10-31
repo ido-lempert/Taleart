@@ -76,7 +76,7 @@ Actions must be enabled for the repository.
 
 ### 5. Local tools (for the dry runs below)
 
-- JDK 17 or newer, the Gradle wrapper (`./gradlew`), Android SDK (for the Android modules).
+- JDK 21 or newer, the Gradle wrapper (`./gradlew`), Android SDK (for the Android modules).
 - Xcode with the Swift toolchain (`swift package compute-checksum`) on macOS, for the XCFramework.
 - Node 22 and `npm ci` in the repository.
 
