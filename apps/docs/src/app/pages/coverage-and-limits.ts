@@ -69,7 +69,7 @@ import { RouterLink } from '@angular/router';
 </ul>
 <h2 id="verification-limits">Verification limits</h2>
 <ul>
-<li>The Android and iOS guides are reviewed against the source. They were not run on a device or emulator, and no published artifact was confirmed.</li>
+<li>The Android and iOS SDKs were run in the sample app (taller) on the Android emulator and the iOS simulator, and the guides' screenshots and clips come from those runs. They were not tested on physical devices, so real-device performance, memory use and OEM-specific behaviour are not covered.</li>
 <li>The install guide documents <code>npx nx serve dashboard</code>, but it was not completed on the test machine (it needs JVM 17 or later). The tested path is listed in the guide.</li>
 <li>Only the Heading element in Tale Studio was exercised by hand.</li>
 <li>The furniture pictures are AI-generated samples, not real products.</li>

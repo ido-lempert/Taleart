@@ -22,7 +22,7 @@ Node.js 22 or later. A PostgreSQL database.
 
 ## Status
 
-Web SDK is the main path. The Android and iOS SDKs have been reviewed in source but not tested on devices yet.
+Web SDK is the main path. The Android and iOS SDKs have been tested on the Android emulator and the iOS simulator, but not yet on physical devices.
 
 ## Legal
 
