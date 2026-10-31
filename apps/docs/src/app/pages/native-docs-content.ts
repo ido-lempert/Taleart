@@ -6,10 +6,10 @@
  *
  * The publishing coordinates are the target, not yet live: Maven Central `site.lempert.taleart`
  * (android-sdk, mobile-sdk) and the GitHub release of ido-lempert/Taleart with the iOS XCFramework,
- * all at version 0.1.0.
+ * all at version 0.1.1.
  */
 
-export const NATIVE_VERSION = '0.1.0';
+export const NATIVE_VERSION = '0.1.1';
 export const ANDROID_COORDINATES = `site.lempert.taleart:android-sdk:${NATIVE_VERSION}`;
 export const ANDROID_MOBILE_COORDINATES = `site.lempert.taleart:mobile-sdk:${NATIVE_VERSION}`;
 

@@ -1,6 +1,6 @@
 {
   "name": "@lempert/taleart",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The TaleArt Web SDK: a <taleart-view> custom element that shows a zone's bar or banner and opens its tales full-screen.",
   "type": "module",
   "main": "./index.umd.cjs",

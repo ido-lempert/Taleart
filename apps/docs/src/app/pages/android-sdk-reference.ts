@@ -38,7 +38,7 @@ import {
     <pre tabindex="0" role="region" aria-label="Android SDK coordinates"><code>{{ coordinates }}
 {{ mobileCoordinates }}</code></pre>
     <ul>
-      <li>Maven Central, group <code>site.lempert.taleart</code>, version 0.1.0. <code>android-sdk</code> depends on <code>mobile-sdk</code>.</li>
+      <li>Maven Central, group <code>site.lempert.taleart</code>, version 0.1.1. <code>android-sdk</code> depends on <code>mobile-sdk</code>.</li>
       <li>Minimum Android 7.0 (API 24). Kotlin; the Compose UI comes with the SDK.</li>
       <li>The INTERNET permission, which the app declares.</li>
       <li>A host with a lifecycle for <code>TaleartView</code>: a ComponentActivity, an AppCompatActivity or a Fragment.</li>

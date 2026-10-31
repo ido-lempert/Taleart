@@ -73,7 +73,7 @@ import {
             width="800"
             height="450"
             loading="lazy"
-            alt="Diagram: your app module depends on android-sdk 0.1.0, which pulls in mobile-sdk 0.1.0. Both come from Maven Central."
+            alt="Diagram: your app module depends on android-sdk 0.1.1, which pulls in mobile-sdk 0.1.1. Both come from Maven Central."
           />
           <figcaption class="muted">Diagram of the dependency graph (not a screenshot).</figcaption>
         </figure>

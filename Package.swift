@@ -13,7 +13,7 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "TaleartSDK",
-            url: "https://github.com/ido-lempert/Taleart/releases/download/v0.1.0/TaleartSDK.xcframework.zip",
+            url: "https://github.com/ido-lempert/Taleart/releases/download/v0.1.1/TaleartSDK.xcframework.zip",
             checksum: "0000000000000000000000000000000000000000000000000000000000000000"
         ),
     ]
