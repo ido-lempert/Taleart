@@ -61,12 +61,16 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
 
 /**
  * A tale card's video: loads nothing (`preload="none"`) and plays only while on screen, paused
- * again when it leaves; without IntersectionObserver it stays still.
+ * again when it leaves; without IntersectionObserver it stays still. It also pauses while another
+ * drawer covers the view (the tale drawer opened from a card): a card video that kept decoding
+ * behind the drawer's backdrop costs frames on every card at once, as the drawer opens.
  */
 @Directive({ selector: 'video[appPlayWhenVisible]' })
 export class PlayWhenVisible implements OnDestroy {
+  private readonly store = inject(DashboardStore);
   private readonly video = inject<ElementRef<HTMLVideoElement>>(ElementRef).nativeElement;
   private observer: IntersectionObserver | null = null;
+  private onScreen = false;
 
   constructor() {
     afterNextRender(() => {
@@ -74,12 +78,22 @@ export class PlayWhenVisible implements OnDestroy {
       if (!Observer) return;
       this.observer = new Observer((entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting) void this.video.play().catch(() => undefined);
-          else this.video.pause();
+          this.onScreen = entry.isIntersecting;
+          this.apply();
         }
       });
       this.observer.observe(this.video);
     });
+    // Another drawer on top (the store's drawer) hides the view: pause, and play again when it closes.
+    effect(() => {
+      this.store.drawer();
+      untracked(() => this.apply());
+    });
+  }
+
+  private apply(): void {
+    if (this.onScreen && this.store.drawer() === null) void this.video.play().catch(() => undefined);
+    else this.video.pause();
   }
 
   ngOnDestroy(): void {

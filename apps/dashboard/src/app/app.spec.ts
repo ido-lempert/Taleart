@@ -3259,6 +3259,67 @@ describe('App', () => {
       expect(name.getAttribute('aria-expanded')).toBe('false');
     });
 
+    it('pauses a card video while the tale drawer covers the group view, and plays it again after', async () => {
+      // jsdom has no IntersectionObserver or playback: stand both in, and keep the callbacks to call.
+      const callbacks: IntersectionObserverCallback[] = [];
+      class FakeObserver {
+        readonly root = null;
+        readonly rootMargin = '';
+        readonly thresholds = [];
+        constructor(callback: IntersectionObserverCallback) {
+          callbacks.push(callback);
+        }
+        observe(): void {
+          return undefined;
+        }
+        unobserve(): void {
+          return undefined;
+        }
+        disconnect(): void {
+          return undefined;
+        }
+        takeRecords(): IntersectionObserverEntry[] {
+          return [];
+        }
+      }
+      const original = window.IntersectionObserver;
+      window.IntersectionObserver = FakeObserver as unknown as typeof IntersectionObserver;
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+      const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+      try {
+        const withVideo = { ...summer, tales: [{ ...four[0], media: mp4Media }, ...four.slice(1)] };
+        const { fixture, root } = await open('/zones/z1', { ...data, groups: { z1: [withVideo, winter] } }, false);
+        nameButton(root, 'Summer').click();
+        await settle(fixture);
+        expect(groupView()?.querySelectorAll('video[appPlayWhenVisible]')).toHaveLength(1);
+
+        // The card scrolls into view: its video plays.
+        for (const callback of callbacks) {
+          callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+        }
+        expect(play).toHaveBeenCalled();
+        play.mockClear();
+        pause.mockClear();
+
+        // The tale drawer opens over the view: the video pauses and does not play behind it.
+        cardOf('A').querySelector<HTMLButtonElement>('.tale-card__open')?.click();
+        await settle(fixture);
+        expect(drawer()?.textContent).toContain('A');
+        expect(pause).toHaveBeenCalled();
+        expect(play).not.toHaveBeenCalled();
+
+        // Closing it plays the video again, as it is on screen.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        await settle(fixture);
+        expect(drawer()).toBeNull();
+        expect(play).toHaveBeenCalled();
+      } finally {
+        window.IntersectionObserver = original;
+        play.mockRestore();
+        pause.mockRestore();
+      }
+    });
+
     it('keeps the page in place when a group opens, when a tale opens and when a tale is shown or hidden', async () => {
       const { fixture, root } = await open('/zones/z1', data, false);
       const header = root.querySelector('.zone-header');
