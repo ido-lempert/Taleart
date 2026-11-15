@@ -153,7 +153,7 @@ import { DOCS_SNIPPET } from '../docs-content';
       <li><a routerLink="/api-reference">API reference</a></li>
       <li><a routerLink="/api-tokens">API tokens</a></li>
       <li><a routerLink="/cli">Command-line tool</a></li>
-      <li><a routerLink="/ai-agents">AI agents</a></li>
+      <li><a routerLink="/mcp">MCP server</a></li>
       <li><a routerLink="/moving-from-stages">Stages and zone keys</a></li>
     </ul>
     <h3 id="index-legal">Legal</h3>

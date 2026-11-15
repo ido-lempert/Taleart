@@ -17,12 +17,9 @@ class Executable {
 module.exports = {
   // The plugin adds the one entry, named after outputFileName (taleart).
   entry: {},
-  // `import text from '…/SKILL.md?raw'`: the agent skill's files (skills/taleart) as strings, so
-  // `taleart skill install` needs nothing beside this one file (src/skill-files.ts).
   // `import jpg from '…/picture.jpg?inline'`: the demo seed's pictures (libs/seed-demo) as data URLs.
   module: {
     rules: [
-      { resourceQuery: /raw/, type: 'asset/source' },
       { resourceQuery: /inline/, type: 'asset/inline' },
     ],
   },

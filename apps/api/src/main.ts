@@ -19,6 +19,7 @@ import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, databasePoolMax, migrate } from './db';
 import { configureTestElementTypes } from './element-types-config';
 import { ADDRESS_BACKSTOP_FACTOR, deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
+import { MCP_ENV, mcpEnabledFromEnv } from './http/mcp.router';
 
 /** How long a request may take to arrive whole (server.requestTimeout); above every upload deadline. */
 const REQUEST_TIMEOUT_MS = 300_000;
@@ -139,7 +140,22 @@ async function start(): Promise<void> {
       `SDK_BUILDS_DIR ${sdkBuildsConfig.buildsDir} holds no earlier Web SDK builds. Unless this is the first deploy, it does not persist across deploys: put it on a volume, or pages pinned to earlier builds answer 404.`,
     );
   }
-  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, media, { rateLimit }, sdk);
+  // The MCP server (TALEART_MCP=off turns it off; on by default). Its tools call this process's own API
+  // on loopback with the caller's token, never a host taken from a request.
+  const mcpEnabled = mcpEnabledFromEnv(process.env[MCP_ENV]);
+  log('info', mcpEnabled ? `MCP server on at /api/v1/mcp/sse (${MCP_ENV}=off turns it off)` : `MCP server off (${MCP_ENV}=off)`);
+  const app = createApp(
+    pool,
+    frameTypes,
+    storage,
+    auth,
+    { publicApiUrl },
+    media,
+    { rateLimit },
+    sdk,
+    {},
+    { enabled: mcpEnabled, apiBase: `http://127.0.0.1:${port}${MANAGEMENT_API_BASE}` },
+  );
   if (trustProxy !== undefined) {
     app.set('trust proxy', trustProxy);
     log('info', `Trusting X-Forwarded-For from ${JSON.stringify(trustProxy)}`);

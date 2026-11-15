@@ -55,7 +55,7 @@ import { RouterLink } from '@angular/router';
 </tr>
 <tr>
 <td>API, tokens, CLI, agents</td>
-<td><a routerLink="/api-tokens">API tokens</a>, <a routerLink="/api-reference">API reference</a>, <a routerLink="/cli">Command-line tool</a>, <a routerLink="/ai-agents">AI agents</a></td>
+<td><a routerLink="/api-tokens">API tokens</a>, <a routerLink="/api-reference">API reference</a>, <a routerLink="/cli">Command-line tool</a>, <a routerLink="/mcp">MCP server</a></td>
 </tr>
 </tbody>
 </table></div>

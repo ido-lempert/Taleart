@@ -9,9 +9,7 @@ import {
   ZONE_KEY_PLACEHOLDER,
 } from '@taleart/contract/core';
 import { App } from './app';
-import { AGENT_SESSION } from './agent-session';
 import { appRoutes, DOCS_GROUPS, DOCS_PAGES } from './app.routes';
-import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from './skill-files';
 
 const api = 'https://api.example.com';
 const info = { apiUrl: api, sdkUrl: api + SDK_BUNDLE_PATH, testPageUrl: api + SDK_TEST_PAGE_PATH };
@@ -84,45 +82,19 @@ describe('docs app', () => {
     expect(text).toContain(installSnippet(info, null));
   });
 
-  it('shows the agent skill on AI agents: install, the token, a session and every skill file (story 10.4)', async () => {
-    const harness = await RouterTestingHarness.create('/ai-agents');
+  it('shows the MCP server page: connect with a token, the tools, and the kill switch (TALEART_MCP)', async () => {
+    const harness = await RouterTestingHarness.create('/mcp');
     const page = harness.routeNativeElement as HTMLElement;
-    expect(page.querySelector('h1')?.textContent).toBe('AI agents');
-    expect([...page.querySelectorAll('h2')].map((h) => h.textContent)).toEqual([
-      'What the skill does',
-      'Safety rules',
-      'Install it',
-      'Give it a token',
-      'An example session',
-      'The skill',
-    ]);
+    expect(page.querySelector('h1')?.textContent).toBe('MCP server');
+    expect([...page.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(['Connect', 'Tools', 'What it can do', 'Kill switch', 'Reference']);
     const text = page.textContent ?? '';
-    expect(text).toContain('taleart skill install --project');
-    expect(text).toContain('~/.claude/skills/taleart');
-    expect(text).toContain('TALEART_TOKEN');
-    // Every skill file, whole, and a download link to it.
-    const blocks = [...page.querySelectorAll('details pre')].map((pre) => pre.textContent);
-    expect(blocks).toEqual(SKILL_FILES.map((f) => f.content));
-    expect(SKILL_FILES[0].content).toMatch(/^---\nname: taleart\n/);
-    const links = [...page.querySelectorAll<HTMLAnchorElement>('.downloads a')].map((a) => a.getAttribute('href'));
-    expect(links).toEqual(SKILL_FILES.map((f) => SKILL_DOWNLOAD_BASE + f.path));
-    // The session: every turn, its commands, and no credential.
-    for (const turn of AGENT_SESSION) expect(text).toContain(turn.text);
-    expect(text).toContain('$ taleart groups on Summer --project "Shop" --json');
-    // Every token or site key on the page is at most a display prefix (tat_ or tas_ and 6 characters):
-    // the whole base64url run after the prefix is counted, so a full key cannot slip past.
-    const credentials = [...text.matchAll(/\b(tat|tas)_([A-Za-z0-9_-]*)/g)];
-    expect(credentials.length).toBeGreaterThan(3);
-    expect(credentials.filter((m) => m[2].length > 6).map((m) => m[0])).toEqual([]);
-    for (const m of text.matchAll(/\btas_[A-Za-z0-9_-]{6}(?=…)/g)) {
-      expect(text.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 11)).toBe('…[REDACTED]');
-    }
+    expect(text).toContain('/api/v1/mcp/sse');
+    expect(text).toContain('list_operations');
+    expect(text).toContain('call_operation');
+    expect(text).toContain('TALEART_MCP=off');
   });
 
-  it('loads AI agents, with the skill text, and the SDK guides and references only on demand', () => {
-    const page = DOCS_PAGES.find((p) => p.path === 'ai-agents');
-    expect(page?.loadComponent).toBeDefined();
-    expect(page?.component).toBeUndefined();
+  it('loads the SDK guides and references only on demand', () => {
     expect(DOCS_PAGES.filter((p) => p.loadComponent).map((p) => p.path)).toEqual([
       'guides/analytics',
       'guides/sign-in-methods',
@@ -136,7 +108,6 @@ describe('docs app', () => {
       'reference/ios-sdk',
       'reference/analytics',
       'reference/sign-in-methods',
-      'ai-agents',
       'legal/terms',
       'legal/privacy',
       'legal/accessibility',
@@ -188,14 +159,14 @@ describe('docs app', () => {
     expect(TestBed.inject(Router).url).toBe('/ios-guide');
   });
 
-  it('links AI agents from API tokens and API reference', async () => {
+  it('links the MCP server from API tokens and API reference', async () => {
     const harness = await RouterTestingHarness.create();
     for (const path of ['/api-tokens', '/api-reference']) {
       await harness.navigateByUrl(path);
       const hrefs = [...(harness.routeNativeElement as HTMLElement).querySelectorAll('a')].map((a) =>
         a.getAttribute('href'),
       );
-      expect(hrefs).toContain('/ai-agents');
+      expect(hrefs).toContain('/mcp');
     }
   });
 
@@ -211,7 +182,7 @@ describe('docs app', () => {
       '/concepts',
       '/install',
       '/moving-from-stages',
-      '/ai-agents',
+      '/mcp',
       '/guides/web',
       '/reference/web-sdk',
     ]) {

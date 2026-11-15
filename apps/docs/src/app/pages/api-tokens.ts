@@ -34,9 +34,8 @@ import { RouterLink } from '@angular/router';
       (<code>tak_</code>) instead. A token works only on the Management API; zone keys and the project's site key (<code>tas_</code>, for servers) work only on the Delivery API.
     </p>
     <p>
-      Try it in the <a routerLink="/api-reference">API reference</a>, or let an AI agent use it through the
-      <code>taleart</code> command-line tool: see <a routerLink="/ai-agents">AI agents</a>. Give an agent a read-only
-      token when its task only reads.
+      Try it in the <a routerLink="/api-reference">API reference</a>, or let an MCP client use it through the
+      <a routerLink="/mcp">MCP server</a>. Give such a client a read-only token when its task only reads.
     </p>
 
     <h2 id="what-a-token-can-do">What a token can do</h2>
