@@ -17,6 +17,7 @@ export {
   listProjectTaleGroups,
   createProjectTaleGroup,
   renameTaleGroup,
+  renameTale,
   createTale,
   copyTaleWithDocument,
   duplicateTale,

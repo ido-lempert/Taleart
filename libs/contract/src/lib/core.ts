@@ -31,6 +31,7 @@ export type ZoneTaleGroup = Schemas['ZoneTaleGroup'];
 export type ProjectTaleGroup = Schemas['ProjectTaleGroup'];
 export type CreateTaleGroupRequest = Schemas['CreateTaleGroupRequest'];
 export type RenameTaleGroupRequest = Schemas['RenameTaleGroupRequest'];
+export type RenameTaleRequest = Schemas['RenameTaleRequest'];
 export type CopyTaleGroupRequest = Schemas['CopyTaleGroupRequest'];
 export type DuplicateTaleRequest = Schemas['DuplicateTaleRequest'];
 export type Tag = Schemas['Tag'];
@@ -378,6 +379,9 @@ export const DELIVERY_ZONE_PARAM = 'zone';
 
 /** The most characters a tale group's name holds, after trimming (counted as code points). */
 export const MAX_TALE_GROUP_NAME_LENGTH = 100;
+
+/** The most characters a tale's title holds, after trimming (counted as code points). */
+export const MAX_TALE_TITLE_LENGTH = 100;
 
 /** The most characters a tag name holds, after trimming. */
 export const MAX_TAG_NAME_LENGTH = 40;

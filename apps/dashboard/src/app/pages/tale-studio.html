@@ -6,6 +6,17 @@
 -->
 @if (doc(); as d) {
   <div class="studio-shell" [class.is-previewing]="previewOpen()">
+    <!-- Opened by the tale menu's Replace media; the picked file uploads at once. -->
+    <input
+      #studioMedia
+      id="studio-media-input"
+      type="file"
+      hidden
+      tabindex="-1"
+      aria-hidden="true"
+      [accept]="mediaAccept"
+      (change)="replaceMedia($event)"
+    />
     <section class="studio-top" data-region="top" aria-labelledby="studio-title">
       <a
         class="back-link studio-top__back"
@@ -119,6 +130,53 @@
             aria-labelledby="studio-menu"
             (keydown)="taleMenuKey($event)"
           >
+            @if (!viewOnly()) {
+              <button
+                type="button"
+                role="menuitem"
+                tabindex="-1"
+                class="studio-menu__item"
+                id="studio-rename"
+                (click)="chooseFromTaleMenu($event, 'rename')"
+              >
+                Rename…
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                tabindex="-1"
+                class="studio-menu__item"
+                id="studio-media"
+                [attr.aria-disabled]="mediaUploading() ? 'true' : null"
+                (click)="chooseFromTaleMenu($event, 'media')"
+              >
+                Replace media…
+              </button>
+            }
+            @if (mayPublish() && !viewOnly()) {
+              <button
+                type="button"
+                role="menuitem"
+                tabindex="-1"
+                class="studio-menu__item"
+                id="studio-schedule"
+                (click)="chooseFromTaleMenu($event, 'schedule')"
+              >
+                Schedule…
+              </button>
+            }
+            @if (shownAction(); as action) {
+              <button
+                type="button"
+                role="menuitem"
+                tabindex="-1"
+                class="studio-menu__item"
+                id="studio-show"
+                (click)="chooseFromTaleMenu($event, 'show')"
+              >
+                {{ action }}
+              </button>
+            }
             <button
               type="button"
               role="menuitem"

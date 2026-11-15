@@ -20,24 +20,16 @@ import {
   DEFAULT_INVITATION_ROLE,
   PROJECT_ROLES,
   MAX_ZONE_SLUG_LENGTH,
-  MEDIA_CONTENT_TYPES,
   ZONE_TEMPLATES,
   isMediaContentType,
   DEFAULT_TAG_MATCH,
-  isSwitchable,
   maxMediaBytes,
-  SHOWN_STATUS_LABELS,
-  switchStatus,
-  taleShownStatus,
   uniqueZoneSlug,
   zoneSlugFromName,
-  type ContentStatus,
   type Invitation,
   type ProjectMember,
   type ProjectRole,
   type SetScheduleRequest,
-  type SettableStatus,
-  type Tale,
   type TagMatch,
   audienceSummary,
   type UserList,
@@ -48,11 +40,10 @@ import { CoverEditor } from './cover-editor';
 import { DashboardStore, isAudienceHeld, type DrawerRequest, type ZoneField } from './dashboard.store';
 import { Drawer } from './drawer';
 import { accessText, describeRole, ROLE_LABELS, roleWithArticle } from './project-roles';
-import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
+import { localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { initialSettings, settingsFields, SettingsForm, type Settings } from './settings-form';
 import { DisplayOptionPicker } from './display-option-picker';
 import { displayOptionSetting, ignoredSettings as ignoredDisplaySettings } from './display-options';
-import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from './status';
 
 /** A media type by file extension, for a file the browser gave no type. */
 const MEDIA_EXTENSIONS: Record<string, string> = {
@@ -90,8 +81,6 @@ export function checkMediaFile(file: File): { type: string; problem: string } {
     FormsModule,
     RouterLink,
     Drawer,
-    StatusBadge,
-    ShowSwitch,
     SettingsForm,
     DisplayOptionPicker,
     CoverEditor,
@@ -114,12 +103,6 @@ export class CreateDrawer implements OnInit {
   protected readonly returnFocus = (): HTMLElement | null =>
     this.returnTo ?? (this.returnToId ? this.document.getElementById(this.returnToId) : null) ?? this.store.drawerOpener;
   readonly request = input.required<DrawerRequest>();
-  /** Replace media (epic UX rework R11) opens the tale drawer with focus on its media field. */
-  protected readonly focusMedia = computed(() => {
-    const request = this.request();
-    return request.kind === 'taleMedia' && request.focus === 'media';
-  });
-
   protected readonly error = signal('');
   protected readonly saving = signal(false);
   protected text = '';
@@ -157,9 +140,6 @@ export class CreateDrawer implements OnInit {
     return uniqueZoneSlug(base, (slug) => taken.has(slug));
   }
   protected frameType = '';
-  /** The image or video picked in the file input, if any. */
-  protected file: File | null = null;
-  protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
   /** The invitation an invite drawer created; its link is shown only now. */
   protected readonly invitation = signal<Invitation | null>(null);
   /** The existing user an invite drawer added to the project, shown as the result. */
@@ -405,38 +385,11 @@ export class CreateDrawer implements OnInit {
   protected startText = '';
   protected endText = '';
   protected readonly timeZone = localTimeZone();
-  protected readonly describeWindow = describeWindow;
   /** True when the schedule drawer's item has a stored start or end, so there is a window to remove (epic UX rework R8). */
   protected readonly hasWindow = computed(() => {
     const item = this.scheduleItem();
     return !!(item && (item.startsAt || item.endsAt));
   });
-
-  /**
-   * Turns the tale drawer into the tale's schedule drawer. The drawer stays
-   * open, so focus still returns to what opened the tale drawer.
-   */
-  protected openTaleSchedule(tale: Tale): void {
-    if (this.saving() || this.upload()) return;
-    this.store.drawer.set({ kind: 'schedule', target: 'tale', id: tale.id });
-    this.error.set('');
-    // The request input updates only after this handler, so the fields are filled from the tale itself.
-    this.loadSchedule(tale);
-  }
-
-  /**
-   * "Delete tale…": the group view showing the tale asks first (story 8.20). This drawer closes,
-   * focus goes back to the tale's card, and the confirmation opens from there.
-   */
-  protected requestDelete(tale: Tale): void {
-    if (this.saving() || this.upload()) return;
-    if (!this.store.groupViewOpen(tale.taleGroupId)) {
-      this.error.set('Open the tale group to delete this tale.');
-      return;
-    }
-    this.close();
-    this.store.requestTaleDeletion(tale.id, tale.taleGroupId);
-  }
 
   // What each field showed when loaded, with the stored ISO time behind it. The field holds minutes only,
   // so an untouched field sends its stored time unchanged, seconds included.
@@ -511,20 +464,12 @@ export class CreateDrawer implements OnInit {
 
   private readonly coverEditor = viewChild(CoverEditor);
 
-  /** The tale a media drawer is for. */
-  protected readonly tale = computed(() => {
-    const request = this.request();
-    return request.kind === 'taleMedia' ? this.store.tale(request.taleId) : undefined;
-  });
-
   protected readonly submitLabel = computed(() => {
     switch (this.request().kind) {
       case 'display':
         return 'Set display';
-      case 'tale':
-        return 'Add';
-      case 'taleMedia':
-        return 'Done';
+      case 'renameTale':
+        return 'Rename';
       case 'cover':
         return 'Save cover';
       case 'invite':
@@ -567,10 +512,8 @@ export class CreateDrawer implements OnInit {
       }
       case 'taleGroupOptions':
         return 'Tale group';
-      case 'tale':
-        return 'Add tale';
-      case 'taleMedia':
-        return 'Tale';
+      case 'renameTale':
+        return 'Rename tale';
       case 'cover':
         return 'Cover';
       case 'invite':
@@ -607,10 +550,6 @@ export class CreateDrawer implements OnInit {
       const zone = this.store.zone(this.groupZoneId());
       return zone ? `In zone ${zone.name}` : `In project ${this.store.projectName(request.projectId ?? '')}`;
     }
-    if (request.kind === 'tale') {
-      const group = this.store.taleGroup(request.taleGroupId);
-      return group ? `In tale group ${group.name}` : '';
-    }
     if (request.kind === 'tags') {
       const group = this.tagGroup();
       return group ? `For tale group ${group.name}` : '';
@@ -630,11 +569,6 @@ export class CreateDrawer implements OnInit {
       // With one project there is no picker, so the line names where the zone goes.
       const only = this.onlyProject();
       return only ? `In project ${only.name}` : '';
-    }
-    if (request.kind === 'taleMedia') {
-      const tale = this.tale();
-      const group = tale && this.store.taleGroup(tale.taleGroupId);
-      return group ? `In tale group ${group.name}` : '';
     }
     if (request.kind === 'cover') {
       const group = this.store.groupSummary(request.taleGroupId);
@@ -659,6 +593,8 @@ export class CreateDrawer implements OnInit {
     if (this.request().kind === 'taleGroupOptions') {
       this.text = this.store.groupSummary(this.taleGroupOptionsId())?.name ?? '';
     }
+    const renamedTale = this.request();
+    if (renamedTale.kind === 'renameTale') this.text = this.store.tale(renamedTale.taleId)?.title ?? '';
     const edited = this.editedZone();
     if (edited) {
       this.text = edited.name;
@@ -715,103 +651,12 @@ export class CreateDrawer implements OnInit {
     }
   }
 
-  protected readonly statusActions = statusActions;
-  /** What the polite live region in the tale drawer last announced. */
-  protected readonly statusAnnouncement = signal('');
-  /** Why going live did not publish the tale's studio draft, shown under the status actions; '' for none. */
-  protected readonly statusWarning = signal('');
-
-  protected readonly needsBadge = needsBadge;
-  protected readonly isSwitchable = isSwitchable;
-
-  /** "Shown" or "Hidden" from a tale's stored key (AD-6 amended). */
-  protected taleShownLabel(stored: ContentStatus): string {
-    return SHOWN_STATUS_LABELS[taleShownStatus(stored)];
-  }
-
-  /** Shows (stores live) or hides (stores paused) the drawer's tale, at once. */
-  protected async switchTale(tale: Tale, on: boolean): Promise<void> {
-    const status = switchStatus(tale.storedStatus, on);
-    if (status) await this.changeTaleStatus(tale.id, status);
-  }
-
-  /** Shows, hides, archives or restores the drawer's tale; the drawer stays open and shows its new status. */
-  protected async changeTaleStatus(taleId: string, status: SettableStatus): Promise<void> {
-    if (this.saving()) return;
-    this.saving.set(true);
-    this.error.set('');
-    const { tale, message, warning } = await this.store.setTaleStatus(taleId, status);
-    this.saving.set(false);
-    this.error.set(message);
-    this.statusWarning.set(warning);
-    // The saved tale's status as read, from the API's answer, not the list that may still be loading.
-    // The warning is announced once, by its alert.
-    if (tale) this.statusAnnouncement.set(`Status: ${statusLabel(tale.status, 'tale')}`);
-    // Archive and Restore replace each other: focus goes to the tale's first status control.
-    this.refocus('.tale-drawer__status button', true);
-  }
-
-  /**
-   * The media replacement in flight: the share sent, 0 to 100, or null when the browser does not
-   * know the total; null when none is in flight.
-   */
-  protected readonly upload = signal<{ percent: number | null } | null>(null);
-  private uploadAbort: AbortController | null = null;
-  private readonly mediaInput = viewChild<ElementRef<HTMLInputElement>>('mediaInput');
   private readonly injector = inject(Injector);
-  // Closing the drawer (Done, ×, Escape, Edit in Tale Studio) during an upload cancels it.
   private destroyed = false;
-  private readonly cancelsOnClose = inject(DestroyRef).onDestroy(() => {
+  private readonly markDestroyed = inject(DestroyRef).onDestroy(() => {
     this.destroyed = true;
-    this.uploadAbort?.abort();
   });
 
-  /** Replace media (or Add media) opens the file picker; the picked file uploads at once. */
-  protected chooseMedia(): void {
-    if (this.upload()) return;
-    this.mediaInput()?.nativeElement.click();
-  }
-
-  /** Stops the upload in flight; the tale keeps its media. */
-  protected cancelUpload(): void {
-    this.uploadAbort?.abort();
-  }
-
-  /** Checks the picked file and uploads it as the drawer's tale's media at once (epic UX rework R12). */
-  protected async replaceMedia(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    // The same file picked again (after a refusal, say) must fire `change` again.
-    input.value = '';
-    const tale = this.tale();
-    if (!file || !tale) return;
-    if (this.saving() || this.upload()) {
-      this.error.set('Wait until the change is saved, then pick the file again.');
-      return;
-    }
-    this.error.set('');
-    this.statusWarning.set('');
-    const { type, problem } = checkMediaFile(file);
-    if (problem) {
-      this.statusAnnouncement.set('');
-      this.error.set(problem);
-      return;
-    }
-    const abort = (this.uploadAbort = new AbortController());
-    this.upload.set({ percent: 0 });
-    this.statusAnnouncement.set('Uploading…');
-    const message = await this.store.uploadTaleMedia(tale.id, file, {
-      type,
-      signal: abort.signal,
-      progress: (sent) => this.upload.set({ percent: sent === null ? null : Math.round(sent * 100) }),
-    });
-    if (this.uploadAbort === abort) this.uploadAbort = null;
-    this.upload.set(null);
-    this.error.set(message ?? '');
-    this.statusAnnouncement.set(message === null ? 'Upload cancelled.' : message ? '' : 'Media replaced.');
-    // The Cancel upload button goes with the upload: focus moves to Replace media, not the page.
-    this.refocus('#tale-replace-media', true);
-  }
 
   /**
    * Focuses the first match of `selector` once rendered; with `ifLost`, only when focus went with
@@ -828,11 +673,6 @@ export class CreateDrawer implements OnInit {
       },
       { injector: this.injector },
     );
-  }
-
-  protected pickFile(event: Event): void {
-    this.file = (event.target as HTMLInputElement).files?.[0] ?? null;
-    this.error.set('');
   }
 
   /** The tale group the options drawer is for; '' for other drawers. */
@@ -974,15 +814,8 @@ export class CreateDrawer implements OnInit {
         }
         break;
       }
-      case 'tale':
-        message = await this.store.createTale(request.taleGroupId, this.text, this.file);
-        // The tale was saved but its media was not: the drawer now shows that
-        // tale with an empty file input, so forget the refused file.
-        if (message && this.store.drawer()?.kind === 'taleMedia') {
-          this.file = null;
-          // The form it was in is gone; retrying starts at Replace media.
-          this.refocus('#tale-replace-media', false);
-        }
+      case 'renameTale':
+        message = await this.store.renameTale(request.taleId, this.text);
         break;
       case 'invite': {
         if (this.inviteMode() === 'add') {
@@ -1077,10 +910,6 @@ export class CreateDrawer implements OnInit {
         // The drawer stays open to say where the copy went, with a link there.
         return;
       }
-      case 'taleMedia':
-        // Everything in the tale drawer saves as it changes; Done (or Enter) only closes it.
-        message = '';
-        break;
       case 'cover':
         // A repeated refusal must show again, so the old message goes first.
         this.error.set('');

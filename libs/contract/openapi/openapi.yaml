@@ -3566,6 +3566,37 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+    patch:
+      tags:
+        - Tales
+      operationId: renameTale
+      summary: Rename a tale.
+      description: >-
+        The title is trimmed and must not be blank (400 `validation_failed`).
+        Returns the tale with its status as read. Any member with access to
+        the tale's project may rename it (403 `forbidden` otherwise). Unknown
+        tale: 404 `tale_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameTaleRequest'
+      responses:
+        '200':
+          description: The renamed tale.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tales/{taleId}/status:
     parameters:
       - name: taleId
@@ -5095,6 +5126,15 @@ components:
           minLength: 1
           maxLength: 100
           description: Trimmed before it is checked and stored.
+    RenameTaleRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed before it is checked and stored; at most 100 characters.
     CopyTaleGroupRequest:
       type: object
       required: [zoneId]

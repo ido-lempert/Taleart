@@ -2,7 +2,6 @@
   [heading]="heading()"
   [returnFocus]="returnFocus"
   [busy]="saving()"
-  [initialFocus]="focusMedia() ? '#tale-replace-media' : null"
   (closed)="close()"
 >
   <form class="drawer__form" (ngSubmit)="submit()" novalidate>
@@ -233,33 +232,6 @@
             </div>
           }
         }
-        @case ('tale') {
-          <div class="field">
-            <label class="field__label" for="create-text">Tale title</label>
-            <input
-              id="create-text"
-              class="input"
-              name="text"
-              autocomplete="off"
-              [(ngModel)]="text"
-              [attr.aria-invalid]="error() ? 'true' : null"
-              [attr.aria-describedby]="error() ? 'create-error' : null"
-            />
-          </div>
-          <div class="field">
-            <label class="field__label" for="create-file">Image or video (optional)</label>
-            <input
-              id="create-file"
-              class="input input--file"
-              type="file"
-              name="file"
-              [accept]="acceptedTypes"
-              (change)="pickFile($event)"
-              [attr.aria-describedby]="error() ? 'create-file-hint create-error' : 'create-file-hint'"
-            />
-            <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB.</p>
-          </div>
-        }
         @case ('invite') {
           @if (invitation(); as invitation) {
             <div class="field">
@@ -426,6 +398,21 @@
             <p class="muted">This tale group no longer exists.</p>
           }
         }
+        @case ('renameTale') {
+          <div class="field">
+            <label class="field__label" for="create-text">Tale title</label>
+            <input
+              id="create-text"
+              class="input"
+              name="text"
+              autocomplete="off"
+              maxlength="100"
+              [(ngModel)]="text"
+              [attr.aria-invalid]="error() ? 'true' : null"
+              [attr.aria-describedby]="error() ? 'create-error' : null"
+            />
+          </div>
+        }
         @case ('renameTaleGroup') {
           @if (placementGroup()) {
             <div class="field">
@@ -591,143 +578,6 @@
         @case ('cover') {
           <app-cover-editor [taleGroupId]="coverGroupId()" (problem)="error.set($event)" (removed)="close()" />
         }
-        @case ('taleMedia') {
-          @if (tale(); as tale) {
-            <!-- Status first: it saves at once, so nothing below or in the footer undoes it (epic UX rework R12). -->
-            <section class="tale-drawer__status" aria-labelledby="tale-drawer-title">
-              <p class="tale-drawer__title" id="tale-drawer-title">{{ tale.title }}</p>
-              <div class="status-actions">
-                @if (isSwitchable(tale.storedStatus)) {
-                  <app-show-switch
-                    [on]="tale.storedStatus === 'live'"
-                    [label]="'Show ' + tale.title"
-                    [stateText]="taleShownLabel(tale.storedStatus)"
-                    [disabled]="saving()"
-                    (toggled)="switchTale(tale, $event)"
-                  />
-                }
-                @if (needsBadge(tale.status)) {
-                  <app-status-badge [status]="tale.status" kind="tale" />
-                }
-                @for (action of statusActions(tale.storedStatus); track action.status) {
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    [attr.aria-disabled]="saving() || null"
-                    (click)="changeTaleStatus(tale.id, action.status)"
-                  >
-                    {{ action.label }}
-                  </button>
-                }
-                <!-- Asked in the group view showing the tale's group, where focus goes after (story 8.20). -->
-                @if (store.groupViewOpen(tale.taleGroupId)) {
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    id="tale-drawer-delete"
-                    [attr.aria-disabled]="saving() || !!upload() || null"
-                    (click)="requestDelete(tale)"
-                  >
-                    Delete tale…
-                  </button>
-                }
-              </div>
-              @if (tale.status === 'blocked-by-group') {
-                <p class="field__hint">This tale is shown, but its tale group is off, so it does not show on the site.</p>
-              }
-              <p class="field__hint">Changes save as you make them.</p>
-            </section>
-            <!-- The whole window in words, readable by touch and keyboard; the card shows one bound. -->
-            @if (describeWindow(tale); as window) {
-              <div class="schedule-summary">
-                <p class="window-chip"><span class="visually-hidden">Schedule: </span>{{ window }}</p>
-                <button type="button" class="btn btn--secondary btn--sm" [attr.aria-disabled]="saving() || !!upload() || null" (click)="openTaleSchedule(tale)">
-                  Edit schedule…
-                </button>
-              </div>
-            }
-            @if (statusWarning()) {
-              <p class="field__error" role="alert">{{ statusWarning() }}</p>
-            }
-            <p class="visually-hidden" aria-live="polite">{{ statusAnnouncement() }}</p>
-            <div>
-              <a class="btn btn--secondary btn--sm" [routerLink]="['/tales', tale.id, 'studio']"
-                [queryParams]="{ zone: pageZoneId }"
-                (click)="close()"
-              >
-                Edit in Tale Studio
-              </a>
-            </div>
-            <section class="tale-drawer__media" aria-labelledby="tale-media-heading">
-              <h3 class="field__label" id="tale-media-heading">Media</h3>
-              <div class="media-preview">
-                @if (tale.media; as media) {
-                  @if (media.kind === 'video') {
-                    <video
-                      class="media-preview__media"
-                      [src]="store.mediaSrc(tale)"
-                      [muted]="true"
-                      autoplay
-                      loop
-                      playsinline
-                      controls
-                      [attr.aria-label]="'Video of ' + tale.title"
-                    ></video>
-                  } @else {
-                    <img class="media-preview__media" [src]="store.mediaSrc(tale)" [alt]="'Media of ' + tale.title" />
-                  }
-                } @else {
-                  <p class="media-preview__empty">No media yet</p>
-                }
-              </div>
-              <!-- The button is the control; the input only opens the picker and uploads what is picked. -->
-              <input
-                #mediaInput
-                id="create-file"
-                type="file"
-                hidden
-                [accept]="acceptedTypes"
-                (change)="replaceMedia($event)"
-              />
-              <button
-                type="button"
-                id="tale-replace-media"
-                class="btn btn--secondary btn--sm"
-                [attr.aria-disabled]="saving() || !!upload() || null"
-                [attr.aria-describedby]="error() ? 'create-file-hint create-error' : 'create-file-hint'"
-                (click)="chooseMedia()"
-              >
-                {{ tale.media ? 'Replace media' : 'Add media' }}
-              </button>
-              <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB. It replaces the media at once.</p>
-              @if (upload(); as upload) {
-                <!-- "Uploading…" is announced once by the live region; the bar's text is not live. -->
-                <label class="field__hint" for="tale-media-progress">
-                  @if (upload.percent === 100) {
-                    Saving…
-                  } @else if (upload.percent === null) {
-                    Uploading…
-                  } @else {
-                    Uploading… {{ upload.percent }}%
-                  }
-                </label>
-                <div class="tale-drawer__progress">
-                  @if (upload.percent === null) {
-                    <progress id="tale-media-progress"></progress>
-                  } @else {
-                    <progress id="tale-media-progress" max="100" [value]="upload.percent"></progress>
-                  }
-                  @if (upload.percent !== 100) {
-                    <button type="button" class="btn btn--ghost btn--sm" (click)="cancelUpload()">Cancel upload</button>
-                  }
-                </div>
-                <p class="field__hint">Closing the drawer cancels the upload.</p>
-              }
-            </section>
-          } @else {
-            <p class="muted">This tale no longer exists.</p>
-          }
-        }
       }
 
       @if (error()) {
@@ -737,9 +587,6 @@
     <div class="drawer__footer">
       @if (showsResult()) {
         <button type="button" class="btn btn--primary" (click)="close()">Done</button>
-      } @else if (request().kind === 'taleMedia') {
-        <!-- Everything above saved as it changed: one way out, nothing to cancel. -->
-        <button type="button" class="btn btn--primary" [disabled]="saving()" (click)="close()">Done</button>
       } @else if (request().kind === 'taleGroupOptions') {
         <!-- Closing keeps the group as a draft (Off); Discard takes it out of its zone and archives it. -->
         <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="discardGroup()">

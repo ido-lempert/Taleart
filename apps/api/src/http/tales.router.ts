@@ -3,7 +3,9 @@ import {
   ErrorCodes,
   maxMediaBytes,
   MAX_VIDEO_BYTES,
+  MAX_TALE_TITLE_LENGTH,
   type DuplicateTaleRequest,
+  type RenameTaleRequest,
   type SetScheduleRequest,
   type SetStatusRequest,
 } from '@taleart/contract';
@@ -17,6 +19,7 @@ import {
   getTaleDocument,
   getTaleMedia,
   publishTaleDocument,
+  renameTale,
   saveTaleDocument,
   setTaleMedia,
   setTaleSchedule,
@@ -30,7 +33,7 @@ import type { Pool } from 'pg';
 import { authorizeParam } from './authorize';
 import { HttpError } from './errors';
 import { declaredMediaType, matchesMagicNumber, mediaExtension, sendMediaBytes } from './media';
-import { requiredSchedule, requiredSettableStatus } from './validation';
+import { requiredName, requiredSchedule, requiredSettableStatus } from './validation';
 
 function logError(msg: string, err: unknown): void {
   console.log(
@@ -158,6 +161,18 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
       }
     },
   );
+
+  router.patch('/:taleId', taleAccess, async (req, res, next) => {
+    try {
+      // Tale first (404), then the body (400).
+      const { taleId } = req.params;
+      if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
+      const input: RenameTaleRequest = { title: requiredName(req.body, 'title', MAX_TALE_TITLE_LENGTH) };
+      res.json(await renameTale(pool, taleId, input.title));
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.put('/:taleId/status', talePublish, async (req, res, next) => {
     try {

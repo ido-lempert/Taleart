@@ -90,7 +90,8 @@
           class="btn btn--secondary btn--sm"
           id="group-view-add-tale"
           [attr.aria-label]="'Add tale to ' + group().name"
-          (click)="store.openDrawer({ kind: 'tale', taleGroupId: group().id }, $event)"
+          [attr.aria-disabled]="adding() || null"
+          (click)="addTale()"
         >
           <app-icon name="plus" /> Add tale
         </button>
@@ -115,17 +116,8 @@
             <app-tale-thumbnail [tales]="[tale]" mediaClass="tale-card__media" />
             <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
             <app-visibility class="tale-card__visibility" [visibility]="tale.visibility" viewing="tale" [compact]="true" />
-            @if (isSwitchable(tale.storedStatus)) {
-              <app-show-switch
-                class="tale-card__switch"
-                [on]="tale.storedStatus === 'live'"
-                [label]="'Show ' + tale.title"
-                [stateText]="shownLabel(tale.storedStatus, 'tale')"
-                [disabled]="saving().has(tale.id)"
-                [reason]="publishReason()"
-                (toggled)="switchTale(tale, $event)"
-              />
-            }
+            <!-- Shown or Hidden is set in Tale Studio; here it only reads. -->
+            <span class="tale-card__switch">{{ shownLabel(tale.storedStatus, 'tale') }}</span>
             @if (needsBadge(tale.status)) {
               <app-status-badge class="tale-card__status" [status]="tale.status" kind="tale" />
             }
@@ -142,7 +134,7 @@
                 type="button"
                 class="tale-card__open"
                 [attr.aria-label]="'Open tale ' + tale.title"
-                (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
+                (click)="openInStudio(tale)"
               ></button>
             }
             <app-menu-button

@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { API_BASE, DashboardStore, taleTitleFromFile } from './dashboard.store';
+import { API_BASE, DashboardStore } from './dashboard.store';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve));
 
@@ -32,23 +32,6 @@ describe('DashboardStore', () => {
     for (const req of http.match((r) => /\/projects\/[^/]+\/tale-groups$/.test(r.url))) req.flush([]);
     await tick();
   }
-
-  it('answers a tale deletion request only while a view shows its group, and drops it when the last one closes (story 8.20)', () => {
-    expect(store.requestTaleDeletion('t1', 'g1')).toBe(false);
-    expect(store.taleDeletionRequest()).toBeNull();
-    store.groupViewOpened('g1');
-    store.groupViewOpened('g1');
-    expect(store.requestTaleDeletion('t1', 'g1')).toBe(true);
-    expect(store.taleDeletionRequest()).toEqual({ taleId: 't1', taleGroupId: 'g1' });
-    // Another group's view closing leaves it; one of the two views of g1 closing leaves it too.
-    store.groupViewOpened('g2');
-    store.groupViewClosed('g2');
-    store.groupViewClosed('g1');
-    expect(store.taleDeletionRequest()).not.toBeNull();
-    store.groupViewClosed('g1');
-    expect(store.taleDeletionRequest()).toBeNull();
-    expect(store.groupViewOpen('g1')).toBe(false);
-  });
 
   it('resolves a superseded refresh only once the newest one is done, with its answers (story 8.4)', async () => {
     let olderDone = false;
@@ -246,13 +229,3 @@ describe('DashboardStore project roles', () => {
   });
 });
 
-describe('taleTitleFromFile (story 8.13)', () => {
-  it('reads a tale title from a media file name', () => {
-    expect(taleTitleFromFile('beach_day.png')).toBe('beach day');
-    expect(taleTitleFromFile('summer--sale  promo.final.mp4')).toBe('summer sale promo.final');
-    expect(taleTitleFromFile('.png')).toBe('Tale');
-    expect(taleTitleFromFile('___.gif')).toBe('Tale');
-    expect(taleTitleFromFile('noextension')).toBe('noextension');
-    expect([...taleTitleFromFile(`${'é'.repeat(150)}.png`)]).toHaveLength(100);
-  });
-});

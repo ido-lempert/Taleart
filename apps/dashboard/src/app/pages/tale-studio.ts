@@ -18,6 +18,9 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import {
   ErrorCodes,
+  isSwitchable,
+  MEDIA_CONTENT_TYPES,
+  switchStatus,
   taleShownStatus,
   visibilityOf,
   visibilitySummary,
@@ -82,6 +85,7 @@ import {
   textContrast,
   type TextBackdrop,
 } from '@taleart/contract/text-style';
+import { checkMediaFile } from '../create-drawer';
 import { DashboardStore } from '../dashboard.store';
 import { formatLocal } from '../schedule';
 import { Icon } from '../icon';
@@ -889,7 +893,10 @@ export class TaleStudioPage implements OnChanges {
    * Runs a tale menu item: the menu closes to its button, then the item acts (a drawer it opens
    * returns focus there). A disabled item says why instead.
    */
-  protected chooseFromTaleMenu(event: Event, item: 'discard' | 'duplicate' | 'shortcuts'): void {
+  protected chooseFromTaleMenu(
+    event: Event,
+    item: 'discard' | 'duplicate' | 'shortcuts' | 'show' | 'rename' | 'schedule' | 'media',
+  ): void {
     const disabled = (event.currentTarget as HTMLElement).getAttribute('aria-disabled') === 'true';
     const opener = this.taleMenuButton()?.nativeElement ?? null;
     this.closeTaleMenu(true);
@@ -899,7 +906,76 @@ export class TaleStudioPage implements OnChanges {
     } else if (item === 'duplicate') {
       // Duplicate says itself why it cannot open yet.
       void this.openDuplicate(opener);
+    } else if (item === 'show') {
+      void this.toggleShown();
+    } else if (item === 'rename') {
+      this.store.openDrawer({ kind: 'renameTale', taleId: this.taleId() }, opener ?? undefined);
+    } else if (item === 'schedule') {
+      this.store.openDrawer({ kind: 'schedule', target: 'tale', id: this.taleId() }, opener ?? undefined);
+    } else if (item === 'media') {
+      if (!disabled) this.mediaInput()?.nativeElement.click();
     } else this.openHelp(opener);
+  }
+
+  /** The tale menu's Show or Hide item for this tale; null when its status cannot change here. */
+  protected readonly shownAction = computed(() => {
+    const stored = this.tale()?.storedStatus;
+    if (!stored || !isSwitchable(stored) || !this.mayPublish() || this.viewOnly()) return null;
+    return stored === 'live' ? 'Hide from site' : 'Show on site';
+  });
+
+  /**
+   * Shows the tale on the site, or hides it: its stored status turns live or paused (AD-6). Going
+   * live with nothing on the site publishes the studio draft, which the store says when it did not.
+   */
+  protected async toggleShown(): Promise<void> {
+    const tale = this.tale();
+    if (!tale || this.updating() || this.held() || !this.mayPublish()) return;
+    const status = switchStatus(tale.storedStatus, tale.storedStatus !== 'live');
+    if (!status) return;
+    const taleId = this.taleId();
+    this.error.set('');
+    const result = await this.store.setTaleStatus(taleId, status);
+    if (taleId !== this.taleId()) return;
+    if (result.message) {
+      this.error.set(result.message);
+      return;
+    }
+    void this.readTaleVisibility();
+    this.say(result.warning || (status === 'live' ? 'Tale shown on the site.' : 'Tale hidden from the site.'));
+  }
+
+  /** The hidden file input the tale menu's Replace media opens; the picked file uploads at once. */
+  private readonly mediaInput = viewChild<ElementRef<HTMLInputElement>>('studioMedia');
+  protected readonly mediaAccept = MEDIA_CONTENT_TYPES.join(',');
+  /** True while the tale's media uploads, so a second pick waits for it. */
+  protected readonly mediaUploading = signal(false);
+
+  /** Checks the picked file and uploads it as the tale's media (the tale's card image) at once. */
+  protected async replaceMedia(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // The same file picked again (after a refusal, say) must fire `change` again.
+    input.value = '';
+    const taleId = this.taleId();
+    if (!file || !this.tale() || this.mediaUploading()) return;
+    const { type, problem } = checkMediaFile(file);
+    if (problem) {
+      this.error.set(problem);
+      return;
+    }
+    this.error.set('');
+    this.mediaUploading.set(true);
+    this.say('Uploading media…');
+    const message = await this.store.uploadTaleMedia(taleId, file, { type });
+    this.mediaUploading.set(false);
+    if (taleId !== this.taleId()) return;
+    if (message) {
+      this.error.set(message);
+      return;
+    }
+    void this.readTaleVisibility();
+    this.say('Media replaced.');
   }
 
   /** The left panel's tabs (story 11.1): Elements, Templates, Media and Layers; Elements first. */
