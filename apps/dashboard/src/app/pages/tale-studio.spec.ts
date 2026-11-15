@@ -2645,15 +2645,23 @@ describe('TaleStudioPage', () => {
       await settle(fixture);
       const items = () => [...root.querySelectorAll<HTMLElement>('#studio-menu-list [role=menuitem]')];
       expect(button.getAttribute('aria-expanded')).toBe('true');
-      expect(items().map((i) => i.id)).toEqual(['studio-discard', 'studio-duplicate', 'studio-help-button']);
-      expect(active()?.id).toBe('studio-discard');
+      expect(items().map((i) => i.id)).toEqual([
+        'studio-rename',
+        'studio-media',
+        'studio-schedule',
+        'studio-show',
+        'studio-discard',
+        'studio-duplicate',
+        'studio-help-button',
+      ]);
+      expect(active()?.id).toBe('studio-rename');
       key(items()[0], 'ArrowUp');
       expect(active()?.id).toBe('studio-help-button');
-      key(items()[2], 'Home');
-      expect(active()?.id).toBe('studio-discard');
+      key(items()[6], 'Home');
+      expect(active()?.id).toBe('studio-rename');
       key(items()[0], 'End');
       expect(active()?.id).toBe('studio-help-button');
-      key(items()[2], 'Escape');
+      key(items()[6], 'Escape');
       await settle(fixture);
       expect(root.querySelector('#studio-menu-list')).toBeNull();
       expect(active()).toBe(button);

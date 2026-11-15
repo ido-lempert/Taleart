@@ -64,14 +64,13 @@ export type DrawerRequest =
    * R14) the drawer offers the project's zones and "Not in a zone", starting at `zoneId` ('' for none).
    */
   | { kind: 'taleGroup'; zoneId: string; projectId?: string }
-  | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
   | { kind: 'renameTaleGroup'; taleGroupId: string }
   | { kind: 'placeTaleGroup'; taleGroupId: string }
   | { kind: 'removeTaleGroup'; zoneId: string; taleGroupId: string }
   | { kind: 'copyTaleGroup'; taleGroupId: string }
-  /** `focus: 'media'` (Replace media, epic UX rework R11) puts focus on the media file field. */
-  | { kind: 'taleMedia'; taleId: string; focus?: 'media' }
+  /** Renames a tale, from Tale Studio. */
+  | { kind: 'renameTale'; taleId: string }
   | { kind: 'cover'; taleGroupId: string }
   | { kind: 'schedule'; target: ScheduleTarget; id: string };
 
@@ -151,19 +150,6 @@ function taleGroupCreateMessage(err: unknown, fallback: string): string {
 export type ZoneField = 'name' | 'slug' | 'template' | 'project' | null;
 
 /** A refused zone change: the message to show, and the field it is about, so only that field is marked. */
-/**
- * A tale's title from its media file's name: without the extension, with underscores and hyphens
- * read as spaces, at most 100 characters; "Tale" when nothing is left.
- */
-export function taleTitleFromFile(name: string): string {
-  const title = name
-    .replace(/\.[^.]*$/, '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return [...title].slice(0, 100).join('').trim() || 'Tale';
-}
-
 export interface ZoneChangeResult {
   message: string;
   field: ZoneField;
@@ -1013,44 +999,6 @@ export class DashboardStore {
   }
 
   /**
-   * A tale whose deletion was asked for outside the group view (the tale drawer's "Delete tale…"),
-   * with its group: the group view showing that group opens the confirmation and clears it, or clears
-   * it when the tale is gone; a view of that group closing clears it too (story 8.20).
-   */
-  readonly taleDeletionRequest = signal<{ taleId: string; taleGroupId: string } | null>(null);
-  /** How many group views show each group now, by group id: who can answer a deletion request. */
-  private readonly groupViews = signal<Record<string, number>>({});
-
-  /** True while a group view shows the group, so a deletion request for one of its tales is answered. */
-  groupViewOpen(taleGroupId: string): boolean {
-    return (this.groupViews()[taleGroupId] ?? 0) > 0;
-  }
-
-  /** A group view started showing a group. */
-  groupViewOpened(taleGroupId: string): void {
-    this.groupViews.update((views) => ({ ...views, [taleGroupId]: (views[taleGroupId] ?? 0) + 1 }));
-  }
-
-  /** A group view stopped showing a group; with none left, a deletion request for it is dropped. */
-  groupViewClosed(taleGroupId: string): void {
-    const left = (this.groupViews()[taleGroupId] ?? 1) - 1;
-    this.groupViews.update((views) => {
-      const next = { ...views };
-      if (left > 0) next[taleGroupId] = left;
-      else delete next[taleGroupId];
-      return next;
-    });
-    if (left <= 0 && this.taleDeletionRequest()?.taleGroupId === taleGroupId) this.taleDeletionRequest.set(null);
-  }
-
-  /** Asks the group view showing the tale's group to confirm its deletion; false when none shows it. */
-  requestTaleDeletion(taleId: string, taleGroupId: string): boolean {
-    if (!this.groupViewOpen(taleGroupId)) return false;
-    this.taleDeletionRequest.set({ taleId, taleGroupId });
-    return true;
-  }
-
-  /**
    * Deletes a tale for good (story 8.20). A tale order of its group still being saved goes first,
    * since it lists this tale. Once deleted, the tale leaves every list at once (the group's other
    * tales close up, the project list's counts drop), then everything is read again. A tale already
@@ -1394,73 +1342,29 @@ export class DashboardStore {
   }
 
   /**
-   * Adds a tale, then uploads `file` as its media when one is given. When the
-   * tale is saved but its media is not, the drawer switches to that tale so the
-   * upload can be retried, and the API's message is returned.
+   * Adds a tale, titled `title`, at the end of its group as a draft; its media and status are set in
+   * Tale Studio. Resolves to the new tale, or the API's message when it was refused.
    */
-  async createTale(taleGroupId: string, title: string, file: File | null = null): Promise<string> {
+  async createTale(taleGroupId: string, title: string): Promise<{ tale: Tale | null; message: string }> {
     let tale: Tale;
     try {
       tale = await firstValueFrom(this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, { title }));
     } catch (err) {
-      return apiErrorMessage(err, 'Tale was not saved. Try again.');
+      return { tale: null, message: apiErrorMessage(err, 'Tale was not saved. Try again.') };
     }
-    const message = (file && (await this.putMedia(tale.id, file))) || '';
     await this.refresh();
-    if (message) {
-      this.drawer.set({ kind: 'taleMedia', taleId: tale.id });
-      return `The tale was added, but its media was not saved. ${message}`;
-    }
-    return '';
+    return { tale, message: '' };
   }
 
-  /**
-   * Adds one tale per file to a tale group, in the files' order, each titled after its file name and
-   * with the file as its media, sent with its checked `type` (epic UX rework R13: a new group gets
-   * its tales in the same step). New tales start Shown (R6). Stops at the first refusal, or when
-   * `signal` aborts; a tale whose media was not saved is hidden, so it never shows empty. Reads the
-   * lists again once. `progress` is told the 1-based number of the file being added.
-   */
-  async addTalesFromFiles(
-    taleGroupId: string,
-    files: readonly { file: File; type: string }[],
-    options: { progress?: (n: number) => void; signal?: AbortSignal } = {},
-  ): Promise<{ added: number; message: string }> {
-    const { progress, signal } = options;
-    let added = 0;
-    let message = '';
-    for (const [i, { file, type }] of files.entries()) {
-      if (signal?.aborted) {
-        message = 'Stopped.';
-        break;
-      }
-      progress?.(i + 1);
-      const title = taleTitleFromFile(file.name);
-      let tale: Tale;
-      try {
-        tale = await firstValueFrom(this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, { title }));
-      } catch (err) {
-        message = apiErrorMessage(err, `The tale "${title}" was not saved.`);
-        break;
-      }
-      const refused = await this.putMedia(tale.id, file, { type, signal });
-      if (refused !== '') {
-        // Hidden, so a tale without its media never shows; removing it is left to the user.
-        try {
-          await firstValueFrom(this.http.put<Tale>(`${API_BASE}/tales/${tale.id}/status`, { status: 'paused' }));
-        } catch {
-          // A tale without media is not delivered anyway (AD-15).
-        }
-        message =
-          refused === null
-            ? `Stopped. The tale "${title}" was added hidden, without its media.`
-            : `The tale "${title}" was added hidden, without its media. ${refused}`;
-        break;
-      }
-      added++;
+  /** Renames a tale, then reads the lists again. Resolves to '' when saved, else the API's message. */
+  async renameTale(taleId: string, title: string): Promise<string> {
+    try {
+      await firstValueFrom(this.http.patch<Tale>(`${API_BASE}/tales/${encodeURIComponent(taleId)}`, { title }));
+    } catch (err) {
+      return apiErrorMessage(err, 'The tale was not renamed. Try again.');
     }
     await this.refresh();
-    return { added, message };
+    return '';
   }
 
   /**
