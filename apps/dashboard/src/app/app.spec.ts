@@ -3452,6 +3452,87 @@ describe('App', () => {
       expect(cardOf('A').querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('true');
     });
 
+    // The ⋯ menu of a tale card, open or not; its element is the one the trigger controls.
+    function taleMenuOf(title: string): HTMLElement | null {
+      const trigger = groupView()?.querySelector<HTMLButtonElement>(`button[aria-label="More for ${title}"]`);
+      if (trigger?.getAttribute('aria-expanded') !== 'true') return null;
+      return document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+    }
+
+    it('opens a tale card\'s ⋯ menu at the pointer on a right-click, with the same items, and its items act the same', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const card = cardOf('A');
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 140 });
+      card.dispatchEvent(event);
+      await settle(fixture);
+
+      // The native menu is suppressed; the menu is the ⋯ one, placed at the pointer.
+      expect(event.defaultPrevented).toBe(true);
+      const menu = taleMenuOf('A');
+      expect(menu).not.toBeNull();
+      expect(menu?.style.left).toBe('120px');
+      expect(menu?.style.top).toBe('140px');
+      expect([...(menu?.querySelectorAll('[role=menuitem]') ?? [])].map((i) => i.firstElementChild?.textContent?.trim())).toEqual(
+        ['Edit in Tale Studio', 'Replace media', 'Schedule', 'Duplicate', 'Archive', 'Delete'],
+      );
+
+      // Schedule, from the menu opened by the right-click, opens the same drawer as from the ⋯ button.
+      const schedule = [...(menu?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])].find(
+        (i) => i.firstElementChild?.textContent?.trim() === 'Schedule',
+      );
+      schedule?.click();
+      await settle(fixture);
+      expect(drawer()).not.toBeNull();
+      expect(taleMenuOf('A')).toBeNull();
+    });
+
+    it('closes a right-click menu on Escape and on a press outside, and a second right-click moves to another card', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      cardOf('A').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 50, clientY: 60 }));
+      await settle(fixture);
+      expect(taleMenuOf('A')).not.toBeNull();
+
+      // Escape, with focus in the menu, closes it.
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle(fixture);
+      expect(taleMenuOf('A')).toBeNull();
+
+      cardOf('A').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 50, clientY: 60 }));
+      await settle(fixture);
+      expect(taleMenuOf('A')).not.toBeNull();
+      // A press outside closes it.
+      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      await settle(fixture);
+      expect(taleMenuOf('A')).toBeNull();
+
+      // A right-click on another card opens that card's menu, and only that one.
+      cardOf('A').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 50, clientY: 60 }));
+      await settle(fixture);
+      cardOf('B').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 70, clientY: 80 }));
+      await settle(fixture);
+      expect(taleMenuOf('A')).toBeNull();
+      expect(taleMenuOf('B')).not.toBeNull();
+    });
+
+    it('opens the same tale ⋯ menu from the keyboard with Shift+F10 or the Context Menu key', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const card = cardOf('C');
+      const shiftF10 = new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true });
+      card.dispatchEvent(shiftF10);
+      await settle(fixture);
+      expect(shiftF10.defaultPrevented).toBe(true);
+      expect(taleMenuOf('C')).not.toBeNull();
+      expect(document.activeElement?.textContent?.trim()).toBe('Edit in Tale Studio');
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle(fixture);
+
+      const contextKey = new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true });
+      card.querySelector<HTMLElement>('.tale-card__name')?.dispatchEvent(contextKey);
+      await settle(fixture);
+      expect(contextKey.defaultPrevented).toBe(true);
+      expect(taleMenuOf('C')).not.toBeNull();
+    });
+
     it('offers every tale ⋯ item: Edit in Tale Studio, Replace media, Schedule, Duplicate, Archive, Delete', async () => {
       const { fixture } = await open('/zones/z1', data);
       const view = () => groupView() as HTMLElement;

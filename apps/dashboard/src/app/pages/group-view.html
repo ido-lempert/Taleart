@@ -111,7 +111,7 @@
         (cdkDropListDropped)="dropTale($event)"
       >
         @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
-          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent">
+          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent" (contextmenu)="taleContextMenu($event, taleMenu)">
             @if (tale.media; as media) {
               @if (media.kind === 'video') {
                 <!-- Loads and plays only while on screen: a group can hold 100 tales. -->
@@ -162,6 +162,7 @@
               ></button>
             }
             <app-menu-button
+              #taleMenu
               class="tale-card__menu"
               [label]="'More for ' + tale.title"
               [items]="taleMenus().get(tale.id) ?? []"
