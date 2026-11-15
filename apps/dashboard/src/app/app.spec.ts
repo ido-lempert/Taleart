@@ -1226,247 +1226,132 @@ describe('App', () => {
       });
     });
 
-    it('creates a tale group, then adds tales A then B, shown in that order', async () => {
-      const { fixture, root } = await open('/zones/z1', oneZone);
-      expect(root.textContent).toContain('No tale groups yet');
+    describe('a new tale group starts in Tale Studio on its draft tale, and its options come after the studio', () => {
+      const url = () => TestBed.inject(Router).url;
+      const started = { ...group, name: 'New tale group', tales: [] as unknown[] };
+      const draft = { ...taleA, id: 't1', taleGroupId: 'g1', title: 'New tale' };
 
-      buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
-      await settle(fixture);
-      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
-      buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await answerCreate(
-        fixture,
-        `${API_BASE}/zones/z1/tale-groups`,
-        { name: 'Summer' },
-        { ...group, tales: [] },
-        {
+      // Answers the group's create, then the draft tale's create; each is followed by the reads it makes.
+      async function startOnZone(fixture: ComponentFixture<unknown>): Promise<void> {
+        await answerCreate(fixture, `${API_BASE}/zones/z1/tale-groups`, { name: 'New tale group' }, started, {
           ...oneZone,
-          groups: { z1: [{ ...group, tales: [] }] },
-        },
-      );
-      expect(root.querySelector('[aria-label="Tale groups in Home bar"]')?.textContent).toContain('No tales yet');
-      await expandGroups(fixture, root);
-
-      for (const [title, tales] of [
-        ['A', [taleA]],
-        ['B', [taleA, taleB]],
-      ] as const) {
-        (root.querySelector('#group-view-add-tale') as HTMLButtonElement).click();
-        await settle(fixture);
-        type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, title);
-        buttonNamed(drawer() as HTMLElement, 'Add').click();
-        await answerCreate(fixture, `${API_BASE}/tale-groups/g1/tales`, { title }, tales[tales.length - 1], {
-          ...oneZone,
-          groups: { z1: [{ ...group, tales }] },
+          groups: { z1: [started] },
         });
+        const post = http.expectOne(`${API_BASE}/tale-groups/g1/tales`);
+        expect(post.request.body).toEqual({ title: 'New tale' });
+        post.flush(draft);
+        await settle(fixture);
+        await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...started, tales: [draft] }] } });
+        await answerStudioReads(fixture);
       }
 
-      const cards = [...root.querySelectorAll('[aria-label="Tales in Summer"] li')].map((li) =>
-        li.querySelector('.tale-card__title')?.textContent?.trim(),
-      );
-      expect(cards).toEqual(['A', 'B']);
-    });
-
-    describe('a new tale group with its tales from files (story 8.13: the first run in 15 actions)', () => {
-      const beach = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'beach_day.png', { type: 'image/png' });
-      const pool = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'Pool.webp', { type: 'image/webp' });
-      const withTales = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } };
-
-      function pickAll(input: HTMLInputElement | null, files: File[]): void {
-        if (!input) throw new Error('No file input');
-        Object.defineProperty(input, 'files', { value: files, configurable: true });
-        input.dispatchEvent(new Event('change'));
+      // The studio's own reads, answered as a missing tale's (they are not what these tests check).
+      async function answerStudioReads(fixture: ComponentFixture<unknown>): Promise<void> {
+        await settle(fixture);
+        for (const req of http.match((r) => r.method === 'GET' && /\/tales\/t1(\/document)?$/.test(r.url))) {
+          req.flush({ error: { code: 'tale_not_found', message: 'gone' } }, { status: 404, statusText: 'Not Found' });
+        }
+        for (const req of http.match((r) => r.method === 'GET' && /\/projects\/p1\/(theme|fonts)$/.test(r.url)))
+          req.flush(null);
+        await settle(fixture);
       }
 
-      async function createSummer(files: File[]) {
+      // Leaves Tale Studio for the zone page.
+      async function leaveStudio(fixture: ComponentFixture<unknown>): Promise<void> {
+        await TestBed.inject(Router).navigateByUrl('/zones/z1');
+        await answerStudioReads(fixture);
+      }
+
+      it('makes the group with its draft tale, then opens Tale Studio on the tale, with no options yet', async () => {
+        const { fixture, root } = await open('/zones/z1', oneZone);
+        expect(root.textContent).toContain('No tale groups yet');
+        buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
+        await settle(fixture);
+        await startOnZone(fixture);
+        expect(url()).toBe('/tales/t1/studio?newGroup=g1&zone=z1');
+        expect(drawer()).toBeNull();
+      });
+
+      it('gives the group its options once the studio is left, and Done saves a new name', async () => {
         const { fixture, root } = await open('/zones/z1', oneZone);
         buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
         await settle(fixture);
-        const input = drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null;
-        expect(input?.multiple).toBe(true);
-        expect(input?.getAttribute('aria-describedby')).toBe('create-group-files-hint');
-        type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
-        pickAll(input, files);
-        buttonNamed(drawer() as HTMLElement, 'Create').click();
-        await answerCreate(
-          fixture,
-          `${API_BASE}/zones/z1/tale-groups`,
-          { name: 'Summer' },
-          { ...group, tales: [] },
-          {
-            ...oneZone,
-            groups: { z1: [{ ...group, tales: [] }] },
-          },
-        );
-        return { fixture, root };
-      }
-
-      async function answerTale(
-        fixture: ComponentFixture<unknown>,
-        title: string,
-        id: string,
-        file: File,
-        refused = false,
-      ) {
-        const post = http.expectOne(`${API_BASE}/tale-groups/g1/tales`);
-        expect(post.request.body).toEqual({ title });
-        post.flush({ ...taleA, id, title });
+        await startOnZone(fixture);
+        await leaveStudio(fixture);
+        expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale group');
+        expect(drawer()?.textContent).toContain('In zone Home bar');
+        const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
+        expect(name?.value).toBe('New tale group');
+        type(name, 'Summer');
+        buttonNamed(drawer() as HTMLElement, 'Done').click();
+        const rename = http.expectOne(`${API_BASE}/tale-groups/g1`);
+        expect(rename.request.method).toBe('PATCH');
+        expect(rename.request.body).toEqual({ name: 'Summer' });
+        rename.flush({ ...started, name: 'Summer' });
         await settle(fixture);
-        const put = http.expectOne(`${API_BASE}/tales/${id}/media`);
-        expect(put.request.method).toBe('PUT');
-        expect(put.request.body).toBe(file);
-        // The checked type, from the extension when the file has none.
-        expect(put.request.headers.get('Content-Type')).toBe(file.type || 'image/webp');
-        if (refused) {
-          put.flush(
-            { error: { code: 'media_too_large', message: 'The file is over 10 MB' } },
-            { status: 413, statusText: 'Too Large' },
-          );
-          await settle(fixture);
-          // A tale without its media is hidden, never shown empty.
-          const hide = http.expectOne(`${API_BASE}/tales/${id}/status`);
-          expect(hide.request.body).toEqual({ status: 'paused' });
-          hide.flush({ ...taleA, id, title, status: 'paused', storedStatus: 'paused' });
-        } else {
-          put.flush({ ...taleA, id, title, media: pngMedia });
-        }
-        await settle(fixture);
-      }
-
-      it('adds one tale per file, in order, titled after the file, and closes', async () => {
-        const { fixture, root } = await createSummer([beach, pool]);
-        expect(drawer()?.querySelector('[role=status]')?.textContent).toContain('Adding tale 1 of 2');
-        await answerTale(fixture, 'beach day', 't1', beach);
-        await answerTale(fixture, 'Pool', 't2', pool);
-        await flushRefresh(fixture, withTales);
+        await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...started, name: 'Summer', tales: [draft] }] } });
         await settle(fixture);
         expect(drawer()).toBeNull();
         expect(root.querySelector('[aria-label="Tale groups in Home bar"]')?.textContent).toContain('Summer');
       });
 
-      it('keeps the drawer with only Done when a tale is refused, since the group exists', async () => {
-        const { fixture } = await createSummer([beach, pool]);
-        await answerTale(fixture, 'beach day', 't1', beach, true);
-        await flushRefresh(fixture, withTales);
-        await settle(fixture);
-        const alert = drawer()?.querySelector('[role=alert]')?.textContent ?? '';
-        expect(alert).toContain('The tale group was created with 0 of 2 tales.');
-        expect(alert).toContain('The tale "beach day" was added hidden, without its media. The file is over 10 MB');
-        const buttons = [...(drawer()?.querySelectorAll('.drawer__footer button') ?? [])].map((b) =>
-          b.textContent?.trim(),
-        );
-        expect(buttons).toEqual(['Done']);
-        // No second group, and no tale for the second file.
-        drawer()
-          ?.querySelector('form')
-          ?.dispatchEvent(new Event('submit', { cancelable: true }));
-        await settle(fixture);
-        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
-        http.expectNone(`${API_BASE}/tale-groups/g1/tales`);
-      });
-
-      it('checks every file before creating anything: type (by extension when missing) and size', async () => {
+      it('takes the group out of its zone and archives it when its options are discarded', async () => {
         const { fixture, root } = await open('/zones/z1', oneZone);
         buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
         await settle(fixture);
-        type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
-        const input = drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null;
-        const menu = new File(['%PDF'], 'menu.pdf', { type: 'application/pdf' });
-        pickAll(input, [beach, menu]);
-        buttonNamed(drawer() as HTMLElement, 'Create').click();
+        await startOnZone(fixture);
+        await leaveStudio(fixture);
+        buttonNamed(drawer() as HTMLElement, 'Discard group').click();
         await settle(fixture);
-        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
-        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
-          '"menu.pdf": Upload a JPEG, PNG, WebP or GIF image',
-        );
-        const huge = new File([new Uint8Array(1)], 'huge.png', { type: 'image/png' });
-        Object.defineProperty(huge, 'size', { value: 11 * 1024 * 1024 });
-        pickAll(input, [huge]);
-        buttonNamed(drawer() as HTMLElement, 'Create').click();
+        const removed = http.expectOne(`${API_BASE}/zones/z1/tale-groups/g1`);
+        expect(removed.request.method).toBe('DELETE');
+        removed.flush(null, { status: 204, statusText: 'No Content' });
         await settle(fixture);
-        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
-        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
-          '"huge.png": The file is larger than 10 MB',
-        );
-      });
-
-      it('sends a file without a type with the type of its extension', async () => {
-        const untyped = new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], 'Pool.webp');
-        const { fixture } = await createSummer([untyped]);
-        await answerTale(fixture, 'Pool', 't1', untyped);
-        await flushRefresh(fixture, withTales);
+        await flushRefresh(fixture, oneZone);
+        await settle(fixture);
+        const archive = http.expectOne(`${API_BASE}/tale-groups/g1/status`);
+        expect(archive.request.body).toEqual({ status: 'archived' });
+        archive.flush({ ...started, status: 'archived', storedStatus: 'archived' });
+        await settle(fixture);
+        await flushRefresh(fixture, oneZone);
         await settle(fixture);
         expect(drawer()).toBeNull();
       });
 
-      it('shows its progress and stops after the file being added', async () => {
-        const { fixture } = await createSummer([beach, pool]);
-        const status = () => drawer()?.querySelector('.group-files-progress [role=status]')?.textContent?.trim();
-        expect(status()).toBe('Adding tale 1 of 2…');
-        const post = http.expectOne(`${API_BASE}/tale-groups/g1/tales`);
-        post.flush({ ...taleA, id: 't1', title: 'beach day' });
-        await settle(fixture);
-        const put = http.expectOne(`${API_BASE}/tales/t1/media`);
-        drawer()?.querySelector<HTMLButtonElement>('#create-group-stop')?.click();
-        await settle(fixture);
-        expect(put.cancelled).toBe(true);
-        const hide = http.expectOne(`${API_BASE}/tales/t1/status`);
-        expect(hide.request.body).toEqual({ status: 'paused' });
-        hide.flush({ ...taleA, status: 'paused', storedStatus: 'paused' });
-        await settle(fixture);
-        await flushRefresh(fixture, withTales);
-        await settle(fixture);
-        http.expectNone(`${API_BASE}/tale-groups/g1/tales`);
-        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
-          'created with 0 of 2 tales. Stopped. The tale "beach day" was added hidden, without its media.',
-        );
-      });
-
-      it('refuses more files than a group holds, before creating anything', async () => {
+      it('takes the group back out, and says why on the page, when its draft tale is refused', async () => {
         const { fixture, root } = await open('/zones/z1', oneZone);
         buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
         await settle(fixture);
-        type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
-        pickAll(
-          drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null,
-          Array.from({ length: 101 }, () => beach),
-        );
-        buttonNamed(drawer() as HTMLElement, 'Create').click();
+        await answerCreate(fixture, `${API_BASE}/zones/z1/tale-groups`, { name: 'New tale group' }, started, {
+          ...oneZone,
+          groups: { z1: [started] },
+        });
+        await refuse(fixture, `${API_BASE}/tale-groups/g1/tales`, 'validation_failed', 'the title is too long');
+        http.expectOne(`${API_BASE}/zones/z1/tale-groups/g1`).flush(null, { status: 204, statusText: 'No Content' });
         await settle(fixture);
-        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
-        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
-          'holds up to 100 tales. Choose fewer files.',
-        );
+        await flushRefresh(fixture, oneZone);
+        await settle(fixture);
+        http
+          .expectOne(`${API_BASE}/tale-groups/g1/status`)
+          .flush({ ...started, status: 'archived', storedStatus: 'archived' });
+        await settle(fixture);
+        await flushRefresh(fixture, oneZone);
+        await settle(fixture);
+        expect(url()).toBe('/zones/z1');
+        expect(root.querySelector('[role=alert]')?.textContent).toContain('the title is too long');
       });
-    });
 
-    it('shows the API message in the tale group drawer when a group is refused', async () => {
-      const { fixture, root } = await open('/zones/z1', oneZone);
-
-      buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
-      await settle(fixture);
-      buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await refuse(fixture, `${API_BASE}/zones/z1/tale-groups`, 'validation_failed', 'name is required');
-
-      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('name is required');
-    });
-
-    it('says plainly that the project is full when a new tale group is refused at the cap', async () => {
-      const { fixture, root } = await open('/zones/z1', oneZone);
-
-      buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
-      await settle(fixture);
-      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
-      buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await settle(fixture);
-      http
-        .expectOne(`${API_BASE}/zones/z1/tale-groups`)
-        .flush(groupLimit(fullCreate), { status: 409, statusText: 'Conflict' });
-      await settle(fixture);
-
-      // The server's message, as it says it.
-      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCreate);
-      expect(buttonNamed(drawer() as HTMLElement, 'Create')).toBeTruthy();
+      it('says plainly that the project is full when the group is refused at the cap', async () => {
+        const { fixture, root } = await open('/zones/z1', oneZone);
+        buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
+        await settle(fixture);
+        http
+          .expectOne(`${API_BASE}/zones/z1/tale-groups`)
+          .flush(groupLimit(fullCreate), { status: 409, statusText: 'Conflict' });
+        await settle(fixture);
+        expect(root.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCreate);
+        expect(url()).toBe('/zones/z1');
+      });
     });
 
     it('shows the API message in the tale drawer when a tale is refused', async () => {
@@ -6454,105 +6339,106 @@ describe('App', () => {
       expect(names(root)).toEqual(['Draft loose']);
     });
 
-    it('creates a tale group in no zone from "New tale group", and shows it when the filter hid it', async () => {
-      const { fixture, root } = await open('/tale-groups?filter=visible', data);
-      const button = buttonNamed(root, 'New tale group');
-      button.click();
-      await settle(fixture);
-      expect(drawer()?.querySelector('h2')?.textContent).toContain('New tale group');
-      expect(drawer()?.textContent).toContain('In project Acme');
-      const select = drawer()?.querySelector<HTMLSelectElement>('#create-group-zone') as HTMLSelectElement;
-      expect(drawer()?.querySelector('label[for=create-group-zone]')?.textContent?.trim()).toBe('Zone');
-      expect([...select.options].map((o) => [o.value, o.textContent?.trim()])).toEqual([
-        ['', 'Not in a zone'],
-        ['z1', 'Home bar'],
-        ['z3', 'Product page'],
-      ]);
-      expect(select.value).toBe('');
-      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Loose ends');
-      buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await settle(fixture);
-      const created = projectGroup({ id: 'g8', name: 'Loose ends', visibility: why('not-in-any-zone') });
-      await answerCreate(fixture, `${API_BASE}/projects/p1/tale-groups`, { name: 'Loose ends' }, created, {
-        ...data,
-        projectGroups: { p1: [...states, created] },
+    describe('a new tale group in no zone starts in Tale Studio, and its options come after the studio', () => {
+      const url = () => TestBed.inject(Router).url;
+      const made = projectGroup({ id: 'g8', name: 'New tale group', visibility: why('not-in-any-zone') });
+      const draft = { ...taleA, id: 't9', taleGroupId: 'g8', title: 'New tale' };
+      const withMade = { ...data, projectGroups: { p1: [...states, made] } };
+
+      // Answers the group's create, then the draft tale's create; each is followed by the reads it makes.
+      async function startLoose(fixture: ComponentFixture<unknown>): Promise<void> {
+        await answerCreate(fixture, `${API_BASE}/projects/p1/tale-groups`, { name: 'New tale group' }, made, withMade);
+        const post = http.expectOne(`${API_BASE}/tale-groups/g8/tales`);
+        expect(post.request.body).toEqual({ title: 'New tale' });
+        post.flush(draft);
+        await settle(fixture);
+        await flushRefresh(fixture, withMade);
+        await answerStudioReads(fixture);
+      }
+
+      // The studio's own reads, answered as a missing tale's (they are not what these tests check).
+      async function answerStudioReads(fixture: ComponentFixture<unknown>): Promise<void> {
+        await settle(fixture);
+        for (const req of http.match((r) => r.method === 'GET' && /\/tales\/t9(\/document)?$/.test(r.url))) {
+          req.flush({ error: { code: 'tale_not_found', message: 'gone' } }, { status: 404, statusText: 'Not Found' });
+        }
+        for (const req of http.match((r) => r.method === 'GET' && /\/projects\/p1\/(theme|fonts)$/.test(r.url)))
+          req.flush(null);
+        await settle(fixture);
+      }
+
+      // Leaves Tale Studio for the Tale groups page.
+      async function leaveStudio(fixture: ComponentFixture<unknown>): Promise<void> {
+        await TestBed.inject(Router).navigateByUrl('/tale-groups');
+        await answerStudioReads(fixture);
+      }
+
+      it('starts the group in no zone and opens Tale Studio on its draft tale', async () => {
+        const { fixture, root } = await open('/tale-groups', data);
+        buttonNamed(root, 'New tale group').click();
+        await settle(fixture);
+        await startLoose(fixture);
+        expect(url()).toBe('/tales/t9/studio?newGroup=g8&from=tale-groups');
+        expect(drawer()).toBeNull();
       });
-      expect(drawer()).toBeNull();
-      expect(radio(root, 'all').checked).toBe(true);
-      expect(url()).toBe('/tale-groups');
-      expect(names(root)).toContain('Loose ends');
-      expect(live(root)).toBe('Loose ends created. Showing all tale groups.');
-    });
 
-    it('says plainly that the project is full when a group in no zone is refused at the cap', async () => {
-      const { fixture, root } = await open('/tale-groups', data);
-      buttonNamed(root, 'New tale group').click();
-      await settle(fixture);
-      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Loose ends');
-      buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await settle(fixture);
-      // Without the server's message, the client's own wording.
-      http
-        .expectOne(`${API_BASE}/projects/p1/tale-groups`)
-        .flush(groupLimit(''), { status: 409, statusText: 'Conflict' });
-      await settle(fixture);
-      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCreate);
-    });
-
-    it('creates a tale group in no zone with its tales from files (story 8.13)', async () => {
-      const { fixture, root } = await open('/tale-groups', data);
-      buttonNamed(root, 'New tale group').click();
-      await settle(fixture);
-      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Loose ends');
-      const shot = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', { type: 'image/png' });
-      const input = drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null;
-      if (!input) throw new Error('No files input');
-      Object.defineProperty(input, 'files', { value: [shot], configurable: true });
-      input.dispatchEvent(new Event('change'));
-      buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await settle(fixture);
-      const created = projectGroup({ id: 'g8', name: 'Loose ends', visibility: why('not-in-any-zone') });
-      await answerCreate(fixture, `${API_BASE}/projects/p1/tale-groups`, { name: 'Loose ends' }, created, {
-        ...data,
-        projectGroups: { p1: [...states, created] },
+      it('offers the zones to show it in once the studio is left, and Done places it there', async () => {
+        const { fixture, root } = await open('/tale-groups', data);
+        buttonNamed(root, 'New tale group').click();
+        await settle(fixture);
+        await startLoose(fixture);
+        await leaveStudio(fixture);
+        expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale group');
+        expect(drawer()?.textContent).toContain('In project Acme');
+        const select = drawer()?.querySelector<HTMLSelectElement>('#create-group-zone') ?? null;
+        expect([...(select?.options ?? [])].map((o) => [o.value, o.textContent?.trim()])).toEqual([
+          ['', 'Not in a zone'],
+          ['z1', 'Home bar'],
+          ['z3', 'Product page'],
+        ]);
+        choose(select, 'z3');
+        await settle(fixture);
+        buttonNamed(drawer() as HTMLElement, 'Done').click();
+        const placed = http.expectOne(`${API_BASE}/zones/z3/tale-groups/g8`);
+        expect(placed.request.method).toBe('PUT');
+        placed.flush({ ...made, zoneIds: ['z3'], position: 0 }, { status: 201, statusText: 'Created' });
+        await settle(fixture);
+        await flushRefresh(fixture, {
+          ...withMade,
+          groups: { z3: [{ ...made, zoneIds: ['z3'], position: 0 }] },
+        });
+        await settle(fixture);
+        expect(drawer()).toBeNull();
       });
-      const post = http.expectOne(`${API_BASE}/tale-groups/g8/tales`);
-      expect(post.request.body).toEqual({ title: 'shot' });
-      post.flush({ ...taleA, id: 't9', taleGroupId: 'g8', title: 'shot' });
-      await settle(fixture);
-      const put = http.expectOne(`${API_BASE}/tales/t9/media`);
-      expect(put.request.headers.get('Content-Type')).toBe('image/png');
-      put.flush({ ...taleA, id: 't9', media: pngMedia });
-      await settle(fixture);
-      await flushRefresh(fixture, { ...data, projectGroups: { p1: [...states, created] } });
-      await settle(fixture);
-      expect(drawer()).toBeNull();
-    });
 
-    it('creates a tale group in the zone picked in the drawer', async () => {
-      const { fixture, root } = await open('/tale-groups', data);
-      buttonNamed(root, 'New tale group').click();
-      await settle(fixture);
-      choose(drawer()?.querySelector<HTMLSelectElement>('#create-group-zone') ?? null, 'z3');
-      await settle(fixture);
-      expect(drawer()?.textContent).toContain('In zone Product page');
-      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Placed');
-      buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await settle(fixture);
-      const created = projectGroup({ id: 'g8', name: 'Placed', zoneIds: ['z3'] });
-      await answerCreate(
-        fixture,
-        `${API_BASE}/zones/z3/tale-groups`,
-        { name: 'Placed' },
-        { ...created, position: 0 },
-        {
-          ...data,
-          groups: { z3: [{ ...created, position: 0 }] },
-          projectGroups: { p1: [...states, created] },
-        },
-      );
-      expect(names(root)).toContain('Placed');
-      expect(live(root)).toBe('Placed created');
+      it('archives the group when its options are discarded, as it has no zone to leave', async () => {
+        const { fixture, root } = await open('/tale-groups', data);
+        buttonNamed(root, 'New tale group').click();
+        await settle(fixture);
+        await startLoose(fixture);
+        await leaveStudio(fixture);
+        buttonNamed(drawer() as HTMLElement, 'Discard group').click();
+        await settle(fixture);
+        const archive = http.expectOne(`${API_BASE}/tale-groups/g8/status`);
+        expect(archive.request.body).toEqual({ status: 'archived' });
+        archive.flush({ ...made, zoneIds: [], tales: [], status: 'archived', storedStatus: 'archived' });
+        await settle(fixture);
+        await flushRefresh(fixture, data);
+        await settle(fixture);
+        expect(drawer()).toBeNull();
+      });
+
+      it('says plainly that the project is full when the group is refused at the cap', async () => {
+        const { fixture, root } = await open('/tale-groups', data);
+        buttonNamed(root, 'New tale group').click();
+        await settle(fixture);
+        http
+          .expectOne(`${API_BASE}/projects/p1/tale-groups`)
+          .flush(groupLimit(fullCreate), { status: 409, statusText: 'Conflict' });
+        await settle(fixture);
+        expect(root.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCreate);
+        expect(url()).toBe('/tale-groups');
+      });
     });
 
     it('shows a group in no zone in the Tags and Cover drawers from its menu', async () => {

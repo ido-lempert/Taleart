@@ -19,7 +19,6 @@ import { Router, RouterLink } from '@angular/router';
 import {
   DEFAULT_INVITATION_ROLE,
   PROJECT_ROLES,
-  MAX_TALES_PER_GROUP,
   MAX_ZONE_SLUG_LENGTH,
   MEDIA_CONTENT_TYPES,
   ZONE_TEMPLATES,
@@ -123,7 +122,6 @@ export class CreateDrawer implements OnInit {
 
   protected readonly error = signal('');
   protected readonly saving = signal(false);
-  protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected text = '';
   protected projectId = '';
   /** The slug typed in a new zone drawer; empty lets the API make one from the name (epic UX rework R1). */
@@ -161,14 +159,6 @@ export class CreateDrawer implements OnInit {
   protected frameType = '';
   /** The image or video picked in the file input, if any. */
   protected file: File | null = null;
-  /** The images and videos picked in a new tale group drawer: one tale each (epic UX rework R13). */
-  protected files: File[] = [];
-  /** '' or which file a new tale group drawer is adding, shown and announced while it saves. */
-  protected readonly progress = signal('');
-  /** Stops a new tale group drawer's tales after the file being added. */
-  private addAbort: AbortController | null = null;
-  /** True once a new tale group was created but not all of its tales: only Done is left. */
-  protected readonly groupCreated = signal(false);
   protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
   /** The invitation an invite drawer created; its link is shown only now. */
   protected readonly invitation = signal<Invitation | null>(null);
@@ -369,20 +359,20 @@ export class CreateDrawer implements OnInit {
     if (this.invalidSetting() === key) this.invalidSetting.set('');
   }
 
-  /** Where a new tale group from the Tale groups page goes: one of its project's zones, or '' for none (R14). */
+  /** The zone a tale group's options place it in: its current zone, or '' for none (R14). */
   protected readonly groupZoneId = linkedSignal(() => {
     const request = this.request();
-    return request.kind === 'taleGroup' ? request.zoneId : '';
+    return request.kind === 'taleGroupOptions' ? request.zoneId : '';
   });
-  /** True when a new tale group's drawer offers a zone picker: opened from the Tale groups page. */
+  /** True when a tale group in no zone yet offers a zone picker, as the Tale groups page's group does (R14). */
   protected readonly groupZonePicker = computed(() => {
     const request = this.request();
-    return request.kind === 'taleGroup' && !!request.projectId;
+    return request.kind === 'taleGroupOptions' && !request.zoneId && !!request.projectId;
   });
-  /** The zones a new tale group from the Tale groups page can go in: its project's. */
+  /** The zones such a group can go in: its project's. */
   protected readonly groupZones = computed(() => {
     const request = this.request();
-    return request.kind === 'taleGroup' && request.projectId
+    return request.kind === 'taleGroupOptions' && request.projectId
       ? this.store.zones().filter((z) => z.projectId === request.projectId)
       : [];
   });
@@ -545,6 +535,8 @@ export class CreateDrawer implements OnInit {
       case 'displaySettings':
       case 'editZone':
         return 'Save';
+      case 'taleGroupOptions':
+        return 'Done';
       case 'placeTaleGroup':
         return 'Add';
       case 'copyTaleGroup':
@@ -558,7 +550,7 @@ export class CreateDrawer implements OnInit {
 
   /** True when the drawer's work is done and it shows only the result (a link) and "Done". */
   protected readonly showsResult = computed(
-    () => this.invitation() !== null || this.addedMember() !== null || this.copied() !== null || this.groupCreated(),
+    () => this.invitation() !== null || this.addedMember() !== null || this.copied() !== null,
   );
 
   protected readonly heading = computed(() => {
@@ -573,8 +565,8 @@ export class CreateDrawer implements OnInit {
         const frame = this.settingsFrame();
         return `${frame ? this.store.frameTypeLabel(frame.type) : 'Display'} settings`;
       }
-      case 'taleGroup':
-        return 'New tale group';
+      case 'taleGroupOptions':
+        return 'Tale group';
       case 'tale':
         return 'Add tale';
       case 'taleMedia':
@@ -605,14 +597,13 @@ export class CreateDrawer implements OnInit {
     const request = this.request();
     if (
       request.kind === 'display' ||
-      request.kind === 'displaySettings' ||
-      (request.kind === 'taleGroup' && !request.projectId)
+      request.kind === 'displaySettings'
     ) {
       const zone = this.store.zone(request.zoneId);
       return zone ? `In zone ${zone.name}` : '';
     }
-    if (request.kind === 'taleGroup') {
-      // From the Tale groups page: the zone picked, else the project (R14).
+    if (request.kind === 'taleGroupOptions') {
+      // In no zone yet: the zone picked, else the project (R14).
       const zone = this.store.zone(this.groupZoneId());
       return zone ? `In zone ${zone.name}` : `In project ${this.store.projectName(request.projectId ?? '')}`;
     }
@@ -665,6 +656,9 @@ export class CreateDrawer implements OnInit {
     this.selectedTagMatch.set(this.tagGroup()?.tagMatch ?? DEFAULT_TAG_MATCH);
     this.selectedListIds.set(this.tagGroup()?.userLists?.map((list) => list.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
+    if (this.request().kind === 'taleGroupOptions') {
+      this.text = this.store.groupSummary(this.taleGroupOptionsId())?.name ?? '';
+    }
     const edited = this.editedZone();
     if (edited) {
       this.text = edited.name;
@@ -841,14 +835,25 @@ export class CreateDrawer implements OnInit {
     this.error.set('');
   }
 
-  /** Stops adding a new group's tales after the file being uploaded (its upload is cancelled). */
-  protected stopAdding(): void {
-    this.addAbort?.abort();
+  /** The tale group the options drawer is for; '' for other drawers. */
+  protected taleGroupOptionsId(): string {
+    const request = this.request();
+    return request.kind === 'taleGroupOptions' ? request.taleGroupId : '';
   }
 
-  protected pickFiles(event: Event): void {
-    this.files = [...((event.target as HTMLInputElement).files ?? [])];
+  /**
+   * Takes the new tale group back out (its zone, then archived): the drawer's Discard. Closing the
+   * drawer keeps the group, as a draft (Off) like any group.
+   */
+  protected async discardGroup(): Promise<void> {
+    const request = this.request();
+    if (request.kind !== 'taleGroupOptions') return;
     this.error.set('');
+    this.saving.set(true);
+    const message = await this.store.discardNewTaleGroup(request.taleGroupId, request.zoneId);
+    this.saving.set(false);
+    if (message) this.error.set(message);
+    else this.close();
   }
 
   /** The invitation's expiry as a date, such as "27 Oct 2026". */
@@ -958,38 +963,14 @@ export class CreateDrawer implements OnInit {
           ? await this.store.updateDisplay(request.zoneId, { settings: this.settings() })
           : 'This zone has no display.';
         break;
-      case 'taleGroup': {
-        if (this.files.length > MAX_TALES_PER_GROUP) {
-          message = `A tale group holds up to ${MAX_TALES_PER_GROUP} tales. Choose fewer files.`;
-          break;
-        }
-        // Every file is checked before anything is created.
-        const checked = this.files.map((file) => ({ file, ...checkMediaFile(file) }));
-        const refused = checked.find((c) => c.problem);
-        if (refused) {
-          message = `"${refused.file.name}": ${refused.problem}`;
-          break;
-        }
-        const zoneId = request.projectId ? this.groupZoneId() : request.zoneId;
-        message =
-          request.projectId && !zoneId
-            ? await this.store.createProjectTaleGroup(request.projectId, this.text)
-            : await this.store.createTaleGroup(zoneId, this.text);
-        const groupId = this.store.createdTaleGroupId();
-        if (!message && groupId && checked.length) {
-          const count = checked.length;
-          const abort = (this.addAbort = new AbortController());
-          const result = await this.store.addTalesFromFiles(groupId, checked, {
-            signal: abort.signal,
-            progress: (n) => this.progress.set(`Adding tale ${n} of ${count}…`),
-          });
-          this.addAbort = null;
-          this.progress.set('');
-          if (result.message) {
-            // The group exists: submitting again would make another one, so only Done is left.
-            this.groupCreated.set(true);
-            message = `The tale group was created with ${result.added} of ${count} tales. ${result.message} Add the rest from the group.`;
-          }
+      case 'taleGroupOptions': {
+        // Its tales are added in Tale Studio: here only the name and the zone are given.
+        const name = this.text.trim();
+        const current = this.store.groupSummary(request.taleGroupId);
+        message = name !== current?.name ? await this.store.renameTaleGroup(request.taleGroupId, this.text) : '';
+        const zoneId = this.groupZoneId();
+        if (!message && zoneId && zoneId !== request.zoneId) {
+          message = await this.store.placeTaleGroup(zoneId, request.taleGroupId);
         }
         break;
       }

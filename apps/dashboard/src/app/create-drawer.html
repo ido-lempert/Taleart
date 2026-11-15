@@ -196,7 +196,7 @@
             <p class="muted">This zone has no display.</p>
           }
         }
-        @case ('taleGroup') {
+        @case ('taleGroupOptions') {
           <div class="field">
             <label class="field__label" for="create-text">Tale group name</label>
             <input
@@ -209,35 +209,9 @@
               [attr.aria-describedby]="error() ? 'create-error' : null"
             />
             <p class="field__hint">
-              A set of tales shown as one item: one circle in a bar or one slide in a banner. It holds up to
-              {{ maxTales }} tales and can show in several zones.
+              Its first tale is the draft from Tale Studio. A tale group is shown as one item: one circle in a bar or
+              one slide in a banner. Its audience, schedule and cover are set from its menu.
             </p>
-          </div>
-          <div class="field">
-            <label class="field__label" for="create-group-files">Images or videos (optional)</label>
-            <input
-              id="create-group-files"
-              class="input input--file"
-              type="file"
-              name="files"
-              multiple
-              [accept]="acceptedTypes"
-              [disabled]="groupCreated()"
-              (change)="pickFiles($event)"
-              aria-describedby="create-group-files-hint"
-            />
-            <p class="field__hint" id="create-group-files-hint">
-              Each file becomes a tale, shown when the group is On. JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM
-              up to 100 MB.
-            </p>
-          </div>
-          <div class="group-files-progress">
-            <p class="muted" role="status">{{ progress() }}</p>
-            @if (progress()) {
-              <button type="button" class="btn btn--secondary btn--sm" id="create-group-stop" (click)="stopAdding()">
-                Stop adding tales
-              </button>
-            }
           </div>
           @if (groupZonePicker()) {
             <div class="field">
@@ -766,6 +740,12 @@
       } @else if (request().kind === 'taleMedia') {
         <!-- Everything above saved as it changed: one way out, nothing to cancel. -->
         <button type="button" class="btn btn--primary" [disabled]="saving()" (click)="close()">Done</button>
+      } @else if (request().kind === 'taleGroupOptions') {
+        <!-- Closing keeps the group as a draft (Off); Discard takes it out of its zone and archives it. -->
+        <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="discardGroup()">
+          Discard group
+        </button>
+        <button type="submit" class="btn btn--primary" [disabled]="saving()">{{ submitLabel() }}</button>
       } @else {
         <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="close()">Cancel</button>
         <button

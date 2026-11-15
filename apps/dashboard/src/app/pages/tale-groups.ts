@@ -26,6 +26,7 @@ import { DashboardStore, type TaleGroupSummary } from '../dashboard.store';
 import { GroupRow, opensFromRowClick } from '../group-row';
 import { GroupView } from './group-view';
 import { Icon } from '../icon';
+import { NewTaleGroupFlow } from '../new-tale-group';
 import type { MenuItem, MenuPick } from '../menu-button';
 import { gateMenu } from '../project-roles';
 import { statusActions, statusLabel } from '../status';
@@ -217,7 +218,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
             <div class="section__header tale-groups__header">
               <h2 class="section__title" id="tale-groups-title" tabindex="-1">Tale groups in {{ project.name }}</h2>
               @if (store.can('content.edit')) {
-                <button type="button" class="btn btn--primary btn--sm" id="new-project-tale-group" (click)="newGroup($event)">
+                <button type="button" class="btn btn--primary btn--sm" id="new-project-tale-group" (click)="newGroup()">
                   <app-icon name="plus" /> New tale group
                 </button>
               }
@@ -349,6 +350,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
 })
 export class TaleGroupsPage {
   protected readonly store = inject(DashboardStore);
+  protected readonly newTaleGroup = inject(NewTaleGroupFlow);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly location = inject(Location);
@@ -495,8 +497,6 @@ export class TaleGroupsPage {
     return menus;
   });
 
-  /** True from "New tale group" until its drawer closes, to reveal the group it created. */
-  private creating = false;
   /** The group whose Audience drawer is open, with its place in the list, to tell if it leaves the list. */
   private audienceOf: { id: string; name: string; index: number; listed: boolean } | null = null;
 
@@ -556,24 +556,6 @@ export class TaleGroupsPage {
         if (this.openedGroup()?.id !== pending.id) this.focusAfterLeaving(pending.index);
       });
     });
-    // Once the create drawer closes: a group the current filter hides brings All back, so it shows.
-    effect(() => {
-      if (this.store.drawer() !== null) return;
-      untracked(() => {
-        if (!this.creating) return;
-        this.creating = false;
-        const id = this.store.createdTaleGroupId();
-        const created = id ? this.allGroups().find((group) => group.id === id) : undefined;
-        if (!created) return;
-        if (!inTaleGroupFilter(created, this.selected())) {
-          this.selected.set('all');
-          this.writeUrl('all');
-          this.announce(`${created.name} created. Showing all tale groups.`);
-        } else {
-          this.announce(`${created.name} created`);
-        }
-      });
-    });
   }
 
   /** The zones a group is placed in, in the order it was placed. */
@@ -594,11 +576,9 @@ export class TaleGroupsPage {
     if (focus) this.focusFilter(filter);
   }
 
-  protected newGroup(event: Event): void {
-    const projectId = this.store.selectedProjectId();
-    this.creating = true;
-    this.store.createdTaleGroupId.set(null);
-    this.store.openDrawer({ kind: 'taleGroup', zoneId: '', projectId }, event);
+  /** Starts a group in no zone yet: its first tale in Tale Studio, then its options (see NewTaleGroupFlow). */
+  protected newGroup(): void {
+    void this.newTaleGroup.start(this.store.selectedProjectId(), '', 'tale-groups');
   }
 
   /**
