@@ -3117,7 +3117,7 @@ describe('App', () => {
       expect(name.getAttribute('aria-expanded')).toBe('false');
     });
 
-    it('keeps the page in place when a group opens, when a tale opens and when a tale is shown or hidden', async () => {
+    it('keeps the page in place when a group opens', async () => {
       const { fixture, root } = await open('/zones/z1', data, false);
       const header = root.querySelector('.zone-header');
       const list = root.querySelector('.groups');
@@ -3128,35 +3128,6 @@ describe('App', () => {
       expect(root.querySelector('.zone-header')).toBe(header);
       expect(root.querySelector('.groups')).toBe(list);
       expect(root.querySelector('.group')).toBe(row);
-
-      // Opening a tale opens its drawer above the view, with no request and no change to the page.
-      const view = groupView() as HTMLElement;
-      const card = cardOf('A');
-      const pageNodes = [...root.querySelectorAll('*')];
-      cardOf('A').querySelector<HTMLButtonElement>('.tale-card__open')?.click();
-      await settle(fixture);
-      http.expectNone(() => true);
-      expect(drawer()?.textContent).toContain('A');
-      expect(groupView()).toBe(view);
-      expect(cardOf('A')).toBe(card);
-      expect(pageNodes.every((node) => node.isConnected)).toBe(true);
-      expect(root.querySelector('.zone-header')).toBe(header);
-      expect(root.querySelector('.groups')).toBe(list);
-
-      // Showing the tale saves it and refreshes the store; the page and the view keep their nodes.
-      const shown = { ...four[0], status: 'paused', storedStatus: 'paused' };
-      (groupView()?.querySelector('[role=switch][aria-label="Show A"]') as HTMLButtonElement).click();
-      await settle(fixture);
-      http.expectOne(`${API_BASE}/tales/t1/status`).flush(shown);
-      await settle(fixture);
-      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [shown, ...four.slice(1)] }, winter] } });
-      await settle(fixture);
-      expect(root.querySelector('.zone-header')).toBe(header);
-      expect(root.querySelector('.groups')).toBe(list);
-      expect(root.querySelector('.group')).toBe(row);
-      expect(groupView()).toBe(view);
-      expect(cardOf('A')).toBe(card);
-      expect(pageNodes.every((node) => node.isConnected)).toBe(true);
     });
 
     it('keeps Tab inside the view', async () => {
@@ -3287,6 +3258,13 @@ describe('App', () => {
       expect(groupView()).toBeNull();
     });
 
+    // The ⋯ menu of a tale card, open or not; its element is the one the trigger controls.
+    function taleMenuOf(title: string): HTMLElement | null {
+      const trigger = groupView()?.querySelector<HTMLButtonElement>(`button[aria-label="More for ${title}"]`);
+      if (trigger?.getAttribute('aria-expanded') !== 'true') return null;
+      return document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+    }
+
     it('opens a tale card\'s ⋯ menu at the pointer on a right-click, with the same items, and its items act the same', async () => {
       const { fixture } = await open('/zones/z1', data);
       const card = cardOf('A');
@@ -3301,16 +3279,24 @@ describe('App', () => {
       expect(menu?.style.left).toBe('120px');
       expect(menu?.style.top).toBe('140px');
       expect([...(menu?.querySelectorAll('[role=menuitem]') ?? [])].map((i) => i.firstElementChild?.textContent?.trim())).toEqual(
-        ['Edit in Tale Studio', 'Replace media', 'Schedule', 'Duplicate', 'Archive', 'Delete'],
+        ['Edit in Tale Studio', 'Duplicate', 'Archive', 'Delete'],
       );
 
-      // Schedule, from the menu opened by the right-click, opens the same drawer as from the ⋯ button.
-      const schedule = [...(menu?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])].find(
-        (i) => i.firstElementChild?.textContent?.trim() === 'Schedule',
+      // Edit in Tale Studio, from the menu the right-click opened, goes there as the ⋯ button's does.
+      const edit = [...(menu?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])].find(
+        (i) => i.firstElementChild?.textContent?.trim() === 'Edit in Tale Studio',
       );
-      schedule?.click();
+      edit?.click();
       await settle(fixture);
-      expect(drawer()).not.toBeNull();
+      // The studio's own reads, answered as a missing tale's (they are not what this test checks).
+      for (const req of http.match((r) => r.method === 'GET' && /\/tales\/t1(\/document)?$/.test(r.url))) {
+        req.flush({ error: { code: 'tale_not_found', message: 'gone' } }, { status: 404, statusText: 'Not Found' });
+      }
+      for (const req of http.match((r) => r.method === 'GET' && /\/projects\/p1\/(theme|fonts)$/.test(r.url))) {
+        req.flush(null);
+      }
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/tales/t1/studio?zone=z1');
       expect(taleMenuOf('A')).toBeNull();
     });
 
@@ -5914,7 +5900,7 @@ describe('App', () => {
       expect(TestBed.inject(DashboardStore).readGroups()).toEqual({});
     });
 
-    it('keeps the Tale groups page in place when a group and then one of its tales opens', async () => {
+    it('keeps the Tale groups page in place when a group opens', async () => {
       const { fixture, root } = await open('/tale-groups', data);
       const title = root.querySelector('#tale-groups-title');
       const list = root.querySelector('.group-items');
@@ -5923,16 +5909,6 @@ describe('App', () => {
       await settle(fixture);
       flushReadGroups(data);
       await settle(fixture);
-      expect(root.querySelector('#tale-groups-title')).toBe(title);
-      expect(root.querySelector('.group-items')).toBe(list);
-      expect(pageNodes.every((node) => node.isConnected)).toBe(true);
-
-      const view = groupView();
-      cardOf('Beach').querySelector<HTMLButtonElement>('.tale-card__open')?.click();
-      await settle(fixture);
-      http.expectNone(() => true);
-      expect(drawer()?.textContent).toContain('Beach');
-      expect(groupView()).toBe(view);
       expect(root.querySelector('#tale-groups-title')).toBe(title);
       expect(root.querySelector('.group-items')).toBe(list);
       expect(pageNodes.every((node) => node.isConnected)).toBe(true);
