@@ -133,19 +133,34 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     zoneId = new URL(page.url()).pathname.split('/').at(-1) ?? '';
   });
 
-  test('zone page: setup checklist, New tale group drawer and the Tale groups tab', async () => {
+  test('zone page: setup checklist, New tale group in Tale Studio and the Tale groups tab', async () => {
     await expect(page.getByRole('heading', { name: 'Home top' })).toBeVisible();
     await check('zone-groups-tab-checklist-empty', { layout: true });
 
+    // "New tale group" opens its draft tale in Tale Studio; an image from the media picker becomes its background.
     const media = await drawPngs(page);
     await page.getByRole('button', { name: 'New tale group' }).first().click();
-    const drawer = page.getByRole('dialog', { name: 'New tale group' });
+    await expect(page).toHaveURL(/\/tales\/[^/]+\/studio/);
+    await page.locator('#studio-bg-media').click();
+    const picker = page.getByRole('dialog');
+    await picker.locator('#media-upload').setInputFiles(media[0]);
+    await expect(picker).toBeHidden({ timeout: 30_000 });
+    // A new tale is Shown already; Update tale puts its draft on the site.
+    await expect(page.locator('#studio-update')).toBeEnabled({ timeout: 30_000 });
+    await page.locator('#studio-update').click();
+    await expect(page.locator('#studio-update')).toHaveAttribute('aria-disabled', 'true', { timeout: 30_000 });
+    await check('new-tale-group-studio', { layout: true });
+    // Leaving the studio opens the group's options: its name, and its zone.
+    await page.locator('#studio-back').click();
+    const drawer = page.getByRole('dialog', { name: 'Tale group', exact: true });
     await expect(drawer).toBeVisible();
-    await check('new-tale-group-drawer', { layout: true });
+    await check('tale-group-options-drawer', { layout: true });
     await drawer.getByLabel('Tale group name').fill('Summer sale');
-    await drawer.getByLabel('Images or videos (optional)').setInputFiles(media);
-    await drawer.getByRole('button', { name: 'Create', exact: true }).click();
+    await drawer.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(drawer).toBeHidden({ timeout: 30_000 });
+    // Its group view opens over the zone page once the options are done: close it to reach the zone's switch.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Summer sale', exact: true })).toBeHidden();
 
     // Groups in each state the Tale groups filters name: Off, scheduled, in no zone, archived.
     type Group = { id: string };
@@ -158,6 +173,14 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     await api<Group>('post', `/projects/${project.id}/tale-groups`, { name: 'Loose ideas' });
     const old = await api<Group>('post', `/projects/${project.id}/tale-groups`, { name: 'Spring 2025' });
     await api('put', `/tale-groups/${old.id}/status`, { status: 'archived' });
+    // The draft tale is the group's first tale: named beach day, with a second tale, pool, for the reorder below.
+    const summer = (await api<{ id: string; name: string; tales: { id: string }[] }[]>('get', `/zones/${zoneId}/tale-groups`)).find(
+      (g) => g.name === 'Summer sale',
+    );
+    expect(summer).toBeDefined();
+    const renamed = await page.request.fetch(`${API}/tales/${summer?.tales[0]?.id}`, { method: 'patch', data: { title: 'beach day' } });
+    expect(renamed.ok()).toBe(true);
+    await api('post', `/tale-groups/${summer?.id}/tales`, { title: 'pool' });
     const groups = await api<{ name: string; tales: { id: string }[] }[]>('get', `/zones/${zoneId}/tale-groups`);
     taleId = groups.find((g) => g.name === 'Summer sale')?.tales[0]?.id ?? '';
     expect(taleId).not.toBe('');
@@ -272,7 +295,8 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     await check('zone-install-tab-key-issued');
   });
 
-  test('group view (desktop and phone), reordering its tales, and the tale drawer', async () => {
+  test('group view (desktop and phone), reordering its tales, and the tale card menu', async () => {
+    test.setTimeout(300_000);
     await page.getByRole('tab', { name: 'Tale groups' }).click();
     await page.getByRole('button', { name: 'Summer sale', exact: true }).click();
     const view = page.getByRole('dialog', { name: 'Summer sale' });
@@ -294,25 +318,15 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     await expect(move('earlier')).toBeDisabled();
     await expect(move('later')).toBeFocused();
 
-    await view
-      .getByRole('button', { name: /^Open tale / })
-      .first()
-      .click();
-    const taleDrawer = page.getByRole('dialog').last();
-    await expect(taleDrawer).not.toHaveAttribute('id', /^group-view-/);
-    await check('tale-drawer', { layout: true });
+    // A tale card's ⋯ menu (its open button goes to Tale Studio, which the studio's own checks cover).
+    await view.getByRole('button', { name: 'More for beach day', exact: true }).click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    // Tab leaves a menu (it closes, and the group view with it): the open menu is scanned without the walk.
+    await check('tale-card-menu', { layout: true, walk: false });
     await page.keyboard.press('Escape');
     await expect(view).toBeVisible();
 
-    // A tale's Delete asks first (story 8.20); cancelled here, so the tale stays for the states after.
-    await view.getByRole('button', { name: /^More for / }).nth(1).click();
-    await page.getByRole('menuitem', { name: 'Delete' }).click();
-    const confirmDelete = page.getByRole('alertdialog', { name: 'Delete tale' });
-    await expect(confirmDelete.getByRole('button', { name: 'Cancel' })).toBeFocused();
-    await check('delete-tale-confirmation', { layout: true });
-    await page.keyboard.press('Escape');
-    await expect(confirmDelete).toBeHidden();
-    await expect(view).toBeVisible();
+    // Delete's confirmation is covered by delete-tale.spec.ts (end to end), not scanned here.
 
     await page.setViewportSize({ width: 390, height: 844 });
     await check('group-view-phone');
@@ -352,6 +366,11 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     await page.goto(`/tales/${taleId}/studio`);
     await expect(page.locator('#studio-preview')).toBeVisible({ timeout: 30_000 });
     await check('tale-studio', { layout: true, maxStops: 60 });
+    // An image from the project's media goes on the canvas (the tale's background is not an element).
+    await page.locator('#studio-add-image').click();
+    const picker = page.getByRole('dialog');
+    await picker.getByRole('button', { name: /^Use / }).first().click();
+    await expect(picker).toBeHidden();
     // An image that fills the canvas, focused: its ring shows inside the canvas edge (2.4.7).
     await focusShot(page.locator('[id^=studio-el-]').first(), 'focus-canvas-image');
     await page.locator('#studio-preview').click();

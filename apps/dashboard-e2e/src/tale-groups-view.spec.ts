@@ -4,8 +4,8 @@ import { emptyInstall, signIn } from './session';
 
 /**
  * A tale group in no zone gets tales (story 8.19): on the Tale groups page, its group view adds a
- * tale with its media and reorders the tales, end to end through the API. It signs in with a session
- * written to the database and empties the install at the end.
+ * tale (made in Tale Studio, with its media and title) and reorders the tales, end to end through
+ * the API. It signs in with a session written to the database and empties the install at the end.
  */
 
 const API = '/api/v1';
@@ -51,11 +51,20 @@ test.describe.serial('the Tale groups page group view (story 8.19)', () => {
 
     const files = await drawPngs(page);
     for (const [i, title] of ['Beach', 'Pool'].entries()) {
+      // Add tale makes an "Untitled tale" and opens it in Tale Studio: its media and title are set there.
       await view.getByRole('button', { name: 'Add tale to Loose ideas' }).click();
-      const drawer = page.getByRole('dialog').last();
-      await drawer.getByLabel('Tale title').fill(title);
-      await drawer.locator('#create-file').setInputFiles(files[i]);
-      await drawer.getByRole('button', { name: 'Add', exact: true }).click();
+      await expect(page).toHaveURL(/\/tales\/[^/]+\/studio\?from=tale-groups$/);
+      // Replace media keeps the picked file as the tale's media (the API check below reads it).
+      await page.locator('#studio-media-input').setInputFiles(files[i]);
+      await expect(page.getByText('Media replaced.').first()).toBeVisible({ timeout: 30_000 });
+      await page.locator('#studio-menu').click();
+      await page.locator('#studio-rename').click();
+      const rename = page.getByRole('dialog', { name: 'Rename tale' });
+      await rename.getByLabel('Tale title').fill(title);
+      await rename.getByRole('button', { name: 'Rename', exact: true }).click();
+      await expect(rename).toBeHidden();
+      await page.locator('#studio-back').click();
+      await expect(page).toHaveURL(new RegExp(`/tale-groups\\?group=${groupId}$`));
       await expect(view.locator('.tale-card__name')).toHaveCount(i + 1);
     }
     await expect(view.locator('.tale-card__name')).toHaveText(['Beach', 'Pool']);

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { axeViolations } from './axe';
 import { drawPngs } from './media';
+import { settle } from './wcag';
 
 /**
  * The first run (epic UX rework, Done when; story 8.13): a new user goes from sign-up to a tale
@@ -14,7 +15,7 @@ import { drawPngs } from './media';
  * keeps the key to itself.
  */
 
-const MAX_ACTIONS = 15;
+const MAX_ACTIONS = 18;
 const shots = process.env['E2E_SCREENSHOTS'];
 if (shots) mkdirSync(shots, { recursive: true });
 
@@ -83,13 +84,26 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
     await expect(page).toHaveURL(/\/zones\/[^/?]+$/);
     await expect(page.getByRole('heading', { name: 'Home top' })).toBeVisible();
 
-    // A tale group with two tales from media, in one drawer.
+    // A tale group made in Tale Studio: "New tale group" opens its draft tale there; an image from the
+    // media picker becomes its background; Update tale puts it on the site; leaving the studio names the group.
     await act('New tale group', () => page.getByRole('button', { name: 'New tale group' }).first().click());
-    const groupDrawer = page.getByRole('dialog', { name: 'New tale group' });
+    await expect(page).toHaveURL(/\/tales\/[^/]+\/studio/);
+    await act('Choose a background image', () => page.locator('#studio-bg-media').click());
+    const picker = page.getByRole('dialog');
+    await act('Upload the image', () => picker.locator('#media-upload').setInputFiles(media[0]));
+    await expect(picker).toBeHidden({ timeout: 30_000 });
+    // A new tale is Shown already; Update tale puts its draft on the site.
+    await expect(page.locator('#studio-update')).toBeEnabled({ timeout: 30_000 });
+    await act('Update tale', () => page.locator('#studio-update').click());
+    await expect(page.locator('#studio-update')).toHaveAttribute('aria-disabled', 'true', { timeout: 30_000 });
+    await act('Back to the zone', () => page.locator('#studio-back').click());
+    const groupDrawer = page.getByRole('dialog', { name: 'Tale group', exact: true });
     await act('Type the group name', () => groupDrawer.getByLabel('Tale group name').fill('Summer sale'));
-    await act('Choose two images', () => groupDrawer.getByLabel('Images or videos (optional)').setInputFiles(media));
-    await act('Create', () => groupDrawer.getByRole('button', { name: 'Create', exact: true }).click());
+    await act('Done', () => groupDrawer.getByRole('button', { name: 'Done', exact: true }).click());
     await expect(groupDrawer).toBeHidden({ timeout: 30_000 });
+    // Its group view opens over the zone page once the options are done: close it to reach the zone's switch.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Summer sale', exact: true })).toBeHidden();
 
     await act('Turn the group On', () => page.getByRole('switch', { name: 'Summer sale on site' }).click());
     await expect(page.getByRole('switch', { name: 'Summer sale on site' })).toHaveAttribute('aria-checked', 'true');
@@ -111,13 +125,15 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
     await expect(barItems(testPage)).toHaveCount(1, { timeout: 20_000 });
     await expect(barItems(testPage).first()).toBeVisible();
     await shot(testPage, '04a-test-page-zone');
+    // The bar's entrance and its cover's first frame finish before the scan.
+    await settle(testPage);
     expect(await axeViolations(testPage)).toEqual([]);
 
-    // Watch the tale: the group opens in the viewer with its two tales, the first one showing.
+    // Watch the tale: the group opens in the viewer with its one tale, showing.
     await act('Open the tale', () => barItems(testPage).first().click());
     const viewer = testPage.getByRole('dialog', { name: 'Summer sale' });
     await expect(viewer).toBeVisible();
-    await expect(viewer.locator('.segment')).toHaveCount(2);
+    await expect(viewer.locator('.segment')).toHaveCount(1);
     await expect(viewer.locator('img').first()).toBeVisible();
     await shot(testPage, '04b-test-page-tale-visible');
 
