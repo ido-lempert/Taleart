@@ -57,6 +57,7 @@ const NAMES = {
   demoViewer: '08-demo-viewer.webp',
   taleGroup: '09-tale-group.png',
   talePanel: '10-tale-card-menu.png',
+  teamViewer: 'team-shot-viewer-readonly.png',
   studio: '11-tale-studio.png',
   studioLowContrast: '12-studio-heading-low-contrast.png',
   demoHeading: '13-viewer-with-heading.webp',
@@ -172,6 +173,16 @@ async function sessionFor(userId) {
       createHash('sha256').update(token, 'utf8').digest('hex'),
     ]);
     return token;
+  } finally {
+    await client.end();
+  }
+}
+// A project member with a role (the same rows the team page adds): viewer, editor, publisher or admin.
+async function addProjectMember(projectId, userId, role) {
+  const client = new pg.Client({ connectionString: database.url });
+  await client.connect();
+  try {
+    await client.query('INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)', [projectId, userId, role]);
   } finally {
     await client.end();
   }
@@ -557,6 +568,12 @@ async function main() {
       if (!res.ok()) throw new Error(`${method} ${path}: ${res.status()} ${await res.text()}`);
       return res.json();
     };
+    // A project media file: a tale's background names its key (the card thumbnail shows it).
+    const projectMedia = async (mime, bytes) => {
+      const res = await context.request.fetch(`${API}/projects/${project.id}/media`, { method: 'POST', headers: { 'Content-Type': mime }, data: bytes });
+      if (!res.ok()) throw new Error(`POST media: ${res.status()} ${await res.text()}`);
+      return res.json();
+    };
     const upload = async (path, mime, bytes) => {
       const res = await context.request.fetch(`${API}${path}`, { method: 'PUT', headers: { 'Content-Type': mime }, data: bytes });
       if (!res.ok()) throw new Error(`PUT ${path}: ${res.status()} ${await res.text()}`);
@@ -599,7 +616,10 @@ async function main() {
         await upload(`/tales/${tale.id}/media`, art.mime, Buffer.from(art.data, 'base64'));
         const current = await call('get', `/tales/${tale.id}/document`);
         const base = current.document ?? { version: 1, canvas: { background: { type: 'color', color: '#1F1A17' } }, elements: [] };
-        const document = { ...base, elements: [...base.elements, ...spec.elements()] };
+        // The art is also the tale's first background: the thumbnails and the group covers show it.
+        const background = await projectMedia(art.mime, Buffer.from(art.data, 'base64'));
+        const canvas = { ...base.canvas, background: { type: 'media', mediaKey: background.key, fit: 'cover', color: '#1F1A17' } };
+        const document = { ...base, canvas, elements: [...base.elements, ...spec.elements()] };
         const saved = await call('put', `/tales/${tale.id}/document`, {
           document,
           revision: current.revision,
@@ -667,6 +687,19 @@ async function main() {
     await settle(page);
     await save('talePanel', page);
     await page.keyboard.press('Escape');
+
+    // The team's viewer: the same group, with its note that a viewer cannot change it (Shown or Hidden is read-only).
+    const viewerId = await insertUser('Vera Viewer', 'content_manager');
+    await addProjectMember(project.id, viewerId, 'viewer');
+    const viewerContext = await newContext(DESKTOP);
+    await viewerContext.addCookies([{ name: 'taleart_session', value: await sessionFor(viewerId), url: dashboardOrigin }]);
+    const viewer = await viewerContext.newPage();
+    await viewer.goto(`${dashboardOrigin}/tale-groups`);
+    await viewer.getByRole('button', { name: 'Summer sale', exact: true }).click();
+    await viewer.getByRole('dialog', { name: 'Summer sale' }).getByText('View only: your role cannot change this group.').waitFor({ timeout: 60_000 });
+    await settle(viewer);
+    await save('teamViewer', viewer);
+    await viewerContext.close();
 
     // 11: Tale Studio, opened from the tale card's open button.
     await groupView.getByRole('button', { name: 'Open tale Sofa sale' }).click();
