@@ -112,23 +112,7 @@
       >
         @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
           <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent">
-            @if (tale.media; as media) {
-              @if (media.kind === 'video') {
-                <!-- Loads and plays only while on screen: a group can hold 100 tales. -->
-                <video
-                  class="tale-card__media"
-                  appPlayWhenVisible
-                  [src]="store.mediaSrc(tale)"
-                  [muted]="true"
-                  loop
-                  playsinline
-                  preload="none"
-                  aria-hidden="true"
-                ></video>
-              } @else {
-                <img class="tale-card__media" [src]="store.mediaSrc(tale)" alt="" loading="lazy" />
-              }
-            }
+            <app-tale-thumbnail [tales]="[tale]" mediaClass="tale-card__media" />
             <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
             <app-visibility class="tale-card__visibility" [visibility]="tale.visibility" viewing="tale" [compact]="true" />
             @if (isSwitchable(tale.storedStatus)) {

@@ -5,7 +5,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  Directive,
   effect,
   ElementRef,
   inject,
@@ -38,6 +37,7 @@ import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
 import { gateMenu } from '../project-roles';
 import { describeWindow, windowChip } from '../schedule';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
+import { TaleThumbnailComponent } from '../tale-thumbnail';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
 import { DeleteTale, deletedMessage, type DeletedTale } from './delete-tale';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
@@ -57,34 +57,6 @@ export function shownCount(group: TaleGroup): string {
 /** "On" or "Off" for a group, "Shown" or "Hidden" for a tale, from its stored key (AD-6 amended). */
 export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
   return SHOWN_STATUS_LABELS[kind === 'group' ? groupShownStatus(stored) : taleShownStatus(stored)];
-}
-
-/**
- * A tale card's video: loads nothing (`preload="none"`) and plays only while on screen, paused
- * again when it leaves; without IntersectionObserver it stays still.
- */
-@Directive({ selector: 'video[appPlayWhenVisible]' })
-export class PlayWhenVisible implements OnDestroy {
-  private readonly video = inject<ElementRef<HTMLVideoElement>>(ElementRef).nativeElement;
-  private observer: IntersectionObserver | null = null;
-
-  constructor() {
-    afterNextRender(() => {
-      const Observer = this.video.ownerDocument.defaultView?.IntersectionObserver;
-      if (!Observer) return;
-      this.observer = new Observer((entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) void this.video.play().catch(() => undefined);
-          else this.video.pause();
-        }
-      });
-      this.observer.observe(this.video);
-    });
-  }
-
-  ngOnDestroy(): void {
-    this.observer?.disconnect();
-  }
 }
 
 /**
@@ -122,7 +94,7 @@ export class PlayWhenVisible implements OnDestroy {
     CdkScrollable,
     DuplicateTale,
     DeleteTale,
-    PlayWhenVisible,
+    TaleThumbnailComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './group-view.html',

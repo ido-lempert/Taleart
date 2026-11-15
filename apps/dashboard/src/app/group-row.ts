@@ -11,6 +11,7 @@ import { DashboardStore } from './dashboard.store';
 import { MenuButton, type MenuItem, type MenuPick } from './menu-button';
 import { describeWindow, windowChip } from './schedule';
 import { needsBadge, ShowSwitch, StatusBadge } from './status';
+import { TaleThumbnailComponent } from './tale-thumbnail';
 import { VisibilityIndicator } from './visibility';
 
 /**
@@ -61,7 +62,7 @@ export function opensFromRowClick(event: MouseEvent): boolean {
  */
 @Component({
   selector: 'app-group-row',
-  imports: [MenuButton, ShowSwitch, StatusBadge, VisibilityIndicator],
+  imports: [MenuButton, ShowSwitch, StatusBadge, TaleThumbnailComponent, VisibilityIndicator],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styleUrl: './group-row.css',
@@ -76,6 +77,8 @@ export function opensFromRowClick(event: MouseEvent): boolean {
           } @else {
             <img class="ring__cover" [src]="store.coverSrc(g)" alt="" />
           }
+        } @else if (defaultTales().length > 0) {
+          <app-tale-thumbnail [tales]="defaultTales()" mediaClass="ring__cover" />
         } @else {
           {{ g.name.charAt(0) }}
         }
@@ -144,6 +147,11 @@ export class GroupRow {
   protected readonly switchReason = computed(() =>
     this.store.can('content.publish', this.group().projectId) ? '' : this.store.roleNeeded('content.publish'),
   );
+  /** The tales the group's default cover comes from (its first tale with a media background); none on a project's list. */
+  protected readonly defaultTales = computed(() => {
+    const group = this.group();
+    return 'tales' in group ? group.tales : [];
+  });
   protected readonly count = computed(() => shownCount(this.group()));
   protected readonly switchable = computed(() => isSwitchable(this.group().storedStatus));
   protected readonly badge = computed(() => needsBadge(this.group().status));

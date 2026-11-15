@@ -10,6 +10,7 @@ import type {
 } from '@taleart/contract/tale-document';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
+import { TaleThumbnails } from './tale-thumbnail';
 
 /** Why a call failed: the API's message and code, its HTTP status (0 when the network failed). */
 export interface TaleDocumentFailure {
@@ -53,6 +54,7 @@ export class TaleDocumentService {
   private readonly http = inject(HttpClient);
   /** Per tale, whether the document this editor last loaded held the tale's own media (R16). */
   private readonly sawTaleMedia = new Map<string, boolean>();
+  private readonly thumbnails = inject(TaleThumbnails);
 
   /** The tale's document and revision; `document` is null for a tale that shows its media only. */
   async load(taleId: string): Promise<TaleDocumentResult> {
@@ -78,6 +80,7 @@ export class TaleDocumentService {
         sawTaleMedia: this.sawTaleMedia.get(taleId) ?? false,
       };
       const value = await firstValueFrom(this.http.put<TaleDocumentRevision>(documentUrl(taleId), body));
+      this.thumbnails.forget(taleId);
       return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
     } catch (err) {
       return failure(err, 'The tale was not saved. Try again.');
@@ -109,6 +112,7 @@ export class TaleDocumentService {
       const value = await firstValueFrom(
         this.http.post<TaleDocumentRevision>(`${documentUrl(taleId)}/${action}`, body),
       );
+      this.thumbnails.forget(taleId);
       return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
     } catch (err) {
       return failure(err, fallback);
