@@ -5697,6 +5697,13 @@ describe('App', () => {
     const originalUrls = { createObjectURL: urls.createObjectURL, revokeObjectURL: urls.revokeObjectURL };
     const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:made');
 
+    const beachSrc = `${MEDIA_ORIGIN}/api/v1/projects/p1/media/file?key=media%2Fbeach.png`;
+    const beachDocument = {
+      version: 1,
+      canvas: { background: { type: 'media', mediaKey: 'media/beach.png', fit: 'cover', color: '#000000' } },
+      elements: [],
+    };
+
     afterEach(() => Object.assign(URL, originalUrls));
 
     beforeEach(() => {
@@ -6016,6 +6023,61 @@ describe('App', () => {
       expect(drawer()).toBeNull();
       expect(root.querySelector('.group .ring img')).toBeNull();
       expect(root.querySelector('.group .ring')?.textContent?.trim()).toBe('S');
+    });
+
+    it("shows the default in the group's row, then in its drawer: the first tale's background picture", async () => {
+      taleDocuments = { t1: beachDocument };
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, cover: null, tales: [taleA, taleB] }] },
+      });
+      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe(beachSrc);
+
+      pickMenuItem(root, 'More for Summer', 'Cover');
+      await settle(fixture);
+      expect(drawer()?.querySelector('.cover-current img.ring__cover')?.getAttribute('src')).toBe(beachSrc);
+    });
+
+    it("shows a video background's first frame as the default in the row", async () => {
+      taleDocuments = {
+        t1: {
+          version: 1,
+          canvas: { background: { type: 'media', mediaKey: 'tales/clip.mp4', fit: 'cover', color: '#000000' } },
+          elements: [],
+        },
+      };
+      const { root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, cover: null, tales: [taleA] }] },
+      });
+      expect(firstFrame).toHaveBeenCalledWith(`${MEDIA_ORIGIN}/api/v1/projects/p1/media/file?key=tales%2Fclip.mp4`);
+      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe('blob:first-frame');
+    });
+
+    it('shows the custom cover over the default in the row, and the default again once it is removed', async () => {
+      taleDocuments = { t1: beachDocument };
+      const tales = [taleA];
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, cover: stillCover, tales }] },
+      });
+      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe(
+        '/api/v1/tale-groups/g1/cover',
+      );
+
+      pickMenuItem(root, 'More for Summer', 'Cover');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Remove cover').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/cover`);
+      expect(req.request.method).toBe('DELETE');
+      req.flush({ ...group, cover: null, tales });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, cover: null, tales }] } });
+      flushTaleDocuments();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe(beachSrc);
     });
   });
 

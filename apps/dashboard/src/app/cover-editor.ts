@@ -228,7 +228,6 @@ export class CoverEditor {
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   protected readonly group = computed(() => this.store.taleGroup(this.taleGroupId()));
-  /** The tale whose media is the default cover: the first tale with media. */
   /** The group's tales whose media is a video: the sources of a frame or a clip. */
   protected readonly videoTales = computed(() => this.group()?.tales.filter((t) => t.media?.kind === 'video') ?? []);
   protected readonly source = signal<CoverSource>('upload');
