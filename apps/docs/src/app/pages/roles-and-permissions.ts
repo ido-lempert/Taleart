@@ -139,7 +139,7 @@ import { RouterLink } from '@angular/router';
     <figure>
       <img
         src="images/team-shot-viewer-readonly.png"
-        alt="A tale group opened as a Viewer. A note under the header reads View only: your role cannot change this group. The three tales are listed, and their Shown switches cannot be changed."
+        alt="A tale group opened as a Viewer. A note under the header reads View only: your role cannot change this group. The three tales are listed with their Shown or Hidden state, which a viewer cannot change."
         width="1280"
         height="800"
       />

@@ -56,7 +56,7 @@ const NAMES = {
   demoSite: '07-demo-site.png',
   demoViewer: '08-demo-viewer.webp',
   taleGroup: '09-tale-group.png',
-  talePanel: '10-tale-panel.png',
+  talePanel: '10-tale-card-menu.png',
   studio: '11-tale-studio.png',
   studioLowContrast: '12-studio-heading-low-contrast.png',
   demoHeading: '13-viewer-with-heading.webp',
@@ -655,19 +655,21 @@ async function main() {
     await settle(shop);
     await save('demoViewer', shop);
 
-    // 09, 10: the tale group with its tales, and a tale's panel.
+    // 09, 10: the tale group with its tales, and a tale card's ⋯ menu.
     await page.goto(`${dashboardOrigin}/tale-groups`);
     await page.getByRole('button', { name: 'Summer sale', exact: true }).click();
     const groupView = page.getByRole('dialog', { name: 'Summer sale' });
     await groupView.getByRole('button', { name: 'Add tale to Summer sale' }).waitFor({ timeout: 60_000 });
     await settle(page);
     await save('taleGroup', page);
-    await groupView.getByRole('button', { name: 'Open tale Sofa sale' }).click();
+    await groupView.getByRole('button', { name: 'More for Sofa sale' }).click();
+    await page.getByRole('menu').waitFor();
     await settle(page);
     await save('talePanel', page);
+    await page.keyboard.press('Escape');
 
-    // 11: Tale Studio, opened from the tale panel.
-    await page.getByText('Edit in Tale Studio', { exact: true }).click();
+    // 11: Tale Studio, opened from the tale card's open button.
+    await groupView.getByRole('button', { name: 'Open tale Sofa sale' }).click();
     await page.waitForURL(/\/tales\/[0-9a-f-]+\/studio/, { timeout: 60_000 });
     await page.locator('#studio-add-heading').waitFor({ timeout: 60_000 });
     await settle(page);

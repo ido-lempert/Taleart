@@ -7,7 +7,10 @@ import { RouterLink } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <h1 tabindex="-1">Tale Studio</h1>
-<p>Tale Studio is the editor for one tale. It opens from <strong>Edit in Tale Studio</strong> in the tale panel.</p>
+<p>Tale Studio is the editor for one tale. It opens from a tale card's open button or <strong>Edit in Tale Studio</strong> in the card's <strong>⋯</strong> menu, from <strong>Add tale</strong> (which makes an Untitled tale), and from <strong>New tale group</strong> (which makes a group with its draft tale).</p>
+<h2 id="the-menu">The ⋯ menu</h2>
+<p>The studio's <strong>⋯</strong> menu has <strong>Rename</strong>, <strong>Replace media</strong>, <strong>Schedule</strong> (a tale's own time window), <strong>Show on site</strong> or <strong>Hide from site</strong>, <strong>Duplicate</strong> and <strong>Discard changes</strong>. The tale's card in the group shows its Shown or Hidden state, and only the studio changes it.</p>
+<p>After a new tale group's draft tale, leaving the studio opens the <strong>Tale group</strong> drawer, where the group gets its name and zone. Its <strong>Discard group</strong> button takes the group out of its zone and archives it.</p>
 <p><img class="guide-img" alt="Tale Studio" src="guides/images/11-tale-studio.png" width="1280" height="800" /></p>
 <h2 id="the-canvas">The canvas</h2>
 <ul>
@@ -65,7 +68,7 @@ import { RouterLink } from '@angular/router';
 </table></div>
 <p>A link must be an absolute <code>http</code> or <code>https</code> URL of at most 2,048 characters.</p>
 <p>A poll's inspector has a <strong>View</strong> select. For the this-or-that and grid views, each option also has a colour, with a button to clear it.</p>
-<p>On the canvas an interactive element is a dashed box with its name. <strong>Preview</strong> draws the tale as the Web SDK shows it to a visitor, so a poll's view, its colours and its results look as they do in the viewer.</p>
+<p>On the canvas an interactive element is a dashed box with its name. <strong>Preview</strong> draws the tale group as the Web SDK shows it to a visitor: the group's viewer opens from its first tale, over the zone's bar or banner. A poll's view, its colours and its results look as they do in the viewer. A tale that is in no zone plays alone, for its duration.</p>
 <p><img class="guide-img" src="images/web-shot-elements.png" width="780" height="1400" alt="A tale in the viewer with display elements: the text Summer is here, a sun emoji, a thin white line made with a shape, a filled yellow button Shop the sale, an outlined button See all shoes and a Read the story swipe-up link pinned to the bottom." /></p>
 <p>The screenshot above shows how text, an emoji, a shape, two buttons and a swipe-up link look to a visitor in the viewer. Poll, quiz, rating, countdown, promo code and reaction have their own page: <a routerLink="/interactive-components">Interactive components</a>.</p>
 <h2 id="autosave-and-publish">Autosave and publish</h2>

@@ -72,8 +72,9 @@ import { DOCS_SNIPPET } from '../docs-content';
         <em>Promo banner</em> or <em>Blank</em>. The template sets the zone's display once.
       </li>
       <li>
-        <strong>New tale group.</strong> On the zone page, create a tale group and add images or videos: each file
-        becomes a tale. New tales are Shown.
+        <strong>New tale group.</strong> On the zone page, click New tale group. Its draft tale opens in Tale Studio:
+        give it an image or video as its background and click Update tale. Leave the studio and name the group in the
+        Tale group drawer. New tales are Shown.
       </li>
       <li><strong>Turn the group On.</strong> Its Shown tales are now visible in the zone.</li>
       <li>
