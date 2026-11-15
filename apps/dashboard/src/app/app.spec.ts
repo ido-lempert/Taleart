@@ -12,7 +12,7 @@ import { PasskeyClient, unauthorizedInterceptor } from './auth';
 import { CoverCapture } from './cover-capture';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
 import { FIRST_FRAME } from './tale-thumbnail';
-import { describeWindow, formatShort } from './schedule';
+import { formatShort } from './schedule';
 
 // The shape of the shipped bar schema (libs/contract/frame-types/bar.schema.json) as GET /frame-types sends it.
 const barSchema = {
@@ -96,7 +96,6 @@ const taleB = {
   endsAt: null as string | null,
   media: null,
 };
-const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
 const mp4Media = { kind: 'video', contentType: 'video/mp4', url: '/api/v1/tales/t2/media' };
 const MEDIA_ORIGIN = API_ORIGIN;
 const admin = { id: 'u1', name: 'Ada Admin', email: 'ada@example.com', role: 'admin' };
