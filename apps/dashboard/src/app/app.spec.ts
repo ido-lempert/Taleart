@@ -3117,6 +3117,48 @@ describe('App', () => {
       expect(name.getAttribute('aria-expanded')).toBe('false');
     });
 
+    it('keeps the page in place when a group opens, when a tale opens and when a tale is shown or hidden', async () => {
+      const { fixture, root } = await open('/zones/z1', data, false);
+      const header = root.querySelector('.zone-header');
+      const list = root.querySelector('.groups');
+      const row = root.querySelector('.group');
+      // Opening the group changes the URL only: the page, its list and its row are the same nodes.
+      nameButton(root, 'Summer').click();
+      await settle(fixture);
+      expect(root.querySelector('.zone-header')).toBe(header);
+      expect(root.querySelector('.groups')).toBe(list);
+      expect(root.querySelector('.group')).toBe(row);
+
+      // Opening a tale opens its drawer above the view, with no request and no change to the page.
+      const view = groupView() as HTMLElement;
+      const card = cardOf('A');
+      const pageNodes = [...root.querySelectorAll('*')];
+      cardOf('A').querySelector<HTMLButtonElement>('.tale-card__open')?.click();
+      await settle(fixture);
+      http.expectNone(() => true);
+      expect(drawer()?.textContent).toContain('A');
+      expect(groupView()).toBe(view);
+      expect(cardOf('A')).toBe(card);
+      expect(pageNodes.every((node) => node.isConnected)).toBe(true);
+      expect(root.querySelector('.zone-header')).toBe(header);
+      expect(root.querySelector('.groups')).toBe(list);
+
+      // Showing the tale saves it and refreshes the store; the page and the view keep their nodes.
+      const shown = { ...four[0], status: 'paused', storedStatus: 'paused' };
+      (groupView()?.querySelector('[role=switch][aria-label="Show A"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tales/t1/status`).flush(shown);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [shown, ...four.slice(1)] }, winter] } });
+      await settle(fixture);
+      expect(root.querySelector('.zone-header')).toBe(header);
+      expect(root.querySelector('.groups')).toBe(list);
+      expect(root.querySelector('.group')).toBe(row);
+      expect(groupView()).toBe(view);
+      expect(cardOf('A')).toBe(card);
+      expect(pageNodes.every((node) => node.isConnected)).toBe(true);
+    });
+
     it('keeps Tab inside the view', async () => {
       const { fixture } = await open('/zones/z1', data);
       const view = groupView() as HTMLElement;
@@ -5870,6 +5912,30 @@ describe('App', () => {
       expect(url()).toBe('/tale-groups');
       // Closed, the group is no longer kept: a refresh does not read it.
       expect(TestBed.inject(DashboardStore).readGroups()).toEqual({});
+    });
+
+    it('keeps the Tale groups page in place when a group and then one of its tales opens', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+      const title = root.querySelector('#tale-groups-title');
+      const list = root.querySelector('.group-items');
+      const pageNodes = [...root.querySelectorAll('*')];
+      nameButton(root, 'Loose').click();
+      await settle(fixture);
+      flushReadGroups(data);
+      await settle(fixture);
+      expect(root.querySelector('#tale-groups-title')).toBe(title);
+      expect(root.querySelector('.group-items')).toBe(list);
+      expect(pageNodes.every((node) => node.isConnected)).toBe(true);
+
+      const view = groupView();
+      cardOf('Beach').querySelector<HTMLButtonElement>('.tale-card__open')?.click();
+      await settle(fixture);
+      http.expectNone(() => true);
+      expect(drawer()?.textContent).toContain('Beach');
+      expect(groupView()).toBe(view);
+      expect(root.querySelector('#tale-groups-title')).toBe(title);
+      expect(root.querySelector('.group-items')).toBe(list);
+      expect(pageNodes.every((node) => node.isConnected)).toBe(true);
     });
 
     it('opens a placed group here too, saying the zones it is in, and a row click opens it', async () => {
