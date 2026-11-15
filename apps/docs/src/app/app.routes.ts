@@ -21,6 +21,7 @@ import { RolesAndPermissionsPage } from './pages/roles-and-permissions';
 import { DockerPage } from './pages/docker';
 import { DemoDataPage } from './pages/demo-data';
 import { CliPage } from './pages/cli';
+import { McpPage } from './pages/mcp';
 import { CoverageAndLimitsPage } from './pages/coverage-and-limits';
 
 /**
@@ -38,7 +39,7 @@ export const DOCS_GROUPS = [
 
 /**
  * The docs pages, grouped and in navigation order. Each is prerendered (`app.routes.server.ts`), except
- * AI agents and the SDK guides and references, which load on demand: they carry more text than most pages.
+ * The SDK guides and references, which load on demand: they carry more text than most pages.
  */
 export const DOCS_PAGES: ReadonlyArray<
   { path: string; label: string; title: string; group: (typeof DOCS_GROUPS)[number]; file: string } & Pick<
@@ -311,12 +312,12 @@ export const DOCS_PAGES: ReadonlyArray<
     component: CliPage,
   },
   {
-    path: 'ai-agents',
-    label: 'AI agents',
-    title: 'AI agents',
+    path: 'mcp',
+    label: 'MCP server',
+    title: 'MCP server',
     group: 'Reference',
-    file: 'ai-agents',
-    loadComponent: () => import('./pages/ai-agents').then((m) => m.AiAgentsPage),
+    file: 'mcp',
+    component: McpPage,
   },
   {
     path: 'moving-from-stages',

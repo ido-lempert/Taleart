@@ -210,8 +210,8 @@ const TOPICS: Record<string, () => string> = {
       'file_not_found, unsupported_media_type, confirmation_required, api_unreachable, timeout (help output --json lists all).',
       'tales create stopping part way adds created (the tales made) to its error.',
       '',
-      'Commands never ask a question unless stdin and stderr are both terminals, --json is off and neither',
-      'CI=true nor TALEART_NO_INPUT=1 is set; end of input at a question counts as no (exit 10);',
+      'Commands never ask a question unless stdin and stderr are both terminals, --json is off and TALEART_NO_INPUT=1 is not set;',
+      'end of input at a question counts as no (exit 10);',
       'destructive commands (zone-keys rotate|revoke, site-keys rotate|revoke, tales delete, user-lists delete, zones update --slug)',
       'need --yes otherwise, and take exact names only.',
       '',
@@ -297,7 +297,7 @@ const STRUCTURED: Record<string, () => unknown> = {
       'unsafe_path',
     ],
     prompts:
-      'None unless stdin and stderr are terminals, --json is off, and neither CI=true nor TALEART_NO_INPUT=1 is set; ' +
+      'None unless stdin and stderr are terminals, --json is off, and TALEART_NO_INPUT=1 is not set; ' +
       'destructive commands then ask, and otherwise need --yes (exit 10 without it).',
     references:
       'Projects by id or exact name; zones by id or slug; tale groups and user lists by id or name in the project; tales by id. ' +

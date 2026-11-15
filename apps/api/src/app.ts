@@ -40,6 +40,7 @@ import {
 import { siteKeyRouter } from './http/site-key.router';
 import { userListsRouter, type UserListOptions } from './http/user-lists.router';
 import { zonesRouter } from './http/zones.router';
+import { MCP_PATH, mcpRouter, type McpOptions } from './http/mcp.router';
 
 /** Management API base path (AD-2, versioned per the spine conventions). */
 export const MANAGEMENT_API_BASE = '/api/v1';
@@ -99,6 +100,7 @@ export interface AppUrls {
 export type { SdkFiles } from './http/sdk.router';
 export type { ProjectMediaOptions } from './http/project-media.router';
 export type { UserListOptions } from './http/user-lists.router';
+export type { McpOptions } from './http/mcp.router';
 
 // Builds the API. Takes its pool, frame-type registry, media storage, passkey
 // verifier so tests can point it at a real database, their own frame types, a
@@ -113,6 +115,7 @@ export function createApp(
   delivery: AppDelivery = {},
   sdk: Partial<SdkFiles> = {},
   userLists: UserListOptions = {},
+  mcp: McpOptions = {},
 ): express.Express {
   const publicApiUrl = urls.publicApiUrl ?? 'http://localhost:3333';
   const sdkFiles = { ...defaultSdkFiles(__dirname), ...sdk };
@@ -214,6 +217,9 @@ export function createApp(
   // (AD-9, epic developer experience 10.1), and each checks the caller's access to the project it
   // touches (AD-4), narrowed to the token's projects.
   v1.use(requireCaller(pool, { tokenGuessLimit: auth.tokenGuessLimit }));
+  // The MCP server (TALEART_MCP, on by default): the Management API's operations as tools, over SSE, for a
+  // token only. With the kill switch off it is not mounted, so its paths answer 404 like any unknown path.
+  if (mcp.enabled !== false) v1.use(MCP_PATH, mcpRouter(openapiDocument, mcp));
   // Personal API tokens: a passkey session only.
   v1.use('/api-tokens', apiTokensRouter(pool));
   v1.use('/users', userApiTokensRouter(pool));

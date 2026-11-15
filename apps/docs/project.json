@@ -33,8 +33,7 @@
         "{workspaceRoot}/libs/contract/openapi/openapi.yaml",
         "{workspaceRoot}/libs/contract/src/generated/openapi.json",
         "{workspaceRoot}/libs/contract/src/generated/zone.schema.json",
-        "{workspaceRoot}/libs/web-sdk/src/**/*",
-        "{workspaceRoot}/skills/taleart/**/*"
+        "{workspaceRoot}/libs/web-sdk/src/**/*"
       ],
       "outputs": [
         "{options.outputPath}"
@@ -63,11 +62,6 @@
             "glob": "zone.schema.json",
             "input": "libs/contract/src/generated",
             "output": "schemas"
-          },
-          {
-            "glob": "**/*.md",
-            "input": "skills/taleart",
-            "output": "skill/taleart"
           },
           {
             "glob": "search-index.json",
@@ -170,8 +164,7 @@
         "{workspaceRoot}/apps/api/src/app.spec.ts",
         "{workspaceRoot}/apps/docs/public/swagger-ui/*",
         "{workspaceRoot}/libs/contract/openapi/openapi.yaml",
-        "{workspaceRoot}/libs/contract/src/generated/openapi.json",
-        "{workspaceRoot}/skills/taleart/**/*"
+        "{workspaceRoot}/libs/contract/src/generated/openapi.json"
       ],
       "options": {
         "watch": false

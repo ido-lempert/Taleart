@@ -11,8 +11,6 @@ on:
       - 'apps/docs/**'
       # The OpenAPI document feeds the API reference.
       - 'libs/contract/**'
-      # The agent skill is shown and offered for download on the AI agents page.
-      - 'skills/**'
       - '.github/workflows/docs-pages.yml'
   workflow_dispatch:
 

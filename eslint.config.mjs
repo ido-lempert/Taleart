@@ -39,16 +39,14 @@ export default [
               onlyDependOnLibsWithTags: ['type:contract', 'type:sdk'],
             },
             {
-              // The docs app shows the contract's install snippet (epic UX rework R17) and the agent
-              // skill's text (developer experience 10.4).
+              // The docs app shows the contract's install snippet (epic UX rework R17).
               sourceTag: 'scope:docs',
-              onlyDependOnLibsWithTags: ['type:contract', 'type:skill'],
+              onlyDependOnLibsWithTags: ['type:contract'],
             },
             {
-              // The taleart CLI (epic developer experience 10.3) calls the Management API over HTTP,
-              // and carries the agent skill (10.4) for `taleart skill install`.
+              // The taleart CLI (epic developer experience 10.3) calls the Management API over HTTP.
               sourceTag: 'scope:cli',
-              onlyDependOnLibsWithTags: ['type:contract', 'type:skill', 'type:seed'],
+              onlyDependOnLibsWithTags: ['type:contract', 'type:seed'],
             },
             {
               // The demo seed speaks the Management API through a client it is given, and the contract's types.
@@ -61,10 +59,6 @@ export default [
             },
             {
               sourceTag: 'type:contract',
-              onlyDependOnLibsWithTags: [],
-            },
-            {
-              sourceTag: 'type:skill',
               onlyDependOnLibsWithTags: [],
             },
           ],
@@ -89,8 +83,6 @@ export default [
                 '!@taleart/contract/text-style',
                 '!@taleart/contract/theme',
                 '!@taleart/web-sdk/preview',
-                // The agent skill is Markdown with no index: its files are its interface, read as text.
-                '!@taleart/agent-skill/**',
               ],
               message: "Import another lib only through its public interface (its package name), never a file inside it.",
             },

@@ -5,13 +5,12 @@ import { projects } from './projects';
 import { seedDemoCommand } from './seed-demo';
 import { siteKeys } from './site-keys';
 import { zoneKeys } from './zone-keys';
-import { skill } from './skill';
 import { tales } from './tales';
 import { userLists } from './user-lists';
 import { zones } from './zones';
 
 /** The command groups, in the order help lists them. */
-export const GROUPS: readonly GroupSpec[] = [projects, zones, zoneKeys, siteKeys, groups, tales, userLists, config, skill];
+export const GROUPS: readonly GroupSpec[] = [projects, zones, zoneKeys, siteKeys, groups, tales, userLists, config];
 
 /** Commands with no group. */
 export const TOP_COMMANDS: readonly CommandSpec[] = [login, logout, whoami, seedDemoCommand];

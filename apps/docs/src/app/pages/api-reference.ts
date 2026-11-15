@@ -225,8 +225,8 @@ type State = 'loading' | 'ready' | 'failed';
       </p>
     </aside>
     <p>
-      From a terminal or a script, the <code>taleart</code> command-line tool calls these operations for you; an AI
-      agent can drive it with the TaleArt skill: see <a routerLink="/ai-agents">AI agents</a>.
+      From a terminal or a script, the <code>taleart</code> command-line tool calls these operations for you. An MCP
+      client can call them too: see <a routerLink="/mcp">MCP server</a>.
     </p>
 
     <form class="api-url" (submit)="apply($event)" novalidate>
