@@ -14,6 +14,7 @@ import {
   output,
   signal,
   untracked,
+  viewChildren,
   ViewEncapsulation,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
@@ -66,7 +67,8 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
  * the other zones it is in; its body the tale cards and "Add tale". Each card has a Shown/Hidden
  * switch that saves at once (one action, announced), the indicator dot, and a ⋯ menu: Edit in Tale
  * Studio, Replace media, Schedule, Duplicate, Archive (Restore when archived), Delete (asked first,
- * story 8.20). Tales reorder by
+ * story 8.20). A right-click on the card, or Shift+F10 or the Context Menu key, opens the same menu
+ * at the pointer. Tales reorder by
  * drag, or by their move earlier and later buttons (WCAG 2.2 SC 2.5.7), each move announced.
  *
  * The zone page owns the group's own status and menu (as on the row) and the live region's text;
@@ -97,6 +99,7 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
     TaleThumbnailComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(keydown)': 'cardKeydown($event)' },
   templateUrl: './group-view.html',
   styleUrl: './group-view.css',
   // It sizes the drawer it is in; its rules all start at app-group-view.
@@ -130,6 +133,9 @@ export class GroupView implements OnDestroy {
   readonly initialFocus = input<string | null>(null);
   /** Where focus goes when the view closes: the row's name. */
   readonly returnFocus = input<HTMLElement | null | (() => HTMLElement | null)>(null);
+
+  /** Each tale card's ⋯ menu, in the order of the tales (the template's `#taleMenu`). */
+  private readonly taleMenuButtons = viewChildren<MenuButton>('taleMenu');
 
   readonly closed = output<void>();
   /** The group's switch: true for On. */
@@ -282,6 +288,32 @@ export class GroupView implements OnDestroy {
   /** A tale card's chip: one bound, short; the tale drawer shows the whole window. */
   protected cardChip(tale: Tale): string {
     return windowChip(tale, new Date(), 'short');
+  }
+
+  /**
+   * A right-click on a tale card opens its ⋯ menu at the pointer, with the same items as the ⋯
+   * button (`taleMenus`) and the same handler (`talePicked`). The native menu is suppressed.
+   */
+  protected taleContextMenu(event: MouseEvent, menu: MenuButton): void {
+    event.preventDefault();
+    if (menu.opened()) return;
+    // A context menu raised from the keyboard may carry no pointer position: beside the ⋯ button then.
+    const point = event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : undefined;
+    menu.show('first', point);
+  }
+
+  /**
+   * Shift+F10 and the Context Menu key, from any control on a tale card, open that card's ⋯ menu
+   * beside its button, as a right-click does. Listened to on the view, as the cards are not focusable.
+   */
+  protected cardKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    const card = (event.target as Element | null)?.closest<HTMLElement>('[data-tale-id]');
+    if (!card) return;
+    event.preventDefault();
+    const index = this.group().tales.findIndex((t) => t.id === card.dataset['taleId']);
+    const menu = this.taleMenuButtons()[index];
+    if (menu && !menu.opened()) menu.show('first');
   }
 
   /** Does what a tale's ⋯ menu item says; a drawer it opens returns focus to the menu's button. */

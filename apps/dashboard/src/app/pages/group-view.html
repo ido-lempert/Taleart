@@ -111,7 +111,7 @@
         (cdkDropListDropped)="dropTale($event)"
       >
         @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
-          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent">
+          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent" (contextmenu)="taleContextMenu($event, taleMenu)">
             <app-tale-thumbnail [tales]="[tale]" mediaClass="tale-card__media" />
             <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
             <app-visibility class="tale-card__visibility" [visibility]="tale.visibility" viewing="tale" [compact]="true" />
@@ -146,6 +146,7 @@
               ></button>
             }
             <app-menu-button
+              #taleMenu
               class="tale-card__menu"
               [label]="'More for ' + tale.title"
               [items]="taleMenus().get(tale.id) ?? []"

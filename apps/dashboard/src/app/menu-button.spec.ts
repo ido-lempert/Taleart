@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { MenuButton, menuPosition, type MenuItem, type MenuPick } from './menu-button';
+import { MenuButton, menuPosition, menuPositionAt, type MenuItem, type MenuPick } from './menu-button';
 
 @Component({
   imports: [MenuButton],
@@ -254,5 +254,19 @@ describe('menuPosition', () => {
   it('aligns with the button left edge in a right-to-left page', () => {
     expect(menuPosition({ left: 20, right: 52, top: 100, bottom: 132 }, menu, viewport, true)).toEqual({ left: 20, top: 136 });
     expect(menuPosition({ left: 300, right: 332, top: 100, bottom: 132 }, menu, viewport, true)).toEqual({ left: 226, top: 136 });
+  });
+});
+
+describe('menuPositionAt', () => {
+  const viewport = { width: 390, height: 844 };
+  const menu = { width: 160, height: 100 };
+
+  it('opens its top-start corner at the point', () => {
+    expect(menuPositionAt({ x: 120, y: 140 }, menu, viewport)).toEqual({ left: 120, top: 140 });
+  });
+
+  it('moves back inside the viewport near its right and bottom edges, and never above or left of it', () => {
+    expect(menuPositionAt({ x: 385, y: 840 }, menu, viewport)).toEqual({ left: 226, top: 740 });
+    expect(menuPositionAt({ x: -5, y: 2 }, menu, viewport)).toEqual({ left: 4, top: 4 });
   });
 });

@@ -57,6 +57,26 @@ export function menuPosition(
   return { left, top };
 }
 
+/** A point in viewport pixels, such as a right-click's. */
+export interface MenuPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where a menu opened at a point (a context menu) goes: its top-start corner at the point, kept
+ * inside the viewport, so a menu near the right or bottom edge moves back in from it.
+ */
+export function menuPositionAt(
+  point: MenuPoint,
+  menu: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number } {
+  const left = Math.max(GAP, Math.min(point.x, viewport.width - menu.width - GAP));
+  const top = Math.max(GAP, Math.min(point.y, viewport.height - menu.height - GAP));
+  return { left, top };
+}
+
 /**
  * A ⋯ menu button (WAI-ARIA menu button pattern). The button says what it opens
  * (`aria-haspopup`, `aria-expanded`) and is named by `label`, such as "More for Summer". Enter,
@@ -235,6 +255,10 @@ export class MenuButton {
   protected readonly menuId = `menu-${nextId++}`;
   protected readonly triggerId = `${this.menuId}-button`;
   protected readonly open = signal(false);
+  /** True while the menu is open. */
+  readonly opened = this.open.asReadonly();
+  /** Set while the menu is open at a point (a context menu); null when it hangs off its button. */
+  private anchor: MenuPoint | null = null;
 
   // A press or a click (a keyboard or assistive technology click has no press) outside closes it.
   private readonly onOutside = (event: Event) => {
@@ -327,11 +351,15 @@ export class MenuButton {
     this.picked.emit({ id: item.id, opener: this.trigger().nativeElement });
   }
 
-  /** Opens the menu with focus on its first or last item, closing any other open menu. */
-  show(focus: 'first' | 'last'): void {
+  /**
+   * Opens the menu with focus on its first or last item, closing any other open menu. At `point`
+   * (viewport pixels, a right-click's) when given, else beside its button. Open already: only focus moves.
+   */
+  show(focus: 'first' | 'last', point?: MenuPoint): void {
     if (!this.open()) {
       if (closeOpenMenu && closeOpenMenu !== this.closeQuietly) closeOpenMenu();
       closeOpenMenu = this.closeQuietly;
+      this.anchor = point ?? null;
       this.open.set(true);
       // Renders the menu now, so it can be shown and focused in this event.
       this.changes.detectChanges();
@@ -349,6 +377,7 @@ export class MenuButton {
     if (closeOpenMenu === this.closeQuietly) closeOpenMenu = null;
     if (!this.open()) return;
     this.open.set(false);
+    this.anchor = null;
     hideFromTopLayer(this.menu()?.nativeElement);
     if (refocus) this.trigger().nativeElement.focus();
   }
@@ -362,13 +391,11 @@ export class MenuButton {
     if (!menu) return;
     const view = this.document.defaultView;
     const trigger = this.trigger().nativeElement;
-    const rtl = view?.getComputedStyle(trigger).direction === 'rtl';
-    const at = menuPosition(
-      trigger.getBoundingClientRect(),
-      { width: menu.offsetWidth, height: menu.offsetHeight },
-      viewportSize(view),
-      rtl,
-    );
+    const size = { width: menu.offsetWidth, height: menu.offsetHeight };
+    const viewport = viewportSize(view);
+    const at = this.anchor
+      ? menuPositionAt(this.anchor, size, viewport)
+      : menuPosition(trigger.getBoundingClientRect(), size, viewport, view?.getComputedStyle(trigger).direction === 'rtl');
     placeAt(menu, at);
   }
 }
