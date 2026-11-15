@@ -381,6 +381,8 @@ export class TaleStudioPage implements OnChanges {
   readonly zone = input<string | undefined>(undefined);
   /** `?from=tale-groups` when opened from the Tale groups page's group view (story 8.19), where its back link returns. */
   readonly from = input<string | undefined>(undefined);
+  /** `?newGroup=` the tale group made by "New tale group" for this tale: its options come once the studio is left. */
+  readonly newGroup = input<string | undefined>(undefined);
 
   /** The document being edited; null until read. */
   protected readonly doc = signal<TaleDocument | null>(null);
@@ -1423,6 +1425,22 @@ export class TaleStudioPage implements OnChanges {
    * is asked whether to leave without them.
    */
   async canLeave(): Promise<boolean> {
+    const leave = await this.leaveSaved();
+    const groupId = this.newGroup();
+    // A new tale group's options come once the studio is left (the shell opens them after the page shows).
+    if (leave && groupId && !this.leavingForCopy) {
+      const zoneId = this.zone() ?? '';
+      this.store.pendingGroupOptions.set({
+        taleGroupId: groupId,
+        zoneId,
+        projectId: this.store.zone(zoneId)?.projectId ?? this.store.selectedProjectId(),
+      });
+    }
+    return leave;
+  }
+
+  /** Whether the studio's changes are saved or may be left unsaved (see {@link canLeave}). */
+  private async leaveSaved(): Promise<boolean> {
     if (this.leavingForCopy || !this.autosave.unsaved) return true;
     const saved = await Promise.race([
       this.autosave.flush(),

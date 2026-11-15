@@ -54,7 +54,7 @@
             }
           }
           @if (createRequest(); as request) {
-            <button type="button" class="btn btn--primary" (click)="store.openDrawer(request, $event)">
+            <button type="button" class="btn btn--primary" (click)="runCreate(request, $event)">
               <app-icon name="plus" />
               <span class="btn__label">{{ shell().createLabel }}</span>
             </button>
@@ -79,6 +79,10 @@
           <span class="visually-hidden">Connected to TaleArt again.</span>
         }
       </div>
+
+      @if (store.newGroupNotice(); as notice) {
+        <p class="form-error" role="alert">{{ notice }}</p>
+      }
 
       <main id="main" class="content" tabindex="-1">
         <router-outlet />

@@ -60,10 +60,11 @@ export type DrawerRequest =
   | { kind: 'display'; zoneId: string }
   | { kind: 'displaySettings'; zoneId: string }
   /**
-   * A new tale group in the zone `zoneId`; with `projectId` (the Tale groups page, epic UX rework
-   * R14) the drawer offers the project's zones and "Not in a zone", starting at `zoneId` ('' for none).
+   * The options of a tale group just made by "New tale group", shown once its Tale Studio is left
+   * (epic Tale Studio: the first tale comes first). `zoneId` is its zone, '' when in no zone yet;
+   * `projectId` offers the project's zones when it is in none.
    */
-  | { kind: 'taleGroup'; zoneId: string; projectId?: string }
+  | { kind: 'taleGroupOptions'; taleGroupId: string; zoneId: string; projectId?: string }
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
   | { kind: 'renameTaleGroup'; taleGroupId: string }
@@ -151,6 +152,18 @@ function taleGroupCreateMessage(err: unknown, fallback: string): string {
 export type ZoneField = 'name' | 'slug' | 'template' | 'project' | null;
 
 /** A refused zone change: the message to show, and the field it is about, so only that field is marked. */
+/** What a new tale group is called until its options are given. */
+export const NEW_TALE_GROUP_NAME = 'New tale group';
+/** The title of a new tale group's first tale, the draft Tale Studio opens on. */
+export const NEW_TALE_TITLE = 'New tale';
+
+/** A new tale group whose options are due, see {@link DashboardStore.pendingGroupOptions}. */
+export interface PendingGroupOptions {
+  taleGroupId: string;
+  zoneId: string;
+  projectId: string;
+}
+
 /**
  * A tale's title from its media file's name: without the extension, with underscores and hyphens
  * read as spaces, at most 100 characters; "Tale" when nothing is left.
@@ -219,6 +232,13 @@ export class DashboardStore {
   private readonly readingGroups = new Set<string>();
   /** The id of the tale group created last, by either create (epic UX rework R14); null before one. */
   readonly createdTaleGroupId = signal<string | null>(null);
+  /**
+   * A new tale group whose Tale Studio was just left: the shell opens its options drawer once the
+   * page it leads to is shown. Null when there is none to show.
+   */
+  readonly pendingGroupOptions = signal<PendingGroupOptions | null>(null);
+  /** Why "New tale group" could not start, shown on the page until the next navigation. */
+  readonly newGroupNotice = signal('');
   /** '' or why setup's first project was not created, shown once on the zones page's "Create your first project". */
   readonly firstProjectRefusal = signal('');
   /** Each project's tags by name, keyed by project id. */
@@ -809,6 +829,46 @@ export class DashboardStore {
     this.createdTaleGroupId.set(created.id);
     await this.refresh();
     return '';
+  }
+
+  /**
+   * Starts a new tale group the way Tale Studio needs it: the group (in `zoneId`, or in no zone of
+   * the project) with one draft tale to edit. Returns the two ids, or the message to show; a group
+   * whose draft tale cannot be made is taken back out, so none is left behind.
+   */
+  async startNewTaleGroup(projectId: string, zoneId = ''): Promise<{ taleGroupId: string; taleId: string } | string> {
+    this.createdTaleGroupId.set(null);
+    const message = zoneId
+      ? await this.createTaleGroup(zoneId, NEW_TALE_GROUP_NAME)
+      : await this.createProjectTaleGroup(projectId, NEW_TALE_GROUP_NAME);
+    const taleGroupId = this.createdTaleGroupId();
+    if (message || !taleGroupId) return message || 'The tale group was not saved. Try again.';
+    let tale: Tale;
+    try {
+      tale = await firstValueFrom(
+        this.http.post<Tale>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/tales`, {
+          title: NEW_TALE_TITLE,
+        }),
+      );
+    } catch (err) {
+      await this.discardNewTaleGroup(taleGroupId, zoneId);
+      return apiErrorMessage(err, 'The tale was not started. Try again.');
+    }
+    await this.refresh();
+    return { taleGroupId, taleId: tale.id };
+  }
+
+  /**
+   * Takes a new tale group back out when it is dropped: out of its zone, then archived. The API has
+   * no delete for a group; an archived group is hidden and no longer counts against its project's
+   * limit. Returns '' or the message to show.
+   */
+  async discardNewTaleGroup(taleGroupId: string, zoneId = ''): Promise<string> {
+    if (zoneId) {
+      const message = await this.removeTaleGroup(zoneId, taleGroupId);
+      if (message) return message;
+    }
+    return this.setTaleGroupStatus(taleGroupId, 'archived');
   }
 
   /** Renames a tale group; every zone it is placed in shows the new name (AD-14). */
@@ -1412,55 +1472,6 @@ export class DashboardStore {
       return `The tale was added, but its media was not saved. ${message}`;
     }
     return '';
-  }
-
-  /**
-   * Adds one tale per file to a tale group, in the files' order, each titled after its file name and
-   * with the file as its media, sent with its checked `type` (epic UX rework R13: a new group gets
-   * its tales in the same step). New tales start Shown (R6). Stops at the first refusal, or when
-   * `signal` aborts; a tale whose media was not saved is hidden, so it never shows empty. Reads the
-   * lists again once. `progress` is told the 1-based number of the file being added.
-   */
-  async addTalesFromFiles(
-    taleGroupId: string,
-    files: readonly { file: File; type: string }[],
-    options: { progress?: (n: number) => void; signal?: AbortSignal } = {},
-  ): Promise<{ added: number; message: string }> {
-    const { progress, signal } = options;
-    let added = 0;
-    let message = '';
-    for (const [i, { file, type }] of files.entries()) {
-      if (signal?.aborted) {
-        message = 'Stopped.';
-        break;
-      }
-      progress?.(i + 1);
-      const title = taleTitleFromFile(file.name);
-      let tale: Tale;
-      try {
-        tale = await firstValueFrom(this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, { title }));
-      } catch (err) {
-        message = apiErrorMessage(err, `The tale "${title}" was not saved.`);
-        break;
-      }
-      const refused = await this.putMedia(tale.id, file, { type, signal });
-      if (refused !== '') {
-        // Hidden, so a tale without its media never shows; removing it is left to the user.
-        try {
-          await firstValueFrom(this.http.put<Tale>(`${API_BASE}/tales/${tale.id}/status`, { status: 'paused' }));
-        } catch {
-          // A tale without media is not delivered anyway (AD-15).
-        }
-        message =
-          refused === null
-            ? `Stopped. The tale "${title}" was added hidden, without its media.`
-            : `The tale "${title}" was added hidden, without its media. ${refused}`;
-        break;
-      }
-      added++;
-    }
-    await this.refresh();
-    return { added, message };
   }
 
   /**
