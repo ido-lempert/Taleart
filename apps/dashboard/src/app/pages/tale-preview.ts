@@ -11,11 +11,13 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import type { DeliveryZone } from '@taleart/contract/core';
 import type { ProjectFont } from '@taleart/contract/core';
 import { projectFontIds } from '@taleart/contract/project-fonts';
 import type { TaleDocument } from '@taleart/contract/tale-document';
 import {
   DEFAULT_PREVIEW_SIZE,
+  GroupPreview,
   PREVIEW_SIZES,
   previewDocument,
   TalePreview,
@@ -24,17 +26,14 @@ import {
 } from '@taleart/web-sdk/preview';
 import { projectFontFileUrl } from '../project-fonts.service';
 import { projectMediaSrc } from '../project-media.service';
-
-// An absolute URL, as the Delivery API sends them and the SDK requires: the dashboard's media and
-// font URLs are paths on its own origin.
-function absolute(url: string): string {
-  return new URL(url, globalThis.location?.href ?? 'http://localhost/').href;
-}
+import { absolute } from './tale-preview-group';
 
 /**
- * The Tale Studio preview (epic Tale Studio R10, AD-16): the Web SDK's own viewer and document
- * renderer, mounted on the unsaved document, at a phone size, with the viewer's chrome, playing the
- * tale for its duration. Every change to the document shows at once. Links show but go nowhere.
+ * The Tale Studio preview (epic Tale Studio R10, AD-16, story 7.10): the Web SDK's own rendering, mounted on the unsaved
+ * document, at a phone size, with the viewer's chrome. With a zone (`zone`: the group's zone as {@link groupPreviewZone}
+ * builds it), it shows the group as a visitor's page does: the zone's bar or banner, then the viewer of the group
+ * (`groupId`). Without one, the tale alone, playing for its duration. Every change to the document shows at once.
+ * Links show but go nowhere.
  */
 @Component({
   selector: 'app-tale-preview',
@@ -140,6 +139,13 @@ export class TalePreviewPane {
   /** The project's complete theme, as the Delivery API sends it, or null before it loads. */
   readonly theme = input<unknown>(null);
   readonly fonts = input<readonly ProjectFont[] | null>(null);
+  /**
+   * The group's zone for the group preview, with its display (null when the preview is of the tale alone). Read once,
+   * when the pane opens: the pane shows the group, or the tale alone, for as long as it is open.
+   */
+  readonly zone = input<DeliveryZone | null>(null);
+  /** The group being edited, which the group preview's viewer opens on. */
+  readonly groupId = input('');
 
   protected readonly sizes = PREVIEW_SIZES;
   protected readonly size = signal<PreviewSizeId>(DEFAULT_PREVIEW_SIZE);
@@ -150,7 +156,7 @@ export class TalePreviewPane {
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private readonly replayButton = viewChild.required<ElementRef<HTMLButtonElement>>('replayButton');
-  private readonly preview = signal<TalePreview | null>(null);
+  private readonly preview = signal<TalePreview | GroupPreview | null>(null);
 
   /** The tale as a visitor's SDK would be sent it: the draft, delivered. */
   private readonly tale = computed<PreviewTale>(() => {
@@ -177,16 +183,26 @@ export class TalePreviewPane {
 
   constructor() {
     afterNextRender(() => {
-      this.preview.set(
-        new TalePreview(this.host().nativeElement, {
-          onEnded: () => this.ended.set(true),
-          onStarted: () => this.ended.set(false),
-        }),
-      );
+      const options = {
+        onEnded: () => this.ended.set(true),
+        onStarted: () => this.ended.set(false),
+      };
+      const host = this.host().nativeElement;
+      this.preview.set(this.zone() ? new GroupPreview(host, options) : new TalePreview(host, options));
     });
     inject(DestroyRef).onDestroy(() => this.preview()?.destroy());
-    effect(() => this.preview()?.show(this.tale()));
-    effect(() => this.preview()?.setTheme(this.theme()));
+    effect(() => {
+      const preview = this.preview();
+      if (preview instanceof GroupPreview) {
+        const zone = this.zone();
+        if (zone) preview.show(zone, this.groupId());
+      } else preview?.show(this.tale());
+    });
+    // A group's display takes its theme from its zone, which the zone's own data carries.
+    effect(() => {
+      const preview = this.preview();
+      if (preview instanceof TalePreview) preview.setTheme(this.theme());
+    });
     effect(() => this.preview()?.setSafeArea(this.safeArea()));
     effect(() => this.preview()?.setSound(this.sound()));
   }
