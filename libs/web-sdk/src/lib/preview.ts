@@ -9,10 +9,13 @@ import {
   type DeliveryTaleDocument,
   type DeliveryTaleElement,
   type DeliveryTaleGroup,
+  type DeliveryZone,
 } from '@taleart/contract';
+import { BAR_FRAME_TYPE, BAR_STYLES, barLayoutStyles, renderBar } from './bar';
+import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner, type BannerView } from './banner';
 import { DOCUMENT_STYLES } from './document/renderer';
-import { DEFAULT_STRINGS, type Translate } from './i18n';
-import { applyTheme } from './theme';
+import { DEFAULT_STRINGS, defaultTranslate, type Translate } from './i18n';
+import { applyTheme, THEME_SCHEME_STYLES } from './theme';
 import { TaleViewer, VIEWER_BASE_STYLES } from './viewer';
 
 /**
@@ -226,6 +229,40 @@ class PreviewViewer extends TaleViewer {
       this.quiet = false;
     }
   }
+
+  /**
+   * Takes the zone's groups again, as edited (a group preview): the group on screen is drawn in place at its
+   * tale when that can be, else it plays from its start at the same tale. A group no longer listed closes the viewer.
+   */
+  replaceGroups(groups: readonly DeliveryTaleGroup[]): void {
+    const groupId = this.groupId;
+    const at = this.tale;
+    this.groups = groups.filter((group) => group.tales.length > 0);
+    if (!this.opened || groupId === null) return;
+    const index = this.groups.findIndex((group) => group.id === groupId);
+    if (index < 0) {
+      this.close();
+      return;
+    }
+    const group = this.groups[index];
+    this.group = index;
+    this.parts.name.textContent = group.name;
+    this.dialog?.setAttribute('aria-label', group.name);
+    const tale = Math.min(at, group.tales.length - 1);
+    if (tale === at && this.canRedraw(group.tales[tale])) {
+      const keepMedia = !!this.video;
+      this.clearContent(keepMedia);
+      this.renderContent(group.tales[tale], tale, keepMedia);
+      this.applyPause();
+      return;
+    }
+    this.quiet = true;
+    try {
+      this.show(index, tale, true);
+    } finally {
+      this.quiet = false;
+    }
+  }
 }
 
 function hasVideo(doc: DeliveryTaleDocument | null | undefined): boolean {
@@ -403,3 +440,221 @@ export class TalePreview {
     this.options.onStarted?.();
   }
 }
+
+// What the zone's display draws: its frame, and each group's name, cover and tales' titles and media. A change in
+// any of them redraws the display; a change in a tale's document only redraws the viewer's tale.
+function displayKey(zone: DeliveryZone): string {
+  return JSON.stringify({
+    frame: zone.frame,
+    groups: zone.taleGroups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      cover: group.cover,
+      tales: group.tales.map((tale) => ({ id: tale.id, title: tale.title, media: tale.media })),
+    })),
+  });
+}
+
+/**
+ * The Tale Studio's group preview (epic Tale Studio R10, AD-16, story 7.10): a tale group shown as a visitor's page
+ * shows it. The zone's display is drawn by the SDK's own renderers, the bar or the banner the zone's frame names, with
+ * the zone's tale groups, covers and display settings; the viewer that opens when an entry is tapped is the SDK's
+ * viewer, here embedded in the host at a phone size, with its chrome and the same tale renderer. The zone data is what
+ * the studio gives (the groups as the Delivery API would send them, with the unsaved tale in place of its published
+ * one): the preview draws it as it stands, with no targeting applied.
+ *
+ * The viewer opens on the group by itself when the preview is first shown, and again on "replay"; a tap on an entry
+ * opens its group as well. A change to the zone redraws the display, and the open viewer in place (or from the start of
+ * its tale when its duration or video changed), once changes stop ({@link PREVIEW_REDRAW_MS}). Links show but go nowhere.
+ */
+export class GroupPreview {
+  private readonly root: ShadowRoot;
+  private readonly themed: HTMLElement;
+  // The zone's display (bar or banner), over the page the preview draws behind it.
+  private readonly page: HTMLElement;
+  // Where the viewer is built; replaced on each open, so a closed viewer leaves nothing behind.
+  private readonly viewerHost: HTMLElement;
+  private readonly overlay: HTMLElement;
+  private readonly t: Translate;
+  private viewer: PreviewViewer | null = null;
+  private zone: DeliveryZone | null = null;
+  private groupId: string | null = null;
+  private shownKey = '';
+  private shownTheme = '';
+  private banner: BannerView | null = null;
+  private ended = false;
+  private sound = false;
+  private redrawTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    host: HTMLElement,
+    private readonly options: TalePreviewOptions = {},
+  ) {
+    this.root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+    this.t = options.t ?? defaultTranslate;
+    const style = document.createElement('style');
+    style.textContent = VIEWER_BASE_STYLES + DOCUMENT_STYLES + PREVIEW_STYLES + GROUP_PAGE_STYLES;
+    this.themed = document.createElement('div');
+    this.themed.className = 'taleart';
+    this.page = document.createElement('div');
+    this.page.className = 'group-page';
+    this.viewerHost = document.createElement('div');
+    this.viewerHost.className = 'group-viewer';
+    this.overlay = document.createElement('div');
+    this.overlay.className = 'ta-area ta-safe-overlay';
+    this.overlay.setAttribute('aria-hidden', 'true');
+    this.overlay.hidden = true;
+    const canvas = document.createElement('div');
+    canvas.className = 'ta-canvas';
+    const safe = document.createElement('div');
+    safe.className = 'ta-safe';
+    canvas.appendChild(safe);
+    this.overlay.appendChild(canvas);
+    this.themed.replaceChildren(this.page, this.viewerHost);
+    this.root.replaceChildren(style, this.themed);
+  }
+
+  /** True while the viewer is open (playing or paused). */
+  get isOpen(): boolean {
+    return !!this.viewer?.isOpen;
+  }
+
+  /** Shows or hides the safe-area overlay. */
+  setSafeArea(on: boolean): void {
+    this.overlay.hidden = !on;
+  }
+
+  /** Turns sound on or off (off at first). */
+  setSound(on: boolean): void {
+    this.sound = on;
+    this.viewer?.setSound(on);
+  }
+
+  /**
+   * Shows `zone`'s display, and the viewer of `groupId` (the group being edited). The first call draws the display and
+   * opens the viewer on the group; later calls redraw once changes stop. A zone with no display draws nothing.
+   */
+  show(zone: DeliveryZone, groupId: string): void {
+    const first = this.zone === null;
+    this.zone = zone;
+    this.groupId = groupId;
+    if (first) {
+      this.redraw();
+      this.openGroup(groupId);
+      return;
+    }
+    clearTimeout(this.redrawTimer);
+    this.redrawTimer = setTimeout(() => this.redraw(), PREVIEW_REDRAW_MS);
+  }
+
+  /** Opens the viewer on the group again, from its first tale (after the viewer ended or was closed). */
+  replay(): void {
+    if (this.zone && this.groupId !== null) this.openGroup(this.groupId);
+  }
+
+  /** Pauses or resumes the viewer, as its Pause button does. */
+  togglePause(): void {
+    if (this.viewer?.isOpen) this.viewer.togglePause();
+  }
+
+  /** Stops playing and empties the host. */
+  destroy(): void {
+    clearTimeout(this.redrawTimer);
+    this.stopViewer();
+    this.banner?.destroy();
+    this.banner = null;
+    this.root.replaceChildren();
+  }
+
+  // Draws the zone as it now is: the display when it changed, the theme, and the open viewer in place.
+  private redraw(): void {
+    const zone = this.zone;
+    if (!zone) return;
+    const theme = JSON.stringify(zone.theme ?? null);
+    if (theme !== this.shownTheme) {
+      this.shownTheme = theme;
+      applyTheme(this.themed, zone.theme ?? {});
+    }
+    const key = displayKey(zone);
+    if (key !== this.shownKey) this.drawDisplay(zone);
+    const viewer = this.viewer;
+    // An ended viewer stays ended until it is replayed, as the tale preview's does.
+    if (!viewer?.isOpen || this.ended) return;
+    if (viewer.groupId !== this.groupId) this.openGroup(this.groupId ?? '');
+    else viewer.replaceGroups(zone.taleGroups);
+  }
+
+  // Draws the zone's display: the bar or the banner its frame names, as the SDK's element draws it.
+  private drawDisplay(zone: DeliveryZone): void {
+    this.banner?.destroy();
+    this.banner = null;
+    this.shownKey = displayKey(zone);
+    const style = document.createElement('style');
+    style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES + barLayoutStyles();
+    const frame = zone.frame;
+    let display: HTMLElement | null = null;
+    if (frame?.type === BAR_FRAME_TYPE) {
+      const list = renderBar(zone.taleGroups, new Set(), frame.settings, undefined, this.t);
+      // A tap on an entry opens its group, as the element's bar does.
+      list.addEventListener('click', (event) => {
+        const item = (event.target as Element | null)?.closest<HTMLButtonElement>('button.item');
+        if (item) this.openGroup(item.dataset['taleGroupId'] ?? '');
+      });
+      display = list;
+    } else if (frame?.type === BANNER_FRAME_TYPE) {
+      const banner = renderBanner(zone.taleGroups, frame.settings, (groupId) => this.openGroup(groupId), this.t);
+      if (banner) {
+        this.banner = banner;
+        display = banner.element;
+      }
+    }
+    this.page.replaceChildren(style);
+    if (display) this.page.appendChild(display);
+    this.banner?.refresh();
+  }
+
+  // Opens the viewer on `groupId` at its first tale, in place of any viewer open now. An unknown group opens nothing.
+  private openGroup(groupId: string): void {
+    const zone = this.zone;
+    // A zone with no display shows no group to a visitor, so nothing opens here either.
+    if (!zone?.frame) return;
+    this.stopViewer();
+    this.viewerHost.replaceChildren();
+    this.ended = false;
+    const viewer = new PreviewViewer(this.viewerHost, zone.taleGroups, {
+      t: this.t,
+      onClose: () => {
+        if (this.viewer !== viewer) return;
+        this.ended = true;
+        this.options.onEnded?.();
+      },
+    });
+    viewer.sound = this.sound;
+    if (!viewer.open(groupId)) return;
+    this.viewer = viewer;
+    // Over the tale, under nothing: the overlay sits in the viewer's frame, above the document.
+    this.viewerHost.querySelector('.frame')?.appendChild(this.overlay);
+    // Inert links never navigate, even when activated by script or the keyboard.
+    this.viewerHost.querySelector('dialog')?.addEventListener(
+      'click',
+      (e) => {
+        if ((e.target as Element | null)?.closest?.('a')) e.preventDefault();
+      },
+      true,
+    );
+    this.options.onStarted?.();
+  }
+
+  // Closes the viewer without saying the group ended: nothing played to its end.
+  private stopViewer(): void {
+    const viewer = this.viewer;
+    this.viewer = null;
+    viewer?.close();
+  }
+}
+
+// The page the zone's display sits on in the group preview: a plain white page with the display's gutter.
+const GROUP_PAGE_STYLES = `
+.group-page { position: absolute; inset: 0; overflow: hidden; padding: 16px 12px; background: #ffffff; box-sizing: border-box; }
+.group-viewer { position: absolute; inset: 0; }
+`;

@@ -2,7 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import type { ZoneTaleGroup } from '@taleart/contract/core';
+import type { Zone, ZoneTaleGroup } from '@taleart/contract/core';
 import type { TaleDocument } from '@taleart/contract/tale-document';
 import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
@@ -264,5 +264,138 @@ describe('the preview pane on its own', () => {
     expect([...shadow().querySelectorAll('.ta-glyphs')].map((n) => n.textContent)).toEqual(['Two']);
     fixture.destroy();
     globalThis.document.body.replaceChildren();
+  });
+});
+
+describe('the group preview in the studio (epic Tale Studio R10, story 7.10)', () => {
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<TaleStudioPage>;
+  let root: HTMLElement;
+
+  const q = <T extends Element>(selector: string) => root.querySelector(selector) as T;
+  const shadow = () => q<HTMLElement>('#preview-host').shadowRoot as ShadowRoot;
+  const inPreview = <T extends Element>(selector: string) => shadow().querySelector(selector) as T | null;
+  const previewTexts = () => [...shadow().querySelectorAll('.ta-glyphs')].map((n) => n.textContent);
+  const flag = (visible: boolean) => ({ visible, reasons: visible ? [] : ['not-live'] });
+  const taleOf = (id: string, title: string, shown = true) => ({ ...tale, id, title, visibility: flag(shown) });
+  const groupOf = (id: string, name: string, tales: unknown[]) => ({
+    id,
+    name,
+    projectId: 'p1',
+    status: 'live',
+    storedStatus: 'live',
+    startsAt: null,
+    endsAt: null,
+    cover: null,
+    tales,
+    visibility: flag(true),
+  });
+  const summer = groupOf('g1', 'Summer', [taleOf('t1', 'Beach'), taleOf('t2', 'Sea')]);
+  const winter = groupOf('g2', 'Winter', [taleOf('t3', 'Snow')]);
+  const home = {
+    id: 'z1',
+    name: 'Home',
+    slug: 'home',
+    projectId: 'p1',
+    frame: { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', settings: {} },
+  };
+  const publishedSea = (text: string) =>
+    ({
+      ...DOC,
+      elements: [{ ...base, id: 'p', type: 'text', box: box(0.2), props: { text } }],
+    }) as unknown as TaleDocument;
+
+  // The preview reads the published documents of the group's other tales (t2 in Summer, t3 in Winter).
+  function answerPublished(sea: TaleDocument | null): void {
+    http
+      .expectOne(`${API_BASE}/tales/t2/document`)
+      .flush({ document: null, revision: 0, published: { document: sea, revision: sea ? 1 : 0 } });
+    http
+      .expectOne(`${API_BASE}/tales/t3/document`)
+      .flush({ document: null, revision: 0, published: { document: null, revision: 0 } });
+  }
+
+  async function open(): Promise<void> {
+    fixture = TestBed.createComponent(TaleStudioPage);
+    fixture.componentRef.setInput('taleId', 't1');
+    fixture.detectChanges();
+    http
+      .expectOne(`${API_BASE}/tales/t1/document`)
+      .flush({ document: DOC, revision: 1, published: { document: null, revision: 0 } });
+    http
+      .expectOne(`${API_BASE}/projects/p1/theme`)
+      .flush({ projectId: 'p1', theme: {}, resolved: { ...DEFAULT_THEME, accentColor: '#ff8800', fontFamily: null } });
+    http.expectOne(`${API_BASE}/projects/p1/fonts`).flush([]);
+    await settle(fixture);
+    root = fixture.nativeElement as HTMLElement;
+    globalThis.document.body.appendChild(root);
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [TaleStudioPage],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: AUTOSAVE_TIMING, useValue: WAIT_FOR_TEST },
+      ],
+    }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
+    const store = TestBed.inject(DashboardStore);
+    store.zones.set([home as unknown as Zone]);
+    store.taleGroups.set({ z1: [summer, winter] as unknown as ZoneTaleGroup[] });
+    store.loaded.set(true);
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    for (const read of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+$/.test(r.url))) {
+      read.flush({ visibility: { visible: true, reasons: [] } });
+    }
+    http.verify();
+    globalThis.document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+
+  it('shows the zone bar with its groups, and the viewer of the group with the tale as it is drafted', async () => {
+    await open();
+    q<HTMLButtonElement>('#studio-preview').click();
+    answerPublished(publishedSea('Published sea'));
+    await settle(fixture);
+    expect([...shadow().querySelectorAll('button.item')].map((b) => b.getAttribute('data-tale-group-id'))).toEqual([
+      'g1',
+      'g2',
+    ]);
+    expect(inPreview('dialog.viewer')?.hasAttribute('open')).toBe(true);
+    expect(inPreview('.name')?.textContent).toBe('Summer');
+    // Both tales of the group, the edited one from its draft and the other from its published document.
+    expect(shadow().querySelectorAll('.segment')).toHaveLength(2);
+    expect(previewTexts()).toEqual(['Hello']);
+  });
+
+  it('leaves out a tale of the group that has no published document', async () => {
+    await open();
+    q<HTMLButtonElement>('#studio-preview').click();
+    answerPublished(null);
+    await settle(fixture);
+    expect(shadow().querySelectorAll('.segment')).toHaveLength(1);
+  });
+
+  it('shows an unsaved change in the group viewer at once, and saves nothing', async () => {
+    await open();
+    q<HTMLButtonElement>('#studio-preview').click();
+    answerPublished(null);
+    await settle(fixture);
+    q<HTMLElement>('#studio-el-txt').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await settle(fixture);
+    const editor = q<HTMLTextAreaElement>('#studio-edit-txt');
+    editor.value = 'Hello, sailor';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, PREVIEW_REDRAW_MS + 50));
+    expect(previewTexts()).toEqual(['Hello, sailor']);
+    expect(http.match(`${API_BASE}/tales/t1/document`)).toHaveLength(0);
   });
 });

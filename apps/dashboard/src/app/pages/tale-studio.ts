@@ -26,6 +26,7 @@ import {
   type ProjectMedia,
   type Visibility,
 } from '@taleart/contract/core';
+import type { DeliveryZone } from '@taleart/contract/core';
 import { loadProjectFont, projectFontIds } from '@taleart/contract/project-fonts';
 import {
   cleanText,
@@ -123,6 +124,7 @@ import {
 } from './tale-canvas-view';
 import { dropBox, landedSaid, nextFreeSpot, tileBox } from './tale-placement';
 import { TalePreviewPane } from './tale-preview';
+import { groupPreviewZone, previewPublishedTaleIds } from './tale-preview-group';
 import {
   LEFT_TABS,
   menuKeyTarget,
@@ -605,6 +607,50 @@ export class TaleStudioPage implements OnChanges {
   protected readonly projectTheme = signal<unknown>(null);
   /** Whether the preview (R10) shows. */
   protected readonly previewOpen = signal(false);
+  /** The published documents the group preview reads for the group's other tales, by tale id, read as it opens. */
+  protected readonly previewPublished = signal<ReadonlyMap<string, TaleDocument | null>>(new Map());
+  /** The group the tale is in, for the group preview: from the zones' lists, else from the group the studio read. */
+  protected readonly previewGroupId = computed(() => {
+    const listed = this.store.tale(this.taleId())?.taleGroupId;
+    if (listed) return listed;
+    const read = this.taleGroupId();
+    return read?.taleId === this.taleId() ? read.groupId : null;
+  });
+  /**
+   * The zone the group preview shows the group in, with the zone's groups: the zone the studio came from when it shows
+   * the group, else the first zone with a display that does. Null when no zone with a display shows the group.
+   */
+  private readonly previewPlace = computed(() => {
+    const groupId = this.previewGroupId();
+    if (!groupId) return null;
+    const from = this.zone();
+    const zones = this.store.zones();
+    const ordered = [...zones.filter((zone) => zone.id === from), ...zones.filter((zone) => zone.id !== from)];
+    for (const zone of ordered) {
+      if (!zone.frame) continue;
+      const groups = this.store.taleGroupsOf(zone.id);
+      if (groups.some((group) => group.id === groupId)) return { zone, groups, groupId };
+    }
+    return null;
+  });
+  /** The group preview's zone, as the Web SDK renders it: the draft in place of the tale's published one (null: tale alone). */
+  protected readonly previewZone = computed<DeliveryZone | null>(() => {
+    const place = this.previewPlace();
+    const draft = this.doc();
+    const projectId = this.projectId();
+    if (!place || !draft || !projectId) return null;
+    return groupPreviewZone({
+      projectId,
+      zone: place.zone,
+      groups: place.groups,
+      groupId: place.groupId,
+      taleId: this.taleId(),
+      draft,
+      published: this.previewPublished(),
+      theme: this.projectTheme(),
+      fonts: this.projectFonts() ?? [],
+    });
+  });
   /** The name of the tale's group, which the viewer shows in its top bar. */
   protected readonly groupName = computed(
     () =>
@@ -921,6 +967,24 @@ export class TaleStudioPage implements OnChanges {
     const at = current.getBoundingClientRect();
     if (at.left >= box.left && at.right <= box.right) return;
     strip.scrollLeft += at.left - box.left - (box.width - at.width) / 2;
+  }
+
+  /**
+   * Opens the preview. The group's other visible tales are read first, as published (the group preview shows what
+   * visitors see, with the tale being edited as it is now); with no such tale, it opens at once.
+   */
+  protected async openPreview(): Promise<void> {
+    const place = this.previewPlace();
+    const ids = place ? previewPublishedTaleIds(place.groups, place.groupId, this.taleId()) : [];
+    if (ids.length === 0) {
+      this.previewOpen.set(true);
+      return;
+    }
+    const reads = await Promise.all(ids.map(async (id) => [id, await this.documents.load(id)] as const));
+    const published = new Map<string, TaleDocument | null>();
+    for (const [id, result] of reads) if (result.value) published.set(id, result.value.published.document);
+    this.previewPublished.set(published);
+    this.previewOpen.set(true);
   }
 
   /** Closes the preview and puts focus back on the Preview button (EXPERIENCE Preview pane). */

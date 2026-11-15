@@ -74,7 +74,7 @@
         title="Preview"
         [attr.aria-controls]="previewOpen() ? 'studio-preview-pane' : null"
         [attr.aria-expanded]="previewOpen()"
-        (click)="previewOpen() ? closePreview() : previewOpen.set(true)"
+        (click)="previewOpen() ? closePreview() : openPreview()"
       >
         <app-icon name="eye" /> <span class="studio-top__label">Preview</span>
       </button>
@@ -889,6 +889,8 @@
             [groupName]="groupName()"
             [theme]="projectTheme()"
             [fonts]="projectFonts()"
+            [zone]="previewZone()"
+            [groupId]="previewGroupId() ?? ''"
           />
         </div>
       } @else {
