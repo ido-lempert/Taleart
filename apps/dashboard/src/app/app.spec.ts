@@ -11,6 +11,7 @@ import { appRoutes } from './app.routes';
 import { PasskeyClient, unauthorizedInterceptor } from './auth';
 import { CoverCapture } from './cover-capture';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
+import { FIRST_FRAME } from './tale-thumbnail';
 import { describeWindow, formatShort } from './schedule';
 
 // The shape of the shipped bar schema (libs/contract/frame-types/bar.schema.json) as GET /frame-types sends it.
@@ -256,6 +257,9 @@ const capture = {
   recordClip: vi.fn<(video: HTMLVideoElement, start: number, seconds: number, signal?: AbortSignal) => Promise<Blob>>(),
 };
 
+// Draws a video background's first frame in the tests, where no browser decodes a video.
+const firstFrame = vi.fn<(src: string) => Promise<string>>(async () => 'blob:first-frame');
+
 // Stands in for the browser's WebAuthn calls.
 const passkeys = {
   supported: vi.fn(() => true),
@@ -280,6 +284,7 @@ describe('App', () => {
         { provide: API_RETRY_TIMING, useFactory: () => retryTiming },
         { provide: PasskeyClient, useValue: passkeys },
         { provide: CoverCapture, useValue: capture },
+        { provide: FIRST_FRAME, useValue: firstFrame },
         provideRouter(appRoutes, withComponentInputBinding()),
       ],
     }).compileComponents();
@@ -326,6 +331,18 @@ describe('App', () => {
   }
 
   // The Analytics tab reads its zone's analytics once shown (zone analytics panel); answers each read.
+  // The documents a tale card's thumbnail reads (its first background), by tale id; a tale not listed has none.
+  let taleDocuments: Record<string, object> = {};
+
+  // Answers the thumbnails' document reads with `taleDocuments`.
+  function flushTaleDocuments(): void {
+    for (const req of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+\/document$/.test(r.url))) {
+      const id = req.request.url.split('/tales/')[1].split('/')[0];
+      const document = taleDocuments[id] ?? null;
+      req.flush({ document, revision: document ? 1 : 0, published: { document: null, revision: 0 } });
+    }
+  }
+
   function flushAnalytics(): void {
     const empty = {
       period: '30d',
@@ -339,6 +356,9 @@ describe('App', () => {
   }
 
   afterEach(() => {
+    flushTaleDocuments();
+    taleDocuments = {};
+    firstFrame.mockClear();
     flushSiteKeys();
     flushAnalytics();
     flushProjectGroups({});
@@ -419,6 +439,8 @@ describe('App', () => {
     await settle(fixture);
     const root = fixture.nativeElement as HTMLElement;
     if (expand) await expandGroups(fixture, root);
+    flushTaleDocuments();
+    await settle(fixture);
     return { fixture, root };
   }
 
@@ -5148,30 +5170,43 @@ describe('App', () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'beach.png', { type: 'image/png' });
     const pdf = new File(['%PDF-1.7'], 'menu.pdf', { type: 'application/pdf' });
 
-    it('shows the image or a muted looping video on tale cards that have media', async () => {
+    const background = (key: string) => ({ type: 'media', mediaKey: key, fit: 'cover', color: '#000000' });
+    const documentWith = (canvasBackground: object) => ({
+      version: 1,
+      canvas: { background: canvasBackground },
+      elements: [],
+    });
+
+    it("shows each tale's first background on its card: a picture, a video's first frame, else its colour", async () => {
+      taleDocuments = {
+        t1: documentWith(background('media/beach.png')),
+        t2: documentWith(background('media/clip.mp4')),
+        t3: documentWith({ type: 'color', color: '#112233' }),
+      };
       const { root } = await open('/zones/z1', {
         ...oneZone,
         groups: {
           z1: [
             {
               ...group,
-              tales: [
-                { ...taleA, media: pngMedia },
-                { ...taleB, media: mp4Media },
-              ],
+              tales: [taleA, taleB, { ...taleA, id: 't3', title: 'Tale C' }],
             },
           ],
         },
       });
 
-      const [first, second] = [...root.querySelectorAll('[aria-label="Tales in Summer"] li')];
+      const [first, second, third] = [...root.querySelectorAll('[aria-label="Tales in Summer"] li')];
+      // Media of the tale's project, by its key: the picture itself.
       expect(first.querySelector('img.tale-card__media')?.getAttribute('src')).toBe(
-        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+        `${MEDIA_ORIGIN}/api/v1/projects/p1/media/file?key=media%2Fbeach.png`,
       );
-      const video = second.querySelector<HTMLVideoElement>('video.tale-card__media');
-      expect(video?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t2/media`);
-      expect(video?.muted).toBe(true);
-      expect(video?.loop).toBe(true);
+      // A video background shows the first frame drawn from it, never the video.
+      expect(first.querySelector('video')).toBeNull();
+      expect(second.querySelector('img.tale-card__media')?.getAttribute('src')).toBe('blob:first-frame');
+      expect(firstFrame).toHaveBeenCalledWith(`${MEDIA_ORIGIN}/api/v1/projects/p1/media/file?key=media%2Fclip.mp4`);
+      // A tale with a colour background shows the colour.
+      const colour = third.querySelector<HTMLElement>('span.tale-card__media');
+      expect(colour?.style.backgroundColor).toBe('rgb(17, 34, 51)');
     });
 
     it("opens a tale's Tale Studio from its drawer", async () => {
@@ -5223,7 +5258,7 @@ describe('App', () => {
 
     it('opens a tale and replaces its media at once with Add media, showing progress, then the card', async () => {
       const { fixture, root } = await open('/zones/z1', withTale());
-      expect(root.querySelector('.tale-card__media')).toBeNull();
+      expect(root.querySelector('img.tale-card__media')).toBeNull();
 
       await openTaleA(fixture, root);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale');
@@ -5281,9 +5316,6 @@ describe('App', () => {
       expect(replaceButton().textContent?.trim()).toBe('Replace media');
       expect(replaceButton().getAttribute('aria-disabled')).toBeNull();
       expect(document.activeElement).toBe(replaceButton());
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
-        `${MEDIA_ORIGIN}/api/v1/tales/t1/media?v=1`,
-      );
       buttonNamed(footer(), 'Done').click();
       await settle(fixture);
       expect(drawer()).toBeNull();
@@ -5309,9 +5341,6 @@ describe('App', () => {
       expect(document.activeElement).toBe(replaceButton());
       // Nothing was saved, so nothing is read again.
       http.expectNone(`${API_BASE}/zones`);
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
-        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
-      );
     });
 
     it('closes during an upload with Done or Escape, which cancels the upload', async () => {
@@ -5334,9 +5363,6 @@ describe('App', () => {
       await settle(fixture);
       expect(drawer()).toBeNull();
       expect(second.cancelled).toBe(true);
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
-        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
-      );
     });
 
     it('shows an indeterminate bar when the upload has no known size', async () => {
@@ -5399,9 +5425,6 @@ describe('App', () => {
       http.expectNone(`${API_BASE}/tales/t1/media`);
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The file is larger than 10 MB');
       expect(replaceButton().getAttribute('aria-describedby')).toContain('create-error');
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
-        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
-      );
     });
 
     it('sends a file the browser gave no type with the type its extension names', async () => {
@@ -5441,9 +5464,6 @@ describe('App', () => {
       expect(live()).toBe('');
       expect(replaceButton().getAttribute('aria-disabled')).toBeNull();
       expect(document.activeElement).toBe(replaceButton());
-      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
-        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
-      );
       // The input was cleared, so picking the same file again sends it again.
       expect(fileInput()?.value).toBe('');
       pick(fileInput(), png);
@@ -5574,7 +5594,7 @@ describe('App', () => {
       await settle(fixture);
 
       expect(drawer()).toBeNull();
-      expect(root.querySelector('img.tale-card__media')).not.toBeNull();
+      expect(root.querySelector('.tale-card__media')).not.toBeNull();
     });
 
     it('switches to the new tale with the message when its file is refused', async () => {
@@ -5762,13 +5782,23 @@ describe('App', () => {
       expect(drawer()).toBeNull();
     });
 
-    it("shows the default cover, the first tale's image, when the group has none", async () => {
-      const { root } = await openCover({
+    it("shows the default cover, the first tale's first background, when the group has none", async () => {
+      taleDocuments = {
+        t1: {
+          version: 1,
+          canvas: { background: { type: 'media', mediaKey: 'media/beach.png', fit: 'cover', color: '#000000' } },
+          elements: [],
+        },
+      };
+      const { fixture, root } = await openCover({
         ...oneZone,
-        groups: { z1: [{ ...group, cover: null, tales: [{ ...taleA, media: pngMedia }] }] },
+        groups: { z1: [{ ...group, cover: null, tales: [taleA] }] },
       });
+      // The drawer reads the thumbnail's document once it shows.
+      flushTaleDocuments();
+      await settle(fixture);
       expect(drawer()?.querySelector('.cover-current img.ring__cover')?.getAttribute('src')).toBe(
-        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+        `${MEDIA_ORIGIN}/api/v1/projects/p1/media/file?key=media%2Fbeach.png`,
       );
       expect(drawer()?.textContent).toContain("First tale's image (default)");
       expect(root.querySelector('.group .ring')?.classList.contains('ring--cover')).toBe(false);
