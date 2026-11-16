@@ -104,6 +104,11 @@
           "buildTarget": "api:build:production"
         }
       }
+    },
+    "test": {
+      "dependsOn": [
+        "build"
+      ]
     }
   }
 }

@@ -147,7 +147,10 @@ export function requireCaller(pool: Pool, options: CallerOptions = {}): RequestH
         projects: found.projects,
         readOnly: found.readOnly,
       } satisfies Credential;
-      if (found.readOnly && !READ_METHODS.has(req.method)) {
+      // The MCP message endpoint only carries JSON-RPC: its tool calls go through the API again with this
+      // same token, so a read-only token's writes are still refused there (403) and the session can open.
+      const mcpMessages = req.method === 'POST' && req.path === '/mcp/messages';
+      if (found.readOnly && !READ_METHODS.has(req.method) && !mcpMessages) {
         // Refused before any body is read (an upload's included), so the connection is not reused.
         res.setHeader('Connection', 'close');
         throw new HttpError(403, ErrorCodes.forbidden, 'This API token is read-only');

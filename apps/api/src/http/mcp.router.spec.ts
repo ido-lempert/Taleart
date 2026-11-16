@@ -137,6 +137,30 @@ describe('the MCP server (TALEART_MCP)', () => {
     }
   });
 
+  it('accepts a JSON-RPC message without the SDK reading the content type, and refuses a bad body with 400', async () => {
+    const api = await fakeApi();
+    const web = await listen(appWith(api.base));
+    const port = (web.address() as AddressInfo).port;
+    const base = `http://127.0.0.1:${port}/api/v1${MCP_PATH}`;
+    const abort = new AbortController();
+    try {
+      const stream = await fetch(`${base}/sse`, { headers: { Authorization: TOKEN }, signal: abort.signal });
+      const reader = stream.body!.getReader();
+      const first = new TextDecoder().decode((await reader.read()).value);
+      const endpoint = /data: (\S+)/.exec(first)![1];
+      const post = (body: string, type = 'application/json') =>
+        fetch(`http://127.0.0.1:${port}${endpoint}`, { method: 'POST', headers: { Authorization: TOKEN, 'Content-Type': type }, body });
+      const init = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'c', version: '1' } } });
+      expect((await post(init)).status).toBe(202);
+      expect((await post(JSON.stringify({ nope: true }))).status).toBe(400);
+      expect((await post('hello', 'text/plain')).status).toBe(400);
+    } finally {
+      abort.abort();
+      web.close();
+      api.server.close();
+    }
+  });
+
   it('refuses a connection without a token, with 401', async () => {
     const session = express();
     session.use((_req, res, next) => {

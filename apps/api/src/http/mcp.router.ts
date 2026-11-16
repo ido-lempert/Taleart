@@ -284,7 +284,20 @@ export function mcpRouter(doc: OpenApiLike, options: McpOptions = {}): express.R
       res.status(401).json(errorBody(ErrorCodes.unauthenticated, 'This MCP session belongs to another token'));
       return;
     }
-    await session.transport.handlePostMessage(req, res, req.body);
+    // The body is already parsed by express.json(). The SDK's handlePostMessage re-reads the content type
+    // through the `content-type` package, which breaks when a deployment installs a different build of it
+    // ("Cannot read properties of undefined (reading 'parse')"), so the message goes to the transport directly.
+    if (!req.is('application/json') || typeof req.body !== 'object' || req.body === null) {
+      res.status(400).json(errorBody(ErrorCodes.validationFailed, 'Send one JSON-RPC message as application/json'));
+      return;
+    }
+    try {
+      await session.transport.handleMessage(req.body);
+    } catch {
+      res.status(400).json(errorBody(ErrorCodes.validationFailed, 'Invalid JSON-RPC message'));
+      return;
+    }
+    res.status(202).send('Accepted');
   });
 
   return router;

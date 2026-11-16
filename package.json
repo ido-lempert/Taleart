@@ -34,6 +34,7 @@
     "@angular/compiler-cli": "~22.1.0",
     "@angular/language-service": "~22.1.0",
     "@eslint/js": "^9.8.0",
+    "@modelcontextprotocol/inspector": "2.15.0",
     "@nx/angular": "23.3.0",
     "@nx/devkit": "23.3.0",
     "@nx/eslint": "23.3.0",
