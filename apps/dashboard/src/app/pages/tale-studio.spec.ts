@@ -2,6 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
+import { By } from '@angular/platform-browser';
 import type { ProjectFont, ZoneTaleGroup } from '@taleart/contract/core';
 import { clearProjectFontLoads } from '@taleart/contract/project-fonts';
 import { elementBounds, type TaleDocument as AnyTaleDocument, type TextElement } from '@taleart/contract/tale-document';
@@ -242,6 +243,31 @@ describe('TaleStudioPage', () => {
       expect(root.querySelector('.studio-shell')).toBe(shell);
       expect(root.querySelector('.studio-alerts')?.textContent).toContain('Could not read the tale');
       expect(elements()).toHaveLength(0);
+    });
+
+    it('still asks for a new tale group’s options when the studio is left after a switch', async () => {
+      await open({ document: existing, revision: 1 });
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.componentRef.setInput('newGroup', 'g2');
+      fixture.detectChanges();
+      http.match(url2)[0].flush(draftRead({ document: second, revision: 3 }));
+      await settle(fixture);
+      expect(await fixture.componentInstance.canLeave()).toBe(true);
+      expect(TestBed.inject(DashboardStore).pendingGroupOptions()?.taleGroupId).toBe('g2');
+    });
+
+    it('shows the new tale’s draft in the preview, and the tale menu still opens, after a switch', async () => {
+      await open({ document: existing, revision: 1 });
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.detectChanges();
+      http.match(url2)[0].flush(draftRead({ document: second, revision: 3 }));
+      await settle(fixture);
+      expect(menuItem('studio-rename')).not.toBeNull();
+      (root.querySelector('#studio-preview') as HTMLButtonElement).click();
+      await settle(fixture);
+      const pane = fixture.debugElement.query(By.css('#studio-preview-pane'));
+      expect(pane.componentInstance.taleId()).toBe('t2');
+      expect(pane.componentInstance.document()).toEqual(second);
     });
   });
 
