@@ -14,6 +14,7 @@ import {
 import { MAX_ANIMATED_COVER_BYTES } from '@taleart/contract/core';
 import { CLIP_LENGTHS, CoverCapture, formatBytes } from './cover-capture';
 import { DashboardStore } from './dashboard.store';
+import { TaleThumbnailComponent } from './tale-thumbnail';
 
 /** Where a new cover comes from. */
 export type CoverSource = 'upload' | 'frame' | 'clip';
@@ -37,6 +38,7 @@ interface MadeCover {
  */
 @Component({
   selector: 'app-cover-editor',
+  imports: [TaleThumbnailComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (group(); as group) {
@@ -55,12 +57,8 @@ interface MadeCover {
             } @else {
               <img class="ring__cover" [src]="store.coverSrc(group)" alt="" />
             }
-          } @else if (defaultTale(); as tale) {
-            @if (tale.media?.kind === 'video') {
-              <video class="ring__cover" [src]="store.mediaSrc(tale) + '#t=0.001'" [muted]="true" playsinline preload="metadata"></video>
-            } @else {
-              <img class="ring__cover" [src]="store.mediaSrc(tale)" alt="" />
-            }
+          } @else if (group.tales.length > 0) {
+            <app-tale-thumbnail [tales]="group.tales" mediaClass="ring__cover" />
           } @else {
             {{ group.name.charAt(0) }}
           }
@@ -230,8 +228,6 @@ export class CoverEditor {
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   protected readonly group = computed(() => this.store.taleGroup(this.taleGroupId()));
-  /** The tale whose media is the default cover: the first tale with media. */
-  protected readonly defaultTale = computed(() => this.group()?.tales.find((t) => t.media));
   /** The group's tales whose media is a video: the sources of a frame or a clip. */
   protected readonly videoTales = computed(() => this.group()?.tales.filter((t) => t.media?.kind === 'video') ?? []);
   protected readonly source = signal<CoverSource>('upload');

@@ -5,8 +5,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  Directive,
-  effect,
   ElementRef,
   inject,
   Injector,
@@ -14,7 +12,7 @@ import {
   OnDestroy,
   output,
   signal,
-  untracked,
+  viewChildren,
   ViewEncapsulation,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
@@ -23,7 +21,6 @@ import {
   isSwitchable,
   MAX_TALES_PER_GROUP,
   SHOWN_STATUS_LABELS,
-  switchStatus,
   taleShownStatus,
   type ContentStatus,
   type SettableStatus,
@@ -38,6 +35,7 @@ import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
 import { gateMenu } from '../project-roles';
 import { describeWindow, windowChip } from '../schedule';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
+import { TaleThumbnailComponent } from '../tale-thumbnail';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
 import { DeleteTale, deletedMessage, type DeletedTale } from './delete-tale';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
@@ -60,42 +58,15 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
 }
 
 /**
- * A tale card's video: loads nothing (`preload="none"`) and plays only while on screen, paused
- * again when it leaves; without IntersectionObserver it stays still.
- */
-@Directive({ selector: 'video[appPlayWhenVisible]' })
-export class PlayWhenVisible implements OnDestroy {
-  private readonly video = inject<ElementRef<HTMLVideoElement>>(ElementRef).nativeElement;
-  private observer: IntersectionObserver | null = null;
-
-  constructor() {
-    afterNextRender(() => {
-      const Observer = this.video.ownerDocument.defaultView?.IntersectionObserver;
-      if (!Observer) return;
-      this.observer = new Observer((entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) void this.video.play().catch(() => undefined);
-          else this.video.pause();
-        }
-      });
-      this.observer.observe(this.video);
-    });
-  }
-
-  ngOnDestroy(): void {
-    this.observer?.disconnect();
-  }
-}
-
-/**
  * The group view (epic UX rework R11): one tale group of a zone, opened from its row. A wide modal
- * drawer on desktop and a whole page on phones (narrower than 640 px, the dashboard's phone breakpoint), labelled by the group's name. Its head
- * has the group's On/Off switch, indicator (R7), ⋯ menu (the row's), counts, schedule chip, tags and
- * the other zones it is in; its body the tale cards and "Add tale". Each card has a Shown/Hidden
- * switch that saves at once (one action, announced), the indicator dot, and a ⋯ menu: Edit in Tale
- * Studio, Replace media, Schedule, Duplicate, Archive (Restore when archived), Delete (asked first,
- * story 8.20). Tales reorder by
- * drag, or by their move earlier and later buttons (WCAG 2.2 SC 2.5.7), each move announced.
+ * drawer on desktop and a whole page on phones (narrower than 640 px, the dashboard's phone breakpoint),
+ * labelled by the group's name. Its head has the group's On/Off switch, indicator (R7), ⋯ menu (the
+ * row's), counts, schedule chip, tags and the other zones it is in; its body the tale cards and "Add
+ * tale", which adds a tale and opens it in Tale Studio. Each card shows whether its tale is Shown or
+ * Hidden, and has a ⋯ menu: Edit in Tale Studio, Duplicate, Archive (Restore when archived), Delete
+ * (asked first, story 8.20). A right-click on the card, or Shift+F10 or the Context Menu key, opens
+ * the same menu at the pointer. Shown or Hidden, titles, schedules and media are set in Tale Studio
+ * only. Tales reorder by drag, or by their move earlier and later buttons (WCAG 2.2 SC 2.5.7), each move announced.
  *
  * The zone page owns the group's own status and menu (as on the row) and the live region's text;
  * this view announces through `announce`, rendered in its own live region, since a screen reader
@@ -122,9 +93,10 @@ export class PlayWhenVisible implements OnDestroy {
     CdkScrollable,
     DuplicateTale,
     DeleteTale,
-    PlayWhenVisible,
+    TaleThumbnailComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(keydown)': 'cardKeydown($event)' },
   templateUrl: './group-view.html',
   styleUrl: './group-view.css',
   // It sizes the drawer it is in; its rules all start at app-group-view.
@@ -158,6 +130,9 @@ export class GroupView implements OnDestroy {
   readonly initialFocus = input<string | null>(null);
   /** Where focus goes when the view closes: the row's name. */
   readonly returnFocus = input<HTMLElement | null | (() => HTMLElement | null)>(null);
+
+  /** Each tale card's ⋯ menu, in the order of the tales (the template's `#taleMenu`). */
+  private readonly taleMenuButtons = viewChildren<MenuButton>('taleMenu');
 
   readonly closed = output<void>();
   /** The group's switch: true for On. */
@@ -246,26 +221,8 @@ export class GroupView implements OnDestroy {
     );
   };
 
-  // Says to the store which group this view shows, so a deletion request for it is answered here.
-  private readonly registers = effect((onCleanup) => {
-    const groupId = this.group().id;
-    untracked(() => this.store.groupViewOpened(groupId));
-    onCleanup(() => this.store.groupViewClosed(groupId));
-  });
-
-  // "Delete tale…" in the tale drawer asks here, where the confirmation and the focus after it live.
-  // A request for a tale this group no longer holds (deleted or gone meanwhile) is dropped.
-  private readonly deletionRequests = effect(() => {
-    const request = this.store.taleDeletionRequest();
-    if (request === null || request.taleGroupId !== this.group().id) return;
-    const tale = this.group().tales.find((t) => t.id === request.taleId);
-    untracked(() => {
-      this.store.taleDeletionRequest.set(null);
-      if (!tale) return;
-      const card = this.host.nativeElement.querySelector<HTMLElement>(`[data-tale-id="${tale.id}"] .tale-card__open`);
-      this.askDelete(tale, card);
-    });
-  });
+  /** True while a new tale is being added, so the button waits for it. */
+  protected readonly adding = signal(false);
 
   /**
    * Each tale card's ⋯ menu, by tale id (epic UX rework R8, R11): one computed map, so an open
@@ -293,8 +250,6 @@ export class GroupView implements OnDestroy {
         gateMenu(
           [
             { id: 'studio', label: this.canEdit() ? 'Edit in Tale Studio' : 'Open in Tale Studio' },
-            { id: 'media', label: 'Replace media' },
-            { id: 'schedule', label: 'Schedule' },
             { id: 'duplicate', label: 'Duplicate' },
             ...(statusItem ? [statusItem] : []),
             { id: 'delete', label: 'Delete' },
@@ -312,19 +267,38 @@ export class GroupView implements OnDestroy {
     return windowChip(tale, new Date(), 'short');
   }
 
+  /**
+   * A right-click on a tale card opens its ⋯ menu at the pointer, with the same items as the ⋯
+   * button (`taleMenus`) and the same handler (`talePicked`). The native menu is suppressed.
+   */
+  protected taleContextMenu(event: MouseEvent, menu: MenuButton): void {
+    event.preventDefault();
+    if (menu.opened()) return;
+    // A context menu raised from the keyboard may carry no pointer position: beside the ⋯ button then.
+    const point = event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : undefined;
+    menu.show('first', point);
+  }
+
+  /**
+   * Shift+F10 and the Context Menu key, from any control on a tale card, open that card's ⋯ menu
+   * beside its button, as a right-click does. Listened to on the view, as the cards are not focusable.
+   */
+  protected cardKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    const card = (event.target as Element | null)?.closest<HTMLElement>('[data-tale-id]');
+    if (!card) return;
+    event.preventDefault();
+    const index = this.group().tales.findIndex((t) => t.id === card.dataset['taleId']);
+    const menu = this.taleMenuButtons()[index];
+    if (menu && !menu.opened()) menu.show('first');
+  }
+
   /** Does what a tale's ⋯ menu item says; a drawer it opens returns focus to the menu's button. */
   protected talePicked(tale: Tale, pick: MenuPick): void {
     switch (pick.id) {
       case 'studio':
-        // The studio's back link returns here: the zone page, or the Tale groups page (story 8.19).
-        void this.router.navigate(['/tales', tale.id, 'studio'], {
-          queryParams: this.zoneId() ? { zone: this.zoneId() } : { from: 'tale-groups' },
-        });
+        this.openInStudio(tale);
         return;
-      case 'media':
-        return this.store.openDrawer({ kind: 'taleMedia', taleId: tale.id, focus: 'media' }, pick.opener);
-      case 'schedule':
-        return this.store.openDrawer({ kind: 'schedule', target: 'tale', id: tale.id }, pick.opener);
       case 'duplicate':
         this.duplicating.set({ tale, opener: pick.opener });
         return;
@@ -338,10 +312,28 @@ export class GroupView implements OnDestroy {
     }
   }
 
-  /** Shows (stores live) or hides (stores paused) a tale from its card, at once (R6, R11). */
-  protected async switchTale(tale: Tale, on: boolean): Promise<void> {
-    const status = switchStatus(tale.storedStatus, on);
-    if (status) await this.setStatus(tale, status);
+  /**
+   * Opens the tale in Tale Studio, where its title, Shown or Hidden, schedule and media are set.
+   * The studio's back link returns here: the zone page, or the Tale groups page (story 8.19).
+   */
+  protected openInStudio(tale: Tale): void {
+    void this.router.navigate(['/tales', tale.id, 'studio'], {
+      queryParams: this.zoneId() ? { zone: this.zoneId() } : { from: 'tale-groups' },
+    });
+  }
+
+  /** Adds a tale, titled "Untitled tale", at the end of the group and opens it in Tale Studio. */
+  protected async addTale(): Promise<void> {
+    if (this.adding() || !this.canEdit()) return;
+    this.adding.set(true);
+    this.error.set('');
+    const { tale, message } = await this.store.createTale(this.group().id, 'Untitled tale');
+    this.adding.set(false);
+    if (!tale) {
+      this.error.set(message);
+      return;
+    }
+    this.openInStudio(tale);
   }
 
   /** Saves a tale's status, then announces it with what its indicator now says. */

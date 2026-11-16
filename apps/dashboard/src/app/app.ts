@@ -6,11 +6,15 @@ import { ApiReconnect } from './api-reconnect';
 import { AuthStore } from './auth';
 import { CreateDrawer } from './create-drawer';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
+import { NewTaleGroupFlow } from './new-tale-group';
 import { Icon, Mark } from './icon';
 import { ROLE_LABELS } from './project-roles';
 import type { BareData, ShellData } from './app.routes';
 
 export { API_BASE, API_ORIGIN } from './dashboard.store';
+
+/** The top bar's "New …" button's action: a drawer, or a new tale group through Tale Studio. */
+type CreateAction = DrawerRequest | { kind: 'newTaleGroup'; projectId: string; zoneId: string };
 
 function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
   return snapshot.firstChild ? deepest(snapshot.firstChild) : snapshot;
@@ -32,6 +36,7 @@ export class App {
   protected readonly store = inject(DashboardStore);
   protected readonly roleLabels = ROLE_LABELS;
   protected readonly auth = inject(AuthStore);
+  private readonly newTaleGroup = inject(NewTaleGroupFlow);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
   /** Retries while the API-down banner shows, and says when the API answers again. */
@@ -53,8 +58,8 @@ export class App {
 
   protected readonly shell = computed(() => (this.route()?.data as Partial<ShellData> | undefined) ?? {});
 
-  /** What the top bar's "New …" button opens on this page, or null when it can't be used here. */
-  protected readonly createRequest = computed<DrawerRequest | null>(() => {
+  /** What the top bar's "New …" button does on this page, or null when it can't be used here. */
+  protected readonly createRequest = computed<CreateAction | null>(() => {
     switch (this.shell().create) {
       case 'project':
         // Only admins create projects.
@@ -62,15 +67,24 @@ export class App {
       case 'zone':
         return this.store.projects().length > 0 && this.store.can('zones.manage') ? { kind: 'zone' } : null;
       case 'taleGroup': {
-        const zoneId = this.route()?.paramMap.get('zoneId') ?? '';
-        return this.store.zone(zoneId) && this.store.can('content.edit', this.store.zone(zoneId)?.projectId)
-          ? { kind: 'taleGroup', zoneId }
+        const zone = this.store.zone(this.route()?.paramMap.get('zoneId') ?? '');
+        return zone && this.store.can('content.edit', zone.projectId)
+          ? { kind: 'newTaleGroup', projectId: zone.projectId, zoneId: zone.id }
           : null;
       }
       default:
         return null;
     }
   });
+
+  /** Runs what the top bar's button or a page's own "New …" control asks for. */
+  protected runCreate(action: CreateAction, event: Event): void {
+    if (action.kind === 'newTaleGroup') {
+      void this.newTaleGroup.start(action.projectId, action.zoneId);
+      return;
+    }
+    this.store.openDrawer(action, event);
+  }
 
   constructor() {
     // A drawer belongs to the page that opened it; leaving the page closes it.
@@ -79,7 +93,28 @@ export class App {
         filter((event) => event instanceof NavigationStart),
         takeUntilDestroyed(),
       )
-      .subscribe(() => this.store.closeDrawer());
+      .subscribe(() => {
+        this.store.closeDrawer();
+        this.store.newGroupNotice.set('');
+      });
+
+    // A new tale group's options come once its Tale Studio is left and the page it led to is shown.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => {
+        const pending = this.store.pendingGroupOptions();
+        if (!pending) return;
+        this.store.pendingGroupOptions.set(null);
+        this.store.openDrawer({
+          kind: 'taleGroupOptions',
+          taleGroupId: pending.taleGroupId,
+          zoneId: pending.zoneId,
+          projectId: pending.projectId || undefined,
+        });
+      });
 
     // Data loads once someone is signed in; signing out clears it (AuthStore resets the store).
     effect(() => {

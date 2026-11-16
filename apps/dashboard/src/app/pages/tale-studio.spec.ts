@@ -2,6 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
+import { By } from '@angular/platform-browser';
 import type { ProjectFont, ZoneTaleGroup } from '@taleart/contract/core';
 import { clearProjectFontLoads } from '@taleart/contract/project-fonts';
 import { elementBounds, type TaleDocument as AnyTaleDocument, type TextElement } from '@taleart/contract/tale-document';
@@ -172,6 +173,102 @@ describe('TaleStudioPage', () => {
     expect(canvas.querySelector('img, video')).toBeNull();
     expect(elements()).toHaveLength(0);
     expect(root.querySelector('a.back-link')?.getAttribute('href')).toBe('/zones/z1?group=g1');
+  });
+
+  describe('switching tales in the studio', () => {
+    const tale2 = { ...tale, id: 't2', title: 'Dusk', position: 1, media: null };
+    const url2 = `${API_BASE}/tales/t2/document`;
+    const selectors = ['.studio-shell', '.studio-top', '#studio-back', '#studio-menu', '.studio-left', '.studio-canvas', '.studio-inspector', '.studio-strip'];
+    const second: TaleDocument = {
+      ...existing,
+      elements: [{ ...existing.elements[0], id: '00000000-0000-4000-8000-000000000002', props: { text: 'Dusk here' } }],
+    };
+
+    beforeEach(() => {
+      TestBed.inject(DashboardStore).taleGroups.set({ z1: [{ ...group, tales: [tale, tale2] } as unknown as ZoneTaleGroup] });
+    });
+
+    it('keeps the shell, toolbar, panels and strip in place, and reads only the new tale’s document', async () => {
+      await open({ document: existing, revision: 1 });
+      const before = selectors.map((s) => root.querySelector(s));
+      expect(before.every((n) => n !== null)).toBe(true);
+
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.detectChanges();
+      // The previous tale's layers are gone while the new one is read; the canvas says it is loading.
+      expect(elements()).toHaveLength(0);
+      expect(root.querySelector('.canvas__hint')?.textContent).toContain('Loading the tale');
+      const reads = http.match(url2);
+      expect(reads).toHaveLength(1);
+      reads[0].flush(draftRead({ document: second, revision: 3 }));
+      await settle(fixture);
+
+      expect(selectors.map((s) => root.querySelector(s))).toEqual(before);
+      selectors.forEach((s, i) => expect(root.querySelector(s)).toBe(before[i]));
+      expect(elements()).toHaveLength(1);
+      expect(root.querySelector('#studio-title')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tale 2 · Dusk');
+      expect(root.querySelector('.studio-strip a.is-current')?.getAttribute('href')).toBe('/tales/t2/studio');
+      // The project's theme and fonts are read for the project, not again for another of its tales.
+      expect(http.match((r) => r.url.endsWith('/theme') || r.url.endsWith('/fonts'))).toHaveLength(0);
+      expect(http.match(url)).toHaveLength(0);
+    });
+
+    it('saves the unsaved changes of the tale it leaves before it opens the next one', async () => {
+      await open({ document: existing, revision: 1 });
+      const el = root.querySelector<HTMLElement>(`#studio-el-${existing.elements[0].id}`) as HTMLElement;
+      el.focus();
+      key(el, 'ArrowDown');
+      await settle(fixture);
+      // Leaving saves first (the route's guard): the change goes out for tale 1, and is then done.
+      const saved = await saveNow(2);
+      expect(saved.document.elements[0].box.y).not.toBe(existing.elements[0].box.y);
+
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.detectChanges();
+      const reads = http.match(url2);
+      expect(reads).toHaveLength(1);
+      expect(http.match(url)).toHaveLength(0);
+      reads[0].flush(draftRead({ document: second, revision: 3 }));
+      await settle(fixture);
+      expect(root.querySelector('#studio-title')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tale 2 · Dusk');
+    });
+
+    it('says so in the open studio when the new tale cannot be read, and keeps the studio in place', async () => {
+      await open({ document: existing, revision: 1 });
+      const shell = root.querySelector('.studio-shell');
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.detectChanges();
+      http.match(url2)[0].flush(null, { status: 404, statusText: 'Not Found' });
+      await settle(fixture);
+      expect(root.querySelector('.studio-shell')).toBe(shell);
+      expect(root.querySelector('.studio-alerts')?.textContent).toContain('Could not read the tale');
+      expect(elements()).toHaveLength(0);
+    });
+
+    it('still asks for a new tale group’s options when the studio is left after a switch', async () => {
+      await open({ document: existing, revision: 1 });
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.componentRef.setInput('newGroup', 'g2');
+      fixture.detectChanges();
+      http.match(url2)[0].flush(draftRead({ document: second, revision: 3 }));
+      await settle(fixture);
+      expect(await fixture.componentInstance.canLeave()).toBe(true);
+      expect(TestBed.inject(DashboardStore).pendingGroupOptions()?.taleGroupId).toBe('g2');
+    });
+
+    it('shows the new tale’s draft in the preview, and the tale menu still opens, after a switch', async () => {
+      await open({ document: existing, revision: 1 });
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.detectChanges();
+      http.match(url2)[0].flush(draftRead({ document: second, revision: 3 }));
+      await settle(fixture);
+      expect(menuItem('studio-rename')).not.toBeNull();
+      (root.querySelector('#studio-preview') as HTMLButtonElement).click();
+      await settle(fixture);
+      const pane = fixture.debugElement.query(By.css('#studio-preview-pane'));
+      expect(pane.componentInstance.taleId()).toBe('t2');
+      expect(pane.componentInstance.document()).toEqual(second);
+    });
   });
 
   describe('back link and keyboard help (story 8.15)', () => {
@@ -2645,15 +2742,23 @@ describe('TaleStudioPage', () => {
       await settle(fixture);
       const items = () => [...root.querySelectorAll<HTMLElement>('#studio-menu-list [role=menuitem]')];
       expect(button.getAttribute('aria-expanded')).toBe('true');
-      expect(items().map((i) => i.id)).toEqual(['studio-discard', 'studio-duplicate', 'studio-help-button']);
-      expect(active()?.id).toBe('studio-discard');
+      expect(items().map((i) => i.id)).toEqual([
+        'studio-rename',
+        'studio-media',
+        'studio-schedule',
+        'studio-show',
+        'studio-discard',
+        'studio-duplicate',
+        'studio-help-button',
+      ]);
+      expect(active()?.id).toBe('studio-rename');
       key(items()[0], 'ArrowUp');
       expect(active()?.id).toBe('studio-help-button');
-      key(items()[2], 'Home');
-      expect(active()?.id).toBe('studio-discard');
+      key(items()[6], 'Home');
+      expect(active()?.id).toBe('studio-rename');
       key(items()[0], 'End');
       expect(active()?.id).toBe('studio-help-button');
-      key(items()[2], 'Escape');
+      key(items()[6], 'Escape');
       await settle(fixture);
       expect(root.querySelector('#studio-menu-list')).toBeNull();
       expect(active()).toBe(button);

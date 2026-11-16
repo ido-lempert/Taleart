@@ -18,6 +18,9 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import {
   ErrorCodes,
+  isSwitchable,
+  MEDIA_CONTENT_TYPES,
+  switchStatus,
   taleShownStatus,
   visibilityOf,
   visibilitySummary,
@@ -26,6 +29,7 @@ import {
   type ProjectMedia,
   type Visibility,
 } from '@taleart/contract/core';
+import type { DeliveryZone } from '@taleart/contract/core';
 import { loadProjectFont, projectFontIds } from '@taleart/contract/project-fonts';
 import {
   cleanText,
@@ -81,6 +85,7 @@ import {
   textContrast,
   type TextBackdrop,
 } from '@taleart/contract/text-style';
+import { checkMediaFile } from '../create-drawer';
 import { DashboardStore } from '../dashboard.store';
 import { formatLocal } from '../schedule';
 import { Icon } from '../icon';
@@ -123,6 +128,7 @@ import {
 } from './tale-canvas-view';
 import { dropBox, landedSaid, nextFreeSpot, tileBox } from './tale-placement';
 import { TalePreviewPane } from './tale-preview';
+import { groupPreviewZone, previewPublishedTaleIds } from './tale-preview-group';
 import {
   LEFT_TABS,
   menuKeyTarget,
@@ -379,9 +385,18 @@ export class TaleStudioPage implements OnChanges {
   readonly zone = input<string | undefined>(undefined);
   /** `?from=tale-groups` when opened from the Tale groups page's group view (story 8.19), where its back link returns. */
   readonly from = input<string | undefined>(undefined);
+  /** `?newGroup=` the tale group made by "New tale group" for this tale: its options come once the studio is left. */
+  readonly newGroup = input<string | undefined>(undefined);
 
   /** The document being edited; null until read. */
   protected readonly doc = signal<TaleDocument | null>(null);
+  /** True once a tale has been shown: a change of tale then swaps only the tale's own parts, not the studio shell. */
+  protected readonly opened = signal(false);
+  /** True while the tale's document is read after a change of tale: editing waits for it. */
+  private readonly loadingTale = signal(false);
+  private readonly blankDoc = emptyTaleDocument();
+  /** The document the shell draws: the blank one while the tale's own is read, so the shell stays mounted. */
+  protected readonly shownDoc = computed(() => this.doc() ?? this.blankDoc);
   /** The ids of the selected layers, in the order they were selected. */
   protected readonly selection = signal<readonly string[]>([]);
   protected readonly editingId = signal<string | null>(null);
@@ -459,7 +474,9 @@ export class TaleStudioPage implements OnChanges {
     return !project || this.store.can('content.publish', id);
   });
   // Why editing is held: the reason a viewer cannot change anything, else a busy action's wait.
-  private readonly held = computed(() => (this.viewOnly() ? VIEW_ONLY : this.heldBusy()));
+  private readonly held = computed(() =>
+    this.viewOnly() ? VIEW_ONLY : this.heldBusy() || (this.loadingTale() ? DUPLICATE_WHILE_LOADING : ''),
+  );
   // Leaving to open the kept copy: nothing here is to be saved any more.
   private leavingForCopy = false;
   /** True once the server holds a draft: after a read of one, or after any save. */
@@ -605,6 +622,50 @@ export class TaleStudioPage implements OnChanges {
   protected readonly projectTheme = signal<unknown>(null);
   /** Whether the preview (R10) shows. */
   protected readonly previewOpen = signal(false);
+  /** The published documents the group preview reads for the group's other tales, by tale id, read as it opens. */
+  protected readonly previewPublished = signal<ReadonlyMap<string, TaleDocument | null>>(new Map());
+  /** The group the tale is in, for the group preview: from the zones' lists, else from the group the studio read. */
+  protected readonly previewGroupId = computed(() => {
+    const listed = this.store.tale(this.taleId())?.taleGroupId;
+    if (listed) return listed;
+    const read = this.taleGroupId();
+    return read?.taleId === this.taleId() ? read.groupId : null;
+  });
+  /**
+   * The zone the group preview shows the group in, with the zone's groups: the zone the studio came from when it shows
+   * the group, else the first zone with a display that does. Null when no zone with a display shows the group.
+   */
+  private readonly previewPlace = computed(() => {
+    const groupId = this.previewGroupId();
+    if (!groupId) return null;
+    const from = this.zone();
+    const zones = this.store.zones();
+    const ordered = [...zones.filter((zone) => zone.id === from), ...zones.filter((zone) => zone.id !== from)];
+    for (const zone of ordered) {
+      if (!zone.frame) continue;
+      const groups = this.store.taleGroupsOf(zone.id);
+      if (groups.some((group) => group.id === groupId)) return { zone, groups, groupId };
+    }
+    return null;
+  });
+  /** The group preview's zone, as the Web SDK renders it: the draft in place of the tale's published one (null: tale alone). */
+  protected readonly previewZone = computed<DeliveryZone | null>(() => {
+    const place = this.previewPlace();
+    const draft = this.doc();
+    const projectId = this.projectId();
+    if (!place || !draft || !projectId) return null;
+    return groupPreviewZone({
+      projectId,
+      zone: place.zone,
+      groups: place.groups,
+      groupId: place.groupId,
+      taleId: this.taleId(),
+      draft,
+      published: this.previewPublished(),
+      theme: this.projectTheme(),
+      fonts: this.projectFonts() ?? [],
+    });
+  });
   /** The name of the tale's group, which the viewer shows in its top bar. */
   protected readonly groupName = computed(
     () =>
@@ -841,7 +902,10 @@ export class TaleStudioPage implements OnChanges {
    * Runs a tale menu item: the menu closes to its button, then the item acts (a drawer it opens
    * returns focus there). A disabled item says why instead.
    */
-  protected chooseFromTaleMenu(event: Event, item: 'discard' | 'duplicate' | 'shortcuts'): void {
+  protected chooseFromTaleMenu(
+    event: Event,
+    item: 'discard' | 'duplicate' | 'shortcuts' | 'show' | 'rename' | 'schedule' | 'media',
+  ): void {
     const disabled = (event.currentTarget as HTMLElement).getAttribute('aria-disabled') === 'true';
     const opener = this.taleMenuButton()?.nativeElement ?? null;
     this.closeTaleMenu(true);
@@ -851,7 +915,76 @@ export class TaleStudioPage implements OnChanges {
     } else if (item === 'duplicate') {
       // Duplicate says itself why it cannot open yet.
       void this.openDuplicate(opener);
+    } else if (item === 'show') {
+      void this.toggleShown();
+    } else if (item === 'rename') {
+      this.store.openDrawer({ kind: 'renameTale', taleId: this.taleId() }, opener ?? undefined);
+    } else if (item === 'schedule') {
+      this.store.openDrawer({ kind: 'schedule', target: 'tale', id: this.taleId() }, opener ?? undefined);
+    } else if (item === 'media') {
+      if (!disabled) this.mediaInput()?.nativeElement.click();
     } else this.openHelp(opener);
+  }
+
+  /** The tale menu's Show or Hide item for this tale; null when its status cannot change here. */
+  protected readonly shownAction = computed(() => {
+    const stored = this.tale()?.storedStatus;
+    if (!stored || !isSwitchable(stored) || !this.mayPublish() || this.viewOnly()) return null;
+    return stored === 'live' ? 'Hide from site' : 'Show on site';
+  });
+
+  /**
+   * Shows the tale on the site, or hides it: its stored status turns live or paused (AD-6). Going
+   * live with nothing on the site publishes the studio draft, which the store says when it did not.
+   */
+  protected async toggleShown(): Promise<void> {
+    const tale = this.tale();
+    if (!tale || this.updating() || this.held() || !this.mayPublish()) return;
+    const status = switchStatus(tale.storedStatus, tale.storedStatus !== 'live');
+    if (!status) return;
+    const taleId = this.taleId();
+    this.error.set('');
+    const result = await this.store.setTaleStatus(taleId, status);
+    if (taleId !== this.taleId()) return;
+    if (result.message) {
+      this.error.set(result.message);
+      return;
+    }
+    void this.readTaleVisibility();
+    this.say(result.warning || (status === 'live' ? 'Tale shown on the site.' : 'Tale hidden from the site.'));
+  }
+
+  /** The hidden file input the tale menu's Replace media opens; the picked file uploads at once. */
+  private readonly mediaInput = viewChild<ElementRef<HTMLInputElement>>('studioMedia');
+  protected readonly mediaAccept = MEDIA_CONTENT_TYPES.join(',');
+  /** True while the tale's media uploads, so a second pick waits for it. */
+  protected readonly mediaUploading = signal(false);
+
+  /** Checks the picked file and uploads it as the tale's media (the tale's card image) at once. */
+  protected async replaceMedia(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // The same file picked again (after a refusal, say) must fire `change` again.
+    input.value = '';
+    const taleId = this.taleId();
+    if (!file || !this.tale() || this.mediaUploading()) return;
+    const { type, problem } = checkMediaFile(file);
+    if (problem) {
+      this.error.set(problem);
+      return;
+    }
+    this.error.set('');
+    this.mediaUploading.set(true);
+    this.say('Uploading media…');
+    const message = await this.store.uploadTaleMedia(taleId, file, { type });
+    this.mediaUploading.set(false);
+    if (taleId !== this.taleId()) return;
+    if (message) {
+      this.error.set(message);
+      return;
+    }
+    void this.readTaleVisibility();
+    this.say('Media replaced.');
   }
 
   /** The left panel's tabs (story 11.1): Elements, Templates, Media and Layers; Elements first. */
@@ -921,6 +1054,24 @@ export class TaleStudioPage implements OnChanges {
     const at = current.getBoundingClientRect();
     if (at.left >= box.left && at.right <= box.right) return;
     strip.scrollLeft += at.left - box.left - (box.width - at.width) / 2;
+  }
+
+  /**
+   * Opens the preview. The group's other visible tales are read first, as published (the group preview shows what
+   * visitors see, with the tale being edited as it is now); with no such tale, it opens at once.
+   */
+  protected async openPreview(): Promise<void> {
+    const place = this.previewPlace();
+    const ids = place ? previewPublishedTaleIds(place.groups, place.groupId, this.taleId()) : [];
+    if (ids.length === 0) {
+      this.previewOpen.set(true);
+      return;
+    }
+    const reads = await Promise.all(ids.map(async (id) => [id, await this.documents.load(id)] as const));
+    const published = new Map<string, TaleDocument | null>();
+    for (const [id, result] of reads) if (result.value) published.set(id, result.value.published.document);
+    this.previewPublished.set(published);
+    this.previewOpen.set(true);
   }
 
   /** Closes the preview and puts focus back on the Preview button (EXPERIENCE Preview pane). */
@@ -1091,7 +1242,7 @@ export class TaleStudioPage implements OnChanges {
     }
   });
   /** True when the draft on screen differs from the version on the site, or nothing is on the site yet. */
-  protected readonly unpublished = computed(() => !sameDocument(this.doc(), this.published().document));
+  protected readonly unpublished = computed(() => this.doc() !== null && !sameDocument(this.doc(), this.published().document));
   /**
    * The tale's visibility as the Management API read it for this studio (`GET /tales/{id}`, in any
    * zone, epic UX rework R7): on opening, after a save while nothing is on the site, after Update
@@ -1305,9 +1456,12 @@ export class TaleStudioPage implements OnChanges {
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['taleId']) return;
     this.heldBusy.set('');
+    this.loadingTale.set(true);
     this.leavingForCopy = false;
     this.draftStored.set(false);
     this.doc.set(null);
+    this.history.clear();
+    this.syncHistory();
     this.selection.set([]);
     this.editingId.set(null);
     this.menu.set(null);
@@ -1325,11 +1479,14 @@ export class TaleStudioPage implements OnChanges {
     const result = await this.documents.load(taleId);
     if (taleId !== this.taleId()) return;
     if (result.value === null) {
+      this.loadingTale.set(false);
       this.error.set(result.message);
       return;
     }
     const doc = result.value.document ?? emptyTaleDocument();
     this.doc.set(doc);
+    this.loadingTale.set(false);
+    this.opened.set(true);
     this.published.set(result.value.published);
     this.draftStored.set(result.value.document !== null);
     this.history.clear();
@@ -1359,6 +1516,22 @@ export class TaleStudioPage implements OnChanges {
    * is asked whether to leave without them.
    */
   async canLeave(): Promise<boolean> {
+    const leave = await this.leaveSaved();
+    const groupId = this.newGroup();
+    // A new tale group's options come once the studio is left (the shell opens them after the page shows).
+    if (leave && groupId && !this.leavingForCopy) {
+      const zoneId = this.zone() ?? '';
+      this.store.pendingGroupOptions.set({
+        taleGroupId: groupId,
+        zoneId,
+        projectId: this.store.zone(zoneId)?.projectId ?? this.store.selectedProjectId(),
+      });
+    }
+    return leave;
+  }
+
+  /** Whether the studio's changes are saved or may be left unsaved (see {@link canLeave}). */
+  private async leaveSaved(): Promise<boolean> {
     if (this.leavingForCopy || !this.autosave.unsaved) return true;
     const saved = await Promise.race([
       this.autosave.flush(),

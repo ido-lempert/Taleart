@@ -984,6 +984,21 @@ export async function setTaleSchedule(db: Db, taleId: string, window: StoredWind
   return tale;
 }
 
+/**
+ * Renames a tale; its title is shown in the dashboard and the studio. Returns the tale with its
+ * status as read. Throws {@link TaleNotFoundError}.
+ */
+export async function renameTale(db: Db, taleId: string, title: string): Promise<Tale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const { rows } = await db.query<TaleRow>(
+    `UPDATE tales SET title = $2 WHERE id = $1 RETURNING ${TALE_COLUMNS}`,
+    [taleId, title],
+  );
+  if (rows.length === 0) throw new TaleNotFoundError(taleId);
+  const [tale] = await visibleTales(db, [toTale(rows[0])]);
+  return tale;
+}
+
 /** The project of a tale group, or null when it does not exist. Ids that are not UUIDs never match. */
 export async function taleGroupProjectId(db: Db, taleGroupId: string): Promise<string | null> {
   if (!UUID.test(taleGroupId)) return null;

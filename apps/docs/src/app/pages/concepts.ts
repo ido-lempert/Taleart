@@ -51,7 +51,8 @@ import { GLOSSARY } from '../docs-content';
         A tale is <strong>Shown</strong> or <strong>Hidden</strong>. New tales start Shown, so turning a group On shows
         all its tales; hide a tale to leave it out.
       </li>
-      <li>Archive sits in a group's or a tale's ⋯ menu.</li>
+      <li>Archive sits in a group's or a tale's ⋯ menu. A tale card's menu also opens with a right-click.</li>
+      <li>Shown or Hidden is set in Tale Studio's ⋯ menu (Show on site or Hide from site). A tale card only shows it.</li>
       <li>
         A schedule (also in the ⋯ menu) limits when a group or a tale shows. A chip shows the window, such as
         "Starts 1 Dec 09:00".

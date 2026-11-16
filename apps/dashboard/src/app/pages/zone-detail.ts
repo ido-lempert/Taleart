@@ -29,6 +29,7 @@ import {
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
+import { NewTaleGroupFlow } from '../new-tale-group';
 import { GroupRow, opensFromRowClick } from '../group-row';
 import type { MenuItem, MenuPick } from '../menu-button';
 import { gateMenu } from '../project-roles';
@@ -293,6 +294,7 @@ type Direction = 'earlier' | 'later';
 })
 export class ZoneDetailPage {
   protected readonly store = inject(DashboardStore);
+  protected readonly newTaleGroup = inject(NewTaleGroupFlow);
   // What the caller's role in the zone's project allows (the API checks every call; this only decides what to show).
   protected readonly canEdit = computed(() => this.store.can('content.edit', this.zone()?.projectId));
   protected readonly canZones = computed(() => this.store.can('zones.manage', this.zone()?.projectId));

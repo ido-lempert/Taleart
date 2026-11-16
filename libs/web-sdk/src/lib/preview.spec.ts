@@ -1,8 +1,15 @@
-import type { DeliveryTaleDocument, DeliveryTaleElement } from '@taleart/contract';
+import type {
+  DeliveryTale,
+  DeliveryTaleDocument,
+  DeliveryTaleElement,
+  DeliveryTaleGroup,
+  DeliveryZone,
+} from '@taleart/contract';
 import * as entry from '../preview';
 import * as sdk from '../index';
 import { renderTaleDocument } from './document/renderer';
 import {
+  GroupPreview,
   PREVIEW_REDRAW_MS,
   PREVIEW_RESTART_MS,
   PREVIEW_SIZES,
@@ -462,5 +469,107 @@ describe('the public viewer', () => {
     } finally {
       proto.showModal = original;
     }
+  });
+});
+
+// Tale Studio story 7.10 (R10, AD-16): the group preview draws the zone's display with the SDK's own renderers and
+// opens the SDK's viewer on the group, as a visitor's page does.
+
+const groupOf = (id: string, name: string, tales: DeliveryTale[]): DeliveryTaleGroup =>
+  ({ id, name, tags: [], tagMatch: 'any', audience: null, cover: null, tales }) as unknown as DeliveryTaleGroup;
+const taleOf = (id: string, title: string, document: DeliveryTaleDocument): DeliveryTale =>
+  ({ id, title, media: null, document, fonts: [] }) as unknown as DeliveryTale;
+const zoneOf = (taleGroups: DeliveryTaleGroup[], frame: unknown): DeliveryZone =>
+  ({ id: 'z1', name: 'Home', slug: 'home', theme: {}, frame, taleGroups }) as unknown as DeliveryZone;
+const barFrame = { id: 'f1', type: 'bar', settings: {} };
+const bannerFrame = { id: 'f1', type: 'banner', settings: {} };
+
+describe('the group preview', () => {
+  let groupHost: HTMLElement;
+  let group: GroupPreview;
+  let groupEnded: number;
+  const groupRoot = () => groupHost.shadowRoot as ShadowRoot;
+  const gq = (selector: string) => groupRoot().querySelector(selector) as HTMLElement | null;
+  const entries = () => [...groupRoot().querySelectorAll<HTMLButtonElement>('button.item')];
+  const viewerTexts = () => [...groupRoot().querySelectorAll('.ta-glyphs')].map((n) => n.textContent);
+  const summer = () =>
+    groupOf('g1', 'Summer', [taleOf('t1', 'Beach', doc([text('Hello')])), taleOf('t2', 'Sea', doc([text('Waves')]))]);
+  const winter = () => groupOf('g2', 'Winter', [taleOf('t3', 'Snow', doc([text('Cold')]))]);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    groupHost = document.createElement('div');
+    document.body.append(groupHost);
+    groupEnded = 0;
+    group = new GroupPreview(groupHost, { onEnded: () => groupEnded++ });
+  });
+
+  afterEach(() => {
+    group.destroy();
+    groupHost.remove();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('is exported from the preview entry point', () => {
+    expect(entry.GroupPreview).toBe(GroupPreview);
+  });
+
+  it('draws the zone bar with an entry per group, then opens the viewer on the group being edited', () => {
+    group.show(zoneOf([summer(), winter()], barFrame), 'g1');
+    expect(entries().map((b) => b.dataset['taleGroupId'])).toEqual(['g1', 'g2']);
+    expect(groupRoot().querySelector<HTMLDialogElement>('dialog.viewer')?.hasAttribute('open')).toBe(true);
+    expect(gq('.name')?.textContent).toBe('Summer');
+    expect(viewerTexts()).toEqual(['Hello']);
+  });
+
+  it('opens the group of a tapped entry, from its first tale', () => {
+    group.show(zoneOf([summer(), winter()], barFrame), 'g1');
+    gq('.close')?.click();
+    expect(groupEnded).toBe(1);
+    entries()[1].click();
+    expect(gq('.name')?.textContent).toBe('Winter');
+    expect(viewerTexts()).toEqual(['Cold']);
+  });
+
+  it('draws the zone banner for a banner frame', () => {
+    group.show(zoneOf([summer()], bannerFrame), 'g1');
+    expect(gq('.banner')).not.toBeNull();
+    expect(gq('button.item')).toBeNull();
+  });
+
+  it('draws nothing and opens nothing for a zone with no display', () => {
+    group.show(zoneOf([summer()], null), 'g1');
+    expect(gq('.bar')).toBeNull();
+    expect(gq('.banner')).toBeNull();
+    expect(groupRoot().querySelector('dialog')).toBeNull();
+  });
+
+  it('shows a change to the group in its viewer once changes stop', () => {
+    group.show(zoneOf([summer()], barFrame), 'g1');
+    const edited = groupOf('g1', 'Summer', [
+      taleOf('t1', 'Beach', doc([text('Hello, sailor')])),
+      taleOf('t2', 'Sea', doc([text('Waves')])),
+    ]);
+    group.show(zoneOf([edited], barFrame), 'g1');
+    vi.advanceTimersByTime(PREVIEW_REDRAW_MS + 50);
+    expect(viewerTexts()).toEqual(['Hello, sailor']);
+  });
+
+  it('closes the viewer when its group is no longer in the zone', () => {
+    group.show(zoneOf([summer(), winter()], barFrame), 'g1');
+    group.show(zoneOf([winter()], barFrame), 'g1');
+    vi.advanceTimersByTime(PREVIEW_REDRAW_MS + 50);
+    expect(group.isOpen).toBe(false);
+    expect(entries().map((b) => b.dataset['taleGroupId'])).toEqual(['g2']);
+  });
+
+  it('plays the group again from its first tale on replay', () => {
+    group.show(zoneOf([summer()], barFrame), 'g1');
+    gq('.close')?.click();
+    expect(group.isOpen).toBe(false);
+    group.replay();
+    expect(group.isOpen).toBe(true);
+    expect(viewerTexts()).toEqual(['Hello']);
   });
 });

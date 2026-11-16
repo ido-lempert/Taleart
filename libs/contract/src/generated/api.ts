@@ -1710,7 +1710,11 @@ export interface paths {
         delete: operations["deleteTale"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename a tale.
+         * @description The title is trimmed and must not be blank (400 `validation_failed`). Returns the tale with its status as read. Any member with access to the tale's project may rename it (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         */
+        patch: operations["renameTale"];
         trace?: never;
     };
     "/tales/{taleId}/status": {
@@ -2370,6 +2374,10 @@ export interface components {
         RenameTaleGroupRequest: {
             /** @description Trimmed before it is checked and stored. */
             name: string;
+        };
+        RenameTaleRequest: {
+            /** @description Trimmed before it is checked and stored; at most 100 characters. */
+            title: string;
         };
         CopyTaleGroupRequest: {
             /** @description The zone to place the copy in; its project may differ from the source's. */
@@ -6609,6 +6617,36 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    renameTale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameTaleRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed tale. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];

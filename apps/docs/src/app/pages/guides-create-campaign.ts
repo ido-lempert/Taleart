@@ -17,15 +17,16 @@ import { RouterLink } from '@angular/router';
 <p>The page shows why a zone is not visible yet, and a checklist: choose a display, issue the zone key on the zone's Install tab, turn a tale group On with a shown tale.</p>
 <h2 id="add-tale-groups">Add tale groups</h2>
 <ol>
-<li><strong>New tale group</strong>, give it a name, and upload an image or video: each file becomes a tale. New tales are Shown.</li>
+<li><strong>New tale group</strong> on the zone page. It opens a draft tale in Tale Studio.</li>
+<li>Upload an image or video as the tale's background, and click <strong>Update tale</strong>.</li>
+<li>Leave Tale Studio. In the <strong>Tale group</strong> drawer, name the group and click <strong>Done</strong>. New tales are Shown.</li>
 <li>Turn the group <strong>On</strong>. New groups start Off.</li>
 </ol>
 <p>In the furniture example we made three groups: Summer sale, New arrivals and Staff picks. Each has two tales, and each tale has its own generated sample illustration.</p>
 <p><img class="guide-img" alt="Three tale groups, all On and visible on site" src="guides/images/04-tale-groups.png" width="1280" height="800" /></p>
-<p>Open a group to see its tales. Each uploaded file is one tale, shown by default, with an <strong>Add tale</strong> button.</p>
+<p>Open a group to see its tales. Each tale card shows the tale's first background. <strong>Add tale</strong> adds an Untitled tale and opens it in Tale Studio, where you set its media and rename it.</p>
 <p><img class="guide-img" alt="Tale group page with its tales and Add tale" src="guides/images/09-tale-group.png" width="1280" height="800" /></p>
-<p>Click a tale to open its panel: Shown/Hidden, Archive, Delete, Replace media, and <strong>Edit in Tale Studio</strong>.</p>
-<p><img class="guide-img" alt="Tale panel" src="guides/images/10-tale-panel.png" width="1280" height="800" /></p>
+<p>A tale card's open button, or its <strong>⋯</strong> menu's <strong>Edit in Tale Studio</strong>, opens the tale in Tale Studio. Right-click the card (or press Shift+F10 or the Context Menu key on it) for the same menu: Edit in Tale Studio, Duplicate, Archive and Delete. Shown or Hidden is set in Tale Studio's <strong>⋯</strong> menu, with Show on site or Hide from site.</p>
 <p>Tale Studio opens the tale on a canvas with an Elements palette (text, image, video, shapes, emoji, stickers, buttons, polls and more), Templates, Media and Layers, a Safe area toggle, Undo/Redo, Preview, and <strong>Update tale</strong>, which puts your changes on the site (until then visitors see the previous version).</p>
 <p><img class="guide-img" alt="Tale Studio" src="guides/images/11-tale-studio.png" width="1280" height="800" /></p>
 <h3 id="add-a-heading-and-publish-the-change">Add a heading and publish the change</h3>

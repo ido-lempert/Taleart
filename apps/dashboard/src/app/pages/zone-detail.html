@@ -253,7 +253,7 @@
               [class.btn--primary]="groups().length === 0"
               [class.btn--secondary]="groups().length > 0"
               id="new-tale-group"
-              (click)="store.openDrawer({ kind: 'taleGroup', zoneId: zone.id }, $event)"
+              (click)="newTaleGroup.start(zone.projectId, zone.id)"
             >
               <app-icon name="plus" /> New tale group
             </button>
