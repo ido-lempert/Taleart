@@ -4,7 +4,8 @@
   canvas, the inspector (or the preview in its place) and the tale strip. The page does not scroll;
   each region scrolls on its own. Below 1024 px wide the regions stack and the page scrolls.
 -->
-@if (doc(); as d) {
+@if (opened()) {
+  @let d = shownDoc();
   <div class="studio-shell" [class.is-previewing]="previewOpen()">
     <!-- Opened by the tale menu's Replace media; the picked file uploads at once. -->
     <input
@@ -504,7 +505,9 @@
           Top layer first. The up and down arrows move between layers, left and right between a layer's controls.
           {{ multiHint }} adds a layer to the selection.
         </p>
-        @if (layerRows().length === 0) {
+        @if (!doc()) {
+          <p class="muted">Loading the tale…</p>
+        } @else if (layerRows().length === 0) {
           <p class="muted">No layers yet.</p>
         } @else {
           <div
@@ -912,7 +915,9 @@
               <div class="snap-line snap-line--y" aria-hidden="true" [style.top.%]="lines.y * 100"></div>
             }
           }
-          @if (d.elements.length === 0) {
+          @if (!doc()) {
+            <p class="canvas__hint" role="status">Loading the tale…</p>
+          } @else if (d.elements.length === 0) {
             <p class="canvas__hint">Drag an element here, or pick one on the left.</p>
           }
         </div>
@@ -951,6 +956,8 @@
             [groupId]="previewGroupId() ?? ''"
           />
         </div>
+      } @else if (!doc()) {
+        <p class="field__hint inspector__intro">Loading the tale…</p>
       } @else {
         @if (selected(); as el) {
           <div class="inspector__head">

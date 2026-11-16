@@ -390,6 +390,13 @@ export class TaleStudioPage implements OnChanges {
 
   /** The document being edited; null until read. */
   protected readonly doc = signal<TaleDocument | null>(null);
+  /** True once a tale has been shown: a change of tale then swaps only the tale's own parts, not the studio shell. */
+  protected readonly opened = signal(false);
+  /** True while the tale's document is read after a change of tale: editing waits for it. */
+  private readonly loadingTale = signal(false);
+  private readonly blankDoc = emptyTaleDocument();
+  /** The document the shell draws: the blank one while the tale's own is read, so the shell stays mounted. */
+  protected readonly shownDoc = computed(() => this.doc() ?? this.blankDoc);
   /** The ids of the selected layers, in the order they were selected. */
   protected readonly selection = signal<readonly string[]>([]);
   protected readonly editingId = signal<string | null>(null);
@@ -467,7 +474,9 @@ export class TaleStudioPage implements OnChanges {
     return !project || this.store.can('content.publish', id);
   });
   // Why editing is held: the reason a viewer cannot change anything, else a busy action's wait.
-  private readonly held = computed(() => (this.viewOnly() ? VIEW_ONLY : this.heldBusy()));
+  private readonly held = computed(() =>
+    this.viewOnly() ? VIEW_ONLY : this.heldBusy() || (this.loadingTale() ? DUPLICATE_WHILE_LOADING : ''),
+  );
   // Leaving to open the kept copy: nothing here is to be saved any more.
   private leavingForCopy = false;
   /** True once the server holds a draft: after a read of one, or after any save. */
@@ -1233,7 +1242,7 @@ export class TaleStudioPage implements OnChanges {
     }
   });
   /** True when the draft on screen differs from the version on the site, or nothing is on the site yet. */
-  protected readonly unpublished = computed(() => !sameDocument(this.doc(), this.published().document));
+  protected readonly unpublished = computed(() => this.doc() !== null && !sameDocument(this.doc(), this.published().document));
   /**
    * The tale's visibility as the Management API read it for this studio (`GET /tales/{id}`, in any
    * zone, epic UX rework R7): on opening, after a save while nothing is on the site, after Update
@@ -1447,9 +1456,12 @@ export class TaleStudioPage implements OnChanges {
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['taleId']) return;
     this.heldBusy.set('');
+    this.loadingTale.set(true);
     this.leavingForCopy = false;
     this.draftStored.set(false);
     this.doc.set(null);
+    this.history.clear();
+    this.syncHistory();
     this.selection.set([]);
     this.editingId.set(null);
     this.menu.set(null);
@@ -1467,11 +1479,14 @@ export class TaleStudioPage implements OnChanges {
     const result = await this.documents.load(taleId);
     if (taleId !== this.taleId()) return;
     if (result.value === null) {
+      this.loadingTale.set(false);
       this.error.set(result.message);
       return;
     }
     const doc = result.value.document ?? emptyTaleDocument();
     this.doc.set(doc);
+    this.loadingTale.set(false);
+    this.opened.set(true);
     this.published.set(result.value.published);
     this.draftStored.set(result.value.document !== null);
     this.history.clear();
