@@ -129,6 +129,8 @@ export function createApp(
   );
   void sdkServed.current().catch(() => undefined);
   const app = express();
+  // Hide the framework's X-Powered-By header.
+  app.disable('x-powered-by');
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
   // reads its body first, with a larger limit, and the parser below then leaves that body as it is.
   // Being a route, it matches as the routers do: in any case, with or without a trailing slash.
