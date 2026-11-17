@@ -25,6 +25,8 @@ import {
   elementName,
   isUtcInstant,
   documentMediaRefs,
+  externalMediaRefs,
+  externalMediaUrlProblem,
   UNKNOWN_MEDIA_REASON,
   projectFontIds,
   projectFontRefs,
@@ -570,6 +572,13 @@ export async function checkDocumentFonts(db: Db, projectId: string, document: un
  * Throws {@link InvalidTaleDocumentError}.
  */
 export async function checkDocumentMedia(db: Db, projectId: string, document: unknown): Promise<void> {
+  // An external address (an image or video on another site) is not a file of the project: it must be
+  // https, and it cannot be the tale's own media, which the server keeps in step with the tale's file.
+  for (const ref of externalMediaRefs(document)) {
+    if (ref.taleMedia) throw new InvalidTaleDocumentError(ref.pointer, "can't be the tale's own media");
+    const problem = externalMediaUrlProblem(ref.url);
+    if (problem !== null) throw new InvalidTaleDocumentError(ref.pointer, `is not an https address (${problem})`);
+  }
   const refs = documentMediaRefs(document);
   if (refs.length === 0) return;
   await lockMediaKeys(

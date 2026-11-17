@@ -739,7 +739,7 @@ export class TaleStudioPage implements OnChanges {
         longVideo:
           el.type === 'video' &&
           el !== this.stageMedia() &&
-          (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
+          (this.videoSeconds().get(el.props.mediaKey ?? el.props.externalUrl ?? '') ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
       .reverse(),
   );
@@ -1943,6 +1943,11 @@ export class TaleStudioPage implements OnChanges {
     return projectId ? projectMediaSrc(projectId, key) : '';
   }
 
+  /** An image or video element's address: its external https address, or its project file. */
+  protected elementSrc(props: { mediaKey?: string; externalUrl?: string }): string {
+    return props.externalUrl ?? this.mediaSrc(props.mediaKey ?? '');
+  }
+
   protected readonly percent = percent;
 
   protected maxPercent(size: number): number {
@@ -2801,7 +2806,7 @@ export class TaleStudioPage implements OnChanges {
           ? background.mediaKey
           : null
         : element && isMediaElement(element)
-          ? element.props.mediaKey
+          ? (element.props.mediaKey ?? null)
           : null;
     const heading =
       purpose === 'background'

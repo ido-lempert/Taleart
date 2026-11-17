@@ -10525,12 +10525,23 @@
       "image.schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "ImageElementProps",
-        "description": "The props of an image element: an image (GIF included) of the tale's project, by its storage key, never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
+        "description": "The props of an image element: an image (GIF included) of the tale's project, by its storage key, or by `externalUrl`: an https address of the image on another site, which the viewer loads (its page's content security policy must allow it). Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "mediaKey",
           "fit"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "mediaKey"
+            ]
+          },
+          {
+            "required": [
+              "externalUrl"
+            ]
+          }
         ],
         "properties": {
           "mediaKey": {
@@ -10538,6 +10549,12 @@
             "type": "string",
             "maxLength": 200,
             "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+          },
+          "externalUrl": {
+            "description": "An https address of an image on another site, shown instead of a `mediaKey`. Not for a tale media element.",
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^https://[^\\s]+$"
           },
           "fit": {
             "description": "How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.",
@@ -10568,12 +10585,23 @@
       "video.schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "VideoElementProps",
-        "description": "The props of a video element: an MP4 or WebM video of the tale's project, by its storage key, never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
+        "description": "The props of a video element: an MP4 or WebM video of the tale's project, by its storage key, or by `externalUrl`: an https address of the image on another site, which the viewer loads (its page's content security policy must allow it). It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "mediaKey",
           "fit"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "mediaKey"
+            ]
+          },
+          {
+            "required": [
+              "externalUrl"
+            ]
+          }
         ],
         "properties": {
           "mediaKey": {
@@ -10581,6 +10609,12 @@
             "type": "string",
             "maxLength": 200,
             "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+          },
+          "externalUrl": {
+            "description": "An https address of a video on another site, shown instead of a `mediaKey`. Not for a tale media element.",
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^https://[^\\s]+$"
           },
           "fit": {
             "description": "How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.",

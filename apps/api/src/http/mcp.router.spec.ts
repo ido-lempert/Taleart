@@ -110,7 +110,7 @@ describe('the MCP server (TALEART_MCP)', () => {
     try {
       await client.connect(transport);
       const tools = await client.listTools();
-      expect(tools.tools.map((t) => t.name).sort()).toEqual(['call_operation', 'list_operations']);
+      expect(tools.tools.map((t) => t.name).sort()).toEqual(['call_operation', 'list_operations', 'upload_media']);
 
       const listed = await client.callTool({ name: 'list_operations', arguments: {} });
       const text = (listed.content as Array<{ text: string }>)[0]?.text ?? '';

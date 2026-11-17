@@ -40,7 +40,7 @@ import {
 import { siteKeyRouter } from './http/site-key.router';
 import { userListsRouter, type UserListOptions } from './http/user-lists.router';
 import { zonesRouter } from './http/zones.router';
-import { MCP_PATH, mcpRouter, type McpOptions } from './http/mcp.router';
+import { MCP_MESSAGE_BODY_LIMIT, MCP_PATH, mcpRouter, type McpOptions } from './http/mcp.router';
 
 /** Management API base path (AD-2, versioned per the spine conventions). */
 export const MANAGEMENT_API_BASE = '/api/v1';
@@ -138,12 +138,15 @@ export function createApp(
   // A font, media or user list upload's body is the file, whatever type it declares (R18, R5, epic
   // targeting R3): its route reads it as a stream.
   const json = express.json();
+  // An MCP message carries a whole file when it uploads media (upload_media sends it base64), so its
+  // body allows that much; the API checks the decoded file's size as it does any upload.
+  const mcpJson = express.json({ limit: MCP_MESSAGE_BODY_LIMIT });
   // The Delivery API reads its own small bodies, after its CORS headers, so a refused body still
   // reaches the browser as the API's error (epic interactive components R9).
   app.use((req, res, next) =>
     (req.method === 'POST' && UPLOAD_PATH.test(req.path)) || req.path.startsWith(`${DELIVERY_API_BASE}/`)
       ? next()
-      : json(req, res, next),
+      : req.path === `${MANAGEMENT_API_BASE}${MCP_PATH}/messages` ? mcpJson(req, res, next) : json(req, res, next),
   );
 
   // The dashboard reaches the API through its dev proxy, on its own origin, so

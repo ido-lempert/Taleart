@@ -27,6 +27,15 @@ import { errorBody } from './errors';
 /** The MCP path under the Management API base, for the docs and the router's own tests. */
 export const MCP_PATH = '/mcp';
 
+/**
+ * The largest body a message may carry: an upload_media call sends its file base64-encoded (a third
+ * larger), so this is the largest image (10 MB) and video up to 12 MB; a larger video goes through the
+ * API's upload directly.
+ */
+export const MCP_MESSAGE_BODY_LIMIT = '17mb';
+/** The largest file upload_media takes, decoded. */
+export const MCP_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
+
 /** The environment variable that turns the MCP server off (`off`) or on (`on`, the default). */
 export const MCP_ENV = 'TALEART_MCP';
 
@@ -137,6 +146,27 @@ const TOOLS: Tool[] = [
       },
     },
   },
+  {
+    name: 'upload_media',
+    description:
+      'Upload an image (JPEG, PNG, WebP or GIF) or a video (MP4 or WebM) to a project’s media library as the token’s user. ' +
+      'The file is base64 in dataBase64, at most 12 MB decoded (a larger video goes through the API). Returns the HTTP status and ' +
+      'the media record; its key is the mediaKey a tale element uses, set with call_operation on the tale’s document. ' +
+      'A read-only token may not upload (403).',
+    inputSchema: {
+      type: 'object',
+      required: ['projectId', 'contentType', 'dataBase64'],
+      properties: {
+        projectId: { type: 'string', description: 'The project the file goes to (listProjects).' },
+        contentType: {
+          type: 'string',
+          enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
+          description: 'The file’s type; its bytes must match it.',
+        },
+        dataBase64: { type: 'string', description: 'The file’s bytes, base64-encoded (no data: prefix).' },
+      },
+    },
+  },
 ];
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
@@ -224,6 +254,38 @@ export function mcpRouter(doc: OpenApiLike, options: McpOptions = {}): express.R
     }
   }
 
+  /** Uploads a file to a project's media through the API, as the token's user; the API judges its bytes. */
+  async function uploadMedia(authorization: string, input: Record<string, unknown>): Promise<ToolResult> {
+    const { projectId, contentType, dataBase64 } = input as Record<string, unknown>;
+    if (typeof projectId !== 'string' || projectId === '') return textResult('projectId is needed', true);
+    if (typeof contentType !== 'string' || contentType === '') return textResult('contentType is needed', true);
+    if (typeof dataBase64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64) || dataBase64.length % 4 !== 0) {
+      return textResult('dataBase64 must be the file’s bytes in base64', true);
+    }
+    const bytes = Buffer.from(dataBase64, 'base64');
+    if (bytes.length === 0) return textResult('The file is empty', true);
+    if (bytes.length > MCP_UPLOAD_MAX_BYTES) {
+      return textResult(`The file is larger than ${MCP_UPLOAD_MAX_BYTES / (1024 * 1024)} MB: upload it through the API`, true);
+    }
+    try {
+      const response = await fetchImpl(`${apiBase}/projects/${encodeURIComponent(projectId)}/media`, {
+        method: 'POST',
+        headers: { Authorization: authorization, Accept: 'application/json', 'Content-Type': contentType },
+        body: bytes,
+      });
+      const text = await response.text();
+      let body: unknown = text;
+      try {
+        body = text === '' ? null : JSON.parse(text);
+      } catch {
+        // Not JSON: returned as text.
+      }
+      return textResult({ status: response.status, body }, response.status >= 400);
+    } catch (err) {
+      return textResult(`The API could not be reached: ${err instanceof Error ? err.message : String(err)}`, true);
+    }
+  }
+
   function serverFor(authorization: string): Server {
     const server = new Server(
       { name: 'taleart', version: '1.0.0' },
@@ -248,6 +310,7 @@ export function mcpRouter(doc: OpenApiLike, options: McpOptions = {}): express.R
         return textResult(listed);
       }
       if (request.params.name === 'call_operation') return callApi(authorization, args);
+      if (request.params.name === 'upload_media') return uploadMedia(authorization, args);
       return textResult(`Unknown tool ${request.params.name}`, true);
     });
     return server;

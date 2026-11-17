@@ -3495,11 +3495,13 @@ export interface components {
         };
         /**
          * ImageElementProps
-         * @description The props of an image element: an image (GIF included) of the tale's project, by its storage key, never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.
+         * @description The props of an image element: an image (GIF included) of the tale's project, by its storage key, or by `externalUrl`: an https address of the image on another site, which the viewer loads (its page's content security policy must allow it). Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.
          */
         "image.schema": {
             /** @description The storage key of an image of the tale's project, as the server made it. */
-            mediaKey: string;
+            mediaKey?: string;
+            /** @description An https address of an image on another site, shown instead of a `mediaKey`. Not for a tale media element. */
+            externalUrl?: string;
             /**
              * @description How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.
              * @enum {string}
@@ -3511,14 +3513,16 @@ export interface components {
             opacity?: number;
             /** @description True on the tale's own media: the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one. */
             taleMedia?: boolean;
-        };
+        } & (unknown | unknown);
         /**
          * VideoElementProps
-         * @description The props of a video element: an MP4 or WebM video of the tale's project, by its storage key, never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.
+         * @description The props of a video element: an MP4 or WebM video of the tale's project, by its storage key, or by `externalUrl`: an https address of the image on another site, which the viewer loads (its page's content security policy must allow it). It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.
          */
         "video.schema": {
             /** @description The storage key of a video of the tale's project, as the server made it. */
-            mediaKey: string;
+            mediaKey?: string;
+            /** @description An https address of a video on another site, shown instead of a `mediaKey`. Not for a tale media element. */
+            externalUrl?: string;
             /**
              * @description How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.
              * @enum {string}
@@ -3530,7 +3534,7 @@ export interface components {
             opacity?: number;
             /** @description True on the tale's own media: the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one. */
             taleMedia?: boolean;
-        };
+        } & (unknown | unknown);
         /**
          * ShapeElementProps
          * @description The props of a shape element: a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text. Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.

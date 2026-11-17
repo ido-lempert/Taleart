@@ -78,6 +78,10 @@ function delivered(doc) {
         const e = { ...element };
         delete e.hidden;
         delete e.locked;
+        if (e.props.externalUrl !== undefined) {
+          const { externalUrl, ...props } = e.props;
+          return { ...e, props: { ...props, url: externalUrl } };
+        }
         if (!e.props.mediaKey) return e;
         const { mediaKey, ...props } = e.props;
         return { ...e, props: { ...props, url: mediaUrl(mediaKey) } };

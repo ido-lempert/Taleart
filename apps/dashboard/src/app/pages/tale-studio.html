@@ -724,7 +724,7 @@
                   <video
                     class="el__media"
                     crossorigin="anonymous"
-                    [src]="mediaSrc(el.props.mediaKey)"
+                    [src]="elementSrc(el.props)"
                     [muted]="true"
                     muted
                     playsinline
@@ -733,13 +733,13 @@
                     [style.object-fit]="el.props.fit"
                     [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
                     [style.opacity]="el.props.opacity ?? 1"
-                    (loadedmetadata)="videoLoaded(el.props.mediaKey, $any($event.target))"
+                    (loadedmetadata)="videoLoaded(el.props.mediaKey ?? el.props.externalUrl ?? '', $any($event.target))"
                   ></video>
                 } @else if (el.type === 'image') {
                   <img
                     class="el__media"
                     crossorigin="anonymous"
-                    [src]="mediaSrc(el.props.mediaKey)"
+                    [src]="elementSrc(el.props)"
                     alt=""
                     draggable="false"
                     [style.object-fit]="el.props.fit"
@@ -1034,7 +1034,7 @@
                 [element]="el"
                 [videoSeconds]="
                   el.type === 'video' && el !== stageMedia()
-                    ? (videoSeconds().get(el.props.mediaKey) ?? null)
+                    ? (videoSeconds().get(el.props.mediaKey ?? el.props.externalUrl ?? '') ?? null)
                     : null
                 "
                 [locked]="el.locked"

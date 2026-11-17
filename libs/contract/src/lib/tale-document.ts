@@ -794,9 +794,12 @@ export function resolveDocumentMedia<D extends { canvas: unknown; elements: read
     background = url === null ? { type: 'color', color: rest.color } : { ...rest, url };
   }
   const elements = doc.elements.flatMap((element) => {
-    const e = element as { type?: unknown; props?: { mediaKey?: unknown } };
+    const e = element as { type?: unknown; props?: { mediaKey?: unknown; externalUrl?: unknown } };
     if (typeof e.type !== 'string' || !isMediaElement({ type: e.type })) return [element];
-    const { mediaKey, ...props } = e.props ?? {};
+    const { mediaKey, externalUrl, ...props } = e.props ?? {};
+    // An external address (https, checked when the document is saved) is shown as it is (AD-11 does
+    // not cover it: it is not the project's file).
+    if (typeof externalUrl === 'string') return [{ ...e, props: { ...props, url: externalUrl } }];
     const url = typeof mediaKey === 'string' ? resolve(mediaKey) : null;
     return url === null ? [] : [{ ...e, props: { ...props, url } }];
   });
@@ -1098,6 +1101,40 @@ export function linkUrlProblem(value: unknown): LinkUrlProblem | null {
 /** True when `value` is a destination a link may open ({@link linkUrlProblem}). */
 export function isLinkUrl(value: unknown): value is string {
   return linkUrlProblem(value) === null;
+}
+
+/** Why an element's `externalUrl` is refused, or null: an https address that {@link linkUrlProblem} accepts. */
+export function externalMediaUrlProblem(value: unknown): LinkUrlProblem | null {
+  const problem = linkUrlProblem(value);
+  if (problem !== null) return problem;
+  return (value as string).startsWith('https://') ? null : 'scheme';
+}
+
+/** An image or video element that shows an external address, with where it is. */
+export interface ExternalMediaRef {
+  url: unknown;
+  /** The JSON pointer of the element's `externalUrl`, as a refusal names it. */
+  pointer: string;
+  /** True for the tale's own media, which must be a file of the project. */
+  taleMedia: boolean;
+}
+
+/** Every image and video element of a document that shows an `externalUrl` instead of a `mediaKey`. */
+export function externalMediaRefs(doc: unknown): ExternalMediaRef[] {
+  const refs: ExternalMediaRef[] = [];
+  const elements = (doc as { elements?: unknown } | null)?.elements;
+  if (!Array.isArray(elements)) return refs;
+  elements.forEach((element: unknown, i) => {
+    const e = element as { type?: unknown; props?: { externalUrl?: unknown; taleMedia?: unknown } } | null;
+    if (e?.type !== 'image' && e?.type !== 'video') return;
+    if (e.props?.externalUrl === undefined) return;
+    refs.push({
+      url: e.props.externalUrl,
+      pointer: `/elements/${i}/props/externalUrl`,
+      taleMedia: e.props.taleMedia === true,
+    });
+  });
+  return refs;
 }
 
 /** What Tale Studio, and server refusals, say about each {@link LinkUrlProblem}. */
