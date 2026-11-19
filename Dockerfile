@@ -5,7 +5,7 @@
 #   docker build --target dashboard -t taleart/dashboard .
 # docker-compose.yml builds both for you.
 
-ARG NODE_VERSION=22
+ARG NODE_VERSION=24.10.0
 
 # ---------------------------------------------------------------------------
 # build: install the workspace and run the Nx builds (Web SDK, API, dashboard).
