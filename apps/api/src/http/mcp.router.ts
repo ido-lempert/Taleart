@@ -152,6 +152,8 @@ const TOOLS: Tool[] = [
       'Upload an image (JPEG, PNG, WebP or GIF) or a video (MP4 or WebM) to a project’s media library as the token’s user. ' +
       'The file is base64 in dataBase64, at most 12 MB decoded (a larger video goes through the API). Returns the HTTP status and ' +
       'the media record; its key is the mediaKey a tale element uses, set with call_operation on the tale’s document. ' +
+      'An image or video that is already hosted elsewhere (such as a CDN) needs no upload: set the element’s externalUrl, ' +
+      'an https address, instead of mediaKey (not on stickers or image buttons). ' +
       'A read-only token may not upload (403).',
     inputSchema: {
       type: 'object',
