@@ -1,12 +1,24 @@
 // Tale Studio's media parts (epic Tale Studio R5, R2, R12): the picker over the project's media,
 // with upload, and the inspector of a selected image or video.
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  linkedSignal,
+  output,
+  signal,
+} from '@angular/core';
 import { isMediaContentType, maxMediaBytes, type MediaKind, type ProjectMedia } from '@taleart/contract/core';
 import {
+  LINK_URL_MESSAGES,
   MAX_LABEL_LENGTH,
   MAX_MEDIA_RADIUS,
   MAX_TALE_VIDEO_MS,
   MEDIA_FITS,
+  externalMediaUrlProblem,
   type ImageElementProps,
   type ImageButtonElement,
   type MediaElement,
@@ -247,6 +259,16 @@ export class TaleMediaPicker {
   }
 }
 
+/**
+ * What the web address field says about a typed address for an image or video: null when the
+ * server accepts it, else why not. Only https addresses show media, so http is refused here.
+ */
+export function mediaUrlMessage(value: string): string | null {
+  const problem = externalMediaUrlProblem(value);
+  if (problem === null) return null;
+  return problem === 'scheme' ? 'Only https:// addresses can show an image or video.' : LINK_URL_MESSAGES[problem];
+}
+
 /** A change the media inspector asks for: one history step, with what the live region says. */
 export interface MediaChange {
   label: string;
@@ -296,6 +318,36 @@ export interface MediaChange {
       />
       Decorative: it adds nothing to the tale, and screen readers skip it
     </label>
+    @if (showUrl()) {
+      <div class="field">
+        <label class="field__label" [for]="'media-url-' + element().id">Web address (https)</label>
+        <input
+          class="input input--mono"
+          type="url"
+          inputmode="url"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="https://"
+          [id]="'media-url-' + element().id"
+          [attr.aria-describedby]="
+            urlError()
+              ? 'media-url-hint-' + element().id + ' media-url-error-' + element().id
+              : 'media-url-hint-' + element().id
+          "
+          [attr.aria-invalid]="urlError() ? 'true' : null"
+          [readOnly]="locked()"
+          [value]="externalUrl()"
+          (input)="checkUrl($any($event.target))"
+          (change)="setUrl($any($event.target))"
+        />
+        <span class="field__hint" [id]="'media-url-hint-' + element().id">
+          An image or video already hosted elsewhere, such as on a CDN: it is shown from that address instead of a file.
+        </span>
+        @if (urlError()) {
+          <span class="field__error" [id]="'media-url-error-' + element().id">{{ urlError() }}</span>
+        }
+      </div>
+    }
     <div class="row">
       @if (element().type !== 'sticker') {
         <div class="field">
@@ -370,6 +422,8 @@ export class TaleMediaStyle {
   readonly lockedHint = input('');
   /** The video's length in seconds once the canvas read it; null for an image or before. */
   readonly videoSeconds = input<number | null>(null);
+  /** False for the tale's own media: the server refuses a web address for it, so the field is not offered. */
+  readonly canLink = input(true);
   readonly changed = output<MediaChange>();
   readonly notice = output<string>();
   readonly replace = output<void>();
@@ -389,6 +443,52 @@ export class TaleMediaStyle {
   protected readonly currentFit = computed(() => this.props().fit ?? 'contain');
   protected readonly radius = computed(() => percent(this.props().radius ?? 0));
   protected readonly opacity = computed(() => Math.round((this.element().props.opacity ?? 1) * 100));
+  protected readonly externalUrl = computed(() => {
+    const url = (this.element().props as { externalUrl?: unknown }).externalUrl;
+    return typeof url === 'string' ? url : '';
+  });
+  /** Why the address typed is refused, shown under the field; reset when another element is selected. */
+  protected readonly urlError = linkedSignal<string, string>({
+    source: () => this.element().id,
+    computation: () => '',
+  });
+  protected readonly showUrl = computed(() => this.canLink() && this.element().type !== 'sticker');
+
+  protected checkUrl(field: HTMLInputElement): void {
+    const value = field.value.trim();
+    this.urlError.set(value === '' ? '' : (mediaUrlMessage(value) ?? ''));
+  }
+
+  // Applies the address when the server's rule accepts it, and drops the file it replaces; a refused
+  // or empty address stays out, explained. The file is replaced only by choosing another one.
+  protected setUrl(field: HTMLInputElement): void {
+    if (this.locked()) {
+      field.value = this.externalUrl();
+      return;
+    }
+    const value = field.value.trim();
+    if (value === '') {
+      this.urlError.set('');
+      field.value = this.externalUrl();
+      if (this.externalUrl() === '') return;
+      this.notice.emit(`Choose another ${this.kindName()} to stop showing the web address.`);
+      return;
+    }
+    const message = mediaUrlMessage(value);
+    if (message) {
+      this.urlError.set(message);
+      this.notice.emit(`Web address not saved: ${message}`);
+      return;
+    }
+    this.urlError.set('');
+    field.value = value;
+    if (value === this.externalUrl()) return;
+    this.changed.emit({
+      label: 'Web address set',
+      props: { externalUrl: value, mediaKey: undefined },
+      said: `The ${this.kindName()} now shows its web address`,
+    });
+  }
 
   protected setAlt(field: HTMLTextAreaElement): void {
     if (this.locked()) return;

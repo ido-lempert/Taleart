@@ -363,6 +363,37 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     await saveNow(1);
   });
 
+  it('shows an image from a web address in place of its file, refuses http, and a file takes the address back', async () => {
+    await open();
+    await pickFrom('#studio-add-image', 'Use Uploaded image, Oct 22, 2026');
+    const id = doc().elements[0].id;
+    const field = q<HTMLInputElement>(`#media-url-${id}`);
+    field.value = 'http://cdn.example.com/a.png';
+    field.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    expect(doc().elements[0].props).toHaveProperty('mediaKey', IMAGE);
+    expect(q(`#media-url-error-${id}`).textContent).toContain('https://');
+    field.value = 'https://cdn.example.com/a.png';
+    field.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    expect(doc().elements[0].props).toEqual(expect.objectContaining({ externalUrl: 'https://cdn.example.com/a.png' }));
+    expect(doc().elements[0].props).not.toHaveProperty('mediaKey');
+    const saved = await saveNow(1);
+    expect(saved.elements[0].props).toEqual(expect.objectContaining({ externalUrl: 'https://cdn.example.com/a.png' }));
+    expect(saved.elements[0].props).not.toHaveProperty('mediaKey');
+    q<HTMLButtonElement>(`#media-replace-${id}`).click();
+    await settle(fixture);
+    http.expectOne(mediaUrl).flush(LIBRARY);
+    await settle(fixture);
+    [...root.querySelectorAll<HTMLButtonElement>('.media-choice')]
+      .find((b) => b.getAttribute('aria-label') === 'Use Uploaded image, Oct 22, 2026')
+      ?.click();
+    await settle(fixture);
+    expect(doc().elements[0].props).toEqual(expect.objectContaining({ mediaKey: IMAGE }));
+    expect(doc().elements[0].props).not.toHaveProperty('externalUrl');
+    await saveNow(2);
+  });
+
   it('sets the duration from 3 to 15 seconds', async () => {
     await open(empty, 1);
     const duration = q<HTMLInputElement>('#studio-duration');

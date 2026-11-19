@@ -1032,6 +1032,7 @@
             } @else if (isMedia(el)) {
               <app-tale-media-style
                 [element]="el"
+                [canLink]="!isTaleMedia(el)"
                 [videoSeconds]="
                   el.type === 'video' && el !== stageMedia()
                     ? (videoSeconds().get(el.props.mediaKey ?? el.props.externalUrl ?? '') ?? null)

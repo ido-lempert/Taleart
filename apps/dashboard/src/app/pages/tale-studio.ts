@@ -327,6 +327,8 @@ interface OpenPicker {
 function replacedMedia<P extends object>(props: P, mediaKey: string): P {
   const next: Record<string, unknown> = { ...props, mediaKey };
   delete next['taleMedia'];
+  // A file replaces a web address too: an element shows one or the other, never both (the schema's oneOf).
+  delete next['externalUrl'];
   return next as P;
 }
 
