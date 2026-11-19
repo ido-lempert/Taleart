@@ -1,6 +1,6 @@
 # taleart-api
 
-The API of [Taleart](https://github.com/ido-lempert/Taleart): the Management API, the delivery API, the media store and the Web SDK builds, on Node 22 (alpine). Runs as the non-root `node` user and listens on port 3333.
+The API of [Taleart](https://github.com/ido-lempert/Taleart): the Management API, the delivery API, the media store and the Web SDK builds, on Node 24.10.0 (alpine). Runs as the non-root `node` user and listens on port 3333.
 
 It is one half of the self-host stack. Run it with the dashboard, a Postgres database and a proxy through the compose file in the repository, not on its own.
 

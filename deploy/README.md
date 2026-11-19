@@ -15,7 +15,7 @@ network.
 ## Requirements
 
 Docker Engine 24+ with the Compose plugin (v2.24+), 2 GB of RAM for running it and about 6 GB free during the
-first build (the images are built from this repository: Node 22, Nx, Angular). Works on amd64 and arm64.
+first build (the images are built from this repository: Node 24.10.0, Nx, Angular). Works on amd64 and arm64.
 
 ## Quick try (about five minutes, nothing to configure)
 

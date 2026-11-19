@@ -1,6 +1,6 @@
 # taleart-dashboard
 
-The dashboard of [Taleart](https://github.com/ido-lempert/Taleart): the Angular app with server-side rendering, on Node 22 (alpine). Runs as the non-root `node` user and listens on port 4000.
+The dashboard of [Taleart](https://github.com/ido-lempert/Taleart): the Angular app with server-side rendering, on Node 24.10.0 (alpine). Runs as the non-root `node` user and listens on port 4000.
 
 It is one half of the self-host stack. Run it with the API, a Postgres database and a proxy through the compose file in the repository, not on its own.
 

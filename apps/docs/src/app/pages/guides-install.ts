@@ -10,7 +10,7 @@ import { RouterLink } from '@angular/router';
 <p>Prefer containers? <a routerLink="/docker">Install with Docker</a> runs the database, API, dashboard and https proxy with one command.</p>
 <h2 id="requirements">Requirements</h2>
 <ul>
-<li>Node.js 22 or later (the API refuses to start without it; see the root README).</li>
+<li>Node.js 24.10.0 or later (the API refuses to start without it; see the root README).</li>
 <li>A PostgreSQL database. The API defaults to <code>postgres://taleart:taleart&#64;localhost:5432/taleart</code>; set <code>DATABASE_URL</code> to use another one.</li>
 <li>The repo's npm dependencies: <code>npm ci</code>.</li>
 </ul>
@@ -22,7 +22,7 @@ npx nx serve dashboard   # documented, not executed for this guide
 <p>This starts the API (port 3333) and the dashboard (port 4200); the dashboard proxies <code>/api</code> to the API. Sign-in redirect and passkeys use <code>http://localhost:4200</code> by default (<code>RP_ID</code>, <code>RP_ORIGIN</code>).</p>
 <h3 id="what-was-actually-tested">What was actually tested</h3>
 <ul>
-<li><code>npm ci</code> (Node 22).</li>
+<li><code>npm ci</code> (Node 24.10.0).</li>
 <li>PostgreSQL on localhost:5432 with user, password and database <code>taleart</code> (the API's default).</li>
 <li><code>npx nx build api</code>, then <code>node dist/apps/api/main.js</code> (API on port 3333).</li>
 <li><code>npx nx build dashboard --configuration=development</code>, served as static files on port 4200 with <code>/api</code>, <code>/delivery</code> and <code>/sdk</code> forwarded to port 3333.

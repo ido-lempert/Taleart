@@ -13,7 +13,7 @@ class Executable {
 }
 
 // One runnable file: the CLI and the contract code it uses, with no runtime dependency (Node's
-// fetch, util.parseArgs and fs only), so `node dist/apps/cli/taleart.js` runs anywhere Node 22 does.
+// fetch, util.parseArgs and fs only), so `node dist/apps/cli/taleart.js` runs anywhere Node 24.10.0 does.
 module.exports = {
   // The plugin adds the one entry, named after outputFileName (taleart).
   entry: {},

@@ -8,6 +8,6 @@
     "taleart": "taleart.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24.10.0"
   }
 }
