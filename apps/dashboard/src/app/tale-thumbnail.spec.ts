@@ -5,7 +5,7 @@ import type { Tale } from '@taleart/contract/core';
 import type { TaleDocument } from '@taleart/contract/tale-document';
 import { API_BASE } from './dashboard.store';
 import { projectMediaSrc } from './project-media.service';
-import { backgroundColor, firstBackground, FIRST_FRAME, TaleThumbnails } from './tale-thumbnail';
+import { backgroundColor, documentPicture, firstBackground, FIRST_FRAME, TaleThumbnails } from './tale-thumbnail';
 
 const imageBackground = (key = 'media/beach.png') => ({ type: 'media', mediaKey: key, fit: 'cover', color: '#000000' });
 
@@ -27,10 +27,49 @@ describe('firstBackground', () => {
     expect(firstBackground(doc(imageBackground('media/clip.mp4')))).toEqual({ key: 'media/clip.mp4', kind: 'video' });
   });
 
+  it('is an external background by its address, with no key', () => {
+    const external = {
+      type: 'media',
+      externalUrl: 'https://cdn.example.org/beach.jpg',
+      fit: 'cover',
+      color: '#000000',
+    };
+    expect(firstBackground(doc(external))).toEqual({
+      key: '',
+      url: 'https://cdn.example.org/beach.jpg',
+      kind: 'image',
+    });
+  });
+
+  it('takes the kind of a background that sets one, else its extension or an image', () => {
+    expect(firstBackground(doc({ ...imageBackground('media/clip.mp4'), kind: 'image' }))?.kind).toBe('image');
+    expect(firstBackground(doc({ ...imageBackground('media/beach.png'), kind: 'video' }))?.kind).toBe('video');
+    const external = { type: 'media', externalUrl: 'https://cdn.example.org/clip.webm', color: '#000000' };
+    expect(firstBackground(doc(external))?.kind).toBe('image');
+    expect(firstBackground(doc({ ...external, kind: 'video' }))?.kind).toBe('video');
+  });
+
   it('is null for a colour background, a key that is not a media key, or no document', () => {
     expect(firstBackground(doc({ type: 'color', color: '#112233' }))).toBeNull();
     expect(firstBackground(doc(imageBackground('../secret.png')))).toBeNull();
+    expect(firstBackground(doc({ type: 'media', externalUrl: 'javascript:alert(1)', color: '#000000' }))).toBeNull();
     expect(firstBackground(null)).toBeNull();
+  });
+});
+
+describe('documentPicture', () => {
+  it('is the source of an image background, the external address when there is one', () => {
+    expect(documentPicture(doc(imageBackground('media/beach.png')), 'p1')).toBe(
+      projectMediaSrc('p1', 'media/beach.png'),
+    );
+    const external = { type: 'media', externalUrl: 'https://cdn.example.org/beach.jpg', color: '#000000' };
+    expect(documentPicture(doc(external), 'p1')).toBe('https://cdn.example.org/beach.jpg');
+  });
+
+  it('is empty for a colour or a video background, and undefined with no document', () => {
+    expect(documentPicture(doc({ type: 'color', color: '#112233' }), 'p1')).toBe('');
+    expect(documentPicture(doc(imageBackground('media/clip.mp4')), 'p1')).toBe('');
+    expect(documentPicture(null, 'p1')).toBeUndefined();
   });
 });
 
@@ -89,6 +128,47 @@ describe('TaleThumbnails', () => {
     answerDocument('t2', doc(imageBackground('media/clip.mp4')));
     await expect(second).resolves.toEqual({ kind: 'image', src: 'blob:frame' });
     expect(frames).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an external image background by its address', async () => {
+    const external = {
+      type: 'media',
+      externalUrl: 'https://cdn.example.org/beach.jpg',
+      fit: 'cover',
+      color: '#000000',
+    };
+    const pending = thumbnails.forTales([tale('t1')]);
+    answerDocument('t1', doc(external));
+    await expect(pending).resolves.toEqual({ kind: 'image', src: 'https://cdn.example.org/beach.jpg' });
+    expect(frames).not.toHaveBeenCalled();
+  });
+
+  it('draws the first frame of an external video background from its address', async () => {
+    const external = {
+      type: 'media',
+      externalUrl: 'https://cdn.example.org/clip.mp4',
+      kind: 'video',
+      color: '#000000',
+    };
+    const pending = thumbnails.forTales([tale('t1')]);
+    answerDocument('t1', doc(external));
+    await expect(pending).resolves.toEqual({ kind: 'image', src: 'blob:frame' });
+    expect(frames).toHaveBeenCalledWith('https://cdn.example.org/clip.mp4');
+  });
+
+  it('gives a group the first tale with an external background', async () => {
+    const external = {
+      type: 'media',
+      externalUrl: 'https://cdn.example.org/beach.jpg',
+      fit: 'cover',
+      color: '#000000',
+    };
+    const pending = thumbnails.forTales([tale('t1'), tale('t2')]);
+    await tick();
+    answerDocument('t1', doc({ type: 'color', color: '#111111' }));
+    await tick();
+    answerDocument('t2', doc(external));
+    await expect(pending).resolves.toEqual({ kind: 'image', src: 'https://cdn.example.org/beach.jpg' });
   });
 
   it('falls back to the canvas colour when a video frame cannot be drawn', async () => {

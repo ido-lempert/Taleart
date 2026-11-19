@@ -92,6 +92,7 @@ import { Icon } from '../icon';
 import { projectFontFileUrl, ProjectFontsService } from '../project-fonts.service';
 import { projectMediaSrc } from '../project-media.service';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
+import { documentPicture } from '../tale-thumbnail';
 import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
 import {
@@ -1068,14 +1069,20 @@ export class TaleStudioPage implements OnChanges {
     const place = this.previewPlace();
     const ids = place ? previewPublishedTaleIds(place.groups, place.groupId, this.taleId()) : [];
     if (ids.length === 0) {
-      this.previewOpen.set(true);
+      this.showPreview();
       return;
     }
     const reads = await Promise.all(ids.map(async (id) => [id, await this.documents.load(id)] as const));
     const published = new Map<string, TaleDocument | null>();
     for (const [id, result] of reads) if (result.value) published.set(id, result.value.published.document);
     this.previewPublished.set(published);
+    this.showPreview();
+  }
+
+  /** Shows the preview as a full view over the studio, and moves focus into it (on its Close button). */
+  private showPreview(): void {
     this.previewOpen.set(true);
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLElement>('#studio-preview-close')?.focus(), 0);
   }
 
   /** Closes the preview and puts focus back on the Preview button (EXPERIENCE Preview pane). */
@@ -1101,7 +1108,10 @@ export class TaleStudioPage implements OnChanges {
       number: i + 1,
       current: t.id === this.taleId(),
       hidden: taleShownStatus(t.storedStatus) !== 'shown',
-      picture: t.media?.kind === 'image' ? this.store.mediaSrc(t) : '',
+      // The current tale's picture is its document's first background; the others have only their media.
+      picture:
+        documentPicture(t.id === this.taleId() ? this.doc() : null, t.projectId) ??
+        (t.media?.kind === 'image' ? this.store.mediaSrc(t) : ''),
       tone: i % 6,
     }));
   });

@@ -25,9 +25,13 @@ import { projectMediaSrc } from './project-media.service';
  */
 export type TaleThumbnail = { kind: 'image'; src: string } | { kind: 'color'; color: string | null };
 
-/** A media background of a document: its storage key and what kind of file it is. */
+/**
+ * A media background of a document: a project file (its storage key), or an external https address
+ * (`url`, with an empty key); and what kind of file it is.
+ */
 export interface BackgroundMedia {
   key: string;
+  url?: string;
   kind: 'image' | 'video';
 }
 
@@ -37,13 +41,44 @@ export interface BackgroundMedia {
  */
 const MEDIA_KEY = /^(tales|media)\/[a-z0-9][a-z0-9-]{0,99}\.(png|jpg|gif|webp|mp4|webm)$/;
 
-/** The first background of a document when it is media (an image, or a video's first frame), else null. */
+/** An external background address: https only, as the contract's document check asks. */
+const EXTERNAL_URL = /^https:\/\/\S+$/i;
+
+/**
+ * What kind of file a media background is, as the contract's `backgroundKind` says (kept here, not
+ * imported, like {@link MEDIA_KEY}): its `kind` when set, else a video when its key ends .mp4/.webm.
+ */
+function backgroundFileKind(background: { kind?: unknown; mediaKey?: unknown }): 'image' | 'video' {
+  if (background.kind === 'image' || background.kind === 'video') return background.kind;
+  return typeof background.mediaKey === 'string' && /\.(mp4|webm)$/.test(background.mediaKey) ? 'video' : 'image';
+}
+
+/**
+ * The first background of a document when it is media (an image, or a video's first frame), else null.
+ * A background on another site (`externalUrl`) is returned with its `url` and no key.
+ */
 export function firstBackground(doc: TaleDocument | null | undefined): BackgroundMedia | null {
-  const background = doc?.canvas?.background as { type?: unknown; mediaKey?: unknown } | undefined;
-  if (background?.type !== 'media' || typeof background.mediaKey !== 'string') return null;
-  const key = background.mediaKey;
-  if (!MEDIA_KEY.test(key)) return null;
-  return { key, kind: /\.(mp4|webm)$/.test(key) ? 'video' : 'image' };
+  const background = doc?.canvas?.background as
+    | { type?: unknown; mediaKey?: unknown; externalUrl?: unknown; kind?: unknown }
+    | undefined;
+  if (background?.type !== 'media') return null;
+  if (typeof background.externalUrl === 'string') {
+    if (!EXTERNAL_URL.test(background.externalUrl)) return null;
+    return { key: '', url: background.externalUrl, kind: backgroundFileKind(background) };
+  }
+  if (typeof background.mediaKey !== 'string' || !MEDIA_KEY.test(background.mediaKey)) return null;
+  return { key: background.mediaKey, kind: backgroundFileKind(background) };
+}
+
+/**
+ * The picture a document's first background shows in a tale strip: the image's source ('' for a colour
+ * or a video background), or undefined when there is no document to read.
+ */
+export function documentPicture(doc: TaleDocument | null | undefined, projectId: string): string | undefined {
+  if (!doc) return undefined;
+  const background = firstBackground(doc);
+  if (background?.kind !== 'image') return '';
+  return background.url ?? projectMediaSrc(projectId, background.key);
 }
 
 /** The canvas colour of a document as a CSS colour, or null when its background is not a colour. */
@@ -151,7 +186,7 @@ export class TaleThumbnails {
     }
     const background = firstBackground(doc);
     if (background) {
-      const src = projectMediaSrc(tale.projectId, background.key);
+      const src = background.url ?? projectMediaSrc(tale.projectId, background.key);
       if (background.kind === 'image') return { kind: 'image', src };
       const frame = await this.frame(src);
       if (frame) return { kind: 'image', src: frame };

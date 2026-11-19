@@ -2788,7 +2788,8 @@ describe('TaleStudioPage', () => {
         { ...tale, id: 't2', title: 'Dusk', position: 2, media: null },
       ];
       TestBed.inject(DashboardStore).taleGroups.set({ z1: [{ ...group, tales } as unknown as ZoneTaleGroup] });
-      await open({ document: existing, revision: 1 });
+      const beach = { ...existing, canvas: { background: { type: 'media', mediaKey: 'media/beach.png', fit: 'cover', color: '#000000' } } };
+      await open({ document: beach as TaleDocument, revision: 1 });
       const links = [...root.querySelectorAll<HTMLAnchorElement>('.studio-strip a')];
       expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
         '1. Dawn, Hidden',
@@ -2802,8 +2803,8 @@ describe('TaleStudioPage', () => {
       ]);
       expect(links.map((a) => a.getAttribute('aria-current'))).toEqual([null, 'page', null]);
       expect(root.querySelector('#studio-title')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tale 2 · Beach');
-      // The current tale's picture is its media; a tale without media shows a colour.
-      expect(links[1].querySelector('img')?.getAttribute('src')).toContain('/api/v1/tales/t1/media');
+      // The current tale's picture is its document's first background; a tale without media shows a colour.
+      expect(links[1].querySelector('img')?.getAttribute('src')).toContain('beach.png');
       expect(links[2].querySelector('img')).toBeNull();
       expect(links[1].querySelector('img')?.getAttribute('loading')).toBe('lazy');
       expect(links[1].querySelector('img')?.getAttribute('decoding')).toBe('async');
@@ -2811,18 +2812,38 @@ describe('TaleStudioPage', () => {
       expect(root.querySelector('.strip-thumb__changed')).toBeNull();
     });
 
-    it('opens the preview in the inspector’s place, and Close puts focus back on Preview', async () => {
+    it('closes the preview on Escape, with focus back on Preview', async () => {
       await open({ document: existing, revision: 1 });
       (root.querySelector('#studio-preview') as HTMLButtonElement).click();
       await settle(fixture);
+      (root.querySelector('.studio-preview') as HTMLElement).dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(root.querySelector('.studio-preview')).toBeNull();
+      expect(active()?.id).toBe('studio-preview');
+    });
+
+    it('opens the preview as a full view over the studio, and Close puts focus back on Preview', async () => {
+      await open({ document: existing, revision: 1 });
+      (root.querySelector('#studio-preview') as HTMLButtonElement).click();
+      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const dialog = root.querySelector('.studio-preview') as HTMLElement;
+      expect(dialog.getAttribute('role')).toBe('dialog');
+      expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(dialog.getAttribute('aria-label')).toBe('Preview');
+      expect(dialog.querySelector('#studio-preview-pane')).not.toBeNull();
+      expect(active()?.id).toBe('studio-preview-close');
       const inspector = root.querySelector('#studio-inspector') as HTMLElement;
-      expect(inspector.getAttribute('aria-label')).toBe('Preview');
-      expect(inspector.querySelector('#studio-preview-pane')).not.toBeNull();
-      expect(inspector.querySelector('#studio-bg')).toBeNull();
+      expect(inspector.getAttribute('aria-label')).toBe('Properties');
+      expect(inspector.hasAttribute('inert')).toBe(true);
       (root.querySelector('#studio-preview-close') as HTMLButtonElement).click();
       await settle(fixture);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(root.querySelector('#studio-preview-pane')).toBeNull();
+      expect(inspector.hasAttribute('inert')).toBe(false);
       expect(active()?.id).toBe('studio-preview');
     });
   });

@@ -6,7 +6,7 @@
 -->
 @if (opened()) {
   @let d = shownDoc();
-  <div class="studio-shell" [class.is-previewing]="previewOpen()">
+  <div class="studio-shell">
     <!-- Opened by the tale menu's Replace media; the picked file uploads at once. -->
     <input
       #studioMedia
@@ -18,7 +18,7 @@
       [accept]="mediaAccept"
       (change)="replaceMedia($event)"
     />
-    <section class="studio-top" data-region="top" aria-labelledby="studio-title">
+    <section class="studio-top" data-region="top" aria-labelledby="studio-title" [attr.inert]="previewOpen() ? '' : null">
       <a
         class="back-link studio-top__back"
         id="studio-back"
@@ -270,7 +270,7 @@
       </div>
     </section>
 
-    <div class="studio-alerts">
+    <div class="studio-alerts" [attr.inert]="previewOpen() ? '' : null">
       @if (duplicateResult(); as dup) {
         <p class="studio-notice" id="studio-duplicated">
           {{ dup.message }}
@@ -329,7 +329,7 @@
       }
     </div>
 
-    <aside class="studio-left" data-region="left" aria-label="Add and layers">
+    <aside class="studio-left" data-region="left" aria-label="Add and layers" [attr.inert]="previewOpen() ? '' : null">
       <div class="studio-rail" role="tablist" aria-label="Left panel tabs" [attr.aria-orientation]="railOrientation()">
         @for (tab of leftTabs; track tab.id; let i = $index) {
           <button
@@ -634,7 +634,7 @@
       </div>
     </aside>
 
-    <section class="studio-canvas" data-region="canvas" aria-labelledby="studio-canvas-title">
+    <section class="studio-canvas" data-region="canvas" aria-labelledby="studio-canvas-title" [attr.inert]="previewOpen() ? '' : null">
       <h2 class="visually-hidden" id="studio-canvas-title">Canvas</h2>
       <div class="workspace">
         <div
@@ -945,34 +945,10 @@
       data-region="inspector"
       id="studio-inspector"
       tabindex="-1"
-      [attr.aria-label]="previewOpen() ? 'Preview' : 'Properties'"
-      (keydown.escape)="closePreview($event)"
+      aria-label="Properties"
+      [attr.inert]="previewOpen() ? '' : null"
     >
-      @if (previewOpen()) {
-        <!-- The Web SDK's own viewer on the unsaved document (R10, AD-16), in the inspector's place. -->
-        <div class="inspector__preview">
-          <button
-            type="button"
-            class="btn btn--ghost btn--sm inspector__close"
-            id="studio-preview-close"
-            (click)="closePreview()"
-          >
-            <app-icon name="close" /> Close preview
-          </button>
-          <app-tale-preview
-            id="studio-preview-pane"
-            [document]="d"
-            [taleId]="taleId()"
-            [projectId]="projectId()"
-            [title]="tale()?.title ?? ''"
-            [groupName]="groupName()"
-            [theme]="projectTheme()"
-            [fonts]="projectFonts()"
-            [zone]="previewZone()"
-            [groupId]="previewGroupId() ?? ''"
-          />
-        </div>
-      } @else if (!doc()) {
+      @if (!doc()) {
         <p class="field__hint inspector__intro">Loading the tale…</p>
       } @else {
         @if (selected(); as el) {
@@ -1354,7 +1330,7 @@
       }
     </aside>
 
-    <nav class="studio-strip" data-region="strip" aria-labelledby="studio-strip-title">
+    <nav class="studio-strip" data-region="strip" aria-labelledby="studio-strip-title" [attr.inert]="previewOpen() ? '' : null">
       <h2 class="studio-strip__title" id="studio-strip-title" [title]="'Tales in ' + (groupName() || 'this group')"
         >Tales in {{ groupName() || 'this group' }}</h2
       >
@@ -1392,6 +1368,32 @@
         }
       </ol>
     </nav>
+    @if (previewOpen()) {
+      <!-- The Web SDK's own viewer on the unsaved document (R10, AD-16), in a full view over the studio. -->
+      <div
+        class="studio-preview"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Preview"
+        (keydown.escape)="closePreview($event)"
+      >
+        <button type="button" class="btn btn--secondary btn--sm studio-preview__close" id="studio-preview-close" (click)="closePreview()">
+          <app-icon name="close" /> Close preview
+        </button>
+        <app-tale-preview
+          id="studio-preview-pane"
+          [document]="d"
+          [taleId]="taleId()"
+          [projectId]="projectId()"
+          [title]="tale()?.title ?? ''"
+          [groupName]="groupName()"
+          [theme]="projectTheme()"
+          [fonts]="projectFonts()"
+          [zone]="previewZone()"
+          [groupId]="previewGroupId() ?? ''"
+        />
+      </div>
+    }
   </div>
   @if (duplicating() && tale(); as t) {
     <app-duplicate-tale
