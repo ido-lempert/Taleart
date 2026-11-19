@@ -10,6 +10,7 @@ import { Injectable } from '@angular/core';
 import {
   BUTTON_OUTLINE_WIDTH,
   EMOJI_FONT_STACK,
+  backgroundKind,
   elementBounds,
   resolveButtonStyle,
   resolveShapeStyle,
@@ -219,7 +220,10 @@ export class TaleBackdropSampler {
     const backgroundFirst = background.type === 'media' && !(stageMedia && layers[0] === stageMedia);
     const paintBackground = async () => {
       if (background.type !== 'media') return true;
-      const frame = await this.frame(source(background.mediaKey), 'image');
+      // The background's own file, or its web address; a video is sampled as a video.
+      const url = background.externalUrl ?? (background.mediaKey ? source(background.mediaKey) : null);
+      if (!url) return false;
+      const frame = await this.frame(url, backgroundKind(background));
       if (!frame) return false;
       // Over the tale's own media, the background is drawn with its band colour, bands included.
       if (!backgroundFirst) {

@@ -679,6 +679,25 @@ export function isMediaElement<T extends { type: string }>(
  */
 export const UNKNOWN_MEDIA_REASON = "is not media of this tale's project";
 
+/** The fields of a canvas's media background that decide what it shows. */
+interface MediaBackgroundFields {
+  type?: unknown;
+  mediaKey?: unknown;
+  externalUrl?: unknown;
+  kind?: unknown;
+  fit?: unknown;
+  color?: unknown;
+}
+
+/**
+ * What a media background shows: its `kind` when it says, else a video for a file key ending .mp4
+ * or .webm and an image otherwise (an external address is an image unless it says video).
+ */
+export function backgroundKind(background: MediaBackgroundFields): 'image' | 'video' {
+  if (background.kind === 'image' || background.kind === 'video') return background.kind;
+  return typeof background.mediaKey === 'string' && /\.(mp4|webm)$/.test(background.mediaKey) ? 'video' : 'image';
+}
+
 /**
  * The media keys a document of any trust references: each image, video and image sticker
  * element's `mediaKey`, and the canvas's media background. Values that are not strings are
@@ -688,9 +707,14 @@ export function documentMediaRefs(doc: unknown): DocumentMediaRef[] {
   const refs: DocumentMediaRef[] = [];
   if (typeof doc !== 'object' || doc === null) return refs;
   const { canvas, elements } = doc as { canvas?: unknown; elements?: unknown };
-  const background = (canvas as { background?: { type?: unknown; mediaKey?: unknown } } | null)?.background;
+  const background = (canvas as { background?: unknown } | null)?.background as MediaBackgroundFields | undefined;
   if (background?.type === 'media' && typeof background.mediaKey === 'string') {
-    refs.push({ key: background.mediaKey, pointer: '/canvas/background/mediaKey', kind: 'image', visible: true });
+    refs.push({
+      key: background.mediaKey,
+      pointer: '/canvas/background/mediaKey',
+      kind: backgroundKind(background),
+      visible: true,
+    });
   }
   if (!Array.isArray(elements)) return refs;
   elements.forEach((element: unknown, i) => {
@@ -786,12 +810,16 @@ export function resolveDocumentMedia<D extends { canvas: unknown; elements: read
   doc: D,
   resolve: (key: string) => string | null,
 ): Omit<D, 'canvas'> & { canvas: DeliveryCanvas } {
-  const canvas = doc.canvas as { background?: { type?: unknown; mediaKey?: unknown; color?: unknown } } | null;
+  const canvas = doc.canvas as { background?: unknown } | null;
   let background: unknown = canvas?.background;
-  if (canvas?.background?.type === 'media') {
-    const { mediaKey, ...rest } = canvas.background;
-    const url = typeof mediaKey === 'string' ? resolve(mediaKey) : null;
-    background = url === null ? { type: 'color', color: rest.color } : { ...rest, url };
+  const media = canvas?.background as MediaBackgroundFields | undefined;
+  if (media?.type === 'media') {
+    // An external address is shown as it is; a file key goes through `resolve`.
+    const { mediaKey, externalUrl, ...rest } = media;
+    const url =
+      typeof externalUrl === 'string' ? externalUrl : typeof mediaKey === 'string' ? resolve(mediaKey) : null;
+    background =
+      url === null ? { type: 'color', color: rest.color } : { ...rest, kind: backgroundKind(media), url };
   }
   const elements = doc.elements.flatMap((element) => {
     const e = element as { type?: unknown; props?: { mediaKey?: unknown; externalUrl?: unknown } };
@@ -1119,9 +1147,22 @@ export interface ExternalMediaRef {
   taleMedia: boolean;
 }
 
-/** Every image and video element of a document that shows an `externalUrl` instead of a `mediaKey`. */
+/**
+ * Every image and video element, and the canvas's media background, of a document that shows an
+ * `externalUrl` instead of a `mediaKey`.
+ */
 export function externalMediaRefs(doc: unknown): ExternalMediaRef[] {
   const refs: ExternalMediaRef[] = [];
+  const canvasBackground = (doc as { canvas?: { background?: unknown } } | null)?.canvas?.background as
+    | MediaBackgroundFields
+    | undefined;
+  if (canvasBackground?.type === 'media' && canvasBackground.externalUrl !== undefined) {
+    refs.push({
+      url: canvasBackground.externalUrl,
+      pointer: '/canvas/background/externalUrl',
+      taleMedia: false,
+    });
+  }
   const elements = (doc as { elements?: unknown } | null)?.elements;
   if (!Array.isArray(elements)) return refs;
   elements.forEach((element: unknown, i) => {

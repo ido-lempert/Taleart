@@ -6363,7 +6363,7 @@ components:
             - $ref: '#/components/schemas/DeliveryMediaBackground'
     DeliveryMediaBackground:
       type: object
-      required: [type, url, fit, color]
+      required: [type, url, kind, fit, color]
       properties:
         type:
           type: string
@@ -6371,7 +6371,11 @@ components:
         url:
           type: string
           format: uri
-          description: The public URL of the image.
+          description: The public URL of the image or video.
+        kind:
+          type: string
+          enum: [image, video]
+          description: "What the URL shows: a video plays muted and loops; an image is drawn."
         fit:
           type: string
           enum: [cover, contain]

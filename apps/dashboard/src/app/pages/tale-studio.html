@@ -651,15 +651,31 @@
           @if (d.canvas.background.type === 'media') {
             <!-- The background image (R2), over its band colour, as the Web SDK paints it. Over the tale's
                  own media drawn full-bleed (R16) it lies above that media, bands included, as before. -->
-            <img
-              class="canvas__media"
-              crossorigin="anonymous"
-              [src]="mediaSrc(d.canvas.background.mediaKey)"
-              alt=""
-              [style.object-fit]="d.canvas.background.fit"
-              [style.z-index]="stageMedia() ? 2 : null"
-              [style.background-color]="stageMedia() ? d.canvas.background.color : null"
-            />
+            @if (d.canvas.background.kind === 'video') {
+              <video
+                class="canvas__media"
+                crossorigin="anonymous"
+                [src]="backgroundSrc(d.canvas.background)"
+                muted
+                loop
+                autoplay
+                playsinline
+                aria-hidden="true"
+                [style.object-fit]="d.canvas.background.fit"
+                [style.z-index]="stageMedia() ? 2 : null"
+                [style.background-color]="stageMedia() ? d.canvas.background.color : null"
+              ></video>
+            } @else {
+              <img
+                class="canvas__media"
+                crossorigin="anonymous"
+                [src]="backgroundSrc(d.canvas.background)"
+                alt=""
+                [style.object-fit]="d.canvas.background.fit"
+                [style.z-index]="stageMedia() ? 2 : null"
+                [style.background-color]="stageMedia() ? d.canvas.background.color : null"
+              />
+            }
           }
           @for (el of d.elements; track el.id; let i = $index) {
             @let v = view(el);
@@ -1242,6 +1258,19 @@
                 Background image…
               }
             </button>
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm"
+              id="studio-bg-video"
+              [disabled]="!projectId()"
+              (click)="openPicker('background', 'video')"
+            >
+              @if (d.canvas.background.type === 'media' && d.canvas.background.kind === 'video') {
+                Choose another background video…
+              } @else {
+                Background video…
+              }
+            </button>
             @if (d.canvas.background.type === 'media') {
               <button
                 type="button"
@@ -1249,10 +1278,46 @@
                 id="studio-bg-media-remove"
                 (click)="removeBackgroundMedia()"
               >
-                Remove background image
+                Remove background media
               </button>
             }
           </div>
+          @if (d.canvas.background.type === 'media') {
+            <div class="field">
+              <label class="field__label" for="studio-bg-url">Background web address (https)</label>
+              <input
+                id="studio-bg-url"
+                class="input input--mono"
+                type="url"
+                inputmode="url"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="https://"
+                aria-describedby="studio-bg-url-hint"
+                [attr.aria-invalid]="bgUrlError() ? 'true' : null"
+                [value]="d.canvas.background.externalUrl ?? ''"
+                (input)="checkBackgroundUrl($any($event.target))"
+                (change)="setBackgroundUrl($any($event.target))"
+              />
+              <span class="field__hint" id="studio-bg-url-hint">
+                An image or video already hosted elsewhere, such as on a CDN. It replaces the file above.
+              </span>
+              @if (bgUrlError()) {
+                <span class="field__error" id="studio-bg-url-error">{{ bgUrlError() }}</span>
+              }
+            </div>
+            @if (d.canvas.background.externalUrl !== undefined) {
+              <label class="checkbox">
+                <input
+                  type="checkbox"
+                  id="studio-bg-url-video"
+                  [checked]="d.canvas.background.kind === 'video'"
+                  (change)="setBackgroundAddressVideo($any($event.target).checked)"
+                />
+                The address is a video
+              </label>
+            }
+          }
           @if (d.canvas.background.type === 'media') {
             <div class="field">
               <label class="field__label" for="studio-bg-fit">Background image fit</label>

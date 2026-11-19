@@ -222,6 +222,7 @@
               "fit": "contain",
               "type": "media",
               "color": "#334455",
+              "kind": "image",
               "url": "{API}/media/tales/r16-bg.png"
             }
           },
@@ -235,6 +236,7 @@
             "fit": "contain",
             "type": "media",
             "color": "#334455",
+            "kind": "image",
             "url": "{API}/media/tales/r16-bg.png"
           }
         },
@@ -277,6 +279,7 @@
               "fit": "contain",
               "type": "media",
               "color": "#334455",
+              "kind": "image",
               "url": "{API}/media/tales/r16-bg.png"
             }
           },
@@ -290,6 +293,7 @@
             "fit": "contain",
             "type": "media",
             "color": "#334455",
+            "kind": "image",
             "url": "{API}/media/tales/r16-bg.png"
           }
         },

@@ -86,9 +86,9 @@ function lowestMedia(tale: DeliveryTaleGroup['tales'][number]): { kind: 'image' 
     const url = tale.media ? mediaUrl(tale.media.url) : null;
     return tale.media && url ? { kind: tale.media.kind, url } : null;
   }
-  const background = doc.canvas?.background as { type?: unknown; url?: unknown } | undefined;
+  const background = doc.canvas?.background as { type?: unknown; url?: unknown; kind?: unknown } | undefined;
   const backgroundUrl = background?.type === 'media' ? mediaUrl(background.url) : null;
-  if (backgroundUrl) return { kind: 'image', url: backgroundUrl };
+  if (backgroundUrl) return { kind: background?.kind === 'video' ? 'video' : 'image', url: backgroundUrl };
   for (const element of Array.isArray(doc.elements) ? doc.elements : []) {
     if (element.type !== 'image' && element.type !== 'video' && element.type !== 'sticker') continue;
     const url = mediaUrl(element.props?.['url']);

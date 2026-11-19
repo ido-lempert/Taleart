@@ -82,14 +82,25 @@ export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
       }
     },
     "MediaBackground": {
-      "description": "An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows.",
+      "description": "An image (GIF included) or a video (MP4 or WebM) filling the canvas, of the tale's project by its storage key, or by `externalUrl`: an https address on another site. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the media shows. A video plays muted and loops.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "type",
-        "mediaKey",
         "fit",
         "color"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "mediaKey"
+          ]
+        },
+        {
+          "required": [
+            "externalUrl"
+          ]
+        }
       ],
       "properties": {
         "type": {
@@ -97,10 +108,24 @@ export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
           "const": "media"
         },
         "mediaKey": {
-          "description": "The storage key of an image of the tale's project, as the server made it.",
+          "description": "The storage key of an image or video of the tale's project, as the server made it.",
           "type": "string",
           "maxLength": 200,
           "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+        },
+        "externalUrl": {
+          "description": "An https address of an image or video on another site, shown instead of a `mediaKey`. Its page's content security policy must allow it.",
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+$"
+        },
+        "kind": {
+          "description": "`video` for a video, else an image. Left out, a `mediaKey` ending .mp4 or .webm is a video and anything else an image; an `externalUrl` is an image unless this says `video`.",
+          "type": "string",
+          "enum": [
+            "image",
+            "video"
+          ]
         },
         "fit": {
           "type": "string",

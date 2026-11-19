@@ -296,6 +296,7 @@
         "required": [
           "type",
           "url",
+          "kind",
           "fit",
           "color"
         ],
@@ -308,7 +309,15 @@
           },
           "url": {
             "type": "string",
-            "description": "The public URL of the image."
+            "description": "The public URL of the image or video."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video"
+            ],
+            "description": "What the URL shows: a video plays muted and loops; an image is drawn."
           },
           "fit": {
             "type": "string",

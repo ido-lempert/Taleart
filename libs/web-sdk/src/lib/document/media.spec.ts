@@ -102,6 +102,28 @@ describe('media elements (epic Tale Studio R5, AD-16)', () => {
     expect(still.preload).toBe('metadata');
   });
 
+  it('plays a video background muted and looping, and under reduced motion shows only its first frame', () => {
+    const area = renderTaleDocument(
+      doc([], { canvas: { background: { type: 'media', kind: 'video', url: MP4, fit: 'cover', color: '#445566' } } }),
+    );
+    const bg = (area.querySelector('.ta-canvas') as HTMLElement).firstElementChild as HTMLVideoElement;
+    expect(bg.tagName).toBe('VIDEO');
+    expect(bg.className).toBe('ta-bg');
+    expect(bg.getAttribute('src')).toBe(MP4);
+    expect(bg.muted).toBe(true);
+    expect(bg.loop).toBe(true);
+    expect(bg.autoplay).toBe(true);
+    expect(bg.getAttribute('aria-hidden')).toBe('true');
+    const reduced = renderTaleDocument(
+      doc([], { canvas: { background: { type: 'media', kind: 'video', url: MP4, fit: 'cover', color: '#445566' } } }),
+      { reducedMotion: true },
+    );
+    const still = (reduced.querySelector('.ta-canvas') as HTMLElement).firstElementChild as HTMLVideoElement;
+    expect(still.getAttribute('src')).toBe(`${MP4}#t=0.001`);
+    expect(still.autoplay).toBe(false);
+    expect(still.preload).toBe('metadata');
+  });
+
   it('paints a media background with its fit over its band colour, hidden from assistive technology', () => {
     const area = renderTaleDocument(
       doc([], { canvas: { background: { type: 'media', url: IMG, fit: 'contain', color: '#445566' } } }),

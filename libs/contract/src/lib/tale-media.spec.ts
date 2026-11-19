@@ -163,6 +163,7 @@ describe('tale media helpers', () => {
     const delivered = resolveDocumentMedia(d, (key) => (key === VIDEO ? null : `https://api.example/media/${key}`));
     expect(delivered.canvas.background).toEqual({
       type: 'media',
+      kind: 'image',
       url: `https://api.example/media/${BG}`,
       fit: 'contain',
       color: '#112233',

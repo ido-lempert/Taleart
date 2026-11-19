@@ -417,7 +417,7 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
   it('sets a background image with a fit over the band colour, and removes it', async () => {
     await open(empty, 1);
     await pickFrom('#studio-bg-media', 'Use Uploaded image, Oct 22, 2026');
-    expect(doc().canvas.background).toEqual({ type: 'media', mediaKey: IMAGE, fit: 'cover', color: '#000000' });
+    expect(doc().canvas.background).toEqual({ type: 'media', mediaKey: IMAGE, kind: 'image', fit: 'cover', color: '#000000' });
     const bg = root.querySelector('.canvas > img.canvas__media') as HTMLImageElement;
     expect(bg.getAttribute('src')).toContain(encodeURIComponent(IMAGE));
     expect(bg.alt).toBe('');
@@ -430,10 +430,42 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     hex.value = '#112233';
     hex.dispatchEvent(new Event('change'));
     await settle(fixture);
-    expect(doc().canvas.background).toEqual({ type: 'media', mediaKey: IMAGE, fit: 'contain', color: '#112233' });
+    expect(doc().canvas.background).toEqual({ type: 'media', mediaKey: IMAGE, kind: 'image', fit: 'contain', color: '#112233' });
     q<HTMLButtonElement>('#studio-bg-media-remove').click();
     await settle(fixture);
     expect(doc().canvas.background).toEqual({ type: 'color', color: '#112233' });
+    await saveNow(2);
+  });
+
+  it('sets a background video and a background web address, which is a video when it says so; a file takes the address back', async () => {
+    await open(empty, 1);
+    await pickFrom('#studio-bg-video', 'Use Uploaded video, Oct 22, 2026');
+    expect(doc().canvas.background).toEqual({ type: 'media', mediaKey: VIDEO, kind: 'video', fit: 'cover', color: '#000000' });
+    const bg = root.querySelector('.canvas > video.canvas__media') as HTMLVideoElement;
+    expect(bg.getAttribute('src')).toContain(encodeURIComponent(VIDEO));
+    const url = q<HTMLInputElement>('#studio-bg-url');
+    url.value = 'http://cdn.example.com/a.mp4';
+    url.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    expect(doc().canvas.background).toEqual(expect.objectContaining({ mediaKey: VIDEO }));
+    expect(q('#studio-bg-url-error').textContent).toContain('https://');
+    url.value = 'https://cdn.example.com/a.mp4';
+    url.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    expect(doc().canvas.background).toEqual({
+      type: 'media',
+      externalUrl: 'https://cdn.example.com/a.mp4',
+      kind: 'video',
+      fit: 'cover',
+      color: '#000000',
+    });
+    const box = q<HTMLInputElement>('#studio-bg-url-video');
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    expect(doc().canvas.background).toEqual(expect.objectContaining({ externalUrl: 'https://cdn.example.com/a.mp4', kind: 'image' }));
+    await pickFrom('#studio-bg-media', 'Use Uploaded image, Oct 22, 2026');
+    expect(doc().canvas.background).toEqual({ type: 'media', mediaKey: IMAGE, kind: 'image', fit: 'cover', color: '#000000' });
     await saveNow(2);
   });
 

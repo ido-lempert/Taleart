@@ -198,14 +198,27 @@ export interface DocumentRenderOptions {
   t?: Translate;
 }
 
-// The canvas's media background (R2): the image filling the canvas with its fit, over its band
-// colour; decorative, so hidden from assistive technology. Null for a colour background.
+// The canvas's media background (R2): the image or video filling the canvas with its fit, over its
+// band colour; decorative, so hidden from assistive technology. A video plays muted and loops; under
+// reduced motion it shows its first frame and does not play. Null for a colour background.
 function backgroundMedia(doc: DeliveryTaleDocument, reducedMotion: boolean): HTMLElement | null {
-  const background = doc.canvas?.background as { type?: unknown; url?: unknown; fit?: unknown } | undefined;
+  const background = doc.canvas?.background as { type?: unknown; url?: unknown; fit?: unknown; kind?: unknown } | undefined;
   const url = background?.type === 'media' ? mediaUrl(background.url) : null;
   if (!url) return null;
   let node: HTMLElement;
-  if (reducedMotion && mayAnimate(url)) node = stillImage(url);
+  if (background?.kind === 'video') {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.defaultMuted = true;
+    video.loop = !reducedMotion;
+    video.playsInline = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.preload = reducedMotion ? 'metadata' : 'auto';
+    video.src = reducedMotion ? `${url}#t=0.001` : url;
+    if (!reducedMotion) video.autoplay = true;
+    node = video;
+  } else if (reducedMotion && mayAnimate(url)) node = stillImage(url);
   else {
     const img = document.createElement('img');
     img.alt = '';

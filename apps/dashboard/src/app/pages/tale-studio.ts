@@ -103,7 +103,7 @@ import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplica
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
 import { changeCount, sameDocument, siteVersion, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
-import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } from './tale-media';
+import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle, mediaUrlMessage } from './tale-media';
 import { needsLinkUrl, TaleLinkStyle } from './tale-links';
 import {
   applyChoiceEdit,
@@ -547,6 +547,8 @@ export class TaleStudioPage implements OnChanges {
   protected readonly videoSeconds = signal<ReadonlyMap<string, number>>(new Map());
   /** The media picker, while it is open (R5). */
   protected readonly picker = signal<OpenPicker | null>(null);
+  /** Why the background's web address is refused, shown under its field. */
+  protected readonly bgUrlError = signal('');
   /** The emoji picker, while it is open (R6): to add an emoji, or to replace the one `elementId` names. */
   protected readonly emojiPicker = signal<{
     elementId: string | null;
@@ -2805,14 +2807,16 @@ export class TaleStudioPage implements OnChanges {
     const currentKey =
       purpose === 'background'
         ? background?.type === 'media'
-          ? background.mediaKey
+          ? (background.mediaKey ?? null)
           : null
         : element && isMediaElement(element)
           ? (element.props.mediaKey ?? null)
           : null;
     const heading =
       purpose === 'background'
-        ? 'Choose a background image'
+        ? kind === 'video'
+          ? 'Choose a background video'
+          : 'Choose a background image'
         : imageButton
           ? purpose === 'replace'
             ? 'Choose another image for the button'
@@ -2847,16 +2851,17 @@ export class TaleStudioPage implements OnChanges {
     const doc = this.doc();
     if (!doc) return;
     if (open.purpose === 'background') {
-      if (media.kind !== 'image') return;
+      if (media.kind !== open.kind) return;
       const fit = doc.canvas.background.type === 'media' ? doc.canvas.background.fit : 'cover';
-      this.commit('Background image set', {
+      const what = media.kind === 'video' ? 'Background video' : 'Background image';
+      this.commit(`${what} set`, {
         ...doc,
         canvas: {
           ...doc.canvas,
-          background: { type: 'media', mediaKey: media.key, fit, color: doc.canvas.background.color },
+          background: { type: 'media', mediaKey: media.key, kind: media.kind, fit, color: doc.canvas.background.color },
         },
       });
-      this.say('Background image set');
+      this.say(`${what} set`);
       return;
     }
     if (open.purpose === 'replace' && open.elementId !== null) {
@@ -3552,6 +3557,63 @@ export class TaleStudioPage implements OnChanges {
     );
   }
 
+  /** The source a media background plays or shows: its web address, else its project file. */
+  protected backgroundSrc(background: { mediaKey?: string; externalUrl?: string }): string {
+    return background.externalUrl ?? this.mediaSrc(background.mediaKey ?? '');
+  }
+
+  /** Checks the background's address as it is typed: an error shows only once the value is not empty. */
+  protected checkBackgroundUrl(field: HTMLInputElement): void {
+    const value = field.value.trim();
+    this.bgUrlError.set(value === '' ? '' : (mediaUrlMessage(value) ?? ''));
+  }
+
+  /** Applies the background's web address when the server's rule accepts it; it replaces the project file. */
+  protected setBackgroundUrl(field: HTMLInputElement): void {
+    const doc = this.doc();
+    if (this.isHeld() || !doc || doc.canvas.background.type !== 'media') return;
+    const current = doc.canvas.background;
+    const value = field.value.trim();
+    if (value === '') {
+      this.bgUrlError.set('');
+      field.value = current.externalUrl ?? '';
+      if (current.externalUrl === undefined) return;
+      this.say('Choose another background to stop showing the web address.');
+      return;
+    }
+    const message = mediaUrlMessage(value);
+    if (message) {
+      this.bgUrlError.set(message);
+      this.say(`Web address not saved: ${message}`);
+      return;
+    }
+    this.bgUrlError.set('');
+    field.value = value;
+    if (value === current.externalUrl) return;
+    this.commit('Background web address set', {
+      ...doc,
+      canvas: {
+        ...doc.canvas,
+        background: { type: 'media', externalUrl: value, kind: current.kind ?? 'image', fit: current.fit, color: current.color },
+      },
+    });
+    this.say('The background shows its web address');
+  }
+
+  /** Says whether the background's web address is a video: it plays muted and loops, else it is drawn. */
+  protected setBackgroundAddressVideo(video: boolean): void {
+    const doc = this.doc();
+    if (this.isHeld() || !doc || doc.canvas.background.type !== 'media') return;
+    const current = doc.canvas.background;
+    if (current.externalUrl === undefined) return;
+    const kind = video ? 'video' : 'image';
+    this.commit('Background kind changed', {
+      ...doc,
+      canvas: { ...doc.canvas, background: { ...current, kind } },
+    });
+    this.say(video ? 'The background address is a video' : 'The background address is an image');
+  }
+
   protected setBackgroundFit(fit: string): void {
     const doc = this.doc();
     if (this.isHeld() || !doc || doc.canvas.background.type !== 'media') return;
@@ -3567,11 +3629,11 @@ export class TaleStudioPage implements OnChanges {
   protected removeBackgroundMedia(): void {
     const doc = this.doc();
     if (this.isHeld() || !doc || doc.canvas.background.type !== 'media') return;
-    this.commit('Background image removed', {
+    this.commit('Background removed', {
       ...doc,
       canvas: { ...doc.canvas, background: { type: 'color', color: doc.canvas.background.color } },
     });
-    this.say('Background image removed; the background colour shows');
+    this.say('Background removed; the background colour shows');
     this.focusSoon('studio-bg-media');
   }
 

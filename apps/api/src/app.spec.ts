@@ -7189,6 +7189,7 @@ describe('Management API v1: projects and zones', () => {
       };
       expect(document.canvas.background).toEqual({
         type: 'media',
+        kind: 'image',
         url: `${publicApiUrl}/media/${background}`,
         fit: 'cover',
         color: '#112233',

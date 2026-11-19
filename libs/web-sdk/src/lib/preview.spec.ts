@@ -139,6 +139,7 @@ describe('previewDocument', () => {
     expect(delivered.elements[1].props).toEqual({ url: 'https://api.test/media/a.png', fit: 'cover' });
     expect(delivered.canvas.background).toEqual({
       type: 'media',
+      kind: 'image',
       url: 'https://api.test/media/bg.png',
       fit: 'cover',
       color: '#000000',

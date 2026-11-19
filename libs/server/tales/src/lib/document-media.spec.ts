@@ -19,6 +19,7 @@ import {
 } from './document-media';
 import {
   AltTextRequiredError,
+  checkDocumentMedia,
   checkPublishableDocument,
   checkTaleDocument,
   clearDeliveryCache,
@@ -566,9 +567,24 @@ describe('document writes with media', () => {
       { rows: [] },
       { rows: [{ key: VIDEO.replace('tales/', 'media/') }] },
     ]);
-    const value = doc([], mediaBackground('media/0b7c9d4e-1111-4222-8333-944455556667.mp4'));
+    const value = doc([], mediaBackground('media/0b7c9d4e-1111-4222-8333-944455556667.mp4', { kind: 'image' }));
     await expect(saveTaleDocument(background.db, taleId, value, 0)).rejects.toMatchObject({
       pointer: '/canvas/background/mediaKey',
+      message: '/canvas/background/mediaKey must be an image',
+    });
+  });
+
+  it('takes a video as the background by its key, and refuses an external background address that is not https', async () => {
+    const video = fakeDb([{ rows: [{ projectId }] }, { rows: [{ key: VIDEO.replace('tales/', 'media/') }] }]);
+    await expect(
+      checkDocumentMedia(video.db, projectId, doc([], mediaBackground('media/0b7c9d4e-1111-4222-8333-944455556667.mp4'))),
+    ).resolves.toBeUndefined();
+    const http = fakeDb([]);
+    const refused = doc([], {
+      canvas: { background: { type: 'media', externalUrl: 'http://cdn.example/a.mp4', fit: 'cover', color: '#112233' } },
+    });
+    await expect(checkDocumentMedia(http.db, projectId, refused)).rejects.toMatchObject({
+      pointer: '/canvas/background/externalUrl',
     });
   });
 

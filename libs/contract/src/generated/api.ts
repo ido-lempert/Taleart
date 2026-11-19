@@ -2970,16 +2970,23 @@ export interface components {
             /** @description The tales with views or clicks in the period, most views first. */
             tales: components["schemas"]["AnalyticsTaleRow"][];
         };
-        /** @description An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
+        /** @description An image (GIF included) or a video (MP4 or WebM) filling the canvas, of the tale's project by its storage key, or by `externalUrl`: an https address on another site. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the media shows. A video plays muted and loops. */
         MediaBackground: {
             /** @constant */
             type: "media";
-            /** @description The storage key of an image of the tale's project, as the server made it. */
-            mediaKey: string;
+            /** @description The storage key of an image or video of the tale's project, as the server made it. */
+            mediaKey?: string;
+            /** @description An https address of an image or video on another site, shown instead of a `mediaKey`. Its page's content security policy must allow it. */
+            externalUrl?: string;
+            /**
+             * @description `video` for a video, else an image. Left out, a `mediaKey` ending .mp4 or .webm is a video and anything else an image; an `externalUrl` is an image unless this says `video`.
+             * @enum {string}
+             */
+            kind?: "image" | "video";
             /** @enum {string} */
             fit: "cover" | "contain";
             color: components["schemas"]["Color"];
-        };
+        } & (unknown | unknown);
         /** @description A solid background colour. */
         ColorBackground: {
             /** @constant */
@@ -2995,9 +3002,14 @@ export interface components {
             type: "media";
             /**
              * Format: uri
-             * @description The public URL of the image.
+             * @description The public URL of the image or video.
              */
             url: string;
+            /**
+             * @description What the URL shows: a video plays muted and loops; an image is drawn.
+             * @enum {string}
+             */
+            kind: "image" | "video";
             /** @enum {string} */
             fit: "cover" | "contain";
             /** @description The band colour, as `#RRGGBB` or `#RRGGBBAA`. */
@@ -3406,16 +3418,23 @@ export interface components {
                     type: "color";
                     color: components["schemas"]["Color"];
                 };
-                /** @description An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
+                /** @description An image (GIF included) or a video (MP4 or WebM) filling the canvas, of the tale's project by its storage key, or by `externalUrl`: an https address on another site. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the media shows. A video plays muted and loops. */
                 MediaBackground: {
                     /** @constant */
                     type: "media";
-                    /** @description The storage key of an image of the tale's project, as the server made it. */
-                    mediaKey: string;
+                    /** @description The storage key of an image or video of the tale's project, as the server made it. */
+                    mediaKey?: string;
+                    /** @description An https address of an image or video on another site, shown instead of a `mediaKey`. Its page's content security policy must allow it. */
+                    externalUrl?: string;
+                    /**
+                     * @description `video` for a video, else an image. Left out, a `mediaKey` ending .mp4 or .webm is a video and anything else an image; an `externalUrl` is an image unless this says `video`.
+                     * @enum {string}
+                     */
+                    kind?: "image" | "video";
                     /** @enum {string} */
                     fit: "cover" | "contain";
                     color: components["schemas"]["Color"];
-                };
+                } & (unknown | unknown);
                 /** @description Where an element sits, as fractions (0 to 1) of the canvas width (x, w) and height (y, h), and its rotation in degrees about its centre. */
                 Box: {
                     x: number;
@@ -7102,8 +7121,10 @@ export const colorSchemeValues: ReadonlyArray<FlattenedDeepRequired<components>[
 export const deliveryFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryFont"]["style"]> = ["normal", "italic"];
 export const analyticsPeriodValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AnalyticsPeriod"]> = ["7d", "30d", "90d"];
 export const analyticsEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AnalyticsEventType"]> = ["impression", "open", "view", "click"];
+export const mediaBackgroundKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaBackground"]["kind"]> = ["image", "video"];
 export const mediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const deliveryMediaBackgroundTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryMediaBackground"]["type"]> = ["media"];
+export const deliveryMediaBackgroundKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryMediaBackground"]["kind"]> = ["image", "video"];
 export const deliveryMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryMediaBackground"]["fit"]> = ["cover", "contain"];
 export const projectMediaSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectMedia"]["source"]> = ["upload", "tale", "document"];
 export const projectFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["style"]> = ["normal", "italic"];
@@ -7112,6 +7133,7 @@ export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["sc
 export const authMethodKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthMethodKind"]> = ["passkey", "password", "oidc", "google", "apple"];
 export const authProviderKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthProviderKind"]> = ["oidc", "google", "apple"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
+export const v1Schema$defsMediaBackgroundKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["kind"]> = ["image", "video"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];
