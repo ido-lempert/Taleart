@@ -93,6 +93,14 @@ export function inTaleGroupFilter(
 }
 
 /**
+ * Whether a group is in the chosen zones (the zone filter, multi-select): with none chosen every group
+ * is; otherwise one of its zones must be chosen. A zone the page does not know is never chosen.
+ */
+export function inChosenZones(group: Pick<ProjectTaleGroup, 'zoneIds'>, zoneIds: readonly string[]): boolean {
+  return zoneIds.length === 0 || group.zoneIds.some((id) => zoneIds.includes(id));
+}
+
+/**
  * The one filter named when a group leaves the list: Archived, else Visible, else Off, else All
  * (the first that lists it, most specific first).
  */
@@ -158,6 +166,30 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
     .group-filter__count {
       font-variant-numeric: tabular-nums;
       font-weight: 600;
+    }
+    .zone-filter {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+      margin: 0 0 var(--space-3);
+    }
+    .zone-filter__active {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+    }
+    .zone-filter__list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2) var(--space-4);
+      margin: 0 0 var(--space-4);
+      padding: var(--space-3);
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-control);
+    }
+    .zone-filter__list[hidden] {
+      display: none;
     }
     .group-items {
       container: group-list / inline-size;
@@ -262,6 +294,38 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                   </label>
                 }
               </fieldset>
+              @if (store.projectZones().length > 0) {
+                <div class="zone-filter">
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    id="zone-filter-toggle"
+                    aria-controls="zone-filter-list"
+                    [attr.aria-expanded]="zonesOpen()"
+                    (click)="zonesOpen.set(!zonesOpen())"
+                  >
+                    {{ zoneFilterLabel() }}
+                  </button>
+                  @if (chosenZoneIds().length > 0) {
+                    <span class="zone-filter__active">Showing {{ chosenZoneNames() }}</span>
+                    <button type="button" class="btn btn--ghost btn--sm" id="zone-filter-clear" (click)="clearZones()">Clear</button>
+                  }
+                </div>
+                <fieldset id="zone-filter-list" class="zone-filter__list" [hidden]="!zonesOpen()">
+                  <legend class="visually-hidden">Zones</legend>
+                  @for (zone of store.projectZones(); track zone.id) {
+                    <label class="checkbox">
+                      <input
+                        #box
+                        type="checkbox"
+                        [checked]="chosenZoneIds().includes(zone.id)"
+                        (change)="toggleZone(zone.id, box.checked)"
+                      />
+                      <span>{{ zone.name }}</span>
+                    </label>
+                  }
+                </fieldset>
+              }
               @if (groups().length > 0) {
                 <ul class="group-items" [attr.aria-label]="listLabel()">
                   @for (group of groups(); track group.id) {
@@ -323,7 +387,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                 <div class="empty">
                   <p class="empty__title">No tale groups match this filter</p>
                   <p class="empty__text">{{ emptyText() }}</p>
-                  <button type="button" class="btn btn--secondary btn--sm" (click)="choose('all', true)">Show all tale groups</button>
+                  <button type="button" class="btn btn--secondary btn--sm" (click)="showAll()">Show all tale groups</button>
                 </div>
               }
             } @else {
@@ -410,14 +474,36 @@ export class TaleGroupsPage {
   /** The chosen filter: follows the URL, and changes at once on a choice, before the URL catches up. */
   protected readonly selected = linkedSignal(() => taleGroupFilter(this.filter()));
 
+  /** The zones the list is narrowed to (multi-select); none chosen shows every group. Cleared when the project changes. */
+  protected readonly chosenZoneIds = linkedSignal<string, readonly string[]>({
+    source: () => this.store.selectedProjectId(),
+    computation: () => [],
+  });
+  protected readonly zonesOpen = signal(false);
+  protected readonly zoneFilterLabel = computed(() => {
+    const count = this.chosenZoneIds().length;
+    return count === 0 ? 'Zones: all' : `Zones: ${count}`;
+  });
+  protected readonly chosenZoneNames = computed(() =>
+    this.store
+      .projectZones()
+      .filter((zone) => this.chosenZoneIds().includes(zone.id))
+      .map((zone) => zone.name)
+      .join(', '),
+  );
+
   protected readonly allGroups = computed(() => this.store.projectTaleGroupsOf(this.store.selectedProjectId()));
+  /** The project's groups in the chosen zones: what the radio filters count and narrow. */
+  private readonly inZones = computed(() =>
+    this.allGroups().filter((group) => inChosenZones(group, this.chosenZoneIds())),
+  );
   protected readonly groups = computed(() => {
     const filter = this.selected();
-    return this.allGroups().filter((group) => inTaleGroupFilter(group, filter));
+    return this.inZones().filter((group) => inTaleGroupFilter(group, filter));
   });
   /** How many groups each filter lists. */
   protected readonly counts = computed(() => {
-    const groups = this.allGroups();
+    const groups = this.inZones();
     return Object.fromEntries(
       TALE_GROUP_FILTERS.map(({ id }) => [id, groups.filter((group) => inTaleGroupFilter(group, id)).length]),
     ) as Record<TaleGroupFilter, number>;
@@ -430,6 +516,12 @@ export class TaleGroupsPage {
       : `Tale groups in ${project}: ${TALE_GROUP_FILTERS.find((f) => f.id === filter)?.label}`;
   });
   protected readonly emptyText = computed(() => {
+    if (this.chosenZoneIds().length > 0) {
+      const label = TALE_GROUP_FILTERS.find((f) => f.id === this.selected())?.label;
+      return this.selected() === 'all'
+        ? 'No tale group is in the chosen zones.'
+        : `No tale group in the chosen zones is listed under ${label}.`;
+    }
     switch (this.selected()) {
       case 'visible':
         return 'No tale group is visible on your site. Turn one On in a zone that is set up.';
@@ -564,6 +656,23 @@ export class TaleGroupsPage {
       const zone = this.store.zone(id);
       return zone ? [zone] : [];
     });
+  }
+
+  /** Chooses or drops a zone of the zone filter. */
+  protected toggleZone(zoneId: string, checked: boolean): void {
+    this.chosenZoneIds.update((ids) =>
+      checked ? [...ids.filter((id) => id !== zoneId), zoneId] : ids.filter((id) => id !== zoneId),
+    );
+  }
+
+  protected clearZones(): void {
+    this.chosenZoneIds.set([]);
+  }
+
+  /** Shows every group: no zone chosen, and the All filter. */
+  protected showAll(): void {
+    this.clearZones();
+    this.choose('all', true);
   }
 
   /**
