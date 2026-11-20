@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DOCS_SNIPPET, FOLD_EXAMPLES } from '../docs-content';
+import { DocsLiveZone } from '../live-zone';
+import { QUIZ_ZONE } from '../live-zones';
 
 // docs-check:removed (the markup of builds before the zone rework, shown only as what to replace)
 const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="tak_…" stage="top"></taleart-view>\n<taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-top"></taleart-view>';
@@ -8,7 +10,7 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
 
 @Component({
   selector: 'docs-moving',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Stages and zone keys</h1>
@@ -104,6 +106,11 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
     <!-- /docs-check:removed -->
     <p>with the snippet from the zone's Install tab:</p>
     <pre tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
+    <docs-live-zone
+      [zone]="snippetZone"
+      caption="Live: the new snippet above, rendered from example zone data in this page (a quiz bar) with no zone key and no request."
+      label="Live example of the install snippet after moving"
+    />
     <ol class="steps">
       <li>Open the zone that came from the stage (or zone) the page used.</li>
       <li>On its Install tab, an admin issues the zone's key, and you copy the snippet.</li>
@@ -116,4 +123,5 @@ export class MovingPage {
   protected readonly oldMarkup = OLD_MARKUP;
   protected readonly snippet = DOCS_SNIPPET;
   protected readonly examples = FOLD_EXAMPLES;
+  protected readonly snippetZone = QUIZ_ZONE;
 }

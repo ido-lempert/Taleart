@@ -1,10 +1,20 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DOCS_SNIPPET } from '../docs-content';
+import { DocsLiveZone } from '../live-zone';
+import { landingBannerZone, landingZone } from '../live-zones';
+
+/** One stories bar of the landing page's "Try it" section: the zone, the element's attributes and the feature's page. */
+interface PromoItem {
+  readonly name: string;
+  readonly text: string;
+  readonly link: string;
+  readonly linkText: string;
+}
 
 @Component({
   selector: 'docs-getting-started',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="hero" aria-labelledby="hero-title">
@@ -18,6 +28,42 @@ import { DOCS_SNIPPET } from '../docs-content';
         <a class="button" routerLink="/reference/web-sdk">Browse the reference</a>
       </div>
     </section>
+
+    <h2 id="try-it">Try the Web SDK on this page</h2>
+    <p>
+      The bar and the banner below are the real Web SDK, rendered from zone data written into this page: no zone key, no
+      API and no request. Tap a group to open its tales. Answers to a poll, a quiz, a rating or a reaction stay on this
+      device.
+    </p>
+
+    <h3 id="try-features">Features: one stories bar</h3>
+    <docs-live-zone
+      [zone]="features"
+      [attributes]="featuresAttributes"
+      caption="Each group is one feature. Tap a circle to open it."
+      label="Features: a live stories bar"
+      [minHeight]="170"
+    />
+    <dl class="feature-list">
+      @for (item of featureList; track item.name) {
+        <div class="feature-list__item">
+          <dt>{{ item.name }}</dt>
+          <dd>
+            {{ item.text }}
+            <a [routerLink]="item.link">{{ item.linkText }}</a>
+          </dd>
+        </div>
+      }
+    </dl>
+
+    <h3 id="try-banners">Promotion banner</h3>
+    <p>A banner shows one slide per group, in a carousel. Use the arrows or the dots; nothing moves by itself.</p>
+    <docs-live-zone
+      [zone]="banner"
+      caption="Spring promotion: an offer, a vote, a picture and a sale countdown."
+      label="Spring promotion: a live banner"
+      [minHeight]="220"
+    />
 
     <h2 id="platform-guides">Build with an SDK</h2>
     <p>Each platform guide takes a zone from its key to a visible tale in an app or site, step by step.</p>
@@ -167,4 +213,76 @@ import { DOCS_SNIPPET } from '../docs-content';
 })
 export class GettingStartedPage {
   protected readonly snippet = DOCS_SNIPPET;
+
+  // One bar and one banner for the whole section. The countdown is built when the page is, so it runs for three days.
+  protected readonly features = landingZone();
+  protected readonly banner = landingBannerZone();
+  // The theme is set once on the one bar: its accent and ring colours.
+  protected readonly featuresAttributes = {
+    theme: JSON.stringify({ accentColor: '#2b829f', ringColors: ['#2b829f', '#f0a500'] }),
+  };
+
+  // What each group of the bar shows, in the same order as the bar.
+  protected readonly featureList: readonly PromoItem[] = [
+    {
+      name: 'Poll',
+      text: 'A question with two options. Each vote counts once per device, then the poll shows the percentages.',
+      link: '/interactive-components',
+      linkText: 'Interactive components',
+    },
+    {
+      name: 'Quiz',
+      text: 'Four answers and one correct one. The viewer sees right or wrong, and how everyone else answered.',
+      link: '/interactive-components',
+      linkText: 'Interactive components',
+    },
+    {
+      name: 'Rating',
+      text: 'A slider with an emoji as its thumb, from 0 to 100. The rating shows the average of all ratings.',
+      link: '/interactive-components',
+      linkText: 'Interactive components',
+    },
+    {
+      name: 'Reaction',
+      text: 'A row of emoji to tap. Each emoji shows how many people tapped it.',
+      link: '/interactive-components',
+      linkText: 'Interactive components',
+    },
+    {
+      name: 'Countdown',
+      text: 'Days, hours, minutes and seconds until a sale ends, then the text you choose.',
+      link: '/interactive-components',
+      linkText: 'Interactive components',
+    },
+    {
+      name: 'Promo code',
+      text: 'A code in a chip with a Copy button. The code is visible to everyone, so it is not a secret.',
+      link: '/interactive-components',
+      linkText: 'Interactive components',
+    },
+    {
+      name: 'Frequency',
+      text: 'frequency="once" hides a group after the viewer has seen it. Tap it, then reload: it is gone.',
+      link: '/guides/web',
+      linkText: 'Web guide',
+    },
+    {
+      name: 'Audience',
+      text: 'The Pro group is left out: this viewer has no plan. A page sets the viewer\'s properties to show it.',
+      link: '/targeting',
+      linkText: 'Targeting',
+    },
+    {
+      name: 'Right to left',
+      text: 'The Hebrew group: on a Hebrew or Arabic page the bar and its texts turn with the reading direction.',
+      link: '/guides/web',
+      linkText: 'Web guide',
+    },
+    {
+      name: 'Theme',
+      text: 'Colours, rings and fonts. This bar sets its own accent and ring colours in its element.',
+      link: '/theme-and-fonts',
+      linkText: 'Theme and fonts',
+    },
+  ];
 }

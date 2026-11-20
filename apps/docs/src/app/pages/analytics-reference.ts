@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DocsLiveZone } from '../live-zone';
+import { THEME_ZONE } from '../live-zones';
 
 /**
  * The metric definitions, as the dashboard's Analytics tab shows them (apps/dashboard/src/app/pages/
@@ -25,7 +27,7 @@ export const ANALYTICS_REACH_NOTE = 'Reach is distinct per row: the Reach of a t
 
 @Component({
   selector: 'docs-analytics-reference',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Analytics reference</h1>
@@ -143,6 +145,12 @@ export const ANALYTICS_REACH_NOTE = 'Reach is distinct per row: the Reach of a t
     </p>
     <pre tabindex="0" role="region" aria-label="Turn analytics off for the page"><code>{{ optOutSample }}</code></pre>
     <pre tabindex="0" role="region" aria-label="Turn analytics off for one element"><code>{{ optOutElementSample }}</code></pre>
+    <docs-live-zone
+      [zone]="zone"
+      [attributes]="optOutAttributes"
+      label="Live example: analytics off for one element"
+      caption="A live element with analytics off: no analytics events are sent from this element. The zone still shows."
+    />
     <p>
       The option is <code>analytics</code> (default <code>true</code>) and the attribute is <code>analytics</code>. Both are
       in the <a routerLink="/reference/web-sdk">Web SDK reference</a>.
@@ -297,6 +305,8 @@ export class AnalyticsReferencePage {
   protected readonly reachNote = ANALYTICS_REACH_NOTE;
   protected readonly optOutSample = `Taleart.init({ analytics: false });`;
   protected readonly optOutElementSample = `<taleart-view zone-key="YOUR_ZONE_KEY" analytics="off"></taleart-view>`;
+  protected readonly zone = THEME_ZONE;
+  protected readonly optOutAttributes = { analytics: 'off' };
   protected readonly deliverySample = `POST /delivery/v1/events
 Authorization: Bearer tak_…
 X-TaleArt-Visitor: 3f1c9a52-7d4e-4b8a-9c21-6e0f5a8d2b47

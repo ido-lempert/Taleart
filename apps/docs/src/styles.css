@@ -1997,3 +1997,28 @@ docs-on-this-page {
     display: none;
   }
 }
+
+/* The landing page's feature list, beside the one live stories bar. */
+.feature-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 2rem;
+}
+
+.feature-list__item {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.feature-list dt {
+  font-weight: 600;
+}
+
+.feature-list dd {
+  margin: 0;
+}
+
+.feature-list dd a {
+  margin-inline-start: 0.5rem;
+  font-size: 0.875rem;
+}

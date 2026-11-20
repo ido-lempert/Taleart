@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DocsLiveZone } from '../live-zone';
+import { RTL_ZONE } from '../live-zones';
 
 @Component({
   selector: 'docs-web-sdk-reference',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Web SDK reference</h1>
@@ -18,6 +20,12 @@ import { RouterLink } from '@angular/router';
       Loading the SDK registers <code>&lt;taleart-view&gt;</code>. Each attribute has a property of the same meaning,
       named in camel case.
     </p>
+    <docs-live-zone
+      [zone]="rtlZone"
+      [attributes]="dirAttributes"
+      label="Live example: the dir attribute"
+      caption="A live zone with dir=&quot;auto&quot; on the element: the bar follows the direction of its Hebrew text, so it runs right to left."
+    />
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="attributes-caption">
       <table id="attributes">
         <caption id="attributes-caption">Attributes of &lt;taleart-view&gt;</caption>
@@ -641,4 +649,7 @@ import { RouterLink } from '@angular/router';
     </aside>
   `,
 })
-export class WebSdkReferencePage {}
+export class WebSdkReferencePage {
+  protected readonly rtlZone = RTL_ZONE;
+  protected readonly dirAttributes = { dir: 'auto' };
+}

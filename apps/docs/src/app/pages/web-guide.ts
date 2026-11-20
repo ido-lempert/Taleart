@@ -1,6 +1,20 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DOCS_NPM_SNIPPET, DOCS_PROPERTIES_SCRIPT, DOCS_SNIPPET, DOCS_TEST_PAGE_WITH_KEY, EXAMPLE_INSTALL } from '../docs-content';
+import { DocsLiveZone } from '../live-zone';
+import {
+  AUDIENCE_ZONE,
+  FREQUENCY_ZONE,
+  PROMO_BANNER_ZONE,
+  PROMO_ZONE,
+  QUIZ_ZONE,
+  REACTION_ZONE,
+  RTL_ZONE,
+  THEME_ZONE,
+} from '../live-zones';
+
+/** Not a valid zone on purpose: the element fails to load it, as it would a refused key. */
+const BROKEN_ZONE = { id: 'docs-broken' };
 
 const LOCALE_SAMPLE = `import { init } from '${EXAMPLE_INSTALL.sdkUrl}';
 
@@ -92,7 +106,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
 @Component({
   selector: 'docs-web-guide',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Web guide</h1>
@@ -127,6 +141,11 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         zone key filled in. For a pinned, integrity-checked version, see <a routerLink="/install">Install a zone</a>.
         <pre tabindex="0" role="region" aria-label="Script tag"><code>{{ snippet }}</code></pre>
         <pre tabindex="0" role="region" aria-label="npm install"><code>{{ npmSnippet }}</code></pre>
+        <docs-live-zone
+          [zone]="liveTheme"
+          caption="Live: the same SDK renders this bar from the zone data in the page, with no zone key and no request."
+          label="Live example: a bar with no zone key"
+        />
         <figure>
           <img
             src="images/web-step-2-script.svg"
@@ -145,6 +164,12 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         or a stack) is set in the dashboard's Display tab, not in the HTML; until the zone arrives the element shows a
         loading skeleton of that layout (see <a routerLink="/zones-and-displays" fragment="bar-layouts">the layouts</a>).
         <pre tabindex="0" role="region" aria-label="The zone element"><code>{{ elementSample }}</code></pre>
+        <docs-live-zone
+          [zone]="livePromoBanner"
+          [minHeight]="200"
+          caption="Live: a banner from zone data in the page. Its slides are the groups: use the arrows or the dots."
+          label="Live example: a banner zone"
+        />
         <figure>
           <img
             src="images/web-view-bar.png"
@@ -174,6 +199,12 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         viewer's targeting and the hooks. An attribute on one element overrides the page's option. Here the texts are
         in Hebrew, and the viewer runs right to left.
         <pre tabindex="0" role="region" aria-label="Locale and strings"><code>{{ localeSample }}</code></pre>
+        <docs-live-zone
+          [zone]="liveTheme"
+          [attributes]="{ locale: 'he' }"
+          caption="Live: the element's locale is 'he', so the texts the SDK knows show in Hebrew and the rest in English. The strings above are not set here. Open a group to see the viewer."
+          label="Live example: a bar with the locale he"
+        />
         <figure>
           <img
             src="images/web-view-hebrew.png"
@@ -195,6 +226,11 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         Set hooks for every element with <code>init</code>, or for one element with its <code>hooks</code> property.
         <pre tabindex="0" role="region" aria-label="Hooks"><code>{{ hooksSample }}</code></pre>
         <pre tabindex="0" role="region" aria-label="DOM event"><code>{{ domSample }}</code></pre>
+        <docs-live-zone
+          [zone]="liveQuiz"
+          caption="Live: open the group and answer the quiz. The hooks above are not set on this example, so nothing is logged; the zone only shows what a visitor does."
+          label="Live example: a quiz zone"
+        />
         <p>
           The same events are DOM events on the element, bubbling and named <code>taleart:</code> plus the event in
           kebab case (<code>taleart:group-impression</code>). Their <code>detail</code> is the payload. The full list
@@ -259,6 +295,12 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
           </li>
         </ol>
         <pre tabindex="0" role="region" aria-label="Load-failure placeholder"><code>{{ fallbackSample }}</code></pre>
+        <docs-live-zone
+          [zone]="brokenZone"
+          [attributes]="{ fallback: 'message' }"
+          caption="Live: this zone's data is invalid on purpose, so the element fails to load it and shows the SDK's message with a Try again button."
+          label="Live example: a zone that cannot load"
+        />
         <figure>
           <img
             src="images/web-shot-failure-slot.png"
@@ -304,6 +346,12 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
           </li>
         </ol>
         <pre tabindex="0" role="region" aria-label="Frequency cap"><code>{{ frequencySample }}</code></pre>
+        <docs-live-zone
+          [zone]="liveFrequency"
+          [attributes]="{ frequency: 'once' }"
+          caption="Live: open a group, then reload the page. The group you viewed is left out, because views are kept in this browser's local storage (taleart.views), not sent to TaleArt."
+          label="Live example: a frequency cap of once"
+        />
         <figure>
           <img
             src="images/web-shot-frequency-before.png"
@@ -369,6 +417,11 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         <code>selected</code>, alongside <code>onUserInteracted</code>; for a reaction, the value is the emoji tapped.
         <pre tabindex="0" role="region" aria-label="Component event hook"><code>{{ componentSample }}</code></pre>
         <pre tabindex="0" role="region" aria-label="Component event DOM event"><code>{{ componentDomSample }}</code></pre>
+        <docs-live-zone
+          [zone]="livePromo"
+          caption="Live: press Copy on the promo code, and the status reads Copied. The hook and the DOM event above are not set on this example, so the event is not logged."
+          label="Live example: a promo code"
+        />
         <figure>
           <img
             src="images/web-shot-promo-copied.png"
@@ -405,6 +458,11 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
           </li>
         </ol>
         <pre tabindex="0" role="region" aria-label="Reaction event hook"><code>{{ reactionSample }}</code></pre>
+        <docs-live-zone
+          [zone]="liveReaction"
+          caption="Live: tap one emoji. Its count goes up and the tap stays on this device, since no backend is used. The hook above is what reports the tap to your page."
+          label="Live example: a reaction"
+        />
         <figure>
           <img
             src="images/web-shot-reaction.png"
@@ -435,6 +493,11 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
         the others, and <code>null</code> clears. The SDK checks the rule in the browser: the properties are never sent to
         TaleArt.
         <pre tabindex="0" role="region" aria-label="Viewer properties"><code>{{ propertiesSample }}</code></pre>
+        <docs-live-zone
+          [zone]="liveAudience"
+          caption="Live: this example sets no viewer properties, so only the Everyone group shows. With plan 'pro' set on the page, as in the code above, the Pro only group shows too."
+          label="Live example: audience groups"
+        />
         <figure>
           <img
             src="images/web-audience-bar-free.png"
@@ -484,6 +547,12 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       <code>auto</code> (the default) takes the page's.
     </p>
     <pre tabindex="0" role="region" aria-label="Reading direction"><code>{{ rtlSample }}</code></pre>
+    <docs-live-zone
+      [zone]="liveRtl"
+      [attributes]="{ dir: 'rtl' }"
+      caption="Live: a Hebrew zone with dir 'rtl' on the element, so the bar starts from the right."
+      label="Live example: a bar right to left"
+    />
     <figure>
       <img
         src="images/web-rtl-bar.png"
@@ -547,4 +616,13 @@ export class WebGuidePage {
   protected readonly componentDomSample = COMPONENT_DOM_SAMPLE;
   protected readonly reactionSample = REACTION_SAMPLE;
   protected readonly rtlSample = RTL_SAMPLE;
+  protected readonly liveTheme = THEME_ZONE;
+  protected readonly livePromoBanner = PROMO_BANNER_ZONE;
+  protected readonly liveQuiz = QUIZ_ZONE;
+  protected readonly liveFrequency = FREQUENCY_ZONE;
+  protected readonly livePromo = PROMO_ZONE;
+  protected readonly liveReaction = REACTION_ZONE;
+  protected readonly liveRtl = RTL_ZONE;
+  protected readonly liveAudience = AUDIENCE_ZONE;
+  protected readonly brokenZone = BROKEN_ZONE;
 }

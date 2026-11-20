@@ -1,7 +1,74 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { EXTERNAL_USER_ID_HEADER } from '@taleart/contract/core';
 import { DOCS_EXTERNAL_USER_ID_SCRIPT, DOCS_TAGS_SCRIPT, EXAMPLE_INSTALL } from '../docs-content';
+import { DocsLiveZone, loadLiveSdk } from '../live-zone';
+import { AUDIENCE_ZONE } from '../live-zones';
+
+// The live examples: hard-coded zones that the real Web SDK renders with no zone key and no request.
+const ART = (name: string) => ({ kind: 'image', contentType: 'image/jpeg', url: `images/no-backend/art-${name}.jpg` }) as const;
+const picture = (id: string, title: string, art: string) => ({ id, title, media: ART(art) });
+const group = (id: string, name: string, tales: unknown[], extra: Record<string, unknown> = {}) => ({ id, name, tales, ...extra });
+const bar = (slug: string, name: string, taleGroups: unknown[]) => ({
+  id: slug,
+  name,
+  slug,
+  frame: { type: 'bar', settings: { layout: 'ring', size: 'large', gap: 14 } },
+  taleGroups,
+});
+
+/** Tags: a group tagged vip, and a group that needs both summer and vip (All). */
+const TAGS_ZONE = bar('docs-tags', 'Tags', [
+  group('tags-everyone', 'Everyone', [picture('tags-hills', 'Hills at dawn', 'hills')]),
+  group('tags-vip', 'VIP', [picture('tags-city', 'For VIP viewers', 'city')], { tags: ['vip'] }),
+  group('tags-summer-vip', 'Summer and VIP', [picture('tags-sea', 'Summer and VIP', 'sea')], {
+    tags: ['summer', 'vip'],
+    tagMatch: 'all',
+  }),
+]);
+
+/** The external user ID: no user list here, so the groups show to everyone (the Delivery API matches lists). */
+const USER_ID_ZONE = bar('docs-user-id', 'Signed in', [
+  group('id-everyone', 'Everyone', [picture('id-hills', 'Hills at dawn', 'hills')]),
+  group('id-sea', 'Sea', [picture('id-sea-tale', 'The sea', 'sea')]),
+]);
+
+/** Pro members aged 30 and over: both conditions must pass. */
+const ADULTS_ZONE = bar('docs-adults', 'Adults', [
+  group('adults-everyone', 'Everyone', [picture('adults-hills', 'Hills at dawn', 'hills')]),
+  group('adults-pro-30', 'Pro, 30 and over', [picture('adults-city', 'For pro viewers aged 30 and over', 'city')], {
+    audience: {
+      match: 'all',
+      conditions: [
+        { property: 'plan', operator: 'eq', value: 'pro' },
+        { property: 'age', operator: 'gte', value: 30 },
+      ],
+    },
+  }),
+]);
+
+/** Gold or platinum, or at least 5000 points: either condition is enough. */
+const LOYAL_ZONE = bar('docs-loyal', 'Loyal', [
+  group('loyal-everyone', 'Everyone', [picture('loyal-hills', 'Hills at dawn', 'hills')]),
+  group('loyal-gold', 'Gold or many points', [picture('loyal-sea', 'The sea', 'sea')], {
+    audience: {
+      match: 'any',
+      conditions: [
+        { property: 'tier', operator: 'in', value: ['gold', 'platinum'] },
+        { property: 'points', operator: 'gte', value: 5000 },
+      ],
+    },
+  }),
+]);
+
+/** The viewer properties the live examples set; cleared when the page is left. */
+const VIEWER_PROPERTIES = ['plan', 'age', 'tier', 'points'];
+
+/** The part of the global Taleart handle the live examples use. */
+interface LiveTaleart {
+  setProperty(name: string, value: unknown): void;
+  setTags(tags: string[] | null): void;
+}
 
 // The audience-rule examples: a rule saved in the group's Audience, and the page that tells the SDK the viewer's properties.
 const SDK_URL = EXAMPLE_INSTALL.sdkUrl;
@@ -46,8 +113,16 @@ const PERSONA_PAGES = {
  */
 @Component({
   selector: 'docs-targeting',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: `
+    .viewer-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 0;
+    }
+  `,
   template: `
     <h1 tabindex="-1">Targeting</h1>
     <p class="lede">
@@ -63,6 +138,15 @@ const PERSONA_PAGES = {
       that passes no tags shows every group, tagged or not.
     </p>
     <pre tabindex="0" role="region" aria-label="Setting the viewer's tags"><code>{{ tagsScript }}</code></pre>
+    <div class="viewer-controls" role="group" aria-label="Set the viewer's tags in the live example">
+      <button type="button" (click)="setViewerTags(['summer', 'vip'])">Viewer is summer and VIP</button>
+      <button type="button" (click)="setViewerTags(['winter'])">Viewer is winter</button>
+    </div>
+    <docs-live-zone
+      [zone]="tagsZone"
+      label="Live example: targeting tags"
+      caption="With no tags set, every group shows. Viewer tagged summer and VIP: the three groups show. Viewer tagged winter: only Everyone shows."
+    />
 
     <h2 id="user-lists">User lists and the external user ID</h2>
     <p>
@@ -73,6 +157,11 @@ const PERSONA_PAGES = {
     </p>
     <p>Tell the SDK who the viewer is once for the page, for example after sign-in:</p>
     <pre tabindex="0" role="region" aria-label="Setting the external user ID"><code>{{ idScript }}</code></pre>
+    <docs-live-zone
+      [zone]="userIdZone"
+      label="Live example: external user ID"
+      caption="This live zone has no user list, so its groups show to everyone here. Only the Delivery API matches user lists, on the server, against the ID."
+    />
     <ul>
       <li>
         Use an <strong>opaque ID</strong> from your own system, never an email address or a phone number. The ID is
@@ -205,16 +294,43 @@ const PERSONA_PAGES = {
     <pre tabindex="0" role="region" aria-label="Rule for pro members"><code>{{ personaRules.pro }}</code></pre>
     <p>The page tells the SDK the viewer's properties, after sign-in:</p>
     <pre tabindex="0" role="region" aria-label="Page for pro members"><code>{{ personaPages.pro }}</code></pre>
+    <div class="viewer-controls" role="group" aria-label="Set the viewer's plan in the live example">
+      <button type="button" (click)="setViewerProperties({ plan: 'pro' })">Viewer is pro</button>
+      <button type="button" (click)="setViewerProperties({ plan: 'free' })">Viewer is free</button>
+    </div>
+    <docs-live-zone
+      [zone]="audienceZone"
+      label="Live example: pro members"
+      caption="Viewer is pro: the Pro only group shows. Viewer is free: it does not."
+    />
 
     <h4 id="example-adults">Pro members aged 30 and over</h4>
     <p>Two conditions, both must pass. The dashboard shows the rule as <em>for viewers where plan is pro and age is at least 30</em>.</p>
     <pre tabindex="0" role="region" aria-label="Rule for pro members aged 30 and over"><code>{{ personaRules.adults }}</code></pre>
     <pre tabindex="0" role="region" aria-label="Page for pro members aged 30 and over"><code>{{ personaPages.adults }}</code></pre>
+    <div class="viewer-controls" role="group" aria-label="Set the viewer's plan and age in the live example">
+      <button type="button" (click)="setViewerProperties({ plan: 'pro', age: 34 })">Pro, aged 34</button>
+      <button type="button" (click)="setViewerProperties({ plan: 'pro', age: 25 })">Pro, aged 25</button>
+    </div>
+    <docs-live-zone
+      [zone]="adultsZone"
+      label="Live example: pro members aged 30 and over"
+      caption="Pro, aged 34: the group shows. Pro, aged 25: it does not, because the age is below 30."
+    />
 
     <h4 id="example-loyal">Gold or platinum, or many points</h4>
     <p>Either condition is enough: a tier in a list, or a number of points at least 5000.</p>
     <pre tabindex="0" role="region" aria-label="Rule for loyal viewers"><code>{{ personaRules.loyal }}</code></pre>
     <pre tabindex="0" role="region" aria-label="Page for loyal viewers"><code>{{ personaPages.loyal }}</code></pre>
+    <div class="viewer-controls" role="group" aria-label="Set the viewer's tier and points in the live example">
+      <button type="button" (click)="setViewerProperties({ tier: 'gold', points: 6200 })">Gold, 6,200 points</button>
+      <button type="button" (click)="setViewerProperties({ tier: 'basic', points: 100 })">Basic, 100 points</button>
+    </div>
+    <docs-live-zone
+      [zone]="loyalZone"
+      label="Live example: gold or platinum, or many points"
+      caption="Gold with 6,200 points: the group shows. Basic with 100 points: it does not."
+    />
 
     <h3 id="editor">The audience rule in the dashboard</h3>
     <p>
@@ -308,4 +424,36 @@ export class TargetingPage {
   protected readonly header = EXTERNAL_USER_ID_HEADER;
   protected readonly personaRules = PERSONA_RULES;
   protected readonly personaPages = PERSONA_PAGES;
+  protected readonly tagsZone = TAGS_ZONE;
+  protected readonly userIdZone = USER_ID_ZONE;
+  protected readonly audienceZone = AUDIENCE_ZONE;
+  protected readonly adultsZone = ADULTS_ZONE;
+  protected readonly loyalZone = LOYAL_ZONE;
+
+  constructor() {
+    // The live examples change the SDK for the whole page: put the viewer back as the page found it.
+    inject(DestroyRef).onDestroy(() => void this.withSdk(resetViewer));
+  }
+
+  protected setViewerTags(tags: string[]): void {
+    void this.withSdk((sdk) => sdk.setTags(tags));
+  }
+
+  protected setViewerProperties(values: Record<string, unknown>): void {
+    void this.withSdk((sdk) => {
+      for (const [name, value] of Object.entries(values)) sdk.setProperty(name, value);
+    });
+  }
+
+  /** Runs `run` with the SDK's handle once the SDK has loaded; does nothing when it did not load. */
+  private async withSdk(run: (sdk: LiveTaleart) => void): Promise<void> {
+    if (!(await loadLiveSdk())) return;
+    const sdk = (globalThis as unknown as { Taleart?: LiveTaleart }).Taleart;
+    if (sdk) run(sdk);
+  }
+}
+
+function resetViewer(sdk: LiveTaleart): void {
+  sdk.setTags(null);
+  for (const name of VIEWER_PROPERTIES) sdk.setProperty(name, null);
 }

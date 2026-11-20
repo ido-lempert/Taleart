@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { EXAMPLE_INSTALL } from '../docs-content';
+import { DocsLiveZone } from '../live-zone';
+import { THEME_ZONE } from '../live-zones';
 
 const OPT_OUT_SAMPLE = `import { init } from '${EXAMPLE_INSTALL.sdkUrl}';
 
@@ -12,7 +14,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
 
 @Component({
   selector: 'docs-analytics-guide',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Read your analytics</h1>
@@ -81,6 +83,12 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
         the element's attribute wins.
         <pre tabindex="0" role="region" aria-label="Turn analytics off for the page"><code>{{ optOutSample }}</code></pre>
         <pre tabindex="0" role="region" aria-label="Turn analytics off for one element"><code>{{ optOutElementSample }}</code></pre>
+        <docs-live-zone
+          [zone]="zone"
+          [attributes]="optOutAttributes"
+          label="Live example: analytics off for one element"
+          caption="A live element with analytics off: no analytics events are sent from this element. The zone still shows."
+        />
         <figure>
           <img
             src="images/analytics-shot-empty.png"
@@ -109,4 +117,6 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
 export class AnalyticsGuidePage {
   protected readonly optOutSample = OPT_OUT_SAMPLE;
   protected readonly optOutElementSample = OPT_OUT_ELEMENT_SAMPLE;
+  protected readonly zone = THEME_ZONE;
+  protected readonly optOutAttributes = { analytics: 'off' };
 }

@@ -53,7 +53,8 @@ describe('the Web guide page', () => {
 
   it('gives every step a figure with an image, its alt text, its size and a caption', () => {
     for (const step of page.querySelectorAll('ol.steps > li')) {
-      const figures = [...step.querySelectorAll('figure')];
+      // A live example is a figure too, but it shows the SDK's rendering, not an image: it is checked by its own tests.
+      const figures = [...step.querySelectorAll('figure:not(.live)')];
       expect(figures.length, step.querySelector('strong')?.textContent ?? '').toBeGreaterThan(0);
       for (const figure of figures) {
         const img = figure.querySelector('img');

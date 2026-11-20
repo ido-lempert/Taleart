@@ -1,10 +1,8 @@
 import { afterNextRender, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { SDK_NPM_PACKAGE } from '@taleart/contract/core';
+import { loadLiveSdk } from '../live-zone';
 import { BANNER_ZONE, BAR_ZONE, json, MINIMAL_ZONE } from './no-backend-data';
-
-/** Where the docs site serves the built Web SDK: `sdk/web/index.js` and its chunks (see the docs build assets). */
-export const DOCS_SDK_PATH = 'sdk/web/index.js';
 
 /** What the page uses of the SDK: its own global, set when the module loads. */
 interface Sdk {
@@ -565,14 +563,12 @@ if let failure = parsed as? ZoneParseFailure { failure.errors.forEach { print($0
     inject(DestroyRef).onDestroy(() => clearTimeout(this.timer));
   }
 
-  // Loads the built Web SDK that this site serves, then renders the live examples. A failure leaves the static page.
+  // Loads the Web SDK from the CDN (the shared loader), then renders the live examples. A failure leaves the static page.
   private async start(): Promise<void> {
-    try {
-      const url = new URL(DOCS_SDK_PATH, document.baseURI).href;
-      await import(/* @vite-ignore */ url);
-      this.sdk = (globalThis as unknown as { Taleart?: Sdk }).Taleart ?? null;
-    } catch {
-      this.sdk = null;
+    this.sdk = (await loadLiveSdk()) as Sdk | null;
+    if (this.sdk && typeof this.sdk.validateZone !== 'function') {
+      this.barStatus.set('The Web SDK on the CDN does not read zone data yet, so these examples stay empty.');
+      return;
     }
     const sdk = this.sdk;
     if (!sdk) {

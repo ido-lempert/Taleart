@@ -43,7 +43,8 @@ describe('the Read your analytics guide', () => {
 
   it('gives every step a figure with a real screenshot, its alt text and a caption', () => {
     for (const step of page.querySelectorAll('ol.steps > li')) {
-      const figures = [...step.querySelectorAll('figure')];
+      // A live example is a figure of its own, with no screenshot: it is checked by the live-example test below.
+      const figures = [...step.querySelectorAll('figure:not(.live)')];
       expect(figures.length, step.querySelector('strong')?.textContent ?? '').toBeGreaterThan(0);
       for (const figure of figures) {
         const img = figure.querySelector('img');
@@ -66,6 +67,12 @@ describe('the Read your analytics guide', () => {
       expect(statSizeOk(file), file).toBe(true);
       expect({ width: Number(img.getAttribute('width')), height: Number(img.getAttribute('height')) }, file).toEqual(size);
     }
+  });
+
+  it('shows a live example with analytics off beside the opt-out snippets, in the last step', () => {
+    const live = page.querySelectorAll('ol.steps > li:last-child docs-live-zone');
+    expect(live.length).toBe(1);
+    expect(live[0].querySelector('figure.live')).toBeTruthy();
   });
 
   it('shows the opt-out snippets with the SDK URL of the docs', () => {

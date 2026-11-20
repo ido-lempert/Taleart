@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DocsLiveZone } from '../live-zone';
+import { THEME_ZONE } from '../live-zones';
 
 @Component({
   selector: 'docs-guides-connect-website',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <h1 tabindex="-1">Connect a website</h1>
@@ -14,6 +16,11 @@ import { RouterLink } from '@angular/router';
 <pre tabindex="0" role="region" aria-label="Website snippet"><code class="language-html">&lt;script type=&quot;module&quot; src=&quot;http://localhost:3333/sdk/v1/taleart.js&quot;&gt;&lt;/script&gt;
 &lt;taleart-view zone-key=&quot;YOUR_ZONE_KEY&quot;&gt;&lt;/taleart-view&gt;
 </code></pre>
+<docs-live-zone
+  [zone]="snippetZone"
+  caption="Live: the snippet above, rendered from zone data in this page. The element has no zone key and makes no request. Tap a circle to open a tale."
+  label="Live example of the website snippet"
+/>
 <p>Replace the URL with your API's public URL and <code>YOUR_ZONE_KEY</code> with the issued key. Load the script once; place one element per zone, each with its own key. The <a routerLink="/guides/web">Web guide</a> covers the global setup, languages and hooks.</p>
 <p>A complete example page is in <a routerLink="/guides/demo-furniture-site.html">demo-furniture-site.html</a>. Serve it from any static server, for example <code>python3 -m http.server</code>.</p>
 <h2 id="what-visitors-see">What visitors see</h2>
@@ -24,4 +31,6 @@ import { RouterLink } from '@angular/router';
 <p><code>&lt;api-url&gt;/sdk/v1/test-page?zone=home-top</code> renders a zone with the SDK and asks for its zone key. Details are in the <a routerLink="/guides/web">Web guide</a>.</p>
   `,
 })
-export class GuidesConnectWebsitePage {}
+export class GuidesConnectWebsitePage {
+  protected readonly snippetZone = THEME_ZONE;
+}

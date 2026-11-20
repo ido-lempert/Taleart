@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DEFAULT_SDK_BUILDS_KEPT } from '@taleart/contract/core';
+import { DocsLiveZone } from '../live-zone';
+import { POLL_ZONE, PROMO_ZONE, RATING_ZONE, REACTION_ZONE, THEME_ZONE } from '../live-zones';
 import {
   DOCS_PINNED_SCRIPT,
   DOCS_NPM_SNIPPET,
@@ -16,7 +18,7 @@ import {
 
 @Component({
   selector: 'docs-install',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Install a zone</h1>
@@ -28,6 +30,11 @@ import {
     <h2 id="snippet">The snippet</h2>
     <p>The Install tab shows this snippet for its zone, with your API URL filled in:</p>
     <pre id="docs-snippet" tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
+    <docs-live-zone
+      [zone]="snippetZone"
+      caption="Live: the snippet above, rendered from zone data in this page. The element has no zone key and makes no request."
+      label="Live example of the install snippet"
+    />
     <p>
       Replace <code>YOUR_ZONE_KEY</code> with the zone's key. Right after an admin issues the key, the Install tab
       shows the snippet with the key already in it, ready to copy; after that the key is never shown again. The
@@ -112,6 +119,16 @@ import {
     <h2 id="several-zones">Several zones on one page</h2>
     <p>Load the script once and add one element per zone, each with its own zone key.</p>
     <pre tabindex="0" role="region" aria-label="Two zones on one page"><code>{{ twoZones }}</code></pre>
+    <docs-live-zone
+      [zone]="firstZone"
+      caption="Live: the first zone, a promo bar. Its element needs no key; it renders from data in this page."
+      label="Live example of the first zone"
+    />
+    <docs-live-zone
+      [zone]="secondZone"
+      caption="Live: the second zone, a reaction bar, on the same page. Each element renders its own zone."
+      label="Live example of the second zone"
+    />
 
     <h2 id="sdk-url">Where the SDK comes from</h2>
     <p>
@@ -127,6 +144,11 @@ import {
       <code>sdkPinnedUrl</code> and <code>sdkIntegrity</code>, with <code>sdkBuildsKept</code>.)
     </p>
     <pre tabindex="0" role="region" aria-label="Pinned script tag"><code>{{ pinned }}</code></pre>
+    <docs-live-zone
+      [zone]="pinnedZone"
+      caption="Live: a rating bar rendered by the docs site's own copy of the Web SDK, not by the pinned URL above. It shows what the SDK draws; it does not test your pin."
+      label="Live example of a rating zone"
+    />
     <p>
       The browser then refuses any other file. By default the API keeps the last {{ buildsKept }} SDK builds this
       server served at their pinned URLs, the current one included, so a pinned page keeps working through the next
@@ -169,6 +191,12 @@ import {
       its settings.
     </p>
     <pre tabindex="0" role="region" aria-label="Theme for one zone"><code>{{ themeScript }}</code></pre>
+    <docs-live-zone
+      [zone]="themeZone"
+      [attributes]="themeAttributes"
+      caption="Live: the same theme fields as the script above, set on this one element with its theme attribute. Its rings are blue; the other live examples keep the default theme."
+      label="Live example of a theme for one zone"
+    />
 
     <h2 id="visitor-id">The visitor id</h2>
     <p>
@@ -242,4 +270,10 @@ export class InstallPage {
   protected readonly testPage = DOCS_TEST_PAGE;
   protected readonly testPageWithKey = DOCS_TEST_PAGE_WITH_KEY;
   protected readonly themeScript = DOCS_THEME_SCRIPT;
+  protected readonly snippetZone = THEME_ZONE;
+  protected readonly firstZone = PROMO_ZONE;
+  protected readonly secondZone = REACTION_ZONE;
+  protected readonly pinnedZone = RATING_ZONE;
+  protected readonly themeZone = POLL_ZONE;
+  protected readonly themeAttributes = { theme: '{"ringStyle":"solid","ringColors":["#0055ff"]}' };
 }

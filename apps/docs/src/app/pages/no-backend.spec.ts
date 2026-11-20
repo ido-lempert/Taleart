@@ -8,7 +8,7 @@ import { appRoutes, DOCS_PAGES } from '../app.routes';
 // The SDK's own checker (no imports of its own), so the page's examples are held to the real validateZone.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { validateZone } from '../../../../../libs/web-sdk/src/lib/validate-zone';
-import { DOCS_SDK_PATH } from './no-backend';
+import { LIVE_SDK_URL } from '../live-zone';
 import { BANNER_ZONE, BAR_ZONE, MINIMAL_ZONE } from './no-backend-data';
 
 function workspaceRoot(): string {
@@ -139,8 +139,8 @@ describe('how the docs site serves the SDK and the schema', () => {
   const project = JSON.parse(read('apps/docs/project.json'));
   const assets: { glob: string; input: string; output?: string }[] = project.targets.build.options.assets;
 
-  it('copies the built Web SDK to the folder the page loads it from', () => {
-    expect(DOCS_SDK_PATH).toBe('sdk/web/index.js');
+  it('loads the Web SDK from the CDN, latest', () => {
+    expect(LIVE_SDK_URL).toBe('https://cdn.jsdelivr.net/npm/@lempert/taleart@latest/index.js');
     expect(assets).toContainEqual({ glob: '*.js', input: 'dist/libs/web-sdk', output: 'sdk/web' });
     expect(JSON.stringify(project.targets.build.dependsOn)).toContain('"web-sdk"');
   });
