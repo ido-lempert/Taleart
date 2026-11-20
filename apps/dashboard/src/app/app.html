@@ -1,10 +1,13 @@
 @if (showShell()) {
   <!-- Shared by the top bar (wide screens) and the page heading (phones). -->
   <ng-template #roleBadge>
+    <!-- An admin needs no role label in the header: the role shows only for the other roles. -->
     @if (store.role(); as role) {
-      <span class="role-badge" id="project-role" [attr.data-role]="role">
-        <span class="visually-hidden">Your role in this project: </span>{{ roleLabels[role] }}
-      </span>
+      @if (role !== 'admin') {
+        <span class="role-badge" id="project-role" [attr.data-role]="role">
+          <span class="visually-hidden">Your role in this project: </span>{{ roleLabels[role] }}
+        </span>
+      }
     }
   </ng-template>
   <ng-template #createButton>

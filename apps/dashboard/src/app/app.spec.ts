@@ -718,7 +718,8 @@ describe('App', () => {
         const heading = root.querySelector<HTMLElement>('.page-heading');
         expect(heading?.querySelector('h1')?.textContent).toBe('Zones');
         expect(heading?.textContent).toContain('New zone');
-        expect(heading?.querySelector('#project-role')).not.toBeNull();
+        // An admin's header shows no role label.
+        expect(heading?.querySelector('#project-role')).toBeNull();
       } finally {
         restore();
       }
