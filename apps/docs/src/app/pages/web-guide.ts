@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DOCS_NPM_SNIPPET, DOCS_PROPERTIES_SCRIPT, DOCS_SNIPPET, DOCS_TEST_PAGE_WITH_KEY, EXAMPLE_INSTALL } from '../docs-content';
-import { DocsLiveZone } from '../live-zone';
+import { DocsLiveZone, DocsPhotoCredits } from '../live-zone';
 import {
   AUDIENCE_ZONE,
   FREQUENCY_ZONE,
@@ -106,7 +106,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
 @Component({
   selector: 'docs-web-guide',
-  imports: [RouterLink, DocsLiveZone],
+  imports: [RouterLink, DocsLiveZone, DocsPhotoCredits],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Web guide</h1>
@@ -591,6 +591,8 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       the old one at once, so update the page first. Read the
       <a routerLink="/reference/web-sdk">Web SDK reference</a> for the error behaviour.
     </p>
+
+    <docs-photo-credits />
 
     <h2 id="no-backend">Without a backend</h2>
     <p>

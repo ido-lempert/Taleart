@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DOCS_SNIPPET } from '../docs-content';
-import { DocsLiveZone } from '../live-zone';
+import { DocsLiveZone, DocsPhotoCredits } from '../live-zone';
 import { landingBannerZone, landingZone } from '../live-zones';
 
 /** One stories bar of the landing page's "Try it" section: the zone, the element's attributes and the feature's page. */
@@ -14,7 +14,7 @@ interface PromoItem {
 
 @Component({
   selector: 'docs-getting-started',
-  imports: [RouterLink, DocsLiveZone],
+  imports: [RouterLink, DocsLiveZone, DocsPhotoCredits],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="hero" aria-labelledby="hero-title">
@@ -42,7 +42,7 @@ interface PromoItem {
       [attributes]="featuresAttributes"
       caption="Each group is one feature. Tap a circle to open it."
       label="Features: a live stories bar"
-      [minHeight]="170"
+      [minHeight]="130"
     />
     <dl class="feature-list">
       @for (item of featureList; track item.name) {
@@ -64,6 +64,8 @@ interface PromoItem {
       label="Spring promotion: a live banner"
       [minHeight]="220"
     />
+
+    <docs-photo-credits />
 
     <h2 id="platform-guides">Build with an SDK</h2>
     <p>Each platform guide takes a zone from its key to a visible tale in an app or site, step by step.</p>

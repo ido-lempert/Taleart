@@ -1,4 +1,5 @@
 import { afterNextRender, ChangeDetectionStrategy, Component, ElementRef, input, signal, viewChild } from '@angular/core';
+import { PHOTOS } from './live-zones';
 
 /**
  * The Web SDK the live examples load: an exact published build on jsDelivr (npm `@lempert/taleart`). An exact version is
@@ -114,4 +115,35 @@ export class DocsLiveZone {
     this.host().nativeElement.replaceChildren(liveZoneElement(this.zone(), this.attributes()));
     this.status.set('Rendered by the Web SDK from the data in this page, with no request.');
   }
+}
+
+/** The photographers of the live examples' pictures, with the credit Unsplash asks for next to them. */
+@Component({
+  selector: 'docs-photo-credits',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: `
+    .credits {
+      font-size: 0.8125rem;
+      margin: 8px 0 24px;
+      opacity: 0.8;
+    }
+    .credits ul {
+      margin: 4px 0 0;
+      padding-inline-start: 1.25rem;
+      columns: 2;
+    }
+  `,
+  template: `
+    <div class="credits">
+      <strong>Photos</strong>, free to use under the Unsplash licence:
+      <ul>
+        @for (photo of photos; track photo.id) {
+          <li>Photo by <a [href]="photo.profile" rel="noopener">{{ photo.name }}</a> on <a [href]="photo.photo + '?utm_source=taleart&utm_medium=referral'" rel="noopener">Unsplash</a></li>
+        }
+      </ul>
+    </div>
+  `,
+})
+export class DocsPhotoCredits {
+  protected readonly photos = Object.values(PHOTOS);
 }
