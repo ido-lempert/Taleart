@@ -27,7 +27,6 @@ import { GroupRow, opensFromRowClick } from '../group-row';
 import { GroupView } from './group-view';
 import { ZonePreview } from './zone-preview';
 import { Icon } from '../icon';
-import { NewTaleGroupFlow } from '../new-tale-group';
 import type { MenuItem, MenuPick } from '../menu-button';
 import { gateMenu } from '../project-roles';
 import { statusActions, statusLabel } from '../status';
@@ -260,11 +259,6 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
           <section class="card section" aria-labelledby="tale-groups-title">
             <div class="section__header tale-groups__header">
               <h2 class="section__title" id="tale-groups-title" tabindex="-1">Tale groups in {{ project.name }}</h2>
-              @if (store.can('content.edit')) {
-                <button type="button" class="btn btn--primary btn--sm" id="new-project-tale-group" (click)="newGroup()">
-                  <app-icon name="plus" /> New tale group
-                </button>
-              }
             </div>
             <!-- Opening a group reads it with its tales (story 8.19): while it is read, and when it cannot be. -->
             @if (opening(); as open) {
@@ -437,7 +431,6 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
 })
 export class TaleGroupsPage {
   protected readonly store = inject(DashboardStore);
-  protected readonly newTaleGroup = inject(NewTaleGroupFlow);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly location = inject(Location);
@@ -709,11 +702,6 @@ export class TaleGroupsPage {
     this.selected.set(filter);
     this.writeUrl(filter);
     if (focus) this.focusFilter(filter);
-  }
-
-  /** Starts a group in no zone yet: its first tale in Tale Studio, then its options (see NewTaleGroupFlow). */
-  protected newGroup(): void {
-    void this.newTaleGroup.start(this.store.selectedProjectId(), '', 'tale-groups');
   }
 
   /**

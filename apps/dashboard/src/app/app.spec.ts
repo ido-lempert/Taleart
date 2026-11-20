@@ -5736,6 +5736,17 @@ describe('App', () => {
         await answerStudioReads(fixture);
       }
 
+      it('shows New tale group once, in the top bar, and it starts the group in no zone', async () => {
+        const { fixture, root } = await open('/tale-groups', data);
+        const buttons = [...root.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'New tale group');
+        expect(buttons).toHaveLength(1);
+        expect(buttons[0].closest('.topbar')).not.toBeNull();
+        buttons[0].click();
+        await settle(fixture);
+        await startLoose(fixture);
+        expect(url()).toBe('/tales/t9/studio?newGroup=g8&from=tale-groups');
+      });
+
       it('starts the group in no zone and opens Tale Studio on its draft tale', async () => {
         const { fixture, root } = await open('/tale-groups', data);
         buttonNamed(root, 'New tale group').click();

@@ -6,7 +6,7 @@ import { SignInPage } from './pages/sign-in';
 export interface ShellData {
   heading: string;
   /** What the top bar's "New …" button creates; pages without one leave it out. */
-  create?: 'project' | 'zone' | 'taleGroup';
+  create?: 'project' | 'zone' | 'taleGroup' | 'projectTaleGroup';
   createLabel?: string;
   /**
    * The page renders its own page header with its title, so on a phone the shell heading is kept for screen
@@ -85,7 +85,7 @@ export const appRoutes: Route[] = [
         path: 'tale-groups',
         loadComponent: () => import('./pages/tale-groups').then((m) => m.TaleGroupsPage),
         title: 'Tale groups · TaleArt',
-        data: { heading: 'Tale groups' } satisfies ShellData,
+        data: { heading: 'Tale groups', create: 'projectTaleGroup', createLabel: 'New tale group' } satisfies ShellData,
       },
       {
         // Tale Studio: a tale's document on a 9:16 canvas (epic Tale Studio, AD-15), loaded on first visit.

@@ -25,7 +25,9 @@ import type { BareData, ShellData } from './app.routes';
 export { API_BASE, API_ORIGIN } from './dashboard.store';
 
 /** The top bar's "New …" button's action: a drawer, or a new tale group through Tale Studio. */
-type CreateAction = DrawerRequest | { kind: 'newTaleGroup'; projectId: string; zoneId: string };
+type CreateAction =
+  | DrawerRequest
+  | { kind: 'newTaleGroup'; projectId: string; zoneId: string; from?: 'tale-groups' };
 
 function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
   return snapshot.firstChild ? deepest(snapshot.firstChild) : snapshot;
@@ -89,6 +91,13 @@ export class App {
           ? { kind: 'newTaleGroup', projectId: zone.projectId, zoneId: zone.id }
           : null;
       }
+      case 'projectTaleGroup': {
+        // In no zone yet, from the project's Tale groups page (which the studio's back link returns to).
+        const projectId = this.store.selectedProjectId();
+        return this.store.selectedProject() && this.store.can('content.edit')
+          ? { kind: 'newTaleGroup', projectId, zoneId: '', from: 'tale-groups' }
+          : null;
+      }
       default:
         return null;
     }
@@ -97,7 +106,7 @@ export class App {
   /** Runs what the top bar's button or a page's own "New …" control asks for. */
   protected runCreate(action: CreateAction, event: Event): void {
     if (action.kind === 'newTaleGroup') {
-      void this.newTaleGroup.start(action.projectId, action.zoneId);
+      void this.newTaleGroup.start(action.projectId, action.zoneId, action.from);
       return;
     }
     this.store.openDrawer(action, event);
