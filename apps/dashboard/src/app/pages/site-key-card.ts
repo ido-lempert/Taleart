@@ -105,7 +105,7 @@ function refusal(err: unknown, fallback: string): string {
             No site key yet. Issue one only if a server of yours reads this project's zones. It is shown once, when
             you issue it.
           } @else {
-            No site key yet. Ask an owner to issue one only if a server of yours reads this project's zones.
+            No site key yet. Ask an admin to issue one only if a server of yours reads this project's zones.
           }
         </p>
         @if (admin()) {

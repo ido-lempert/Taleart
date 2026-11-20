@@ -35,13 +35,13 @@ describe('role wording', () => {
       'Publisher: see everything (analytics included), edit content and save drafts, publish content and manage zones. Cannot manage keys or manage the team.',
     );
     expect(describeRole('admin')).toBe(
-      'Owner: see everything (analytics included), edit content and save drafts, publish content, manage zones, manage keys and manage the team.',
+      'Admin: see everything (analytics included), edit content and save drafts, publish content, manage zones, manage keys and manage the team.',
     );
   });
 
   it('puts the right article before a role', () => {
     expect(roleWithArticle('editor')).toBe('an Editor');
-    expect(roleWithArticle('admin')).toBe('an Owner');
+    expect(roleWithArticle('admin')).toBe('an Admin');
     expect(roleWithArticle('publisher')).toBe('a Publisher');
     expect(roleWithArticle('viewer')).toBe('a Viewer');
   });

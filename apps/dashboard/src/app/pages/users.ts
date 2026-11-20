@@ -7,7 +7,7 @@ import { providerNameOf } from '../sign-in-methods';
 import { SignInMethodsApi } from '../sign-in-methods.service';
 import { SettingsTabs } from './settings-tabs';
 
-const ROLE_LABELS: Record<AdminUser['role'], string> = { admin: 'Owner', content_manager: 'Content manager' };
+const ROLE_LABELS: Record<AdminUser['role'], string> = { admin: 'Admin', content_manager: 'Content manager' };
 
 /**
  * Settings > Users (admins only): everyone who can sign in to the install, how they sign in (passkey,
@@ -62,7 +62,7 @@ const ROLE_LABELS: Record<AdminUser['role'], string> = { admin: 'Owner', content
       </header>
 
       @if (!auth.isAdmin()) {
-        <p class="muted">Only owners can see the users of this install.</p>
+        <p class="muted">Only admins can see the users of this install.</p>
       } @else if (loadFailed()) {
         <div class="invite-actions" role="alert">
           <p class="form-error">The users could not be read.</p>

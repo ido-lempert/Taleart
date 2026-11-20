@@ -123,7 +123,7 @@ import { ROLE_LABELS } from '../project-roles';
           <section class="card empty" aria-labelledby="empty-projects">
             <span class="empty__icon"><app-icon name="projects" /></span>
             <h2 class="empty__title" id="empty-projects">No projects yet</h2>
-            <p class="empty__text">You are not a member of any project. Ask an owner to invite you.</p>
+            <p class="empty__text">You are not a member of any project. Ask an admin to invite you.</p>
           </section>
         } @else if (!store.apiDown()) {
           <section class="card empty" aria-labelledby="empty-projects">

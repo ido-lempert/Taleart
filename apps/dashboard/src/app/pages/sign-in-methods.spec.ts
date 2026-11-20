@@ -344,7 +344,7 @@ describe('SignInMethodsPage: Settings > Sign-in methods (admins)', () => {
   it('gives a non-admin only a notice and makes no request', async () => {
     open(SETTINGS, [], 'content_manager');
     await settle(fixture);
-    expect(text()).toContain('Only owners can change the sign-in methods.');
+    expect(text()).toContain('Only admins can change the sign-in methods.');
     expect(root().querySelector('[role="switch"]')).toBeNull();
   });
 

@@ -1587,8 +1587,8 @@ describe('App', () => {
       await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
       await flushRefresh(fixture, { projects: [{ ...acme, role: 'editor' }], zones: [newZone] });
       const root = fixture.nativeElement as HTMLElement;
-      expect(steps(root)[1]).toEqual(['Ask an owner to issue a zone key', 'To do']);
-      stepLink(root, 'Ask an owner to issue a zone key').click();
+      expect(steps(root)[1]).toEqual(['Ask an admin to issue a zone key', 'To do']);
+      stepLink(root, 'Ask an admin to issue a zone key').click();
       await settle(fixture);
       expect(selected(root)).toEqual(['Install']);
       expect(document.activeElement?.id).toBe('zone-key-title');
@@ -7021,7 +7021,7 @@ describe('App', () => {
       await navigate(fixture, '/zones', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
       await flushRefresh(fixture, {});
       const root = fixture.nativeElement as HTMLElement;
-      expect(root.textContent).toContain('Ask an owner to invite you');
+      expect(root.textContent).toContain('Ask an admin to invite you');
       expect(root.textContent).not.toContain('New project');
     });
 
@@ -7185,7 +7185,7 @@ describe('App', () => {
         zones: [zone],
       });
       const cards = [...root.querySelectorAll('.project-card')].map((c) => c.textContent?.replace(/\s+/g, ' '));
-      expect(cards[0]).toContain('Your role: Owner');
+      expect(cards[0]).toContain('Your role: Admin');
       expect(cards[1]).toContain('Your role: Viewer');
       expect(root.querySelector('[aria-label="Invite to Acme"]')).not.toBeNull();
       expect(root.querySelector('[aria-label="Invite to Globex"]')).toBeNull();

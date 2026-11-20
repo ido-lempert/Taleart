@@ -86,13 +86,13 @@ const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', ap
       <header class="page-header">
         <h2 class="page-header__title">Sign-in methods</h2>
         <p class="page-header__meta">
-          Choose how people sign in to TaleArt. A method can be turned off only while every owner can still sign in with
+          Choose how people sign in to TaleArt. A method can be turned off only while every admin can still sign in with
           another one.
         </p>
       </header>
 
       @if (!auth.isAdmin()) {
-        <p class="muted">Only owners can change the sign-in methods.</p>
+        <p class="muted">Only admins can change the sign-in methods.</p>
       } @else if (loadFailed()) {
         <div class="invite-actions" role="alert">
           <p class="form-error">The sign-in methods could not be read.</p>
@@ -115,7 +115,7 @@ const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', ap
           <h3 class="section__title" id="methods-title">Methods</h3>
           <p class="muted">
             Turn passkeys and usernames with passwords on or off. A method is refused when it is the last one on, or
-            when an owner would have no way left to sign in.
+            when an admin would have no way left to sign in.
           </p>
           <ul class="method-list">
             <li class="method">
@@ -159,7 +159,7 @@ const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', ap
           </div>
           <p class="muted">
             Sign in with Google, Apple, or any OpenID Connect provider. A provider never creates an account by itself:
-            people join by invitation or first-owner setup, or link a provider in My sign-in methods.
+            people join by invitation or first-admin setup, or link a provider in My sign-in methods.
           </p>
           @if (providers().length === 0) {
             <p class="muted" id="providers-empty">No providers yet.</p>

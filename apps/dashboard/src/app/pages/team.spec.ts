@@ -144,17 +144,17 @@ describe('TeamPage: Settings > Team', () => {
     expect(row('Noa Katz').textContent).toContain('Ended 1 Oct 2026');
     expect(row('Sam Cohen').textContent).toContain('Permanent');
     expect(row('Sam Cohen').textContent).toContain('1 Sep 2026');
-    expect(root().querySelector('#team-your-role')?.textContent).toBe('Owner');
+    expect(root().querySelector('#team-your-role')?.textContent).toBe('Admin');
   });
 
   it('shows the roles matrix with accessible check marks', async () => {
     await open('admin');
     const card = root().querySelector('[aria-labelledby="team-roles-title"]') as HTMLElement;
     const header = [...card.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
-    expect(header).toEqual(['Can…', 'Viewer', 'Editor', 'Publisher', 'Owner']);
+    expect(header).toEqual(['Can…', 'Viewer', 'Editor', 'Publisher', 'Admin']);
     const publish = card.querySelector('[data-permission="content.publish"]') as HTMLElement;
     const cells = [...publish.querySelectorAll('td')].map((td) => td.querySelector('.visually-hidden')?.textContent);
-    expect(cells).toEqual(['Viewer cannot', 'Editor cannot', 'Publisher can', 'Owner can']);
+    expect(cells).toEqual(['Viewer cannot', 'Editor cannot', 'Publisher can', 'Admin can']);
     expect(card.querySelectorAll('tbody tr')).toHaveLength(7);
     expect(card.textContent).toContain(
       'Editor: see everything (analytics included) and edit content and save drafts. Cannot publish',
