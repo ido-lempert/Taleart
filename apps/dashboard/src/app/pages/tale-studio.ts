@@ -1108,12 +1108,24 @@ export class TaleStudioPage implements OnChanges {
       number: i + 1,
       current: t.id === this.taleId(),
       hidden: taleShownStatus(t.storedStatus) !== 'shown',
-      // The current tale's picture is its document's first background; the others have only their media.
+      // The current tale's picture is its live document's first background; the others' come from their
+      // documents as the strip read them, else from their media.
       picture:
-        documentPicture(t.id === this.taleId() ? this.doc() : null, t.projectId) ??
+        documentPicture(t.id === this.taleId() ? this.doc() : this.stripDocuments().get(t.id), t.projectId) ??
         (t.media?.kind === 'image' ? this.store.mediaSrc(t) : ''),
       tone: i % 6,
     }));
+  });
+  /**
+   * The documents of the group's tales other than the current one, by tale id: the draft, else the published one (as
+   * the thumbnails read them). A tale with no document, or whose read failed, is absent from the map.
+   */
+  private readonly stripDocuments = signal<ReadonlyMap<string, TaleDocument | null>>(new Map());
+  /** The tales whose documents are read or kept, so each is read once. */
+  private readonly stripRequested = new Set<string>();
+  /** The ids of the group's tales other than the current one. */
+  private readonly stripOtherIds = computed(() => this.stripTales().filter((t) => !t.current).map((t) => t.id), {
+    equal: (a, b) => a.join() === b.join(),
   });
   /** The current tale's place in its group, from 1; null while the group is not known. */
   protected readonly taleNumber = computed(() => this.stripTales().find((t) => t.current)?.number ?? null);
@@ -1332,12 +1344,31 @@ export class TaleStudioPage implements OnChanges {
   /** The group of the tale, as `GET /tales/{id}` named it, for the tale it was read for (story 8.19). */
   private readonly taleGroupId = signal<{ taleId: string; groupId: string } | null>(null);
 
+  /** Reads the documents of the strip's tales that are not read yet; a failed read leaves the tale to its media. */
+  private readStripDocuments(ids: readonly string[]): void {
+    for (const id of ids) {
+      if (this.stripRequested.has(id)) continue;
+      this.stripRequested.add(id);
+      void this.documents.load(id).then((result) => {
+        if (result.value) {
+          const doc = result.value.document ?? result.value.published.document;
+          this.stripDocuments.update((documents) => new Map(documents).set(id, doc));
+        }
+      });
+    }
+  }
+
   constructor() {
     // The current tale in the strip, kept in view as the studio opens a tale.
     effect(() => {
       this.taleId();
       this.stripTales();
       setTimeout(() => this.showCurrentTale(), 0);
+    });
+    // The other tales' documents for the strip's pictures, read once each as the group's tales are known.
+    effect(() => {
+      const ids = this.stripOtherIds();
+      untracked(() => this.readStripDocuments(ids));
     });
     // The tab rail lies along the top of the left panel under 1024 px (tale-studio-panels.css).
     const narrow = globalThis.matchMedia?.('(max-width: 1023.98px)');
@@ -1473,6 +1504,13 @@ export class TaleStudioPage implements OnChanges {
     this.loadingTale.set(true);
     this.leavingForCopy = false;
     this.draftStored.set(false);
+    // The tale being left keeps its live document for its picture in the strip, so it is not read again.
+    const left = changes['taleId'].previousValue as string | undefined;
+    const liveDoc = this.doc();
+    if (left && liveDoc) {
+      this.stripRequested.add(left);
+      this.stripDocuments.update((documents) => new Map(documents).set(left, liveDoc));
+    }
     this.doc.set(null);
     this.history.clear();
     this.syncHistory();

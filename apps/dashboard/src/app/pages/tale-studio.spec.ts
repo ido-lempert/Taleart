@@ -89,11 +89,17 @@ describe('TaleStudioPage', () => {
     read: Parameters<typeof draftRead>[0],
     themeFont: string | null = null,
     fonts: ProjectFont[] = [],
+    others: Record<string, Parameters<typeof draftRead>[0]> = {},
   ): Promise<void> {
     fixture = TestBed.createComponent(TaleStudioPage);
     fixture.componentRef.setInput('taleId', 't1');
     fixture.detectChanges();
     http.expectOne(url).flush(draftRead(read));
+    // The group's other tales are read for the strip's pictures: as given, else with no document.
+    for (const other of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+\/document$/.test(r.url) && r.url !== url)) {
+      const id = other.request.url.split('/').at(-2) ?? '';
+      other.flush(draftRead(others[id] ?? { document: null, revision: 0 }));
+    }
     // The project theme's font, for texts in the theme font (story 7.4).
     http
       .expectOne(`${API_BASE}/projects/p1/theme`)
@@ -160,6 +166,10 @@ describe('TaleStudioPage', () => {
     // A tale the store's zone lists do not hold has its group read (story 8.19); not what these test.
     for (const read of http.match((r) => r.method === 'GET' && /\/tale-groups\/[^/]+$/.test(r.url))) {
       read.flush(null, { status: 404, statusText: 'Not Found' });
+    }
+    // The strip reads the group's other tales' documents (a test of one tale's document leaves them unread).
+    for (const read of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+\/document$/.test(r.url) && r.url !== url)) {
+      read.flush(draftRead({ document: null, revision: 0 }));
     }
     http.verify();
     document.body.replaceChildren();
@@ -2779,6 +2789,16 @@ describe('TaleStudioPage', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(live()).toBe('No changes: the tale matches the site.');
       expect(window.confirm).not.toHaveBeenCalled();
+    });
+
+    it('shows a tale’s first background as its strip picture, read from its document, when it is not the current tale', async () => {
+      const tales = [tale, { ...tale, id: 't2', title: 'Dusk', position: 1, media: null }];
+      TestBed.inject(DashboardStore).taleGroups.set({ z1: [{ ...group, tales } as unknown as ZoneTaleGroup] });
+      const dusk = { ...existing, canvas: { background: { type: 'media', mediaKey: 'media/dusk.png', fit: 'cover', color: '#000000' } } };
+      await open({ document: existing, revision: 1 }, null, [], { t2: { document: dusk as TaleDocument, revision: 1 } });
+      const links = [...root.querySelectorAll<HTMLAnchorElement>('.studio-strip a')];
+      expect(links[1].querySelector('img')?.getAttribute('src')).toContain('dusk.png');
+      expect(links[0].querySelector('img')).toBeNull();
     });
 
     it("lists the group's tales in order in the strip: the current one marked, a hidden one said so", async () => {

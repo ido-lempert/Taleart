@@ -322,6 +322,10 @@ describe('the group preview in the studio (epic Tale Studio R10, story 7.10)', (
     http
       .expectOne(`${API_BASE}/tales/t1/document`)
       .flush({ document: DOC, revision: 1, published: { document: null, revision: 0 } });
+    // The strip reads the group's other tales' documents too; the preview reads them again when it opens.
+    for (const read of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+\/document$/.test(r.url))) {
+      read.flush({ document: null, revision: 0, published: { document: null, revision: 0 } });
+    }
     http
       .expectOne(`${API_BASE}/projects/p1/theme`)
       .flush({ projectId: 'p1', theme: {}, resolved: { ...DEFAULT_THEME, accentColor: '#ff8800', fontFamily: null } });
