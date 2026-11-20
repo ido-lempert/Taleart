@@ -1,4 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, DOCUMENT, effect, inject, untracked } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  DOCUMENT,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRouteSnapshot, NavigationEnd, NavigationStart, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -26,7 +37,7 @@ function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
  * without the shell.
  */
 @Component({
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, Mark, CreateDrawer],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, NgTemplateOutlet, Icon, Mark, CreateDrawer],
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
@@ -39,8 +50,14 @@ export class App {
   private readonly newTaleGroup = inject(NewTaleGroupFlow);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
+  private readonly destroyRef = inject(DestroyRef);
   /** Retries while the API-down banner shows, and says when the API answers again. */
   protected readonly reconnect = inject(ApiReconnect);
+
+  /** A phone-width screen (below 640 px, where the rail moves to the bottom): the top bar keeps only logo, project and user. */
+  protected readonly phone = signal(false);
+  /** Whether a phone's user panel (name and Sign out) is open. */
+  protected readonly userPanelOpen = signal(false);
 
   private readonly route = toSignal(
     this.router.events.pipe(
@@ -87,6 +104,15 @@ export class App {
   }
 
   constructor() {
+    // Follows the phone breakpoint; without matchMedia (no window) the shell keeps the wide layout.
+    const query = this.document.defaultView?.matchMedia?.('(max-width: 639.98px)');
+    if (query) {
+      this.phone.set(query.matches);
+      const onChange = (event: MediaQueryListEvent) => this.phone.set(event.matches);
+      query.addEventListener('change', onChange);
+      this.destroyRef.onDestroy(() => query.removeEventListener('change', onChange));
+    }
+
     // A drawer belongs to the page that opened it; leaving the page closes it.
     this.router.events
       .pipe(
@@ -121,6 +147,20 @@ export class App {
       const user = this.auth.user();
       if (user) untracked(() => void this.store.loadFor(user));
     });
+  }
+
+  /** Initials for the phone's user chip, such as "AA" for "Ada Admin". */
+  protected initials(name: string): string {
+    return name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('');
+  }
+
+  protected userPanelToggled(event: Event): void {
+    this.userPanelOpen.set((event as ToggleEvent).newState === 'open');
   }
 
   protected async signOut(): Promise<void> {

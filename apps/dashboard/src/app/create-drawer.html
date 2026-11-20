@@ -82,11 +82,17 @@
                     [attr.aria-describedby]="'template-desc-' + template.key"
                     (change)="templateKey.set(template.key); error.set('')"
                   />
-                  <span class="template-sketch" [attr.data-kind]="template.frame?.type ?? 'blank'" aria-hidden="true">
+                  <span
+                    class="template-sketch"
+                    [attr.data-kind]="template.frame?.type ?? 'blank'"
+                    [attr.role]="template.frame ? 'img' : null"
+                    [attr.aria-label]="template.frame ? store.frameTypeLabel(template.frame.type) : null"
+                    [attr.aria-hidden]="template.frame ? null : 'true'"
+                  >
                     @if (template.frame?.type === 'bar') {
-                      <i></i><i></i><i></i><i></i>
+                      <app-icon name="zone-bar" />
                     } @else if (template.frame?.type === 'banner') {
-                      <i></i>
+                      <app-icon name="zone-banner" />
                     }
                   </span>
                   <span class="template-option__label">{{ template.label }}</span>

@@ -1,4 +1,21 @@
 @if (showShell()) {
+  <!-- Shared by the top bar (wide screens) and the page heading (phones). -->
+  <ng-template #roleBadge>
+    @if (store.role(); as role) {
+      <span class="role-badge" id="project-role" [attr.data-role]="role">
+        <span class="visually-hidden">Your role in this project: </span>{{ roleLabels[role] }}
+      </span>
+    }
+  </ng-template>
+  <ng-template #createButton>
+    @if (createRequest(); as request) {
+      <button type="button" class="btn btn--primary" (click)="runCreate(request, $event)">
+        <app-icon name="plus" />
+        <span class="btn__label">{{ shell().createLabel }}</span>
+      </button>
+    }
+  </ng-template>
+
   <a class="skip-link" href="#main" (click)="skipToMain($event)">Skip to content</a>
 
   <div class="shell">
@@ -29,11 +46,18 @@
     </nav>
 
     <div class="main-column">
+      <!-- On a phone the top bar holds only the logo, the project and the user; the title and actions go in the page's heading. -->
       <header class="topbar">
-        <div class="topbar__brand">
-          <span class="wordmark">TaleArt</span>
-          <h1 class="topbar__title">{{ shell().heading ?? 'Zones' }}</h1>
-        </div>
+        @if (phone()) {
+          <a class="topbar__logo" routerLink="/zones" aria-label="TaleArt home">
+            <app-mark />
+          </a>
+        } @else {
+          <div class="topbar__brand">
+            <span class="wordmark">TaleArt</span>
+            <h1 class="topbar__title">{{ shell().heading ?? 'Zones' }}</h1>
+          </div>
+        }
         <div class="topbar__actions">
           @if (store.projects().length > 0) {
             <div class="switcher">
@@ -47,23 +71,37 @@
                 }
               </select>
             </div>
-            @if (store.role(); as role) {
-              <span class="role-badge" id="project-role" [attr.data-role]="role">
-                <span class="visually-hidden">Your role in this project: </span>{{ roleLabels[role] }}
-              </span>
+            @if (!phone()) {
+              <ng-container *ngTemplateOutlet="roleBadge" />
             }
           }
-          @if (createRequest(); as request) {
-            <button type="button" class="btn btn--primary" (click)="runCreate(request, $event)">
-              <app-icon name="plus" />
-              <span class="btn__label">{{ shell().createLabel }}</span>
-            </button>
+          @if (!phone()) {
+            <ng-container *ngTemplateOutlet="createButton" />
           }
           @if (auth.user(); as user) {
-            <div class="user-menu">
-              <span class="user-menu__name" [title]="user.email">{{ user.name }}</span>
-              <button type="button" class="btn btn--ghost btn--sm" (click)="signOut()">Sign out</button>
-            </div>
+            @if (phone()) {
+              <button
+                type="button"
+                class="user-chip"
+                aria-controls="user-panel"
+                [attr.aria-expanded]="userPanelOpen()"
+                [attr.aria-label]="user.name"
+                [title]="user.email"
+                popovertarget="user-panel"
+              >{{ initials(user.name) }}</button>
+              <div id="user-panel" class="user-panel" popover (toggle)="userPanelToggled($event)">
+                <p class="user-panel__who">
+                  <span class="user-panel__name">{{ user.name }}</span>
+                  <span class="user-panel__email">{{ user.email }}</span>
+                </p>
+                <button type="button" class="btn btn--ghost btn--sm" (click)="signOut()">Sign out</button>
+              </div>
+            } @else {
+              <div class="user-menu">
+                <span class="user-menu__name" [title]="user.email">{{ user.name }}</span>
+                <button type="button" class="btn btn--ghost btn--sm" (click)="signOut()">Sign out</button>
+              </div>
+            }
           }
         </div>
       </header>
@@ -85,6 +123,15 @@
       }
 
       <main id="main" class="content" tabindex="-1">
+        @if (phone()) {
+          <div class="page-heading">
+            <h1 class="page-heading__title">{{ shell().heading ?? 'Zones' }}</h1>
+            @if (store.projects().length > 0) {
+              <ng-container *ngTemplateOutlet="roleBadge" />
+            }
+            <ng-container *ngTemplateOutlet="createButton" />
+          </div>
+        }
         <router-outlet />
       </main>
     </div>

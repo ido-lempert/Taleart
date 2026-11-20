@@ -54,6 +54,10 @@
   line-height: 1.2;
   text-align: center;
   text-decoration: none;
+  /* The active item's tint fades in and out when the page changes (see the reduced-motion rule below). */
+  transition:
+    background-color 180ms ease-out,
+    color 180ms ease-out;
 }
 
 .rail__item:hover {
@@ -221,5 +225,103 @@
 @media (max-width: 639.98px) {
   .user-menu__name {
     display: none;
+  }
+}
+
+/* Phone: the top bar's logo, the user's chip and its panel, and the page's heading row. */
+.topbar__logo {
+  display: grid;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+}
+
+.user-chip {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--brand-tint);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.user-chip[aria-expanded='true'] {
+  border-color: var(--brand);
+}
+
+.user-chip:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* A popover: in the top layer, under the top bar's right edge. */
+.user-panel {
+  inset: auto var(--space-3) auto auto;
+  top: calc(var(--topbar-height) - var(--space-2));
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 200px;
+  max-width: calc(100vw - 2 * var(--space-3));
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  color: var(--text);
+}
+
+/* Its own display only while open: a closed popover stays hidden. */
+.user-panel:popover-open {
+  display: flex;
+}
+
+.user-panel__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-panel__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.user-panel__email {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.user-panel .btn {
+  align-self: flex-start;
+}
+
+.page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--page-padding) 0;
+}
+
+.page-heading__title {
+  min-width: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail__item {
+    transition: none;
   }
 }

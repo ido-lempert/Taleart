@@ -39,6 +39,7 @@ import { AudienceRuleSection } from './audience-rule-section';
 import { CoverEditor } from './cover-editor';
 import { DashboardStore, isAudienceHeld, type DrawerRequest, type ZoneField } from './dashboard.store';
 import { Drawer } from './drawer';
+import { Icon } from './icon';
 import { accessText, describeRole, ROLE_LABELS, roleWithArticle } from './project-roles';
 import { localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { initialSettings, settingsFields, SettingsForm, type Settings } from './settings-form';
@@ -81,6 +82,7 @@ export function checkMediaFile(file: File): { type: string; problem: string } {
     FormsModule,
     RouterLink,
     Drawer,
+    Icon,
     SettingsForm,
     DisplayOptionPicker,
     CoverEditor,

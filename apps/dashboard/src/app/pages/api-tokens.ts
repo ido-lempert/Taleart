@@ -1,5 +1,13 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  afterNextRender,
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  Injector,
+  signal,
+} from '@angular/core';
 import {
   isErrorBody,
   MAX_API_TOKEN_NAME_LENGTH,
@@ -174,117 +182,133 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
 
       <section class="card section tokens-section" aria-labelledby="api-token-create-title">
         <h3 class="section__title" id="api-token-create-title">Create a token</h3>
-        <form class="tokens-form" (submit)="$event.preventDefault(); create($event)" novalidate>
-          <div class="field">
-            <label class="field__label" for="api-token-name">Name</label>
-            <input
-              id="api-token-name"
-              class="input"
-              type="text"
-              autocomplete="off"
-              spellcheck="false"
-              aria-required="true"
-              [attr.maxlength]="maxName"
-              [value]="name()"
-              [attr.aria-invalid]="errors().name ? 'true' : null"
-              [attr.aria-describedby]="errors().name ? 'api-token-name-hint api-token-name-error' : 'api-token-name-hint'"
-              (input)="name.set($any($event.target).value)"
-            />
-            <span class="field__hint" id="api-token-name-hint">What it is for, such as "Nightly import script".</span>
-            @if (errors().name) {
-              <span class="field__error" id="api-token-name-error">{{ errors().name }}</span>
-            }
-          </div>
-
-          <fieldset
-            class="tokens-choices"
-            [attr.aria-invalid]="errors().projects ? 'true' : null"
-            [attr.aria-describedby]="errors().projects ? 'api-token-projects-error' : null"
-          >
-            <legend class="field__label">Projects</legend>
-            <label class="checkbox">
-              <input
-                type="radio"
-                name="api-token-scope"
-                id="api-token-all"
-                [checked]="allProjects()"
-                (change)="allProjects.set(true)"
-              />
-              All my projects, including ones I get later
-            </label>
-            <label class="checkbox">
-              <input
-                type="radio"
-                name="api-token-scope"
-                id="api-token-some"
-                [checked]="!allProjects()"
-                (change)="allProjects.set(false)"
-              />
-              Only the projects I pick
-            </label>
-            @if (!allProjects()) {
-              <fieldset class="tokens-projects">
-                <legend class="visually-hidden">Projects the token can reach</legend>
-                @for (project of store.projects(); track project.id) {
-                  <label class="checkbox">
-                    <input
-                      type="checkbox"
-                      [checked]="picked().has(project.id)"
-                      (change)="toggle(project.id, $any($event.target).checked)"
-                    />
-                    {{ project.name }}
-                  </label>
-                } @empty {
-                  <p class="muted">You have no projects yet.</p>
-                }
-              </fieldset>
-            }
-            @if (errors().projects) {
-              <span class="field__error" id="api-token-projects-error">{{ errors().projects }}</span>
-            }
-          </fieldset>
-
-          <div class="field">
-            <label class="checkbox" for="api-token-read-only">
-              <input
-                id="api-token-read-only"
-                type="checkbox"
-                aria-describedby="api-token-read-only-hint"
-                [checked]="readOnly()"
-                (change)="readOnly.set($any($event.target).checked)"
-              />
-              Read-only
-            </label>
-            <span class="field__hint" id="api-token-read-only-hint">
-              A read-only token can read zones, tale groups and tales but cannot change anything. Clear it only for a
-              script that must make changes.
-            </span>
-          </div>
-
-          <div class="field tokens-expiry">
-            <label class="field__label" for="api-token-expiry">Expires</label>
-            <select
-              id="api-token-expiry"
-              class="select"
-              aria-describedby="api-token-expiry-hint"
-              (change)="expiryDays.set(+$any($event.target).value)"
-            >
-              @for (choice of expiryChoices; track choice.days) {
-                <option [value]="choice.days" [selected]="choice.days === expiryDays()">{{ choice.label }}</option>
-              }
-            </select>
-            <span class="field__hint" id="api-token-expiry-hint">An expired token stops working; create a new one then.</span>
-          </div>
-
-          @if (createError()) {
-            <p class="form-error" role="alert">{{ createError() }}</p>
-          }
+        @if (activeCount() > 0) {
           <div class="tokens-actions">
-            <button type="submit" class="btn btn--primary" id="api-token-create" [disabled]="creating()">
-              {{ creating() ? 'Creating…' : 'Create token' }}
+            <button
+              type="button"
+              class="btn btn--secondary"
+              id="api-token-add"
+              aria-controls="api-token-form"
+              [attr.aria-expanded]="formShown()"
+              (click)="toggleForm()"
+            >
+              Add a token…
             </button>
           </div>
-        </form>
+        }
+        <div id="api-token-form" [hidden]="!formShown()">
+          <form class="tokens-form" (submit)="$event.preventDefault(); create($event)" novalidate>
+            <div class="field">
+              <label class="field__label" for="api-token-name">Name</label>
+              <input
+                id="api-token-name"
+                class="input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                aria-required="true"
+                [attr.maxlength]="maxName"
+                [value]="name()"
+                [attr.aria-invalid]="errors().name ? 'true' : null"
+                [attr.aria-describedby]="errors().name ? 'api-token-name-hint api-token-name-error' : 'api-token-name-hint'"
+                (input)="name.set($any($event.target).value)"
+              />
+              <span class="field__hint" id="api-token-name-hint">What it is for, such as "Nightly import script".</span>
+              @if (errors().name) {
+                <span class="field__error" id="api-token-name-error">{{ errors().name }}</span>
+              }
+            </div>
+
+            <fieldset
+              class="tokens-choices"
+              [attr.aria-invalid]="errors().projects ? 'true' : null"
+              [attr.aria-describedby]="errors().projects ? 'api-token-projects-error' : null"
+            >
+              <legend class="field__label">Projects</legend>
+              <label class="checkbox">
+                <input
+                  type="radio"
+                  name="api-token-scope"
+                  id="api-token-all"
+                  [checked]="allProjects()"
+                  (change)="allProjects.set(true)"
+                />
+                All my projects, including ones I get later
+              </label>
+              <label class="checkbox">
+                <input
+                  type="radio"
+                  name="api-token-scope"
+                  id="api-token-some"
+                  [checked]="!allProjects()"
+                  (change)="allProjects.set(false)"
+                />
+                Only the projects I pick
+              </label>
+              @if (!allProjects()) {
+                <fieldset class="tokens-projects">
+                  <legend class="visually-hidden">Projects the token can reach</legend>
+                  @for (project of store.projects(); track project.id) {
+                    <label class="checkbox">
+                      <input
+                        type="checkbox"
+                        [checked]="picked().has(project.id)"
+                        (change)="toggle(project.id, $any($event.target).checked)"
+                      />
+                      {{ project.name }}
+                    </label>
+                  } @empty {
+                    <p class="muted">You have no projects yet.</p>
+                  }
+                </fieldset>
+              }
+              @if (errors().projects) {
+                <span class="field__error" id="api-token-projects-error">{{ errors().projects }}</span>
+              }
+            </fieldset>
+
+            <div class="field">
+              <label class="checkbox" for="api-token-read-only">
+                <input
+                  id="api-token-read-only"
+                  type="checkbox"
+                  aria-describedby="api-token-read-only-hint"
+                  [checked]="readOnly()"
+                  (change)="readOnly.set($any($event.target).checked)"
+                />
+                Read-only
+              </label>
+              <span class="field__hint" id="api-token-read-only-hint">
+                A read-only token can read zones, tale groups and tales but cannot change anything. Clear it only for a
+                script that must make changes.
+              </span>
+            </div>
+
+            <div class="field tokens-expiry">
+              <label class="field__label" for="api-token-expiry">Expires</label>
+              <select
+                id="api-token-expiry"
+                class="select"
+                aria-describedby="api-token-expiry-hint"
+                (change)="expiryDays.set(+$any($event.target).value)"
+              >
+                @for (choice of expiryChoices; track choice.days) {
+                  <option [value]="choice.days" [selected]="choice.days === expiryDays()">{{ choice.label }}</option>
+                }
+              </select>
+              <span class="field__hint" id="api-token-expiry-hint">An expired token stops working; create a new one then.</span>
+            </div>
+
+            @if (createError()) {
+              <p class="form-error" role="alert">{{ createError() }}</p>
+            }
+            <div class="tokens-actions">
+              <button type="submit" class="btn btn--primary" id="api-token-create" [disabled]="creating()">
+                {{ creating() ? 'Creating…' : 'Create token' }}
+              </button>
+            </div>
+          </form>
+        </div>
       </section>
 
       <section class="card section tokens-section" aria-labelledby="api-tokens-list-title">
@@ -420,6 +444,8 @@ export class ApiTokensPage {
   protected readonly loaded = signal(false);
   protected readonly readFailed = signal(false);
 
+  /** Whether the user has expanded the form while tokens exist; with none, the form is always shown. */
+  protected readonly formOpen = signal(false);
   protected readonly name = signal('');
   protected readonly allProjects = signal(true);
   protected readonly picked = signal<ReadonlySet<string>>(new Set());
@@ -442,6 +468,10 @@ export class ApiTokensPage {
   protected readonly focusBack = () => this.returnFocus;
 
   private readonly projects = computed(() => this.store.projects());
+  private readonly injector = inject(Injector);
+  /** Tokens that still work: not expired. (Revoked tokens leave the list.) */
+  protected readonly activeCount = computed(() => this.tokens().filter((t) => !this.expired(t)).length);
+  protected readonly formShown = computed(() => this.activeCount() === 0 || this.formOpen());
 
   constructor() {
     void this.read();
@@ -471,6 +501,14 @@ export class ApiTokensPage {
 
   protected expired(token: ApiToken): boolean {
     return token.expiresAt !== null && Date.parse(token.expiresAt) <= Date.now();
+  }
+
+  /** Expands or collapses the create form; expanding moves focus to its first field. */
+  protected toggleForm(): void {
+    this.formOpen.update((open) => !open);
+    if (this.formOpen()) {
+      afterNextRender(() => document.getElementById('api-token-name')?.focus(), { injector: this.injector });
+    }
   }
 
   protected toggle(projectId: string, on: boolean): void {
@@ -529,6 +567,9 @@ export class ApiTokensPage {
       this.picked.set(new Set());
       this.allProjects.set(true);
       this.readOnly.set(true);
+      // The form collapses behind its button now that a token is active; focus returns to that button.
+      this.formOpen.set(false);
+      this.returnFocus = document.getElementById('api-token-add');
       this.announcement.set(`Token ${token.name} created.`);
     } catch (err) {
       this.createError.set(refusal(err, 'The token was not created. Try again.'));

@@ -88,6 +88,50 @@ describe('ApiTokensPage: Settings > API tokens (epic developer experience 10.1)'
     expect(root().querySelector('.tokens-list')).toBeNull();
   });
 
+  it('shows the create form open when there are no active tokens, with no toggle', async () => {
+    await open();
+    expect(root().querySelector<HTMLElement>('#api-token-form')?.hidden).toBe(false);
+    expect(root().querySelector('#api-token-add')).toBeNull();
+  });
+
+  it('collapses the create form when there are active tokens, and the button expands it with focus on the name', async () => {
+    await open([listed]);
+    const form = root().querySelector<HTMLElement>('#api-token-form') as HTMLElement;
+    const add = root().querySelector<HTMLButtonElement>('#api-token-add') as HTMLButtonElement;
+    expect(form.hidden).toBe(true);
+    expect(add.getAttribute('aria-expanded')).toBe('false');
+    expect(add.getAttribute('aria-controls')).toBe('api-token-form');
+    expect(text()).toContain('Nightly import');
+
+    add.click();
+    await settle(fixture);
+    expect(form.hidden).toBe(false);
+    expect(add.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement?.id).toBe('api-token-name');
+
+    add.click();
+    await settle(fixture);
+    expect(form.hidden).toBe(true);
+    expect(add.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('collapses the form after a create when tokens exist, and lists the new token', async () => {
+    await open([listed]);
+    root().querySelector<HTMLButtonElement>('#api-token-add')?.click();
+    await settle(fixture);
+    type('api-token-name', 'CI');
+    input('api-token-all').click();
+    await settle(fixture);
+    await submit();
+    http.expectOne(url).flush({ ...listed, id: 't2', name: 'CI', prefix: 'tat_ci0000', projectIds: null, token: SECRET });
+    await settle(fixture);
+
+    expect(root().querySelector<HTMLElement>('#api-token-form')?.hidden).toBe(true);
+    expect(root().querySelector<HTMLButtonElement>('#api-token-add')?.getAttribute('aria-expanded')).toBe('false');
+    expect(text()).toContain('CI');
+    expect(text()).toContain('tat_ci0000…');
+  });
+
   it('lists each token with its prefix, scope and dates, never a secret', async () => {
     await open([
       listed,

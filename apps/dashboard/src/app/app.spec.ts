@@ -680,6 +680,51 @@ describe('App', () => {
     }
   });
 
+  describe('phone header (narrow screens)', () => {
+    // Answers matchMedia for the phone breakpoint only; returns what restores the original.
+    function onPhone(): () => void {
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        matches: query === '(max-width: 639.98px)',
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      })) as unknown as typeof window.matchMedia;
+      return () => {
+        window.matchMedia = original;
+      };
+    }
+
+    it('keeps the logo, the project and the user in the top bar; the title and create control move into the page heading', async () => {
+      const restore = onPhone();
+      try {
+        const { root } = await open('/zones', { projects: [{ id: 'p1', role: 'admin' }], zones: [zone] });
+
+        expect(root.querySelector('.topbar__brand')).toBeNull();
+        expect(root.querySelector('.topbar__logo')?.getAttribute('aria-label')).toBe('TaleArt home');
+        expect(root.querySelector('#project-switcher')).not.toBeNull();
+        expect(root.querySelector('.topbar')?.textContent).not.toContain('New zone');
+        expect(root.querySelector('.user-menu')).toBeNull();
+
+        const user = root.querySelector<HTMLButtonElement>('.user-chip');
+        expect(user?.textContent?.trim()).toBe('AA');
+        expect(user?.getAttribute('aria-label')).toBe('Ada Admin');
+        expect(root.querySelector('#user-panel')?.textContent).toContain('Sign out');
+
+        const heading = root.querySelector<HTMLElement>('.page-heading');
+        expect(heading?.querySelector('h1')?.textContent).toBe('Zones');
+        expect(heading?.textContent).toContain('New zone');
+        expect(heading?.querySelector('#project-role')).not.toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  });
+
   describe('zones page', () => {
     it('offers to create the first project when there are none', async () => {
       const { fixture, root } = await open('/zones', {});
@@ -701,7 +746,10 @@ describe('App', () => {
       const cards = root.querySelector('[aria-label=Zones]');
       expect(cards?.textContent).toContain('Home bar');
       expect(cards?.textContent).not.toContain('Checkout');
-      expect(cards?.querySelector('.pill')?.textContent).toContain('Display: Bar');
+      // The display type is the icon next to the name, named for screen readers; no caption prints it.
+      expect(cards?.querySelector('.zone-card__type')?.getAttribute('aria-label')).toBe('Display: Bar');
+      expect(cards?.querySelector('.zone-card__type app-icon svg')).not.toBeNull();
+      expect(cards?.querySelector('[data-summary=display]')).toBeNull();
       expect(cards?.querySelector('.zone-card__slug')?.textContent).toContain('z1');
       expect(cards?.textContent).toContain('1 tale group');
     });
@@ -1786,14 +1834,15 @@ describe('App', () => {
       expect(described[0]).toContain('row of circles');
       expect(described[1]).toContain('wide banner');
       expect(described[2]).toContain('No display yet');
-      // The sketches are decoration: hidden from assistive technology.
+      // The bar and banner sketches are icons named by their display type; the blank one is decoration.
       const sketches = [...(fieldset?.querySelectorAll<HTMLElement>('.template-sketch') ?? [])];
-      expect(sketches.map((s) => [s.dataset['kind'], s.getAttribute('aria-hidden')])).toEqual([
-        ['bar', 'true'],
-        ['banner', 'true'],
-        ['blank', 'true'],
+      expect(sketches.map((s) => [s.dataset['kind'], s.getAttribute('role'), s.getAttribute('aria-label')])).toEqual([
+        ['bar', 'img', 'Bar'],
+        ['banner', 'img', 'Banner'],
+        ['blank', null, null],
       ]);
-      expect(sketches.map((s) => s.querySelectorAll('i').length)).toEqual([4, 1, 0]);
+      expect(sketches[2].getAttribute('aria-hidden')).toBe('true');
+      expect(sketches.map((s) => s.querySelectorAll('app-icon svg').length)).toEqual([1, 1, 0]);
     });
 
     it('creates the zone with the picked template in the same request', async () => {
@@ -5797,8 +5846,13 @@ describe('App', () => {
       const cards = [...root.querySelectorAll<HTMLElement>('.zone-card')];
       const summary = (card: HTMLElement) =>
         [...card.querySelectorAll('.zone-card__summary li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
-      expect(summary(cards[0])).toEqual(['Display: Bar', '2 tale groups', 'Install: Installed']);
-      expect(summary(cards[1])).toEqual(['Display: Banner', '0 tale groups', 'Install: Not installed']);
+      expect(cards.map((card) => card.querySelector('.zone-card__type')?.getAttribute('aria-label'))).toEqual([
+        'Display: Bar',
+        'Display: Banner',
+        undefined,
+      ]);
+      expect(summary(cards[0])).toEqual(['2 tale groups', 'Install: Installed']);
+      expect(summary(cards[1])).toEqual(['0 tale groups', 'Install: Not installed']);
       expect(summary(cards[2])).toEqual(['Display: No display yet', '0 tale groups']);
       expect(cards[0].querySelector('.zone-card__summary')?.getAttribute('aria-label')).toBe('Summary of Home bar');
       expect(text(cards[0].querySelector('app-visibility .visibility__line'))).toBe('Visible on site');

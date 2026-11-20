@@ -167,6 +167,21 @@ select {
   flex: none;
 }
 
+/* Route changes (withViewTransitions): a short cross-fade of the page. Reduced motion swaps at once. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex;
@@ -1217,36 +1232,27 @@ select {
   color: var(--text-secondary);
 }
 
-/* A small sketch of the display: circles for a bar, a wide block for a banner, a dashed box for none. */
+/* The display's icon (a bar or a banner, as the zone looks on the site); a dashed box for none. */
 .template-sketch {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
   width: 56px;
   height: 24px;
-  padding: 3px;
+  padding: 2px;
   border-radius: 4px;
   border: 1px solid var(--border);
+  color: var(--text-secondary);
 }
 
 .template-sketch[data-kind='blank'] {
   border-style: dashed;
 }
 
-.template-sketch i {
-  display: block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-}
-
-.template-sketch[data-kind='banner'] i {
-  width: 100%;
-  height: 100%;
-  border-radius: 2px;
+.template-sketch .icon {
+  width: 20px;
+  height: 20px;
 }
 
 @media (max-width: 639.98px) {

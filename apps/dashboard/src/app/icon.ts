@@ -46,7 +46,9 @@ export type IconName =
   | 'templates'
   | 'safe-area'
   | 'search'
-  | 'puzzle';
+  | 'puzzle'
+  | 'zone-banner'
+  | 'zone-bar';
 
 /** Inline SVG icons (24px grid, 2px stroke). Decorative: the control around an icon carries the label. */
 @Component({
@@ -244,6 +246,16 @@ export type IconName =
         }
         @case ('puzzle') {
           <path d="M5 8h3a2 2 0 1 1 4 0h3v3a2 2 0 1 1 0 4v4H5v-4a2 2 0 1 0 0-4z" />
+        }
+        @case ('zone-banner') {
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <rect x="3" y="3" width="18" height="6" rx="2" fill="currentColor" />
+        }
+        @case ('zone-bar') {
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" />
+          <circle cx="12" cy="7.5" r="1.5" fill="currentColor" />
+          <circle cx="16.5" cy="7.5" r="1.5" fill="currentColor" />
         }
         @case ('tales') {
           <rect x="7" y="3" width="10" height="18" rx="2" />

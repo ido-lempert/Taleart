@@ -34,6 +34,17 @@ import { zoneInstalled } from '../zone-setup';
       border-color: var(--border-strong);
       box-shadow: 0 4px 12px rgb(16 24 40 / 8%);
     }
+    .zone-card__head {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      min-width: 0;
+    }
+    .zone-card__type {
+      display: inline-flex;
+      flex: none;
+      color: var(--text-secondary);
+    }
     .zone-card__name {
       font-size: var(--text-lg);
       font-weight: 600;
@@ -138,13 +149,31 @@ import { zoneInstalled } from '../zone-setup';
             @for (zone of store.projectZones(); track zone.id) {
               <li>
                 <div class="card zone-card">
-                  <a class="zone-card__name" [routerLink]="['/zones', zone.id]">{{ zone.name }}</a>
+                  <div class="zone-card__head">
+                    @if (zone.frame; as frame) {
+                      <span
+                        class="zone-card__type"
+                        role="img"
+                        [attr.aria-label]="'Display: ' + store.frameTypeLabel(frame.type)"
+                        [attr.title]="store.frameTypeLabel(frame.type)"
+                      >
+                        @if (frame.type === 'bar') {
+                          <app-icon name="zone-bar" />
+                        } @else if (frame.type === 'banner') {
+                          <app-icon name="zone-banner" />
+                        }
+                      </span>
+                    }
+                    <a class="zone-card__name" [routerLink]="['/zones', zone.id]">{{ zone.name }}</a>
+                  </div>
                   <app-visibility [visibility]="zone.visibility" viewing="zone" />
                   <span class="zone-card__slug"><span class="visually-hidden">Slug </span><code class="key-prefix">{{ zone.slug }}</code></span>
                   <ul class="zone-card__summary" [attr.aria-label]="'Summary of ' + zone.name">
-                    <li class="pill" data-summary="display" [class.pill--muted]="!zone.frame">
-                      <span class="visually-hidden">Display: </span>{{ zone.frame ? store.frameTypeLabel(zone.frame.type) : 'No display yet' }}
-                    </li>
+                    @if (!zone.frame) {
+                      <li class="pill pill--muted" data-summary="display">
+                        <span class="visually-hidden">Display: </span>No display yet
+                      </li>
+                    }
                     <li class="pill" data-summary="groups">{{ groupCountLabel(zone.id) }}</li>
                     @if (installed(zone); as state) {
                       <li class="pill" data-summary="install" [class.pill--muted]="state === 'Not installed'">
