@@ -1,7 +1,10 @@
 import { afterNextRender, ChangeDetectionStrategy, Component, ElementRef, input, signal, viewChild } from '@angular/core';
 
-/** The Web SDK the live examples load: the latest published build on jsDelivr (npm `@lempert/taleart`). */
-export const LIVE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@lempert/taleart@latest/index.js';
+/**
+ * The Web SDK the live examples load: an exact published build on jsDelivr (npm `@lempert/taleart`). An exact version is
+ * cached for good, so a new release never leaves a stale copy behind; bump it when the docs should use a newer SDK.
+ */
+export const LIVE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@lempert/taleart@0.1.2/index.js';
 
 /** What the live examples use of the SDK: its page handle, set when the module loads. */
 export interface LiveSdk {

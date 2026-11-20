@@ -139,8 +139,8 @@ describe('how the docs site serves the SDK and the schema', () => {
   const project = JSON.parse(read('apps/docs/project.json'));
   const assets: { glob: string; input: string; output?: string }[] = project.targets.build.options.assets;
 
-  it('loads the Web SDK from the CDN, latest', () => {
-    expect(LIVE_SDK_URL).toBe('https://cdn.jsdelivr.net/npm/@lempert/taleart@latest/index.js');
+  it('loads the Web SDK from the CDN, pinned to the published version', () => {
+    expect(LIVE_SDK_URL).toBe('https://cdn.jsdelivr.net/npm/@lempert/taleart@0.1.2/index.js');
     expect(assets).toContainEqual({ glob: '*.js', input: 'dist/libs/web-sdk', output: 'sdk/web' });
     expect(JSON.stringify(project.targets.build.dependsOn)).toContain('"web-sdk"');
   });
