@@ -33,7 +33,7 @@ import { LegalLinks } from '../legal-links';
           @case ('invalid') {
             <h1 class="auth-card__title" id="reset-heading">This reset link is no longer valid</h1>
             <p class="auth-card__help">
-              Reset links work once and for 24 hours. Ask an admin of TaleArt for a new link.
+              Reset links work once and for 24 hours. Ask an owner of TaleArt for a new link.
             </p>
             <a class="btn btn--secondary auth-card__submit" routerLink="/sign-in">Go to sign-in</a>
           }

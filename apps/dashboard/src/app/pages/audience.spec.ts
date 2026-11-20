@@ -122,10 +122,10 @@ describe('AudiencePage (epic targeting story 5.3)', () => {
     document.body.replaceChildren();
   });
 
-  it('lists each list with its count and actions, never an ID, in a User lists tab', async () => {
+  it('lists each list with its count and actions, never an ID, under the page title', async () => {
     await open([list()]);
-    expect(q('[role=tab]').textContent?.trim()).toBe('User lists');
-    expect(q('[role=tab]').getAttribute('aria-selected')).toBe('true');
+    expect(q('h2.page-header__title').textContent?.trim()).toBe('Audience');
+    expect(q('[role=tab]')).toBeNull();
     const row = q('.user-list');
     expect(row.querySelector('h4')?.textContent).toBe('Loyal customers');
     expect(row.textContent).toContain('1,204 IDs');

@@ -106,12 +106,12 @@ export function authErrorMessage(code: string | null | undefined): string | null
     case ErrorCodes.signInMethodDisabled:
       return 'That sign-in method is turned off. Try another one.';
     case ErrorCodes.invitationInvalid:
-      return 'This invitation is no longer valid. Ask an admin for a new link.';
+      return 'This invitation is no longer valid. Ask an owner for a new link.';
     case ErrorCodes.emailTaken:
       return 'An account with that email already exists. Sign in instead.';
     case ErrorCodes.providerNotFound:
     case ErrorCodes.secretKeyMissing:
-      return 'That sign-in method is not set up yet. Ask an admin.';
+      return 'That sign-in method is not set up yet. Ask an owner.';
     default:
       return 'Signing in with that provider did not finish. Try again.';
   }
@@ -261,7 +261,7 @@ export function adminRefusal(err: unknown, fallback: string): string {
     case ErrorCodes.lastSignInMethod:
       return 'Keep at least one sign-in method on. Turn another method on first.';
     case ErrorCodes.signInLockout:
-      return 'That would leave an admin with no way to sign in. Every admin needs a passkey, a password, or a linked provider that is on. Give each admin one of those first, then try again.';
+      return 'That would leave an owner with no way to sign in. Every owner needs a passkey, a password, or a linked provider that is on. Give each owner one of those first, then try again.';
     case ErrorCodes.secretKeyMissing:
       return 'The server has no TALEART_SECRET_KEY, so provider secrets cannot be saved. Set TALEART_SECRET_KEY on the API, restart it, then try again.';
     default:

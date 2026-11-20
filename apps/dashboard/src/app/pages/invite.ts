@@ -35,7 +35,7 @@ import { roleWithArticle, shortDate } from '../project-roles';
           @case ('invalid') {
             <h1 class="auth-card__title" id="invite-heading">This invitation is no longer valid</h1>
             <p class="auth-card__help">
-              Invitation links work once and for 7 days. Ask an admin of the project for a new link.
+              Invitation links work once and for 7 days. Ask an owner of the project for a new link.
             </p>
             <a class="btn btn--secondary auth-card__submit" routerLink="/sign-in">Go to sign-in</a>
           }

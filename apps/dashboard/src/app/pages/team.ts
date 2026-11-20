@@ -163,7 +163,7 @@ function refusal(err: unknown, fallback: string): string {
           </div>
           @if (!canManage()) {
             <p class="muted" id="team-readonly">
-              You can see who is in this project. Ask an admin of the project to change roles or invite people.
+              You can see who is in this project. Ask an owner of the project to change roles or invite people.
             </p>
           }
           @if (membersFailed()) {
@@ -204,7 +204,7 @@ function refusal(err: unknown, fallback: string): string {
                           <span class="role-badge team-you">You</span>
                         }
                         @if (member.globalRole === 'admin') {
-                          <span class="muted"> · Install admin</span>
+                          <span class="muted"> · Installation owner</span>
                         }
                         @if (rowErrors()[member.userId]; as message) {
                           <p class="form-error team-error" role="alert">{{ message }}</p>

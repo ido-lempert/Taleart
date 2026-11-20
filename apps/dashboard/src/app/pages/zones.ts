@@ -103,7 +103,7 @@ import { ZonePreview } from './zone-preview';
             <section class="card empty" aria-labelledby="empty-projects">
               <span class="empty__icon"><app-icon name="projects" /></span>
               <h2 class="empty__title" id="empty-projects">No projects yet</h2>
-              <p class="empty__text">You are not a member of any project. Ask an admin to invite you.</p>
+              <p class="empty__text">You are not a member of any project. Ask an owner to invite you.</p>
             </section>
           } @else if (!store.apiDown()) {
             <section class="card empty" aria-labelledby="empty-projects">
@@ -147,7 +147,7 @@ import { ZonePreview } from './zone-preview';
                   <app-icon name="plus" /> New zone
                 </button>
               } @else {
-                <p class="muted" id="zones-need-role">{{ store.roleNeeded('zones.manage') }} Ask an admin of the project.</p>
+                <p class="muted" id="zones-need-role">{{ store.roleNeeded('zones.manage') }} Ask an owner of the project.</p>
               }
             </section>
           }

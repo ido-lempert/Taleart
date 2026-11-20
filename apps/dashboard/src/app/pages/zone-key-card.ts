@@ -129,7 +129,7 @@ function refusal(err: unknown, fallback: string): string {
           @if (admin()) {
             No zone key yet. Issue one so this zone shows on your page. It is shown once, when you issue it.
           } @else {
-            No zone key yet. Ask an admin to issue one so this zone shows on your page.
+            No zone key yet. Ask an owner to issue one so this zone shows on your page.
           }
         </p>
         @if (admin()) {

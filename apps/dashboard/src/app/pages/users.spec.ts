@@ -97,7 +97,7 @@ describe('UsersPage: Settings > Users (admins)', () => {
     await ready();
     // The cells after the name: email, role, sign-in methods, projects, actions.
     const cells = (name: string) => [...row(name).querySelectorAll('td')].map((td) => td.textContent?.trim());
-    expect(cells('Ada Admin')).toEqual(['ada@example.com', 'Admin', 'Passkey', 'All projects', 'Issue reset link']);
+    expect(cells('Ada Admin')).toEqual(['ada@example.com', 'Owner', 'Passkey', 'All projects', 'Issue reset link']);
     expect(cells('Grace Manager')).toEqual([
       'grace@example.com',
       'Content manager',
@@ -165,7 +165,7 @@ describe('UsersPage: Settings > Users (admins)', () => {
   it('tells a content manager they cannot see the users, and makes no request', async () => {
     open(null, SETTINGS_ON, 'content_manager');
     await settle(fixture);
-    expect(text()).toContain('Only admins can see the users of this install.');
+    expect(text()).toContain('Only owners can see the users of this install.');
     expect(root().querySelector('table')).toBeNull();
   });
 });

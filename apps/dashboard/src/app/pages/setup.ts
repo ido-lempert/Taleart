@@ -35,7 +35,7 @@ export const MAX_FIRST_PROJECT_NAME = 100;
           <span class="auth-card__wordmark">TaleArt</span>
         </div>
         <h1 class="auth-card__title" id="setup-heading">Set up TaleArt</h1>
-        <p class="auth-card__help">You become the admin. Choose how you sign in.</p>
+        <p class="auth-card__help">You become the owner. Choose how you sign in.</p>
 
         <div class="auth-card__fields">
           <div class="field">

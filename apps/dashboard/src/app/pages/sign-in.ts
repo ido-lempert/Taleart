@@ -29,7 +29,7 @@ import { LegalLinks } from '../legal-links';
           <p class="form-error" id="sign-in-auth-error" role="alert">{{ message }}</p>
         }
         @if (methods().length === 0 && known()) {
-          <p class="form-error" role="alert">No sign-in method is turned on. Ask an admin of TaleArt to turn one on.</p>
+          <p class="form-error" role="alert">No sign-in method is turned on. Ask an owner of TaleArt to turn one on.</p>
         }
 
         @if (hasPasskey()) {

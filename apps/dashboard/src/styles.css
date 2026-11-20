@@ -167,17 +167,58 @@ select {
   flex: none;
 }
 
-/* Route changes (withViewTransitions): a short cross-fade of the page. Reduced motion swaps at once. */
+/* Route changes (withViewTransitions): the page slides in the direction of the navigation (page-motion.ts sets
+   data-nav-direction): forward from the right, back from the left. Reduced motion swaps at once. */
+html[data-nav-direction='forward']::view-transition-old(root) {
+  animation: 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both nav-page-out-left;
+}
+html[data-nav-direction='forward']::view-transition-new(root) {
+  animation: 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both nav-page-in-right;
+}
+html[data-nav-direction='back']::view-transition-old(root) {
+  animation: 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both nav-page-out-right;
+}
+html[data-nav-direction='back']::view-transition-new(root) {
+  animation: 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both nav-page-in-left;
+}
+/* A navigation with no direction (a page opened from a link, say) keeps the short fade. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: 180ms;
   animation-timing-function: ease-out;
 }
 
+@keyframes nav-page-out-left {
+  to {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+@keyframes nav-page-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes nav-page-out-right {
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes nav-page-in-left {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*),
   ::view-transition-old(*),
-  ::view-transition-new(*) {
+  ::view-transition-new(*),
+  html[data-nav-direction]::view-transition-old(root),
+  html[data-nav-direction]::view-transition-new(root) {
     animation: none;
   }
 }

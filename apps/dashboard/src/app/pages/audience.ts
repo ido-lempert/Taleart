@@ -114,29 +114,12 @@ function readSample(file: Blob): Promise<string> {
   imports: [Drawer, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
-    .audience-tabs {
+    .audience-header__row {
       display: flex;
-      gap: var(--space-1);
-      margin-bottom: calc(var(--space-6) * -1 + var(--space-4));
-      border-bottom: 1px solid var(--border-strong);
-    }
-    .audience-tab {
-      min-height: 44px;
-      padding: 0 var(--space-4);
-      border: 0;
-      border-bottom: 3px solid transparent;
-      background: none;
-      color: var(--text-secondary);
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .audience-tab[aria-selected='true'] {
-      border-bottom-color: var(--ember-strong);
-      color: var(--ink);
-    }
-    .audience-tab:focus-visible {
-      outline-offset: -3px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
     }
     .audience-panel {
       display: flex;
@@ -207,43 +190,31 @@ function readSample(file: Blob): Promise<string> {
   `,
   template: `
     <div class="page">
-      <header class="page-header">
-        <h2 class="page-header__title">Audience</h2>
+      <header class="page-header audience-header">
+        <div class="audience-header__row">
+          <h2 class="page-header__title">Audience</h2>
+          @if (projectId() && canEdit()) {
+            <button
+              type="button"
+              class="btn btn--primary"
+              id="user-list-new"
+              [disabled]="atLimit()"
+              [attr.aria-describedby]="atLimit() ? 'user-list-limit' : null"
+              (click)="open({ kind: 'create', returnTo: $any($event.currentTarget) })"
+            >
+              <app-icon name="plus" /> New user list
+            </button>
+          }
+        </div>
         @if (projectId()) {
           <p class="page-header__meta">Who targeted tale groups of {{ store.projectName(projectId()) }} are for</p>
         }
       </header>
 
-      <div class="audience-tabs" role="tablist" aria-label="Audience sections">
-        <button
-          type="button"
-          role="tab"
-          class="audience-tab"
-          id="audience-tab-lists"
-          aria-selected="true"
-          aria-controls="audience-panel-lists"
-          tabindex="0"
-        >
-          User lists
-        </button>
-      </div>
-
-      <div class="audience-panel" role="tabpanel" id="audience-panel-lists" aria-labelledby="audience-tab-lists">
+      <div class="audience-panel">
         <section class="card section" aria-labelledby="user-lists-title">
           <div class="section__header">
             <h3 class="section__title" id="user-lists-title">User lists</h3>
-            @if (projectId() && canEdit()) {
-              <button
-                type="button"
-                class="btn btn--primary"
-                id="user-list-new"
-                [disabled]="atLimit()"
-                [attr.aria-describedby]="atLimit() ? 'user-list-limit' : null"
-                (click)="open({ kind: 'create', returnTo: $any($event.currentTarget) })"
-              >
-                <app-icon name="plus" /> New user list
-              </button>
-            }
           </div>
           <p class="audience-note">
             A user list holds your site's external user IDs, uploaded as a CSV. TaleArt keeps each ID only as a keyed

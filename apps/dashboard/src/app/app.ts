@@ -21,6 +21,7 @@ import { NewTaleGroupFlow } from './new-tale-group';
 import { Icon, Mark } from './icon';
 import { ROLE_LABELS } from './project-roles';
 import type { BareData, ShellData } from './app.routes';
+import { noteNavigation, pageAfterSwipe, settleNavigation, swipeStep, type SwipeStep } from './page-motion';
 
 export { API_BASE, API_ORIGIN } from './dashboard.store';
 
@@ -128,10 +129,19 @@ export class App {
         filter((event) => event instanceof NavigationStart),
         takeUntilDestroyed(),
       )
-      .subscribe(() => {
+      .subscribe((event) => {
         this.store.closeDrawer();
         this.store.newGroupNotice.set('');
+        // Which way the page slides in (page-motion.ts): along the rail, or back for a browser Back.
+        noteNavigation(event.url, event.navigationTrigger === 'popstate');
       });
+
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe((event) => settleNavigation(event.urlAfterRedirects));
 
     // A new tale group's options come once its Tale Studio is left and the page it led to is shown.
     this.router.events
@@ -178,6 +188,44 @@ export class App {
   }
 
   // Handled in code: with <base href="/">, "#main" would resolve to "/#main" and leave the page.
+  // A horizontal swipe on a phone moves to the next or the previous main page (page-motion.ts). It never starts on a
+  // field, the Tale Studio, a drawer or a sideways-scrolling strip: those keep their own gestures.
+  private swipeStart: { x: number; y: number; t: number } | null = null;
+
+  protected swipeBegin(event: TouchEvent): void {
+    const touch = event.touches[0];
+    this.swipeStart =
+      this.phone() && event.touches.length === 1 && touch && !this.swipeBlocked(event.target)
+        ? { x: touch.clientX, y: touch.clientY, t: performance.now() }
+        : null;
+  }
+
+  protected swipeEnd(event: TouchEvent): void {
+    const start = this.swipeStart;
+    this.swipeStart = null;
+    const touch = event.changedTouches[0];
+    if (!start || !touch) return;
+    const step: SwipeStep = swipeStep(touch.clientX - start.x, touch.clientY - start.y, performance.now() - start.t);
+    const path = pageAfterSwipe(this.router.url, step);
+    if (path) void this.router.navigateByUrl(path);
+  }
+
+  private swipeBlocked(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return true;
+    if (this.router.url.startsWith('/tales/')) return true;
+    if (target.closest('input, textarea, select, [contenteditable="true"], canvas, dialog, [role="slider"], [data-no-swipe]')) {
+      return true;
+    }
+    // A strip that scrolls sideways (a table, a row of chips) keeps the swipe for itself.
+    for (let el: Element | null = target; el && el.id !== 'main'; el = el.parentElement) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        const overflowX = getComputedStyle(el).overflowX;
+        if (overflowX === 'auto' || overflowX === 'scroll') return true;
+      }
+    }
+    return false;
+  }
+
   protected skipToMain(event: Event): void {
     event.preventDefault();
     this.document.getElementById('main')?.focus();

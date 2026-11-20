@@ -122,7 +122,7 @@
         <p class="form-error" role="alert">{{ notice }}</p>
       }
 
-      <main id="main" class="content" tabindex="-1">
+      <main id="main" class="content" tabindex="-1" (touchstart)="swipeBegin($event)" (touchend)="swipeEnd($event)">
         @if (phone()) {
           <div class="page-heading">
             <h1 class="page-heading__title" [class.visually-hidden]="shell().ownHeader">{{ shell().heading ?? 'Zones' }}</h1>

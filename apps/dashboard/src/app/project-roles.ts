@@ -14,7 +14,7 @@ export const ROLE_LABELS: Record<ProjectRole, string> = {
   viewer: 'Viewer',
   editor: 'Editor',
   publisher: 'Publisher',
-  admin: 'Admin',
+  admin: 'Owner',
 };
 
 /** "an Editor", "a Publisher": the role with its article, for sentences. */
