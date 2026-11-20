@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DOCS_SNIPPET } from '../docs-content';
-import { DocsLiveZone, DocsPhotoCredits } from '../live-zone';
+import { DocsLiveZone } from '../live-zone';
 import { landingBannerZone, landingZone } from '../live-zones';
 
 /** One stories bar of the landing page's "Try it" section: the zone, the element's attributes and the feature's page. */
@@ -14,7 +14,7 @@ interface PromoItem {
 
 @Component({
   selector: 'docs-getting-started',
-  imports: [RouterLink, DocsLiveZone, DocsPhotoCredits],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="hero" aria-labelledby="hero-title">
@@ -65,7 +65,9 @@ interface PromoItem {
       [minHeight]="220"
     />
 
-    <docs-photo-credits />
+    <p class="credits-note">
+      The example photos come from Unsplash. They are credited in the <a routerLink="/legal/terms" fragment="photo-credits">terms of service</a>.
+    </p>
 
     <h2 id="platform-guides">Build with an SDK</h2>
     <p>Each platform guide takes a zone from its key to a visible tale in an app or site, step by step.</p>

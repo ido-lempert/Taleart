@@ -2022,3 +2022,10 @@ docs-on-this-page {
   margin-inline-start: 0.5rem;
   font-size: 0.875rem;
 }
+
+/* One line under the live examples that points to the photo credits in the terms of service. */
+.credits-note {
+  font-size: 0.8125rem;
+  opacity: 0.8;
+  margin: 0 0 1.5rem;
+}

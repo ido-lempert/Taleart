@@ -1,9 +1,10 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DocsPhotoCredits } from '../live-zone';
 
 @Component({
   selector: 'docs-legal-terms',
-  imports: [RouterLink],
+  imports: [RouterLink, DocsPhotoCredits],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Terms of service</h1>
@@ -208,6 +209,13 @@ import { RouterLink } from '@angular/router';
       answer there. See also the <a routerLink="/legal/privacy">Privacy policy</a> and the
       <a routerLink="/legal/accessibility">Accessibility statement</a>.
     </p>
+
+    <h2 id="photo-credits">15. Photo credits</h2>
+    <p>
+      The photographs in the docs' live examples come from Unsplash. Each one is credited here, with a link to the
+      photographer and to the photo.
+    </p>
+    <docs-photo-credits />
   `,
 })
 export class LegalTermsPage {}

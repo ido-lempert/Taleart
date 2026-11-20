@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DOCS_NPM_SNIPPET, DOCS_PROPERTIES_SCRIPT, DOCS_SNIPPET, DOCS_TEST_PAGE_WITH_KEY, EXAMPLE_INSTALL } from '../docs-content';
-import { DocsLiveZone, DocsPhotoCredits } from '../live-zone';
+import { DocsLiveZone } from '../live-zone';
 import {
   AUDIENCE_ZONE,
   FREQUENCY_ZONE,
@@ -106,7 +106,7 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
 
 @Component({
   selector: 'docs-web-guide',
-  imports: [RouterLink, DocsLiveZone, DocsPhotoCredits],
+  imports: [RouterLink, DocsLiveZone],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1 tabindex="-1">Web guide</h1>
@@ -592,7 +592,9 @@ const ELEMENT_SAMPLE = `<taleart-view zone-key="YOUR_ZONE_KEY"></taleart-view>
       <a routerLink="/reference/web-sdk">Web SDK reference</a> for the error behaviour.
     </p>
 
-    <docs-photo-credits />
+    <p class="credits-note">
+      The example photos come from Unsplash. They are credited in the <a routerLink="/legal/terms" fragment="photo-credits">terms of service</a>.
+    </p>
 
     <h2 id="no-backend">Without a backend</h2>
     <p>
