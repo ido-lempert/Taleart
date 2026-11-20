@@ -55,7 +55,8 @@ export function opensFromRowClick(event: MouseEvent): boolean {
  * and a ⋯ menu whose items the page gives. What differs per page is projected:
  * - `[groupRowLead]`: a first grid cell, such as the zone page's reorder handle and move buttons;
  * - `[groupRowName]`: the name's heading, at the page's level, with its own open control or none;
- * - `[groupRowExtra]`: a line under the meta, such as the zones a group is in.
+ * - `[groupRowExtra]`: a line under the meta, such as the zones a group is in;
+ * - `[groupRowAction]`: a control beside the switch, such as the Preview button.
  *
  * Its styles are not encapsulated, so they also style what pages project into the row; every
  * selector starts with `.group-row`.
@@ -117,6 +118,7 @@ export function opensFromRowClick(event: MouseEvent): boolean {
           <app-status-badge [status]="g.status" kind="group" />
         }
         <app-visibility class="group-row__visibility" [visibility]="g.visibility" viewing="group" [anyZone]="anyZone()" [targeting]="g" />
+        <ng-content select="[groupRowAction]" />
       </div>
       <app-menu-button class="group-row__menu" [label]="'More for ' + g.name" [items]="items()" (picked)="picked.emit($event)" />
     </div>

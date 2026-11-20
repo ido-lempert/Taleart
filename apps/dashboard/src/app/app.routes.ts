@@ -8,6 +8,11 @@ export interface ShellData {
   /** What the top bar's "New …" button creates; pages without one leave it out. */
   create?: 'project' | 'zone' | 'taleGroup';
   createLabel?: string;
+  /**
+   * The page renders its own page header with its title, so on a phone the shell heading is kept for screen
+   * readers only: the title shows once.
+   */
+  ownHeader?: true;
 }
 
 /** Route data of the pages shown without the shell: setup, sign-in and invitations. */
@@ -68,7 +73,12 @@ export const appRoutes: Route[] = [
         path: 'zones/:zoneId',
         loadComponent: () => import('./pages/zone-detail').then((m) => m.ZoneDetailPage),
         title: 'Zone · TaleArt',
-        data: { heading: 'Zone', create: 'taleGroup', createLabel: 'New tale group' } satisfies ShellData,
+        data: {
+          ownHeader: true,
+          heading: 'Zone',
+          create: 'taleGroup',
+          createLabel: 'New tale group',
+        } satisfies ShellData,
       },
       {
         // A project's tale groups, placed in zones or not (AD-14).
@@ -91,7 +101,7 @@ export const appRoutes: Route[] = [
         path: 'audience',
         loadComponent: () => import('./pages/audience').then((m) => m.AudiencePage),
         title: 'Audience · TaleArt',
-        data: { heading: 'Audience' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Audience' } satisfies ShellData,
       },
       {
         path: 'projects',
@@ -104,14 +114,14 @@ export const appRoutes: Route[] = [
         path: 'projects/:projectId/theme',
         loadComponent: () => import('./pages/theme').then((m) => m.ThemePage),
         title: 'Theme · TaleArt',
-        data: { heading: 'Projects' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Projects' } satisfies ShellData,
       },
       {
         // The project's fonts, for text in Tale Studio (epic Tale Studio R18).
         path: 'projects/:projectId/fonts',
         loadComponent: () => import('./pages/fonts').then((m) => m.FontsPage),
         title: 'Fonts · TaleArt',
-        data: { heading: 'Projects' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Projects' } satisfies ShellData,
       },
       { path: 'settings', pathMatch: 'full', redirectTo: 'settings/api-tokens' },
       {
@@ -119,35 +129,35 @@ export const appRoutes: Route[] = [
         path: 'settings/sign-in-methods',
         loadComponent: () => import('./pages/sign-in-methods').then((m) => m.SignInMethodsPage),
         title: 'Sign-in methods · Settings · TaleArt',
-        data: { heading: 'Settings' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Settings' } satisfies ShellData,
       },
       {
         // Settings > Users (admins only): who can sign in, how, and reset links for them.
         path: 'settings/users',
         loadComponent: () => import('./pages/users').then((m) => m.UsersPage),
         title: 'Users · Settings · TaleArt',
-        data: { heading: 'Settings' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Settings' } satisfies ShellData,
       },
       {
         // Settings > My sign-in methods: the signed-in user's passkeys, password and linked providers.
         path: 'settings/my-sign-in-methods',
         loadComponent: () => import('./pages/my-sign-in-methods').then((m) => m.MySignInMethodsPage),
         title: 'My sign-in methods · Settings · TaleArt',
-        data: { heading: 'Settings' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Settings' } satisfies ShellData,
       },
       {
         // Settings > Team: the selected project's members, invitations, roles and activity.
         path: 'settings/team',
         loadComponent: () => import('./pages/team').then((m) => m.TeamPage),
         title: 'Team · Settings · TaleArt',
-        data: { heading: 'Settings' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Settings' } satisfies ShellData,
       },
       {
         // Personal API tokens for scripts and the CLI (epic developer experience 10.1).
         path: 'settings/api-tokens',
         loadComponent: () => import('./pages/api-tokens').then((m) => m.ApiTokensPage),
         title: 'API tokens · Settings · TaleArt',
-        data: { heading: 'Settings' } satisfies ShellData,
+        data: { ownHeader: true, heading: 'Settings' } satisfies ShellData,
       },
       { path: '**', redirectTo: 'zones' },
     ],

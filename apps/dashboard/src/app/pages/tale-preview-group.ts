@@ -29,10 +29,10 @@ export interface GroupPreviewSource {
   groups: readonly ZoneTaleGroup[];
   /** The group being edited: the viewer opens on it. */
   groupId: string;
-  /** The tale being edited, which the preview draws from `draft` in place of its published document. */
+  /** The tale being edited, which the preview draws from `draft` in place of its published document (none: ''). */
   taleId: string;
-  /** The unsaved document of the tale being edited. */
-  draft: TaleDocument;
+  /** The unsaved document of the tale being edited; left out when no tale is being edited (a page's preview). */
+  draft?: TaleDocument;
   /** Each other tale's published document, by tale id (null: it has none). A tale without one is not delivered. */
   published: ReadonlyMap<string, TaleDocument | null>;
   /** The project's complete theme, as the Delivery API sends it, or null before it loads. */
@@ -79,7 +79,7 @@ export function groupPreviewZone(source: GroupPreviewSource): DeliveryZone | nul
     if (!editing && !group.visibility.visible) continue;
     const tales: DeliveryTale[] = [];
     for (const tale of group.tales) {
-      if (tale.id === source.taleId) {
+      if (source.draft && tale.id === source.taleId) {
         tales.push(deliveredTale(tale, source.draft));
         continue;
       }

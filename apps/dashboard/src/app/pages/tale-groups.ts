@@ -25,6 +25,7 @@ import {
 import { DashboardStore, type TaleGroupSummary } from '../dashboard.store';
 import { GroupRow, opensFromRowClick } from '../group-row';
 import { GroupView } from './group-view';
+import { ZonePreview } from './zone-preview';
 import { Icon } from '../icon';
 import { NewTaleGroupFlow } from '../new-tale-group';
 import type { MenuItem, MenuPick } from '../menu-button';
@@ -119,7 +120,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
  */
 @Component({
   selector: 'app-tale-groups-page',
-  imports: [RouterLink, Icon, GroupRow, GroupView],
+  imports: [RouterLink, Icon, GroupRow, GroupView, ZonePreview],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .tale-groups__header {
@@ -244,6 +245,16 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
           (closed)="closeGroup()"
         />
       }
+      @if (preview(); as p) {
+        <app-zone-preview
+          [zone]="p.zone"
+          [groups]="store.taleGroupsOf(p.zone.id)"
+          [groupId]="p.groupId"
+          [label]="p.label"
+          [returnFocus]="p.opener"
+          (closed)="closePreview()"
+        />
+      }
       @if (store.loaded()) {
         @if (store.selectedProject(); as project) {
           <section class="card section" aria-labelledby="tale-groups-title">
@@ -360,6 +371,18 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                             {{ group.name }}
                           </button>
                         </h3>
+                        <button
+                          groupRowAction
+                          type="button"
+                          class="btn btn--secondary btn--sm"
+                          [id]="'preview-group-' + group.id"
+                          [attr.aria-label]="'Preview group ' + group.name"
+                          [attr.aria-disabled]="previewZoneOf(group) ? null : 'true'"
+                          [attr.title]="previewZoneOf(group) ? null : 'Put it in a zone with a display to preview it'"
+                          (click)="previewGroup(group, $event)"
+                        >
+                          <app-icon name="eye" /> Preview
+                        </button>
                         <p class="group-row__zones muted" groupRowExtra>
                           @if (zonesOf(group); as zones) {
                             @if (zones.length > 0) {
@@ -539,6 +562,9 @@ export class TaleGroupsPage {
         return 'Every tale group of this project is archived.';
     }
   });
+
+  /** The group preview open, with the zone it shows the group in and the button that opened it; one at a time. */
+  protected readonly preview = signal<{ zone: Zone; groupId: string; label: string; opener: HTMLElement } | null>(null);
 
   /** What the polite live region last announced. */
   protected readonly announcement = signal('');
@@ -736,6 +762,32 @@ export class TaleGroupsPage {
   /** A click on the row opens the group, as its name does, unless it was on one of the row's own controls. */
   protected rowClick(group: ProjectTaleGroup, event: MouseEvent): void {
     if (opensFromRowClick(event)) this.openGroup(group);
+  }
+
+  /** The zone a group's Preview shows it in: the first with a display that lists it; null when none does. */
+  protected previewZoneOf(group: ProjectTaleGroup): Zone | null {
+    return (
+      this.store
+        .projectZones()
+        .find(
+          (zone) =>
+            !!zone.frame &&
+            group.zoneIds.includes(zone.id) &&
+            this.store.taleGroupsOf(zone.id).some((listed) => listed.id === group.id),
+        ) ?? null
+    );
+  }
+
+  /** Opens the group's Preview, as a visitor's page shows it; a group no zone with a display shows is not previewed. */
+  protected previewGroup(group: ProjectTaleGroup, event: Event): void {
+    const zone = this.previewZoneOf(group);
+    if (zone) {
+      this.preview.set({ zone, groupId: group.id, label: `Preview of ${group.name}`, opener: event.currentTarget as HTMLElement });
+    }
+  }
+
+  protected closePreview(): void {
+    this.preview.set(null);
   }
 
   /**

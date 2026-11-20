@@ -125,7 +125,7 @@
       <main id="main" class="content" tabindex="-1">
         @if (phone()) {
           <div class="page-heading">
-            <h1 class="page-heading__title">{{ shell().heading ?? 'Zones' }}</h1>
+            <h1 class="page-heading__title" [class.visually-hidden]="shell().ownHeader">{{ shell().heading ?? 'Zones' }}</h1>
             @if (store.projects().length > 0) {
               <ng-container *ngTemplateOutlet="roleBadge" />
             }

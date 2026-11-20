@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { Zone } from '@taleart/contract/core';
 import { AuthStore } from '../auth';
@@ -6,6 +6,7 @@ import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { VisibilityIndicator } from '../visibility';
 import { zoneInstalled } from '../zone-setup';
+import { ZonePreview } from './zone-preview';
 
 /**
  * The selected project's zones as cards (epic UX rework R14): each with its name, indicator (R7),
@@ -14,7 +15,7 @@ import { zoneInstalled } from '../zone-setup';
  */
 @Component({
   selector: 'app-zones-page',
-  imports: [RouterLink, Icon, VisibilityIndicator],
+  imports: [RouterLink, Icon, VisibilityIndicator, ZonePreview],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .zone-card {
@@ -86,6 +87,12 @@ import { zoneInstalled } from '../zone-setup';
     }
     .pill--muted {
       color: var(--text-secondary);
+    }
+    /* Above the name's link, which covers the card. */
+    .zone-card__preview {
+      align-self: flex-start;
+      position: relative;
+      z-index: 1;
     }
   `,
   template: `
@@ -181,11 +188,31 @@ import { zoneInstalled } from '../zone-setup';
                       </li>
                     }
                   </ul>
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm zone-card__preview"
+                    [id]="'preview-zone-' + zone.id"
+                    [attr.aria-label]="'Preview zone ' + zone.name"
+                    [attr.aria-disabled]="zone.frame ? null : 'true'"
+                    [attr.title]="zone.frame ? null : 'Set up its display to preview it'"
+                    (click)="previewZone(zone, $event)"
+                  >
+                    <app-icon name="eye" /> Preview
+                  </button>
                 </div>
               </li>
             }
           </ul>
         }
+      }
+      @if (preview(); as p) {
+        <app-zone-preview
+          [zone]="p.zone"
+          [groups]="store.taleGroupsOf(p.zone.id)"
+          [label]="p.label"
+          [returnFocus]="p.opener"
+          (closed)="preview.set(null)"
+        />
       }
     </div>
   `,
@@ -193,6 +220,15 @@ import { zoneInstalled } from '../zone-setup';
 export class ZonesPage {
   protected readonly store = inject(DashboardStore);
   protected readonly auth = inject(AuthStore);
+  /** The zone preview open, with the button that opened it; one at a time. */
+  protected readonly preview = signal<{ zone: Zone; label: string; opener: HTMLElement } | null>(null);
+
+  /** Opens the zone's Preview, as a visitor's page shows its display and groups; a zone with no display is not previewed. */
+  protected previewZone(zone: Zone, event: Event): void {
+    if (zone.frame) {
+      this.preview.set({ zone, label: `Preview of ${zone.name}`, opener: event.currentTarget as HTMLElement });
+    }
+  }
 
   /** "Installed" or "Not installed", as the zone page header says it; '' while unknown. */
   protected installed(zone: Zone): string {
