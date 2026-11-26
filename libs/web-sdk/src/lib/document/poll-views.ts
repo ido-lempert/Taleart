@@ -7,6 +7,7 @@ import { onAccent } from '../theme';
 import { defaultTranslate, type Translate } from '../i18n';
 import type { ChoiceCard, ChoiceDom } from './poll';
 import { text } from './poll';
+import { applyNonce } from '../nonce';
 
 /**
  * The look of the four views: the card's layout, the halves split by `--ta-split` (the first half's share of the
@@ -131,6 +132,7 @@ function ensureStyles(root: HTMLElement): void {
   if ((scope instanceof ShadowRoot || scope instanceof Document) && scope.querySelector('style[data-ta-poll-views]')) return;
   if (root.querySelector(':scope > style[data-ta-poll-views]')) return;
   const style = document.createElement('style');
+  applyNonce(style);
   style.setAttribute('data-ta-poll-views', '');
   style.textContent = POLL_VIEW_STYLES;
   root.prepend(style);

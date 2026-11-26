@@ -17,6 +17,7 @@ import { DOCUMENT_STYLES } from './document/renderer';
 import { DEFAULT_STRINGS, defaultTranslate, type Translate } from './i18n';
 import { applyTheme, THEME_SCHEME_STYLES } from './theme';
 import { TaleViewer, VIEWER_BASE_STYLES } from './viewer';
+import { applyNonce } from './nonce';
 
 /**
  * The phone sizes the Tale Studio preview offers, in CSS pixels (epic Tale Studio R10). The default
@@ -299,6 +300,7 @@ export class TalePreview {
   ) {
     this.root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
+    applyNonce(style);
     style.textContent = VIEWER_BASE_STYLES + DOCUMENT_STYLES + PREVIEW_STYLES;
     this.themed = document.createElement('div');
     this.themed.className = 'taleart';
@@ -493,6 +495,7 @@ export class GroupPreview {
     this.root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
     this.t = options.t ?? defaultTranslate;
     const style = document.createElement('style');
+    applyNonce(style);
     style.textContent = VIEWER_BASE_STYLES + DOCUMENT_STYLES + PREVIEW_STYLES + GROUP_PAGE_STYLES;
     this.themed = document.createElement('div');
     this.themed.className = 'taleart';
@@ -590,6 +593,7 @@ export class GroupPreview {
     this.banner = null;
     this.shownKey = displayKey(zone);
     const style = document.createElement('style');
+    applyNonce(style);
     style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES + barLayoutStyles();
     const frame = zone.frame;
     let display: HTMLElement | null = null;

@@ -165,6 +165,7 @@ interface PromoItem {
       <li><a routerLink="/guides-install">Install TaleArt locally</a></li>
       <li><a routerLink="/docker">Install with Docker</a></li>
       <li><a routerLink="/demo-data">Demo data</a></li>
+      <li><a routerLink="/security">Security and hardening</a></li>
       <li><a routerLink="/install">Install a zone</a></li>
       <li><a routerLink="/guides-connect-website">Connect a website</a></li>
     </ul>
@@ -191,6 +192,7 @@ interface PromoItem {
       <li><a routerLink="/guides/web">Web guide</a></li>
       <li><a routerLink="/guides/no-backend">Use without a backend</a></li>
       <li><a routerLink="/android-guide">Android guide</a></li>
+      <li><a routerLink="/web-sdk-security">Web SDK: CSP and analytics</a></li>
       <li><a routerLink="/ios-guide">iOS guide</a></li>
     </ul>
     <h3 id="index-reference">Reference</h3>

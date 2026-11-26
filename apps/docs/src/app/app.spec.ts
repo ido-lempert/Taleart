@@ -101,6 +101,7 @@ describe('docs app', () => {
       'guides/web',
       'guides/no-backend',
       'android-guide',
+      'web-sdk-security',
       'ios-guide',
       'reference/web-sdk',
       'reference/performance',

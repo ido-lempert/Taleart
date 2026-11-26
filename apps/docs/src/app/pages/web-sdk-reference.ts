@@ -260,6 +260,12 @@ import { RTL_ZONE } from '../live-zones';
             <td><code>auto</code></td>
             <td>The reading direction of every element: <code>auto</code> takes the page's. An element's <code>dir</code> attribute wins.</td>
           </tr>
+          <tr>
+            <td><code>nonce</code></td>
+            <td>A string of 8 to 256 base64 characters, or null</td>
+            <td>none</td>
+            <td>The page's Content Security Policy nonce, given to every style sheet the SDK adds. Use it instead of <code>'unsafe-inline'</code> for styles. See <a routerLink="/web-sdk-security">Web SDK: CSP and analytics</a>.</td>
+          </tr>
         </tbody>
       </table>
     </div>

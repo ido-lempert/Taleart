@@ -19,6 +19,7 @@ import { VisibilityPage } from './pages/visibility';
 import { ProjectsAndTeamPage } from './pages/projects-and-team';
 import { RolesAndPermissionsPage } from './pages/roles-and-permissions';
 import { DockerPage } from './pages/docker';
+import { SecurityPage } from './pages/security';
 import { DemoDataPage } from './pages/demo-data';
 import { CliPage } from './pages/cli';
 import { McpPage } from './pages/mcp';
@@ -94,6 +95,14 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'Installation',
     file: 'demo-data',
     component: DemoDataPage,
+  },
+  {
+    path: 'security',
+    label: 'Security and hardening',
+    title: 'Security and hardening',
+    group: 'Installation',
+    file: 'security',
+    component: SecurityPage,
   },
   {
     path: 'install',
@@ -230,6 +239,14 @@ export const DOCS_PAGES: ReadonlyArray<
     group: 'SDK guides',
     file: 'android-guide',
     loadComponent: () => import('./pages/android-guide').then((m) => m.AndroidGuidePage),
+  },
+  {
+    path: 'web-sdk-security',
+    label: 'Web SDK: CSP and analytics',
+    title: 'Web SDK: CSP and analytics',
+    group: 'SDK guides',
+    file: 'web-sdk-security',
+    loadComponent: () => import('./pages/web-sdk-security').then((m) => m.WebSdkSecurityPage),
   },
   {
     path: 'ios-guide',

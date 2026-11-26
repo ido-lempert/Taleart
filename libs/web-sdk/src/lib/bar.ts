@@ -4,6 +4,7 @@ import { adopt, BAR_LAYOUT_STYLES, renderRing, renderSkeleton } from './bar-layo
 import { prefersReducedMotion } from './bar-cover';
 import { readBarSettings, type BarLayout } from './bar-settings';
 import { holdMedia } from './first-content';
+import { applyNonce } from './nonce';
 
 // The bar is this module's public face: its settings, its covers, its layouts and its look. The parts live
 // in bar-settings.ts (what a bar is set to), bar-cover.ts (the covers), bar-layouts.ts (the ring, the skeleton
@@ -200,6 +201,7 @@ export function renderBar(
       const built = holdMedia(() => module.renderExtraLayout(layout, groups, seen, s, reducedMotion, t));
       adopt(list, built);
       const style = document.createElement('style');
+      applyNonce(style);
       style.textContent = module.EXTRA_LAYOUT_STYLES;
       list.before(style);
       onReady?.(list);

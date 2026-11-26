@@ -43,6 +43,11 @@ export interface TaleartConfig {
    * element's own `dir` attribute wins over it. `null` means `auto`.
    */
   dir?: DirOption | null;
+  /**
+   * The page's Content Security Policy nonce. The SDK gives every style sheet it adds the same nonce, so a policy
+   * without 'unsafe-inline' for styles still allows them. `null` clears it. Valid: 8 to 256 base64 characters.
+   */
+  nonce?: string | null;
 }
 
 /** What {@link getConfig} returns: every option with the value the SDK uses. */
@@ -59,6 +64,7 @@ export interface ResolvedTaleartConfig {
   readonly frequency: FrequencyRule | null;
   readonly analytics: boolean;
   readonly dir: DirOption;
+  readonly nonce: string | null;
 }
 
 /** The names of the options. */
@@ -66,6 +72,9 @@ export type ConfigKey = keyof TaleartConfig;
 
 /** Told after a change, with the names of the options that changed. */
 export type ConfigListener = (changed: ReadonlySet<ConfigKey>) => void;
+
+/** A CSP nonce: 8 to 256 base64 characters. */
+const NONCE = /^[A-Za-z0-9+/_=-]{8,256}$/;
 
 const KEYS: readonly ConfigKey[] = [
   'apiUrl',
@@ -80,6 +89,7 @@ const KEYS: readonly ConfigKey[] = [
   'frequency',
   'analytics',
   'dir',
+  'nonce',
 ];
 
 /**
@@ -142,6 +152,7 @@ interface State {
   frequency: FrequencyRule | null;
   analytics: boolean;
   dir: DirOption;
+  nonce: string | null;
 }
 
 let state: State = {
@@ -158,6 +169,7 @@ let state: State = {
   frequency: null,
   analytics: true,
   dir: 'auto',
+  nonce: null,
 };
 
 const listeners = new Set<ConfigListener>();
@@ -275,6 +287,11 @@ export function init(config: TaleartConfig): void {
           continue;
         }
         break;
+      case 'nonce':
+        if (value === null) next.nonce = null;
+        else if (typeof value === 'string' && NONCE.test(value)) next.nonce = value;
+        else warnInvalid(key, 'a nonce of 8 to 256 base64 characters');
+        break;
       case 'dir': {
         if (value === null) next.dir = 'auto';
         else if (parseDir(value) !== undefined) next.dir = parseDir(value) as DirOption;
@@ -356,6 +373,7 @@ export function getConfig(): ResolvedTaleartConfig {
     frequency: state.frequency,
     analytics: state.analytics,
     dir: state.dir,
+    nonce: state.nonce,
   };
 }
 

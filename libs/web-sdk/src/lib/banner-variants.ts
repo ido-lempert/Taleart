@@ -11,6 +11,7 @@ import {
 import { isRtl } from './direction';
 import type { Translate } from './i18n';
 import { setIcon } from './icon';
+import { applyNonce } from './nonce';
 
 // The banner variants other than the carousel (epic end-user redesign P5), in their own chunk: they load on the
 // first banner that asks for one (banner.ts renderBanner). Coverflow, peek, deck and sticky are the carousel's
@@ -352,6 +353,7 @@ export function mountBannerVariant(
   t: Translate,
 ): BannerView {
   const style = document.createElement('style');
+  applyNonce(style);
   style.textContent = BANNER_VARIANT_STYLES;
   root.appendChild(style);
   switch (variant) {

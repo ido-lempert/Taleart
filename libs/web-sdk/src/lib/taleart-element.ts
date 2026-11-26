@@ -48,6 +48,7 @@ import type { Theme, ViewerProperties, ViewerPropertyValue } from './public-type
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride, THEME_SCHEME_STYLES } from './theme';
 import { LazyTaleViewer } from './viewer-loader';
+import { applyNonce } from './nonce';
 
 export const TALEART_ELEMENT_TAG = 'taleart-view';
 
@@ -753,6 +754,7 @@ export class TaleartElement extends ElementBase {
       wrap.className = 'failed';
       wrap.setAttribute('role', 'status');
       const style = document.createElement('style');
+      applyNonce(style);
       style.textContent = FALLBACK_STYLES;
       const text = document.createElement('p');
       text.textContent = this.t('load.failed');
@@ -798,6 +800,7 @@ export class TaleartElement extends ElementBase {
     this.applyDirection();
     applyTheme(themed, undefined, getConfig().theme, zoneThemes.get(this.zone) ?? {}, this.themeOverride);
     const style = document.createElement('style');
+    applyNonce(style);
     style.textContent = THEME_SCHEME_STYLES + BAR_STYLES;
     themed.replaceChildren(renderBarSkeleton(layout));
     this.root.replaceChildren(style, themed);
@@ -971,6 +974,7 @@ export class TaleartElement extends ElementBase {
     this.view = view;
     if (!view) return;
     const style = document.createElement('style');
+    applyNonce(style);
     style.textContent = THEME_SCHEME_STYLES + BAR_STYLES + BANNER_STYLES + barLayoutStyles();
     this.viewer = viewer;
     themed.replaceChildren(view.element);

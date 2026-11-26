@@ -17,6 +17,7 @@ import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOp
 import type { ResponseClient } from './responses';
 import { SWIPE_MIN_PX } from './swipe';
 import type { ComponentFire, LinkAction } from './document/media';
+import { applyNonce } from './nonce';
 
 /** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
 export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
@@ -723,6 +724,7 @@ export class TaleViewer {
     const styles = this.styles();
     if (styles) {
       const style = document.createElement('style');
+      applyNonce(style);
       style.textContent = styles;
       this.root.appendChild(style);
     }
