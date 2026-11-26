@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { decryptSecret, encryptSecret, parseSecretKey } from './secrets';
+import { describe, expect, it } from 'vitest';
+import { decryptSecret, encryptSecret, isShippedPlaceholderSecretKey, parseSecretKey, SHIPPED_PLACEHOLDER_SECRET_KEY } from './secrets';
 
 const KEY = randomBytes(32);
 const SECRET = '-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMG\n-----END PRIVATE KEY-----';
@@ -67,5 +68,14 @@ describe('secret encryption (AES-256-GCM)', () => {
 
   it('refuses a key of the wrong length', () => {
     expect(() => encryptSecret(SECRET, randomBytes(16))).toThrow('32 bytes');
+  });
+});
+
+describe('shipped placeholder key', () => {
+  it('recognises the public placeholder, with surrounding spaces, and nothing else', () => {
+    expect(isShippedPlaceholderSecretKey(SHIPPED_PLACEHOLDER_SECRET_KEY)).toBe(true);
+    expect(isShippedPlaceholderSecretKey(`  ${SHIPPED_PLACEHOLDER_SECRET_KEY}\n`)).toBe(true);
+    expect(isShippedPlaceholderSecretKey(undefined)).toBe(false);
+    expect(isShippedPlaceholderSecretKey('MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY0')).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, SDK_BUNDLE_PATH } from '@taleart/contract';
-import { parseSecretKey, SECRET_KEY_ENV, SimpleWebAuthnVerifier } from '@taleart/server-access';
+import { isShippedPlaceholderSecretKey, parseSecretKey, SECRET_KEY_ENV, SimpleWebAuthnVerifier } from '@taleart/server-access';
 import { purgeAnalyticsEvents } from '@taleart/server-analytics';
 import { ANALYTICS_RETENTION_DAYS } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
@@ -85,6 +85,9 @@ async function start(): Promise<void> {
         seedDemoOnSetup(pool, `http://127.0.0.1:${process.env['PORT'] || 3333}`, log)
       : undefined,
   };
+  if (isShippedPlaceholderSecretKey(process.env[SECRET_KEY_ENV])) {
+    log('warn', `${SECRET_KEY_ENV} is the public placeholder from .env.docker.example. Provider secrets are encrypted with a key anyone can read: generate a new one (openssl rand -base64 32) before real use.`);
+  }
   if (auth.onSetup) log('info', 'Demo seed on: the first admin gets the Spring Campaign demo project after setup');
   if (auth.secretKey === null) {
     log(

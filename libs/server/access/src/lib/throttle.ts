@@ -62,7 +62,26 @@ export class PasswordThrottle {
     const count = (this.current(key)?.count ?? 0) + 1;
     this.map.delete(key);
     this.map.set(key, { count, at: this.now() });
-    if (this.map.size > PASSWORD_THROTTLE_MAX_KEYS) this.map.delete(this.map.keys().next().value as string);
+    if (this.map.size > PASSWORD_THROTTLE_MAX_KEYS) this.evictOne();
+  }
+
+  /**
+   * Forgets one username to make room. A username still in a wait is kept: the least recently
+   * failed one that is not waiting goes first, so filling the map with new names cannot clear a
+   * lockout. Only when every entry is waiting is the least recently failed one forgotten.
+   */
+  private evictOne(): void {
+    const now = this.now();
+    let fallback: string | undefined;
+    for (const [key, entry] of this.map) {
+      fallback ??= key;
+      const waitingUntil = entry.at + passwordWaitMs(entry.count);
+      if (waitingUntil <= now) {
+        this.map.delete(key);
+        return;
+      }
+    }
+    if (fallback !== undefined) this.map.delete(fallback);
   }
 
   /** Clears the username's failures after a successful sign-in. */

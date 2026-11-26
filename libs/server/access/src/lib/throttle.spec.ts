@@ -38,6 +38,13 @@ describe('password throttle', () => {
     expect(throttle.waitMs('ada')).toBe(0);
   });
 
+  it('keeps a username that is waiting when other names fill the map', () => {
+    const throttle = new PasswordThrottle(() => 0);
+    for (let i = 0; i < 5; i++) throttle.failed('victim');
+    for (let i = 0; i < 10_000; i++) throttle.failed(`filler-${i}`);
+    expect(throttle.waitMs('victim')).toBeGreaterThan(0);
+  });
+
   it('forgets failures after an hour without a new one', () => {
     let t = 0;
     const throttle = new PasswordThrottle(() => t);

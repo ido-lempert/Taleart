@@ -90,7 +90,14 @@ export {
   deleteProvider,
   type ProviderContext,
 } from './lib/providers';
-export { SECRET_KEY_ENV, parseSecretKey, encryptSecret, decryptSecret } from './lib/secrets';
+export {
+  SECRET_KEY_ENV,
+  SHIPPED_PLACEHOLDER_SECRET_KEY,
+  isShippedPlaceholderSecretKey,
+  parseSecretKey,
+  encryptSecret,
+  decryptSecret,
+} from './lib/secrets';
 export { hashPassword, verifyPassword, checkPassword, normalizeUsername } from './lib/passwords';
 export { PasswordThrottle, passwordWaitMs } from './lib/throttle';
 export {

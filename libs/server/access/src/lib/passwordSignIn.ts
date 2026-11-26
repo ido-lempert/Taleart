@@ -125,9 +125,11 @@ export async function signInWithPassword(
   const key = input.username.trim().toLowerCase();
   const wait = throttle.waitMs(key);
   if (wait > 0) throw new SignInThrottledError(Math.ceil(wait / 1000));
+  // Count the attempt before anything awaits, so concurrent guesses for this username see it.
+  // A success clears the count below; every refusal keeps it.
+  throttle.failed(key);
 
   const refuse = (): never => {
-    throttle.failed(key);
     throw new SignInFailedError();
   };
   let username: string;

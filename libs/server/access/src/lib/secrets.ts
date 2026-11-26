@@ -13,6 +13,14 @@ export const SECRET_KEY_ENV = 'TALEART_SECRET_KEY';
 // Standard base64 of exactly 32 bytes: 43 characters and one `=`.
 const KEY_TEXT = /^[A-Za-z0-9+/]{43}=$/;
 
+/** The public placeholder shipped in .env.docker.example; it is in the repository, so it protects nothing. */
+export const SHIPPED_PLACEHOLDER_SECRET_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
+
+/** True when the value is the shipped placeholder key (surrounding whitespace ignored). */
+export function isShippedPlaceholderSecretKey(value: string | undefined): boolean {
+  return value?.trim() === SHIPPED_PLACEHOLDER_SECRET_KEY;
+}
+
 /**
  * The key that encrypts provider secrets, from {@link SECRET_KEY_ENV}: standard base64 of 32 bytes.
  * Null when the value is missing or not that. The value itself is never logged or echoed.
