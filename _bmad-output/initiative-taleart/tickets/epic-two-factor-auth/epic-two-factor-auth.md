@@ -23,12 +23,12 @@ A team that signs in with a password or a provider can protect its install with 
 
 ## Requirements
 
-- R14 (owner request): a user with a password, or who signs in by an external provider, adds an authenticator app by scanning a QR code or typing the key. Shows it was met: enrolment completes only after a current code from the app is entered; a wrong code is refused.
+- R14 (owner request): a user with a password, or who signs in by an external provider, adds an authenticator app by scanning a QR code (the manual key stays available as the fallback). Self-service: the user does it on their own account. Shows it was met: enrolment completes only after a current code from the app is entered; a wrong code is refused.
 - R15 (owner request): on completing enrolment the user sees ten single-use recovery codes once. Shows it was met: each code signs in once, and regenerating the set invalidates the earlier codes.
 - R16 (owner request): password and provider sign-in for an account with 2FA creates a session only after a current code or an unused recovery code. Shows it was met: a correct password alone does not sign in; a current code does.
 - R17 (owner request): passkey sign-in is unchanged. Shows it was met: a passkey sign-in never asks for a code, before or after this epic.
 - R18 (owner request): an admin sets 2FA per install to off, optional, or required. Shows it was met: each setting takes effect at the next sign-in, with no restart.
-- R19 (owner request): a user disables 2FA after a current code or a recovery code; an admin resets a user's 2FA so the user can enrol again. Shows it was met: after a reset, the user's old codes no longer sign in.
+- R19 (owner request): a user disables 2FA on their own account after a current code or a recovery code. Self-service, so no admin reset in this epic. Shows it was met: after disabling, a password sign-in needs no code.
 
 ## Constraints
 
@@ -59,6 +59,6 @@ A team that signs in with a password or a provider can protect its install with 
 ## Notes
 
 - Open question: in required mode, are existing password or provider users who have not enrolled blocked at sign-in until they enrol, or prompted after sign-in? Answer: the owner decides; the sign-in spec does not say.
-- Open question: an admin resets a user's 2FA directly, or through a one-time link like the password reset? Answer: the owner decides.
+- Decision (2026-11-26): 2FA is self-service; an admin does not reset a user's 2FA in this epic. Enrolment uses a QR code.
 - Assumption: R14 to R19 extend the initiative's numbering after R13.
 - Unknown: the epic's position in `tickets.toml` (build order) is not set; it waits on the owner's call.
