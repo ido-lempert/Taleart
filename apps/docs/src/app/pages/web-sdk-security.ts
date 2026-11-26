@@ -20,9 +20,11 @@ import { RouterLink } from '@angular/router';
       and fonts.
     </p>
     <p>
-      Generate a new random nonce for each page load (at least 16 random bytes, base64). Put the same value in the policy
-      header and in <code>Taleart.init</code>. The SDK gives every style sheet it adds that nonce, so the policy needs no
-      <code>'unsafe-inline'</code>.
+      The nonce is optional. If your policy can allow <code>'unsafe-inline'</code> for styles, use
+      <code>style-src 'self' 'unsafe-inline'</code> and skip the nonce. For a stricter policy, generate a new random
+      nonce for each page load (at least 16 random bytes, base64), put the same value in the policy header and in
+      <code>Taleart.init</code>, and drop <code>'unsafe-inline'</code>. The SDK gives every style sheet it adds that
+      nonce.
     </p>
     <pre tabindex="0"><code>Content-Security-Policy: default-src 'self';
   script-src 'self' https://api.example.com;
