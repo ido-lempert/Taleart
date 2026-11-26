@@ -296,6 +296,20 @@
                 />
               </div>
             } @else {
+              <div class="field">
+                <label class="field__label" for="invite-email">Email of the person</label>
+                <input
+                  id="invite-email"
+                  class="input"
+                  type="email"
+                  name="inviteEmail"
+                  autocomplete="off"
+                  [(ngModel)]="inviteEmail"
+                  [attr.aria-invalid]="error() ? 'true' : null"
+                  [attr.aria-describedby]="error() ? 'create-error' : null"
+                />
+                <span class="field__hint">The link works only for this address.</span>
+              </div>
               <p class="muted">
                 Create a one-time link and send it to the person you invite. They create their sign-in and join this
                 project with the role you choose. The link works for 7 days.

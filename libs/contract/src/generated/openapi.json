@@ -5890,8 +5890,17 @@
       },
       "CreateInvitationRequest": {
         "type": "object",
+        "required": [
+          "email"
+        ],
         "additionalProperties": false,
         "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "description": "The address the invitation is sent to. The invitee must redeem it with this address, and no other."
+          },
           "role": {
             "$ref": "#/components/schemas/ProjectRole"
           },
@@ -9937,6 +9946,7 @@
           "passkey_failed",
           "forbidden",
           "invitation_invalid",
+          "invitation_email_mismatch",
           "email_taken",
           "tag_exists",
           "tag_not_found",

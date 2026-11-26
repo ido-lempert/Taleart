@@ -2,7 +2,7 @@ import type { AuthProviderConfig, ProviderAuthErrorCode, User } from '@taleart/c
 import { consumeChallenge } from './challenges';
 import { createUser, setupRequired, SETUP_LOCK, type SignedInUser } from './auth';
 import { inTransaction, type Db, type TransactionalDb } from './db';
-import { emailTaken } from './invitations';
+import { emailTaken, sameAddress } from './invitations';
 import { joinInvitedProject } from './projectMembers';
 import { InputInvalidError, ProviderAuthError, ProviderNotFoundError } from './errors';
 import {
@@ -135,13 +135,16 @@ export async function startProviderLogin(
   };
   if (flow.purpose === 'setup' && !(await setupRequired(db))) throw new ProviderAuthError('setup_closed');
   if (flow.purpose === 'invitation') {
-    const { rowCount } = await db.query(
-      'SELECT 1 FROM invitations WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()',
+    const { rows } = await db.query<{ email: string | null }>(
+      'SELECT email FROM invitations WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()',
       [hashToken(flow.token)],
     );
-    if (!rowCount) throw new ProviderAuthError('invitation_invalid');
+    if (!rows[0]) throw new ProviderAuthError('invitation_invalid');
     if (typeof flow.email !== 'string' || !EMAIL.test(flow.email)) throw new InputInvalidError('email is not valid');
-    data.email = flow.email;
+    // The invitation's address is the only one that can join; the provider's verified email must match it.
+    if (!rows[0].email) throw new ProviderAuthError('invitation_invalid');
+    if (!sameAddress(flow.email, rows[0].email)) throw new ProviderAuthError('email_mismatch');
+    data.email = rows[0].email;
     data.tokenHash = hashToken(flow.token);
   }
   if (flow.purpose === 'link') {

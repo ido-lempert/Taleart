@@ -272,8 +272,8 @@ export const DEMO_TEAM = {
     { name: 'Olle Former', email: 'olle.former@example.com', role: 'editor', expiresInDays: -3 },
   ],
   invitations: [
-    { role: 'publisher', accessExpiresInDays: null },
-    { role: 'viewer', accessExpiresInDays: 30 },
+    { email: 'invited.publisher@example.test', role: 'publisher', accessExpiresInDays: null },
+    { email: 'invited.viewer@example.test', role: 'viewer', accessExpiresInDays: 30 },
   ],
 } as const;
 

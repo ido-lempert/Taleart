@@ -333,6 +333,13 @@ describe('TeamPage: Settings > Team', () => {
 });
 
 describe('Add or invite drawer', () => {
+  // Types the address the invitation is for, as the invitee's address field requires.
+  function typeEmail(value: string): void {
+    const input = field<HTMLInputElement>('invite-email');
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
   let http: HttpTestingController;
   let fixture: ComponentFixture<CreateDrawer>;
   const root = () => fixture.nativeElement as HTMLElement;
@@ -437,10 +444,11 @@ describe('Add or invite drawer', () => {
 
   it('creates an invitation link with a role and shows the role in the result', async () => {
     await open({ kind: 'invite', projectId: 'p1', mode: 'link' });
+    typeEmail('cy@example.com');
     pick('invite-role', 'viewer');
     await submit();
     const req = http.expectOne(`${BASE}/invitations`);
-    expect(req.request.body).toEqual({ role: 'viewer' });
+    expect(req.request.body).toEqual({ email: 'cy@example.com', role: 'viewer' });
     req.flush(
       {
         id: 'i9',
@@ -463,8 +471,11 @@ describe('Add or invite drawer', () => {
     expect(field('invite-email')).not.toBeNull();
     root().querySelector<HTMLInputElement>('input[name=invite-mode][value=link]')?.click();
     fixture.detectChanges();
-    expect(root().querySelector('#invite-email')).toBeNull();
+    await settle(fixture);
+    expect(root().querySelector('#invite-email')).not.toBeNull();
+    typeEmail('cy@example.com');
+    await settle(fixture);
     await submit();
-    expect(http.expectOne(`${BASE}/invitations`).request.body).toEqual({ role: 'editor' });
+    expect(http.expectOne(`${BASE}/invitations`).request.body).toEqual({ email: 'cy@example.com', role: 'editor' });
   });
 });

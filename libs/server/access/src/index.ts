@@ -49,6 +49,7 @@ export {
   SetupClosedError,
   PasskeyFailedError,
   InvitationInvalidError,
+  InvitationEmailMismatchError,
   EmailTakenError,
   ZoneKeyNotFoundError,
   SiteKeyExistsError,

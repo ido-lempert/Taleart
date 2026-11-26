@@ -839,7 +839,14 @@ export class CreateDrawer implements OnInit {
           this.error.set(added.message);
           return;
         }
-        const created = await this.store.createInvitation(request.projectId, this.inviteRole(), this.accessEnd());
+        const inviteEmail = this.inviteEmail.trim();
+        if (!inviteEmail) {
+          this.saving.set(false);
+          this.error.set('Enter the email the invitation is for. The link works only for that address.');
+          this.refocus('#invite-email', false);
+          return;
+        }
+        const created = await this.store.createInvitation(request.projectId, inviteEmail, this.inviteRole(), this.accessEnd());
         this.invitation.set(created.invitation);
         this.saving.set(false);
         this.error.set(created.message);

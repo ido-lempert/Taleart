@@ -4165,8 +4165,11 @@ describe('Management API v1: projects and zones', () => {
       return line.split(';')[0].slice(name.length + 1);
     }
 
-    async function invite(projectId: string): Promise<{ id: string; url: string; expiresAt: string; token: string }> {
-      const res = await send('POST', `/projects/${projectId}/invitations`, undefined, adminCookie);
+    async function invite(
+      projectId: string,
+      email = 'cy@example.com',
+    ): Promise<{ id: string; url: string; expiresAt: string; token: string }> {
+      const res = await send('POST', `/projects/${projectId}/invitations`, { email }, adminCookie);
       expect(res.status).toBe(201);
       const body = await res.json();
       return { ...body, token: decodeURIComponent(new URL(body.url).pathname.split('/').pop() ?? '') };
@@ -4211,7 +4214,7 @@ describe('Management API v1: projects and zones', () => {
     it('lets an admin create an invitation link and stores only the token hash', async () => {
       const project = await createProject();
       const before = Date.now();
-      const res = await send('POST', `/projects/${project.id}/invitations`, undefined, adminCookie);
+      const res = await send('POST', `/projects/${project.id}/invitations`, { email: 'cy@example.com' }, adminCookie);
       expect(res.status).toBe(201);
       const body = await res.json();
       expect(body).toEqual({
@@ -4234,7 +4237,7 @@ describe('Management API v1: projects and zones', () => {
     });
 
     it.each([unknownId, 'not-a-uuid'])('answers 404 project_not_found when inviting to project %s', async (id) => {
-      const res = await send('POST', `/projects/${id}/invitations`, undefined, adminCookie);
+      const res = await send('POST', `/projects/${id}/invitations`, { email: 'cy@example.com' }, adminCookie);
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: { code: 'project_not_found', message: expect.any(String) } });
     });
@@ -4312,13 +4315,13 @@ describe('Management API v1: projects and zones', () => {
 
     it('lets only one of two racing redeems of one link create a user', async () => {
       const project = await createProject();
-      const { token } = await invite(project.id);
+      const { token } = await invite(project.id, 'one@example.com');
       const start = async (email: string) => {
         const res = await send('POST', `/auth/invitations/${token}/options`, { name: 'X', email }, '');
         return { challenge: (await res.json()).challenge, cookie: `taleart_challenge=${cookieValue(res, 'taleart_challenge')}` };
       };
       const one = await start('one@example.com');
-      const two = await start('two@example.com');
+      const two = await start('one@example.com');
       const results = await Promise.all([
         send('POST', `/auth/invitations/${token}/verify`, { id: 'cred-1', challenge: one.challenge }, one.cookie),
         send('POST', `/auth/invitations/${token}/verify`, { id: 'cred-2', challenge: two.challenge }, two.cookie),
@@ -4329,7 +4332,7 @@ describe('Management API v1: projects and zones', () => {
 
     it('refuses an email that already belongs to a user with 409 email_taken', async () => {
       const project = await createProject();
-      const { token } = await invite(project.id);
+      const { token } = await invite(project.id, 'admin@example.com');
       const res = await redeem(token, { email: 'ADMIN@example.com' });
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: { code: 'email_taken', message: expect.any(String) } });
@@ -13254,7 +13257,7 @@ describe('Management API v1: API tokens for scripts (epic developer experience 1
     expect(invite.status).toBe(403);
     expect((await invite.json()).error.code).toBe('forbidden');
     expect((await pool.query('SELECT 1 FROM invitations')).rowCount).toBe(0);
-    expect((await session('POST', `/projects/${a}/invitations`)).status).toBe(201);
+    expect((await session('POST', `/projects/${a}/invitations`, { email: 'cy@example.com' })).status).toBe(201);
   });
 
   it('acts as its user: admin-only routes stay admin-only, and losing a project cuts the token at once', async () => {
@@ -14107,7 +14110,7 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
 
   it('joins through an invitation with a password only while the password method is on', async () => {
     const project = await (await send('POST', '/projects', { body: { name: 'Acme' } })).json();
-    const invitation = await (await send('POST', `/projects/${project.id}/invitations`)).json();
+    const invitation = await (await send('POST', `/projects/${project.id}/invitations`, { body: { email: 'dee@example.com' } })).json();
     const token = (invitation as { url: string }).url.split('/invite/')[1];
     const body = { name: 'Dee Member', email: 'dee@example.com', username: 'dee.member', password: PASSWORD };
 
@@ -14689,7 +14692,7 @@ describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
   it('joins through an invitation when the verified email is the invitation email (Google preset)', async () => {
     const project = await createProject(pool, { name: 'Site' });
     const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
-    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: { id: admin.id, name: 'Admin' } });
+    const invitation = await createInvitation(pool, { projectId: project.id, email: 'person@example.com', createdBy: { id: admin.id, name: 'Admin' } });
     await addProvider('google', 'google', { clientId }, clientSecret);
     const query = `purpose=invitation&token=${invitation.token}&email=Person@Example.com`;
     const done = await signInFlow('google', query);
@@ -14707,17 +14710,18 @@ describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
   it('refuses an invitation when the verified email is not the invitation email', async () => {
     const project = await createProject(pool, { name: 'Site' });
     const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
-    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: { id: admin.id, name: 'Admin' } });
+    const invitation = await createInvitation(pool, { projectId: project.id, email: 'person@example.com', createdBy: { id: admin.id, name: 'Admin' } });
     await addProvider('google', 'google', { clientId }, clientSecret);
-    const done = await signInFlow('google', `purpose=invitation&token=${invitation.token}&email=someone.else@example.com`);
-    expect(authError(done)).toBe('email_mismatch');
-    expect(signedIn(done)).toBe(false);
+    // Refused when the flow starts: the browser is not sent to the provider at all.
+    const started = await start('google', `purpose=invitation&token=${invitation.token}&email=someone.else@example.com`);
+    expect(authError(started)).toBe('email_mismatch');
+    expect(started.headers.get('location') ?? '').not.toContain('accounts.google.com');
   });
 
   it('refuses an invitation with an unverified provider email', async () => {
     const project = await createProject(pool, { name: 'Site' });
     const admin = await createUser(pool, { name: 'Boss', email: 'boss@example.com', role: 'admin' });
-    const invitation = await createInvitation(pool, { projectId: project.id, createdBy: { id: admin.id, name: 'Admin' } });
+    const invitation = await createInvitation(pool, { projectId: project.id, email: 'person@example.com', createdBy: { id: admin.id, name: 'Admin' } });
     fake.mode = { emailVerified: 'false' };
     await addProvider('google', 'google', { clientId }, clientSecret);
     const done = await signInFlow('google', `purpose=invitation&token=${invitation.token}&email=person@example.com`);
@@ -15508,6 +15512,7 @@ describe('Management API v1: project roles', () => {
     it('creates, lists and previews an invitation with its role, and applies it when the invitee joins', async () => {
       const until = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
       const created = await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, {
+        email: 'newcomer@example.com',
         role: 'viewer',
         accessExpiresAt: until,
       });
@@ -15553,7 +15558,7 @@ describe('Management API v1: project roles', () => {
     });
 
     it('defaults to editor, and refuses an unknown role or an expiry in the past', async () => {
-      const res = await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie);
+      const res = await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, { email: 'cy@example.com' });
       expect((await res.json()).role).toBe('editor');
       for (const body of [
         { role: 'owner' },
@@ -15568,7 +15573,7 @@ describe('Management API v1: project roles', () => {
     });
 
     it('revokes a pending invitation: the link dies, the log remembers, a repeat is 404', async () => {
-      const invitation = await (await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie)).json();
+      const invitation = await (await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, { email: 'cy@example.com' })).json();
       const token = decodeURIComponent(invitation.url.split('/').pop());
       const url = `/projects/${projectId}/invitations/${invitation.id}`;
       expect(await status('DELETE', url, people.publisher.cookie)).toBe(403);
@@ -15724,7 +15729,7 @@ describe('Management API v1: project roles', () => {
   describe('audit log', () => {
     it('pages newest first with limit and before, for members.manage only', async () => {
       for (let i = 0; i < 5; i++) {
-        await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, { role: 'viewer' });
+        await api('POST', `/projects/${projectId}/invitations`, people.admin.cookie, { email: 'cy@example.com', role: 'viewer' });
       }
       const url = `/projects/${projectId}/audit-log`;
       const first = await (await api('GET', `${url}?limit=2`, people.admin.cookie)).json();

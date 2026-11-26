@@ -31,6 +31,9 @@ import { requireAllProjects, sessionOnly } from './credentials';
 import { HttpError } from './errors';
 import { accessEndField, onlyFields, projectRoleField, requiredString } from './validation';
 
+/** A simple address check: one @, a dot in the domain, no spaces. The mailbox itself is checked by redeeming it. */
+const INVITE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export interface ProjectsOptions {
   /** The dashboard's origin (RP_ORIGIN); invitation links point there. */
   dashboardOrigin: string;
@@ -99,12 +102,18 @@ export function projectsRouter(pool: Pool, { dashboardOrigin }: ProjectsOptions)
   router.post('/:projectId/invitations', sessionOnly, membersAccess, existing, async (req, res, next) => {
     try {
       const { projectId } = req.params;
-      onlyFields(req.body, ['role', 'accessExpiresAt']);
+      onlyFields(req.body, ['email', 'role', 'accessExpiresAt']);
+      // The address is the invitation's: the invitee must redeem with it (AD-9 binding).
+      const email = requiredString(req.body, 'email').toLowerCase();
+      if (email.length > 254 || !INVITE_EMAIL.test(email)) {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'email is not valid');
+      }
       const role = projectRoleField(req.body, 'role', false);
       const accessExpiresAt = accessEndField(req.body, 'accessExpiresAt');
       const user = caller(res);
       const invitation = await createInvitation(pool, {
         projectId,
+        email,
         createdBy: { id: user.id, name: user.name },
         role,
         accessExpiresAt,

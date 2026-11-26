@@ -6925,6 +6925,14 @@ describe('App', () => {
 
     const gone = { error: { code: 'invitation_invalid', message: 'This invitation is no longer valid.' } };
 
+    // Types the address the invitation is for, as the invitee's address field requires.
+    function fillInviteEmail(el: HTMLElement, value: string): void {
+      const input = el.querySelector<HTMLInputElement>('#invite-email');
+      if (!input) throw new Error('the invite drawer has no email field');
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    }
+
     it('gives each project card "Invite"; the drawer creates the link and copies it', async () => {
       const writeText = vi.fn(async () => undefined);
       Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -6935,6 +6943,7 @@ describe('App', () => {
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Add or invite');
       expect(drawer()?.textContent).toContain('To project Acme');
+      fillInviteEmail(drawer() as HTMLElement, 'cy@example.com');
       buttonNamed(drawer() as HTMLElement, 'Create link').click();
       const req = http.expectOne(`${API_BASE}/projects/p1/invitations`);
       expect(req.request.method).toBe('POST');
@@ -6960,7 +6969,8 @@ describe('App', () => {
         const { fixture, root } = await open('/projects', { projects: [acme] });
         root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
         await settle(fixture);
-        buttonNamed(drawer() as HTMLElement, 'Create link').click();
+        fillInviteEmail(drawer() as HTMLElement, 'cy@example.com');
+      buttonNamed(drawer() as HTMLElement, 'Create link').click();
         http.expectOne(`${API_BASE}/projects/p1/invitations`).flush(invitation, { status: 201, statusText: 'Created' });
         await settle(fixture);
 
@@ -6979,6 +6989,7 @@ describe('App', () => {
       const { fixture, root } = await open('/projects', { projects: [acme] });
       root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
       await settle(fixture);
+      fillInviteEmail(drawer() as HTMLElement, 'cy@example.com');
       buttonNamed(drawer() as HTMLElement, 'Create link').click();
       http.expectOne(`${API_BASE}/projects/p1/invitations`).flush(invitation, { status: 201, statusText: 'Created' });
       await settle(fixture);
@@ -6991,6 +7002,7 @@ describe('App', () => {
       const { fixture, root } = await open('/projects', { projects: [acme] });
       root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
       await settle(fixture);
+      fillInviteEmail(drawer() as HTMLElement, 'cy@example.com');
       buttonNamed(drawer() as HTMLElement, 'Create link').click();
       http
         .expectOne(`${API_BASE}/projects/p1/invitations`)

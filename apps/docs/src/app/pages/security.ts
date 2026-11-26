@@ -124,10 +124,9 @@ header X-Content-Type-Options nosniff</code></pre>
     <p>These are open in this version. Plan around them until they are fixed.</p>
     <ul>
       <li>
-        <strong>Invitations accept any email.</strong> When someone joins through an invitation, the email they enter is
-        not checked against the invitation. An invitee can therefore register an address that belongs to someone else,
-        and a project admin who later adds that address by email grants the squatting account access. Invite only people
-        you trust, and check the email of each new member before you add anyone by email.
+        <strong>Invitations made before the address was required cannot be used.</strong> Each invitation is now for one
+        email address, which must join with it. An invitation created before that change has no address, so create a new one
+        for each person who still needs access.
       </li>
       <li>
         <strong>Password guess limits are per process.</strong> See the rate-limit section above.

@@ -59,6 +59,7 @@ export async function seedDemoTeam(pool: TransactionalDb, projectId: string, adm
   for (const invitation of DEMO_TEAM.invitations) {
     await createInvitation(pool, {
       projectId,
+      email: invitation.email,
       createdBy: { id: admin.id, name: admin.name },
       role: invitation.role,
       accessExpiresAt: invitation.accessExpiresInDays === null ? null : new Date(now.getTime() + invitation.accessExpiresInDays * DAY_MS),

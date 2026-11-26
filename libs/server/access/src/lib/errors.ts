@@ -30,6 +30,16 @@ export class InvitationInvalidError extends Error {
   }
 }
 
+/** Thrown when an invitee names an email other than the one the invitation was sent to. */
+export class InvitationEmailMismatchError extends Error {
+  readonly code = ErrorCodes.invitationEmailMismatch;
+
+  constructor() {
+    super('Use the email address this invitation was sent to.');
+    this.name = 'InvitationEmailMismatchError';
+  }
+}
+
 /** Thrown when an invitee names an email that already belongs to a user. */
 export class EmailTakenError extends Error {
   readonly code = ErrorCodes.emailTaken;

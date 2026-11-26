@@ -703,15 +703,20 @@ export class DashboardStore {
     }
   }
 
-  /** Creates a one-time invitation link to a project with a role (members.manage); the link is shown only now. */
+  /**
+   * Creates a one-time invitation link to a project with a role (members.manage); the link is shown only now.
+   * The invitation is bound to `email`: only that address can redeem it.
+   */
   async createInvitation(
     projectId: string,
+    email: string,
     role: ProjectRole = DEFAULT_INVITATION_ROLE,
     accessExpiresAt: string | null = null,
   ): Promise<{ invitation: Invitation | null; message: string }> {
     try {
       const invitation = await firstValueFrom(
         this.http.post<Invitation>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/invitations`, {
+          email,
           role,
           ...(accessExpiresAt ? { accessExpiresAt } : {}),
         }),

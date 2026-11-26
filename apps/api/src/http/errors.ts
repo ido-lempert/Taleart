@@ -41,6 +41,7 @@ import {
   ApiTokenNotFoundError,
   SignInRefusal,
   EmailTakenError,
+  InvitationEmailMismatchError,
   InvitationInvalidError,
   PasskeyFailedError,
   SetupClosedError,
@@ -147,6 +148,10 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
   }
   if (err instanceof InvitationInvalidError) {
     res.status(410).json(errorBody(err.code, err.message));
+    return;
+  }
+  if (err instanceof InvitationEmailMismatchError) {
+    res.status(400).json(errorBody(err.code, err.message));
     return;
   }
   if (

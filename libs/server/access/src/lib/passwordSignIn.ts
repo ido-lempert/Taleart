@@ -15,7 +15,7 @@ import {
 } from './errors';
 import { joinInvitedProject } from './projectMembers';
 import { checkPassword, hashPassword, normalizeUsername, verifyAgainstDummyHash, verifyPassword } from './passwords';
-import { emailTaken, validInvitation, type JoinedProject } from './invitations';
+import { emailTaken, invitedAddress, validInvitation, type JoinedProject } from './invitations';
 import { createSession, hashSessionToken } from './sessions';
 import { assertUserKeepsSignIn, signInSettings, SIGN_IN_LOCK } from './signInMethods';
 import type { PasswordThrottle } from './throttle';
@@ -84,10 +84,11 @@ export async function redeemInvitationWithPassword(
   input: { name: string; email: string } & PasswordCredentials,
 ): Promise<JoinedProject> {
   const invitation = await validInvitation(db, token);
+  const email = invitedAddress(invitation, input.email);
   if (!(await signInSettings(db)).passwordEnabled) throw new SignInMethodDisabledError();
-  if (await emailTaken(db, input.email)) throw new EmailTakenError();
+  if (await emailTaken(db, email)) throw new EmailTakenError();
   const username = normalizeUsername(input.username);
-  const password = checkPassword(input.password, { username, email: input.email });
+  const password = checkPassword(input.password, { username, email });
   const passwordHash = await hashPassword(password);
 
   try {
@@ -97,8 +98,8 @@ export async function redeemInvitationWithPassword(
         [invitation.id],
       );
       if (!locked.rows[0]?.valid) throw new InvitationInvalidError();
-      if (await emailTaken(tx, input.email)) throw new EmailTakenError();
-      const user = await createUser(tx, { name: input.name, email: input.email, role: 'content_manager' });
+      if (await emailTaken(tx, email)) throw new EmailTakenError();
+      const user = await createUser(tx, { name: input.name, email, role: 'content_manager' });
       await insertPassword(tx, user.id, username, passwordHash);
       await joinInvitedProject(tx, invitation.id, user);
       await tx.query('UPDATE invitations SET used_at = now(), used_by = $2 WHERE id = $1', [invitation.id, user.id]);

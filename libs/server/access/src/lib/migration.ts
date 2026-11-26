@@ -127,6 +127,10 @@ export async function migrateAccess(db: Db): Promise<void> {
       ADD CONSTRAINT invitations_role_check CHECK (role IN ('admin', 'publisher', 'editor', 'viewer'))
   `);
 
+  // An invitation is bound to the email it was sent to: redeeming it needs that address. Invitations made
+  // before this have no email and cannot be redeemed; an admin issues a new link.
+  await db.query('ALTER TABLE invitations ADD COLUMN IF NOT EXISTS email text');
+
   // Who changed who may enter a project, written in the transaction of the change itself.
   await db.query(`
     CREATE TABLE IF NOT EXISTS project_audit_log (

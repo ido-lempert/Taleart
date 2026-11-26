@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { INVITATION_TTL_MS } from '@taleart/contract';
 import type { TransactionalDb } from './db';
-import { EmailTakenError, InvitationInvalidError, PasskeyFailedError } from './errors';
+import { EmailTakenError, InvitationEmailMismatchError, InvitationInvalidError, PasskeyFailedError } from './errors';
 import { createInvitation, finishInvitation, previewInvitation, startInvitation } from './invitations';
 import { accessibleProjectIds, canAccessProject } from './members';
 import type { PasskeyVerifier } from './passkey-verifier';
@@ -41,6 +41,7 @@ const invitationRow = {
   id: 'i1',
   projectId,
   projectName: 'Acme',
+  email: 'cy@x.io',
   expiresAt: new Date('2026-10-27T00:00:00Z'),
   role: 'editor',
   accessExpiresAt: null,
@@ -72,11 +73,11 @@ describe('invitations', () => {
   it('stores only the hash of a 32-byte token and expires it after 7 days', async () => {
     const db = fakeDb({ 'INSERT INTO invitations': [{ id: 'i1' }] });
     const before = Date.now();
-    const invitation = await createInvitation(db, { projectId, createdBy: { id: 'u1', name: 'Ann' } });
+    const invitation = await createInvitation(db, { projectId, email: 'cy@x.io', createdBy: { id: 'u1', name: 'Ann' } });
     expect(Buffer.from(invitation.token, 'base64url')).toHaveLength(32);
     expect(invitation.expiresAt.getTime() - before).toBeGreaterThanOrEqual(INVITATION_TTL_MS - 1000);
     const insert = db.query.mock.calls.find(([text]) => String(text).includes('INSERT INTO invitations'));
-    expect(insert?.[1]).toEqual([projectId, sha256(invitation.token), 'u1', invitation.expiresAt, 'editor', null]);
+    expect(insert?.[1]).toEqual([projectId, sha256(invitation.token), 'u1', invitation.expiresAt, 'editor', null, 'cy@x.io']);
     expect(invitation.role).toBe('editor');
     expect(JSON.stringify(db.query.mock.calls)).not.toContain(invitation.token);
   });
@@ -101,6 +102,28 @@ describe('invitations', () => {
     const db = fakeDb({ 'JOIN projects': [invitationRow], 'FROM users': [{ '?column?': 1 }] });
     await expect(startInvitation(db, verifier, 'tok', { name: 'Cy', email: 'cy@x.io' })).rejects.toBeInstanceOf(
       EmailTakenError,
+    );
+  });
+
+  it('refuses to start with an address other than the one the invitation was sent to', async () => {
+    const db = fakeDb({ 'JOIN projects': [invitationRow] });
+    await expect(startInvitation(db, verifier, 'tok', { name: 'Cy', email: 'eve@x.io' })).rejects.toBeInstanceOf(
+      InvitationEmailMismatchError,
+    );
+  });
+
+  it('compares the invited address ignoring case and surrounding spaces', async () => {
+    const db = fakeDb({ 'JOIN projects': [invitationRow], 'INSERT INTO auth_challenges': [{ id: challengeId, expires_at: new Date() }] });
+    // Only the mismatch matters here: an address that matches must get past the check.
+    await startInvitation(db, verifier, 'tok', { name: 'Cy', email: '  CY@x.io ' }).catch((err: unknown) => {
+      expect(err).not.toBeInstanceOf(InvitationEmailMismatchError);
+    });
+  });
+
+  it('refuses an invitation made before the address was required', async () => {
+    const db = fakeDb({ 'JOIN projects': [{ ...invitationRow, email: null }] });
+    await expect(startInvitation(db, verifier, 'tok', { name: 'Cy', email: 'cy@x.io' })).rejects.toBeInstanceOf(
+      InvitationInvalidError,
     );
   });
 

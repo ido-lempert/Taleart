@@ -10,7 +10,7 @@ import {
 import type { StartedCeremony, SignedInUser } from './auth';
 import { consumeChallenge, createChallenge } from './challenges';
 import { inTransaction, type Db, type TransactionalDb } from './db';
-import { EmailTakenError, InvitationInvalidError, PasskeyFailedError } from './errors';
+import { EmailTakenError, InvitationEmailMismatchError, InvitationInvalidError, PasskeyFailedError } from './errors';
 import { joinInvitedProject, recordProjectAudit } from './projectMembers';
 import type { PasskeyVerifier } from './passkey-verifier';
 import { createSession } from './sessions';
@@ -20,6 +20,7 @@ import { hashToken, newToken } from './tokens';
 export interface NewInvitation {
   id: string;
   projectId: string;
+  email: string;
   token: string;
   expiresAt: Date;
   role: ProjectRole;
@@ -35,6 +36,7 @@ export interface ValidInvitation {
   id: string;
   projectId: string;
   projectName: string;
+  email: string | null;
   expiresAt: Date;
   role: ProjectRole;
   accessExpiresAt: Date | null;
@@ -49,6 +51,7 @@ export async function createInvitation(
   db: TransactionalDb,
   input: {
     projectId: string;
+    email: string;
     createdBy: { id: string; name: string };
     role?: ProjectRole;
     accessExpiresAt?: Date | null;
@@ -60,9 +63,9 @@ export async function createInvitation(
   const accessExpiresAt = input.accessExpiresAt ?? null;
   return inTransaction(db, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO invitations (project_id, token_hash, created_by, expires_at, role, access_expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [input.projectId, hashToken(token), input.createdBy.id, expiresAt, role, accessExpiresAt],
+      `INSERT INTO invitations (project_id, token_hash, created_by, expires_at, role, access_expires_at, email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [input.projectId, hashToken(token), input.createdBy.id, expiresAt, role, accessExpiresAt, input.email],
     );
     await recordProjectAudit(tx, {
       projectId: input.projectId,
@@ -70,7 +73,7 @@ export async function createInvitation(
       action: 'invited',
       detail: { invitationId: rows[0].id, role, accessExpiresAt: accessExpiresAt?.toISOString() ?? null },
     });
-    return { id: rows[0].id, projectId: input.projectId, token, expiresAt, role, accessExpiresAt };
+    return { id: rows[0].id, projectId: input.projectId, email: input.email, token, expiresAt, role, accessExpiresAt };
   });
 }
 
@@ -79,7 +82,7 @@ export async function validInvitation(db: Db, token: string | undefined): Promis
   if (!token) throw new InvitationInvalidError();
   const { rows } = await db.query<ValidInvitation>(
     `SELECT i.id, i.project_id AS "projectId", p.name AS "projectName", i.expires_at AS "expiresAt",
-            i.role, i.access_expires_at AS "accessExpiresAt"
+            i.role, i.access_expires_at AS "accessExpiresAt", i.email
      FROM invitations i JOIN projects p ON p.id = i.project_id
      WHERE i.token_hash = $1 AND i.used_at IS NULL AND i.expires_at > now()`,
     [hashToken(token)],
@@ -99,6 +102,21 @@ export async function previewInvitation(db: Db, token: string | undefined): Prom
   };
 }
 
+/** Two addresses are the same mailbox when they match ignoring case and surrounding spaces. */
+export function sameAddress(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * The invitee must redeem with the address the invitation was sent to. An invitation without one (made
+ * before the address was required) cannot be redeemed.
+ */
+export function invitedAddress(invitation: ValidInvitation, email: string): string {
+  if (!invitation.email) throw new InvitationInvalidError();
+  if (!sameAddress(email, invitation.email)) throw new InvitationEmailMismatchError();
+  return invitation.email;
+}
+
 export async function emailTaken(db: Db, email: string): Promise<boolean> {
   const { rowCount } = await db.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [email]);
   return (rowCount ?? 0) > 0;
@@ -115,12 +133,13 @@ export async function startInvitation(
   input: { name: string; email: string },
 ): Promise<StartedCeremony<PasskeyCreationOptions>> {
   const invitation = await validInvitation(db, token);
-  if (await emailTaken(db, input.email)) throw new EmailTakenError();
+  const email = invitedAddress(invitation, input.email);
+  if (await emailTaken(db, email)) throw new EmailTakenError();
   const userHandle = randomBytes(32).toString('base64url');
-  const options = await verifier.creationOptions({ userHandle, name: input.name, email: input.email });
+  const options = await verifier.creationOptions({ userHandle, name: input.name, email });
   const { id, expiresAt } = await createChallenge(db, 'invitation', options.challenge, {
     name: input.name,
-    email: input.email,
+    email,
     userHandle,
     invitationId: invitation.id,
   });
@@ -143,12 +162,14 @@ export async function finishInvitation(
   const invitation = await validInvitation(db, token);
   const pending = await consumeChallenge(db, challengeId, 'invitation');
   if (!pending) throw new PasskeyFailedError('The request expired. Start again.');
-  const { name, email, userHandle, invitationId } = pending.data as {
+  const { name, userHandle, invitationId } = pending.data as {
     name: string;
-    email: string;
     userHandle: string;
     invitationId: string;
   };
+  // The address is the invitation's, never the challenge's.
+  if (!invitation.email) throw new InvitationInvalidError();
+  const email = invitation.email;
   // A challenge started for another invitation does not redeem this one.
   if (invitationId !== invitation.id) throw new PasskeyFailedError();
   const passkey = await verifier.verifyRegistration(response, pending.challenge);

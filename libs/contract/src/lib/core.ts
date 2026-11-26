@@ -763,6 +763,7 @@ export const ErrorCodes = {
   passkeyFailed: 'passkey_failed',
   forbidden: 'forbidden',
   invitationInvalid: 'invitation_invalid',
+  invitationEmailMismatch: 'invitation_email_mismatch',
   emailTaken: 'email_taken',
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',
