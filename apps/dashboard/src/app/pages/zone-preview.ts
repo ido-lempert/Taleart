@@ -41,13 +41,24 @@ import { TalePreviewPane } from './tale-preview';
       z-index: 50;
       box-sizing: border-box;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: var(--space-3);
-      max-width: 100vw;
+      justify-content: center;
       padding: 16px;
-      overflow: auto;
       background: rgb(15 17 23 / 72%);
+    }
+    /* Everything sits on one solid card, so nothing reads against the dimmed page behind it. */
+    app-zone-preview .zone-preview {
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      width: min(100%, 560px);
+      max-height: 100%;
+      overflow: auto;
+      padding: var(--space-4, 16px);
+      background: var(--surface, #fff);
+      border-radius: var(--radius-card, 12px);
+      box-shadow: var(--shadow-raised, 0 12px 40px rgb(0 0 0 / 35%));
     }
     app-zone-preview .zone-preview__close {
       align-self: flex-end;
