@@ -22,9 +22,12 @@ import {
   type UserListRefusal,
   type UserListUploadReport,
 } from '@taleart/contract/core';
+import { BulkBar } from '../bulk-bar';
+import { runLimited } from '../bulk-run';
 import { DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
 import { Icon } from '../icon';
+import { createSelection } from '../selection';
 import { UserListsService } from '../user-lists.service';
 
 /** What an open drawer is for, and the control focus goes back to. */
@@ -111,9 +114,23 @@ function readSample(file: Blob): Promise<string> {
  */
 @Component({
   selector: 'app-audience-page',
-  imports: [Drawer, Icon],
+  imports: [Drawer, Icon, BulkBar],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
+    .user-lists__head {
+      display: flex;
+      margin: var(--space-3) 0 0;
+    }
+    /* The row's first cell: its checkbox, at the top of the row. */
+    .user-list__select {
+      align-self: flex-start;
+      min-height: 0;
+      padding: 0;
+    }
+    .bulk-names {
+      margin: var(--space-2) 0 0;
+      padding-inline-start: var(--space-5);
+    }
     .audience-header__row {
       display: flex;
       flex-wrap: wrap;
@@ -237,9 +254,44 @@ function readSample(file: Blob): Promise<string> {
                 <p class="empty__text">Create one and upload a CSV with one external user ID per row.</p>
               </div>
             } @else {
+              <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
+              <div (keydown.escape)="selection.clear()">
+              @if (canEdit()) {
+                <div class="user-lists__head">
+                  <label class="checkbox">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all user lists"
+                      [checked]="selection.allSelected()"
+                      [indeterminate]="selection.someSelected()"
+                      (change)="selection.toggleAll()"
+                    />
+                    <span>Select all</span>
+                  </label>
+                </div>
+                <app-bulk-bar [count]="selection.count()" (cleared)="selection.clear()">
+                  <button type="button" class="btn btn--danger btn--sm" id="bulk-delete" (click)="askBulkDelete()">Delete</button>
+                </app-bulk-bar>
+                @if (bulkFailed().length > 0) {
+                  <div class="banner banner--inline" role="alert" id="bulk-failed">
+                    <app-icon name="alert" />
+                    <span>{{ bulkFailed().length }} could not be deleted: {{ bulkFailedNames() }}. They stay selected.</span>
+                  </div>
+                }
+              }
               <ul class="user-lists" aria-labelledby="user-lists-title">
                 @for (list of all; track list.id) {
                   <li class="user-list">
+                    @if (canEdit()) {
+                      <label class="checkbox user-list__select">
+                        <input
+                          type="checkbox"
+                          [attr.aria-label]="'Select ' + list.name"
+                          [checked]="selection.isSelected(list.id)"
+                          (change)="selection.toggle(list.id)"
+                        />
+                      </label>
+                    }
                     <div class="user-list__text">
                       <h4 class="user-list__name">{{ list.name }}</h4>
                       <span class="muted">
@@ -278,6 +330,7 @@ function readSample(file: Blob): Promise<string> {
                   </li>
                 }
               </ul>
+              </div>
             }
           } @else if (!listError()) {
             <p class="muted">Loading the user lists…</p>
@@ -286,6 +339,46 @@ function readSample(file: Blob): Promise<string> {
       </div>
       <p class="visually-hidden" role="status">{{ said() }}</p>
     </div>
+
+    @if (bulk(); as run) {
+      <app-drawer
+        [heading]="bulkHeading()"
+        dialogRole="alertdialog"
+        describedBy="user-list-bulk-text"
+        initialFocus="#bulk-cancel"
+        [returnFocus]="returnFocus"
+        [busy]="run.phase === 'running'"
+        (closed)="closeBulk()"
+      >
+        <div class="drawer__body">
+          <p id="user-list-bulk-text">
+            They are deleted for good, not kept anywhere, with the {{ bulkIdCount() }} they hold. This cannot be undone.
+            @if (bulkGroupsAffected()) {
+              Groups targeted only to these lists will stop showing until you change their Audience.
+            }
+          </p>
+          <ul class="bulk-names">
+            @for (list of run.items.slice(0, 5); track list.id) {
+              <li>{{ list.name }}</li>
+            }
+            @if (run.items.length > 5) {
+              <li class="muted">+{{ run.items.length - 5 }} more</li>
+            }
+          </ul>
+          @if (run.phase === 'running') {
+            <p class="muted" role="status">Deleting {{ run.done }} of {{ run.items.length }}…</p>
+          }
+        </div>
+        <div class="drawer__footer">
+          <button type="button" class="btn btn--secondary" id="bulk-cancel" [disabled]="run.phase === 'running'" (click)="closeBulk()">
+            Cancel
+          </button>
+          <button type="button" class="btn btn--danger" id="bulk-submit" [disabled]="run.phase === 'running'" (click)="confirmBulk()">
+            {{ run.phase === 'running' ? 'Deleting…' : bulkSubmitLabel() }}
+          </button>
+        </div>
+      </app-drawer>
+    }
 
     @if (drawer(); as d) {
       @switch (d.kind) {
@@ -472,6 +565,34 @@ export class AudiencePage {
   protected readonly atLimit = computed(() => (this.lists()?.length ?? 0) >= MAX_USER_LISTS_PER_PROJECT);
 
   protected readonly drawer = signal<AudienceDrawer | null>(null);
+
+  /**
+   * The lists picked for a bulk delete (the reusable selection, `selection.ts`). Checkboxes and the bar
+   * show only to a role that may edit (content.edit), as the row's Delete does.
+   */
+  protected readonly selection = createSelection(
+    () => this.lists() ?? [],
+    (list: UserList) => list.id,
+  );
+  /** The bulk delete being confirmed, then run: the lists it names, and how many are done. */
+  protected readonly bulk = signal<{ phase: 'confirm' | 'running'; items: readonly UserList[]; done: number } | null>(null);
+  /** The lists the last bulk delete could not delete, kept selected until the next one. */
+  protected readonly bulkFailed = signal<readonly { id: string; name: string; message: string }[]>([]);
+  protected readonly bulkFailedNames = computed(() => this.bulkFailed().map((f) => f.name).join(', '));
+  protected readonly bulkHeading = computed(() => {
+    const count = this.bulk()?.items.length ?? 0;
+    return `Delete ${count} user ${count === 1 ? 'list' : 'lists'}?`;
+  });
+  protected readonly bulkSubmitLabel = computed(() => {
+    const count = this.bulk()?.items.length ?? 0;
+    return `Delete ${count} user ${count === 1 ? 'list' : 'lists'}`;
+  });
+  /** The IDs the picked lists hold, in all, in words. */
+  protected readonly bulkIdCount = computed(() => count(this.bulk()?.items.reduce((sum, list) => sum + (list.idCount ?? 0), 0) ?? 0, 'ID'));
+  /** Whether a picked list is targeted by tale groups, so deleting it changes what those groups show. */
+  protected readonly bulkGroupsAffected = computed(() => (this.bulk()?.items ?? []).some((list) => (list.taleGroups?.length ?? 0) > 0));
+  /** How many single-list requests a bulk delete keeps in flight. */
+  private static readonly BULK_CONCURRENCY = 3;
   protected readonly name = signal('');
   protected readonly file = signal<File | null>(null);
   protected readonly header = signal(false);
@@ -678,6 +799,51 @@ export class AudiencePage {
     await this.load(projectId);
     this.said.set(`${d.list.name} renamed to ${result.value.name}.`);
     this.drawer.set(null);
+  }
+
+  /** Opens the confirmation of a bulk delete for the selected lists. */
+  protected askBulkDelete(): void {
+    if (!this.canEdit() || this.selection.count() === 0) return;
+    this.bulkFailed.set([]);
+    this.lastReturn = document.getElementById('bulk-delete');
+    this.bulk.set({ phase: 'confirm', items: this.selection.selectedItems(), done: 0 });
+  }
+
+  /** Closes the bulk confirmation; not while the deletes run. */
+  protected closeBulk(): void {
+    if (this.bulk()?.phase === 'running') return;
+    this.bulk.set(null);
+  }
+
+  /**
+   * Deletes the confirmed lists through the single-list endpoint, a few at a time, then reads the lists
+   * again. The lists deleted leave the page; the ones that failed stay selected and are named.
+   */
+  protected async confirmBulk(): Promise<void> {
+    const run = this.bulk();
+    const projectId = this.projectId();
+    if (!run || run.phase !== 'confirm' || !projectId || !this.canEdit()) return;
+    this.bulk.set({ ...run, phase: 'running', done: 0 });
+    const outcome = await runLimited(
+      run.items,
+      AudiencePage.BULK_CONCURRENCY,
+      async (list) => {
+        const result = await this.service.remove(projectId, list.id);
+        return result.value === null ? result.message : '';
+      },
+      (done) => this.bulk.update((current) => (current ? { ...current, done } : current)),
+    );
+    await this.load(projectId);
+    // Tale groups that lost a list: their audience and visibility change.
+    if (outcome.succeeded.some((list) => (list.taleGroups?.length ?? 0) > 0)) void this.store.refresh();
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: item.name, message }));
+    this.selection.replace(failed.map((f) => f.id));
+    this.bulkFailed.set(failed);
+    this.bulk.set(null);
+    this.lastReturn = failed.length > 0 ? document.getElementById('bulk-delete') : null;
+    const done = outcome.succeeded.length;
+    const summary = `${done} user ${done === 1 ? 'list' : 'lists'} deleted.`;
+    this.said.set(failed.length === 0 ? summary : `${summary} ${failed.length} could not be deleted: ${this.bulkFailedNames()}.`);
   }
 
   protected async remove(): Promise<void> {

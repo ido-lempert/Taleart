@@ -18,6 +18,8 @@ import {
   type ProjectMember,
   type ProjectRole,
 } from '@taleart/contract/core';
+import { BulkBar } from '../bulk-bar';
+import { runLimited } from '../bulk-run';
 import { DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
 import { Icon } from '../icon';
@@ -30,8 +32,25 @@ import {
   shortDate,
   shortDateTime,
 } from '../project-roles';
+import { createSelection } from '../selection';
 import { TeamApi } from '../team.service';
 import { SettingsTabs } from './settings-tabs';
+
+/** The bulk actions on the members: remove them, or give them one role, as the row's Remove and role select do. */
+type MemberBulk = {
+  kind: 'remove' | 'role';
+  phase: 'confirm' | 'running';
+  items: readonly ProjectMember[];
+  done: number;
+  /** The role picked for "Change role", or '' until one is picked. */
+  role: ProjectRole | '';
+};
+
+/** The names a bulk action could not finish, kept selected until the next action. */
+type BulkFailure = { id: string; name: string; message: string };
+
+/** The explanation of a member who cannot be removed or lowered (the API refuses the last admin). */
+const LAST_ADMIN_NOTE = 'The last admin of the project cannot be removed or lowered. Make another person an Admin first.';
 
 // The API's own message when it sent the standard error body, else the fallback.
 function refusal(err: unknown, fallback: string): string {
@@ -48,14 +67,38 @@ function refusal(err: unknown, fallback: string): string {
  */
 @Component({
   selector: 'app-team-page',
-  imports: [Drawer, Icon, SettingsTabs],
+  imports: [Drawer, Icon, SettingsTabs, BulkBar],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .team-section {
       max-width: 1000px;
       margin-bottom: var(--space-4);
     }
+    /* The row's first cell: its checkbox, narrow, at the top of the row. */
+    .team-select {
+      min-height: 0;
+      padding: 0;
+    }
+    .team-bulk-roles {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+    .team-bulk-roles legend {
+      margin-bottom: var(--space-2);
+      padding: 0;
+    }
+    .bulk-names {
+      margin: var(--space-2) 0 0;
+      padding-inline-start: var(--space-5);
+    }
+    /* Positioned, so the visually hidden Actions heading does not widen the page on a phone. */
     .team-scroll {
+      position: relative;
       max-width: 100%;
       overflow-x: auto;
     }
@@ -174,6 +217,27 @@ function refusal(err: unknown, fallback: string): string {
           } @else if (!membersLoaded()) {
             <p class="muted" role="status">Reading the team…</p>
           } @else {
+            <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
+            <div (keydown.escape)="memberSelection.clear()">
+            @if (canManage()) {
+              <app-bulk-bar [count]="memberSelection.count()" (cleared)="memberSelection.clear()">
+                <button type="button" class="btn btn--secondary btn--sm" id="bulk-role" (click)="askMemberBulk('role')">
+                  Change role…
+                </button>
+                <button type="button" class="btn btn--danger btn--sm" id="bulk-remove" (click)="askMemberBulk('remove')">
+                  Remove
+                </button>
+              </app-bulk-bar>
+              @if (memberBulkFailed().length > 0) {
+                <div class="banner banner--inline" role="alert" id="bulk-members-failed">
+                  <app-icon name="alert" />
+                  <span>
+                    {{ memberBulkFailed().length }} could not be {{ memberBulkFailedAction() }}: {{ memberBulkFailedNames() }}.
+                    They stay selected.
+                  </span>
+                </div>
+              }
+            }
             <div class="team-scroll">
               <table class="team-table" aria-labelledby="team-members-title">
                 <caption class="visually-hidden">
@@ -185,6 +249,19 @@ function refusal(err: unknown, fallback: string): string {
                 </caption>
                 <thead>
                   <tr>
+                    @if (canManage()) {
+                      <th scope="col">
+                        <label class="checkbox">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all members"
+                            [checked]="memberSelection.allSelected()"
+                            [indeterminate]="memberSelection.someSelected()"
+                            (change)="memberSelection.toggleAll()"
+                          />
+                        </label>
+                      </th>
+                    }
                     <th scope="col">Name</th>
                     <th scope="col">Email</th>
                     <th scope="col">Role</th>
@@ -198,6 +275,23 @@ function refusal(err: unknown, fallback: string): string {
                 <tbody>
                   @for (member of members(); track member.userId) {
                     <tr [attr.data-member]="member.userId">
+                      @if (canManage()) {
+                        <td>
+                          <label class="checkbox team-select">
+                            <input
+                              type="checkbox"
+                              [attr.aria-label]="'Select ' + member.name"
+                              [checked]="memberSelection.isSelected(member.userId)"
+                              [disabled]="isLocked(member)"
+                              [attr.aria-describedby]="isLocked(member) ? 'team-locked-' + member.userId : null"
+                              (change)="memberSelection.toggle(member.userId)"
+                            />
+                          </label>
+                          @if (isLocked(member)) {
+                            <span class="visually-hidden" [id]="'team-locked-' + member.userId">{{ lastAdminNote }}</span>
+                          }
+                        </td>
+                      }
                       <th scope="row">
                         {{ member.name }}
                         @if (member.you) {
@@ -295,6 +389,7 @@ function refusal(err: unknown, fallback: string): string {
                 </tbody>
               </table>
             </div>
+            </div>
           }
           <p class="visually-hidden" role="status">{{ announcement() }}</p>
         </section>
@@ -309,6 +404,21 @@ function refusal(err: unknown, fallback: string): string {
                 No pending invitations. Invitation links work once and for 7 days.
               </p>
             } @else {
+              <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
+              <div (keydown.escape)="inviteSelection.clear()">
+              <app-bulk-bar [count]="inviteSelection.count()" (cleared)="inviteSelection.clear()">
+                <button type="button" class="btn btn--danger btn--sm" id="bulk-revoke-invitations" (click)="askInviteBulk()">
+                  Revoke
+                </button>
+              </app-bulk-bar>
+              @if (inviteBulkFailed().length > 0) {
+                <div class="banner banner--inline" role="alert" id="bulk-invitations-failed">
+                  <app-icon name="alert" />
+                  <span>
+                    {{ inviteBulkFailed().length }} could not be revoked: {{ inviteBulkFailedNames() }}. They stay selected.
+                  </span>
+                </div>
+              }
               <div class="team-scroll">
                 <table class="team-table" aria-labelledby="team-invitations-title">
                   <caption class="visually-hidden">
@@ -316,6 +426,17 @@ function refusal(err: unknown, fallback: string): string {
                   </caption>
                   <thead>
                     <tr>
+                      <th scope="col">
+                        <label class="checkbox">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all invitations"
+                            [checked]="inviteSelection.allSelected()"
+                            [indeterminate]="inviteSelection.someSelected()"
+                            (change)="inviteSelection.toggleAll()"
+                          />
+                        </label>
+                      </th>
                       <th scope="col">Role</th>
                       <th scope="col">Access</th>
                       <th scope="col">Invited by</th>
@@ -326,6 +447,16 @@ function refusal(err: unknown, fallback: string): string {
                   <tbody>
                     @for (invitation of invitations(); track invitation.id) {
                       <tr [attr.data-invitation]="invitation.id">
+                        <td>
+                          <label class="checkbox team-select">
+                            <input
+                              type="checkbox"
+                              [attr.aria-label]="'Select the ' + roleLabels[invitation.role] + ' invitation, ' + date(invitation.createdAt)"
+                              [checked]="inviteSelection.isSelected(invitation.id)"
+                              (change)="inviteSelection.toggle(invitation.id)"
+                            />
+                          </label>
+                        </td>
                         <td>
                           <span class="role-badge" [attr.data-role]="invitation.role">{{
                             roleLabels[invitation.role]
@@ -358,6 +489,7 @@ function refusal(err: unknown, fallback: string): string {
                     }
                   </tbody>
                 </table>
+              </div>
               </div>
             }
             @if (invitationError()) {
@@ -474,6 +606,112 @@ function refusal(err: unknown, fallback: string): string {
         </form>
       </app-drawer>
     }
+
+    @if (memberBulk(); as run) {
+      <app-drawer
+        [heading]="memberBulkHeading()"
+        dialogRole="alertdialog"
+        describedBy="team-bulk-text"
+        initialFocus="#bulk-cancel"
+        [returnFocus]="focusBack"
+        [busy]="run.phase === 'running'"
+        (closed)="closeMemberBulk()"
+      >
+        <form class="drawer__form" (submit)="$event.preventDefault(); confirmMemberBulk()" novalidate>
+          <div class="drawer__body">
+            @if (run.kind === 'remove') {
+              <p id="team-bulk-text">
+                They lose access at once. Their accounts stay, and you can add them again.
+              </p>
+            } @else {
+              <fieldset class="team-bulk-roles" aria-describedby="team-bulk-text">
+                <legend class="field__label">Role</legend>
+                @for (role of roles; track role) {
+                  <label class="checkbox">
+                    <input
+                      type="radio"
+                      name="team-bulk-role"
+                      [value]="role"
+                      [checked]="run.role === role"
+                      (change)="setMemberBulkRole(role)"
+                    />
+                    {{ roleLabels[role] }}
+                  </label>
+                }
+              </fieldset>
+              <p class="field__hint" id="team-bulk-text">
+                Each one gets this role at once. Their end-of-access dates stay as they are.
+              </p>
+            }
+            <ul class="bulk-names">
+              @for (member of run.items.slice(0, 5); track member.userId) {
+                <li>{{ member.name }}</li>
+              }
+              @if (run.items.length > 5) {
+                <li class="muted">+{{ run.items.length - 5 }} more</li>
+              }
+            </ul>
+            @if (run.phase === 'running') {
+              <p class="muted" role="status">
+                {{ run.kind === 'remove' ? 'Removing' : 'Changing' }} {{ run.done }} of {{ run.items.length }}…
+              </p>
+            }
+          </div>
+          <div class="drawer__footer">
+            <button type="button" class="btn btn--secondary" id="bulk-cancel" [disabled]="run.phase === 'running'" (click)="closeMemberBulk()">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              [class]="run.kind === 'remove' ? 'btn btn--danger' : 'btn btn--primary'"
+              id="bulk-submit"
+              [disabled]="run.phase === 'running' || (run.kind === 'role' && !run.role)"
+            >
+              {{ run.phase === 'running' ? 'Working…' : memberBulkSubmitLabel() }}
+            </button>
+          </div>
+        </form>
+      </app-drawer>
+    }
+
+    @if (inviteBulk(); as run) {
+      <app-drawer
+        [heading]="inviteBulkHeading()"
+        dialogRole="alertdialog"
+        describedBy="team-invite-bulk-text"
+        initialFocus="#bulk-cancel"
+        [returnFocus]="focusBack"
+        [busy]="run.phase === 'running'"
+        (closed)="closeInviteBulk()"
+      >
+        <form class="drawer__form" (submit)="$event.preventDefault(); confirmInviteBulk()" novalidate>
+          <div class="drawer__body">
+            <p id="team-invite-bulk-text">
+              Their links stop working at once. You can send new invitations later.
+            </p>
+            <ul class="bulk-names">
+              @for (invitation of run.items.slice(0, 5); track invitation.id) {
+                <li>{{ inviteName(invitation) }}</li>
+              }
+              @if (run.items.length > 5) {
+                <li class="muted">+{{ run.items.length - 5 }} more</li>
+              }
+            </ul>
+            @if (run.phase === 'running') {
+              <p class="muted" role="status">Revoking {{ run.done }} of {{ run.items.length }}…</p>
+            }
+          </div>
+          <div class="drawer__footer">
+            <button type="button" class="btn btn--secondary" id="bulk-cancel" [disabled]="run.phase === 'running'" (click)="closeInviteBulk()">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn--danger" id="bulk-submit" [disabled]="run.phase === 'running'">
+              {{ run.phase === 'running' ? 'Revoking…' : inviteBulkSubmitLabel() }}
+            </button>
+          </div>
+        </form>
+      </app-drawer>
+    }
   `,
 })
 export class TeamPage {
@@ -510,6 +748,65 @@ export class TeamPage {
 
   protected readonly projectName = computed(() => this.store.selectedProject()?.name ?? '');
   protected readonly canManage = computed(() => this.store.can('members.manage'));
+
+  /**
+   * The last admin of the project, who the API refuses to remove or lower (`last_project_admin`): their
+   * checkbox is disabled, with the reason, so a bulk action never sends them. An expired admin does not count.
+   */
+  private readonly lockedIds = computed(() => {
+    const admins = this.members().filter((m) => m.role === 'admin' && !m.expired);
+    return new Set(admins.length === 1 ? [admins[0].userId] : []);
+  });
+  protected readonly lastAdminNote = LAST_ADMIN_NOTE;
+  protected isLocked(member: ProjectMember): boolean {
+    return this.lockedIds().has(member.userId);
+  }
+
+  /**
+   * The members picked for a bulk action (the reusable selection, `selection.ts`): every member the
+   * row's Remove and role select allow, so the last admin is left out. Checkboxes and the bar show
+   * only to a project admin (members.manage), as the row's controls do.
+   */
+  protected readonly memberSelection = createSelection(
+    () => this.members().filter((m) => !this.isLocked(m)),
+    (member: ProjectMember) => member.userId,
+  );
+  /** The invitations picked for a bulk revoke (the same rule as the single Revoke: any pending one). */
+  protected readonly inviteSelection = createSelection(
+    () => this.invitations(),
+    (invitation: PendingInvitation) => invitation.id,
+  );
+  /** The bulk member action being confirmed, then run. */
+  protected readonly memberBulk = signal<MemberBulk | null>(null);
+  protected readonly memberBulkFailed = signal<readonly BulkFailure[]>([]);
+  protected readonly memberBulkFailedAction = signal('removed');
+  protected readonly memberBulkFailedNames = computed(() => this.memberBulkFailed().map((f) => f.name).join(', '));
+  protected readonly memberBulkHeading = computed(() => {
+    const run = this.memberBulk();
+    const count = run?.items.length ?? 0;
+    const people = `${count} ${count === 1 ? 'person' : 'people'}`;
+    return run?.kind === 'role' ? `Change the role of ${people}?` : `Remove ${people} from the project?`;
+  });
+  protected readonly memberBulkSubmitLabel = computed(() => {
+    const run = this.memberBulk();
+    const count = run?.items.length ?? 0;
+    const people = `${count} ${count === 1 ? 'person' : 'people'}`;
+    return run?.kind === 'role' ? `Change role of ${people}` : `Remove ${people}`;
+  });
+  /** The bulk invitation revoke being confirmed, then run. */
+  protected readonly inviteBulk = signal<{ phase: 'confirm' | 'running'; items: readonly PendingInvitation[]; done: number } | null>(null);
+  protected readonly inviteBulkFailed = signal<readonly BulkFailure[]>([]);
+  protected readonly inviteBulkFailedNames = computed(() => this.inviteBulkFailed().map((f) => f.name).join(', '));
+  protected readonly inviteBulkHeading = computed(() => {
+    const count = this.inviteBulk()?.items.length ?? 0;
+    return `Revoke ${count} ${count === 1 ? 'invitation' : 'invitations'}?`;
+  });
+  protected readonly inviteBulkSubmitLabel = computed(() => {
+    const count = this.inviteBulk()?.items.length ?? 0;
+    return `Revoke ${count} ${count === 1 ? 'invitation' : 'invitations'}`;
+  });
+  /** How many single-item requests a bulk action keeps in flight. */
+  private static readonly BULK_CONCURRENCY = 3;
 
   // A stale answer (the project changed meanwhile) is dropped.
   private generation = 0;
@@ -724,6 +1021,146 @@ export class TeamPage {
       this.invitationError.set(refusal(err, 'The invitation was not revoked. Try again.'));
     } finally {
       this.setBusy(invitation.id, false);
+    }
+  }
+
+  /** Opens the confirmation of a bulk Remove or Change role for the selected members. */
+  protected askMemberBulk(kind: 'remove' | 'role'): void {
+    if (!this.canManage() || this.memberSelection.count() === 0) return;
+    this.returnFocus = document.getElementById(kind === 'role' ? 'bulk-role' : 'bulk-remove');
+    this.memberBulkFailed.set([]);
+    this.memberBulkFailedAction.set(kind === 'role' ? 'changed' : 'removed');
+    this.memberBulk.set({ kind, phase: 'confirm', items: this.memberSelection.selectedItems(), done: 0, role: '' });
+  }
+
+  /** Picks the role a bulk "Change role" gives the selected members. */
+  protected setMemberBulkRole(role: ProjectRole): void {
+    this.memberBulk.update((run) => (run ? { ...run, role } : run));
+  }
+
+  /** Closes the bulk member confirmation; not while the actions run. */
+  protected closeMemberBulk(): void {
+    if (this.memberBulk()?.phase === 'running') return;
+    this.memberBulk.set(null);
+  }
+
+  /**
+   * Runs the confirmed bulk member action through the single-member endpoints, a few at a time. The
+   * members removed leave the list; the ones that failed stay selected and are named.
+   */
+  protected async confirmMemberBulk(): Promise<void> {
+    const run = this.memberBulk();
+    if (!run || run.phase !== 'confirm' || !this.canManage()) return;
+    if (run.kind === 'role' && !run.role) return;
+    const projectId = this.store.selectedProjectId();
+    const role = run.role;
+    this.memberBulk.set({ ...run, phase: 'running', done: 0 });
+    const outcome = await runLimited(
+      run.items,
+      TeamPage.BULK_CONCURRENCY,
+      (member) => this.memberStep(run.kind, role, projectId, member),
+      (done) => this.memberBulk.update((current) => (current ? { ...current, done } : current)),
+    );
+    const done = new Set(outcome.succeeded.map((m) => m.userId));
+    if (run.kind === 'remove') this.members.update((list) => list.filter((m) => !done.has(m.userId)));
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.userId, name: item.name, message }));
+    this.memberSelection.replace(failed.map((f) => f.id));
+    this.memberBulkFailed.set(failed);
+    this.memberBulk.set(null);
+    this.returnFocus = failed.length > 0
+      ? document.getElementById(run.kind === 'role' ? 'bulk-role' : 'bulk-remove')
+      : document.getElementById('team-members-title');
+    const count = outcome.succeeded.length;
+    const people = `${count} ${count === 1 ? 'person' : 'people'}`;
+    const summary =
+      run.kind === 'role' ? `${people} now ${ROLE_LABELS[role as ProjectRole]}.` : `${people} removed from ${this.projectName()}.`;
+    this.announcement.set(
+      failed.length === 0
+        ? summary
+        : `${summary} ${failed.length} could not be ${this.memberBulkFailedAction()}: ${this.memberBulkFailedNames()}.`,
+    );
+    if (outcome.succeeded.some((m) => m.you)) void this.store.refresh();
+    await this.loadAudit(false);
+  }
+
+  /** One member's request for a bulk action: '' when it is done, else the message to show. */
+  private async memberStep(kind: 'remove' | 'role', role: ProjectRole | '', projectId: string, member: ProjectMember): Promise<string> {
+    if (kind === 'remove') {
+      try {
+        await this.api.removeMember(projectId, member.userId);
+        return '';
+      } catch (err) {
+        // Already gone (404): it is removed either way.
+        if (err instanceof HttpErrorResponse && err.status === 404) return '';
+        return refusal(err, 'The person was not removed. Try again.');
+      }
+    }
+    // A member who already has the role is left as it is, as the row's select leaves it.
+    if (!role || member.role === role) return '';
+    try {
+      const saved = await this.api.updateMember(projectId, member.userId, { role });
+      this.members.update((list) => list.map((m) => (m.userId === member.userId ? saved : m)));
+      return '';
+    } catch (err) {
+      return refusal(err, 'The change was not saved. Try again.');
+    }
+  }
+
+  /** Opens the confirmation of a bulk invitation revoke for the selected invitations. */
+  protected askInviteBulk(): void {
+    if (this.inviteSelection.count() === 0) return;
+    this.returnFocus = document.getElementById('bulk-revoke-invitations');
+    this.inviteBulkFailed.set([]);
+    this.inviteBulk.set({ phase: 'confirm', items: this.inviteSelection.selectedItems(), done: 0 });
+  }
+
+  /** Closes the bulk invitation confirmation; not while the revokes run. */
+  protected closeInviteBulk(): void {
+    if (this.inviteBulk()?.phase === 'running') return;
+    this.inviteBulk.set(null);
+  }
+
+  /** Revokes the confirmed invitations, a few at a time; the ones that failed stay selected and are named. */
+  protected async confirmInviteBulk(): Promise<void> {
+    const run = this.inviteBulk();
+    if (!run || run.phase !== 'confirm' || !this.canManage()) return;
+    const projectId = this.store.selectedProjectId();
+    this.inviteBulk.set({ ...run, phase: 'running', done: 0 });
+    const outcome = await runLimited(
+      run.items,
+      TeamPage.BULK_CONCURRENCY,
+      (invitation) => this.revokeInvitationOne(projectId, invitation),
+      (done) => this.inviteBulk.update((current) => (current ? { ...current, done } : current)),
+    );
+    const revoked = new Set(outcome.succeeded.map((i) => i.id));
+    this.invitations.update((list) => list.filter((i) => !revoked.has(i.id)));
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: this.inviteName(item), message }));
+    this.inviteSelection.replace(failed.map((f) => f.id));
+    this.inviteBulkFailed.set(failed);
+    this.inviteBulk.set(null);
+    this.returnFocus = failed.length > 0
+      ? document.getElementById('bulk-revoke-invitations')
+      : document.getElementById('team-invitations-title');
+    const count = outcome.succeeded.length;
+    const summary = `${count} ${count === 1 ? 'invitation' : 'invitations'} revoked.`;
+    this.announcement.set(
+      failed.length === 0 ? summary : `${summary} ${failed.length} could not be revoked: ${this.inviteBulkFailedNames()}.`,
+    );
+    await this.loadAudit(false);
+  }
+
+  /** An invitation as a bulk action names it: its role and the day it was sent. */
+  protected inviteName(invitation: PendingInvitation): string {
+    return `${ROLE_LABELS[invitation.role]}, ${this.date(invitation.createdAt)}`;
+  }
+
+  /** One invitation's revoke for a bulk action: '' when it is revoked, else the message to show. */
+  private async revokeInvitationOne(projectId: string, invitation: PendingInvitation): Promise<string> {
+    try {
+      await this.api.revokeInvitation(projectId, invitation.id);
+      return '';
+    } catch (err) {
+      return refusal(err, 'The invitation was not revoked. Try again.');
     }
   }
 }

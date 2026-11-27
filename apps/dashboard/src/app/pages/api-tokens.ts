@@ -17,8 +17,12 @@ import {
   type Project,
 } from '@taleart/contract/core';
 import { firstValueFrom } from 'rxjs';
+import { BulkBar } from '../bulk-bar';
+import { runLimited } from '../bulk-run';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
+import { Icon } from '../icon';
+import { createSelection } from '../selection';
 import { SettingsTabs } from './settings-tabs';
 
 const TOKENS_URL = `${API_BASE}/api-tokens`;
@@ -70,11 +74,24 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
  */
 @Component({
   selector: 'app-api-tokens-page',
-  imports: [Drawer, SettingsTabs],
+  imports: [Drawer, SettingsTabs, BulkBar, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .tokens-section {
       max-width: 720px;
+    }
+    .tokens-list__head {
+      display: flex;
+      margin: 0 0 var(--space-2);
+    }
+    .token__select {
+      align-self: flex-start;
+      min-height: 0;
+      padding: 0;
+    }
+    .bulk-names {
+      margin: var(--space-2) 0 0;
+      padding-inline-start: var(--space-5);
     }
     .tokens-form {
       display: flex;
@@ -324,9 +341,42 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
               No API tokens yet. Create one above for a script or the command-line tool.
             </p>
           } @else {
+            <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
+            <div (keydown.escape)="selection.clear()">
+              <div class="tokens-list__head">
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all API tokens"
+                    [checked]="selection.allSelected()"
+                    [indeterminate]="selection.someSelected()"
+                    (change)="selection.toggleAll()"
+                  />
+                  <span>Select all</span>
+                </label>
+              </div>
+              <app-bulk-bar [count]="selection.count()" (cleared)="selection.clear()">
+                <button type="button" class="btn btn--danger btn--sm" id="bulk-revoke" (click)="askBulkRevoke()">Revoke</button>
+              </app-bulk-bar>
+              @if (bulkFailed().length > 0) {
+                <div class="banner banner--inline" role="alert" id="bulk-failed">
+                  <app-icon name="alert" />
+                  <span>
+                    {{ bulkFailed().length }} could not be revoked: {{ bulkFailedNames() }}. They stay selected.
+                  </span>
+                </div>
+              }
             <ul class="tokens-list" aria-labelledby="api-tokens-list-title">
               @for (token of tokens(); track token.id) {
                 <li class="token">
+                  <label class="checkbox token__select">
+                    <input
+                      type="checkbox"
+                      [attr.aria-label]="'Select ' + token.name"
+                      [checked]="selection.isSelected(token.id)"
+                      (change)="selection.toggle(token.id)"
+                    />
+                  </label>
                   <div class="token__text">
                     <h4 class="token__name">{{ token.name }}</h4>
                     <p class="token__scope">{{ scope(token) }}</p>
@@ -364,6 +414,7 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
                 </li>
               }
             </ul>
+            </div>
           }
         }
         <p class="visually-hidden" role="status">{{ announcement() }}</p>
@@ -400,6 +451,45 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
           </div>
           <div class="drawer__footer">
             <button type="button" class="btn btn--primary" (click)="closeIssued()">Done</button>
+          </div>
+        </div>
+      </app-drawer>
+    }
+
+    @if (bulk(); as run) {
+      <app-drawer
+        [heading]="bulkHeading()"
+        dialogRole="alertdialog"
+        describedBy="api-token-bulk-text"
+        initialFocus="#bulk-cancel"
+        [returnFocus]="focusBack"
+        [busy]="run.phase === 'running'"
+        (closed)="closeBulk()"
+      >
+        <div class="drawer__form">
+          <div class="drawer__body">
+            <p id="api-token-bulk-text">
+              Scripts that use them stop working at once. This cannot be undone.
+            </p>
+            <ul class="bulk-names">
+              @for (token of run.items.slice(0, 5); track token.id) {
+                <li>{{ token.name }}</li>
+              }
+              @if (run.items.length > 5) {
+                <li class="muted">+{{ run.items.length - 5 }} more</li>
+              }
+            </ul>
+            @if (run.phase === 'running') {
+              <p class="muted" role="status">Revoking {{ run.done }} of {{ run.items.length }}…</p>
+            }
+          </div>
+          <div class="drawer__footer">
+            <button type="button" class="btn btn--secondary" id="bulk-cancel" [disabled]="run.phase === 'running'" (click)="closeBulk()">
+              Cancel
+            </button>
+            <button type="button" class="btn btn--danger" id="bulk-submit" [disabled]="run.phase === 'running'" (click)="confirmBulk()">
+              {{ run.phase === 'running' ? 'Revoking…' : bulkSubmitLabel() }}
+            </button>
           </div>
         </div>
       </app-drawer>
@@ -466,6 +556,30 @@ export class ApiTokensPage {
   private returnFocus: HTMLElement | null = null;
   /** Where a drawer puts focus back, read when it closes (the Revoke button may be gone by then). */
   protected readonly focusBack = () => this.returnFocus;
+
+  /**
+   * The tokens picked for a bulk revoke (the reusable selection, `selection.ts`). Every token may be
+   * revoked, as its single Revoke button allows, so the checkboxes show for all of them.
+   */
+  protected readonly selection = createSelection(
+    () => this.tokens(),
+    (token: ApiToken) => token.id,
+  );
+  /** The bulk revoke being confirmed, then run: the tokens it names, and how many are done. */
+  protected readonly bulk = signal<{ phase: 'confirm' | 'running'; items: readonly ApiToken[]; done: number } | null>(null);
+  /** The tokens the last bulk revoke could not revoke, kept selected until the next one. */
+  protected readonly bulkFailed = signal<readonly { id: string; name: string; message: string }[]>([]);
+  protected readonly bulkFailedNames = computed(() => this.bulkFailed().map((f) => f.name).join(', '));
+  protected readonly bulkHeading = computed(() => {
+    const count = this.bulk()?.items.length ?? 0;
+    return `Revoke ${count} API ${count === 1 ? 'token' : 'tokens'}?`;
+  });
+  protected readonly bulkSubmitLabel = computed(() => {
+    const count = this.bulk()?.items.length ?? 0;
+    return `Revoke ${count} ${count === 1 ? 'token' : 'tokens'}`;
+  });
+  /** How many revoke requests a bulk revoke keeps in flight. */
+  private static readonly BULK_CONCURRENCY = 3;
 
   private readonly projects = computed(() => this.store.projects());
   private readonly injector = inject(Injector);
@@ -627,5 +741,60 @@ export class ApiTokensPage {
     this.returnFocus = document.getElementById('api-tokens-list-title');
     this.revoking.set(null);
     this.announcement.set(`Token ${token.name} revoked.`);
+  }
+
+  /** Opens the confirmation of a bulk revoke for the selected tokens. */
+  protected askBulkRevoke(): void {
+    if (this.selection.count() === 0) return;
+    this.returnFocus = document.getElementById('bulk-revoke');
+    this.bulkFailed.set([]);
+    this.bulk.set({ phase: 'confirm', items: this.selection.selectedItems(), done: 0 });
+  }
+
+  /** Closes the bulk confirmation; not while the revokes run. */
+  protected closeBulk(): void {
+    if (this.bulk()?.phase === 'running') return;
+    this.bulk.set(null);
+  }
+
+  /**
+   * Revokes the confirmed tokens through the single-token endpoint, a few at a time. The ones revoked
+   * leave the list; the ones that failed stay selected and are named.
+   */
+  protected async confirmBulk(): Promise<void> {
+    const run = this.bulk();
+    if (!run || run.phase !== 'confirm') return;
+    this.bulk.set({ ...run, phase: 'running', done: 0 });
+    const outcome = await runLimited(
+      run.items,
+      ApiTokensPage.BULK_CONCURRENCY,
+      (token) => this.revokeOne(token),
+      (done) => this.bulk.update((current) => (current ? { ...current, done } : current)),
+    );
+    const revoked = new Set(outcome.succeeded.map((token) => token.id));
+    this.tokens.update((list) => list.filter((t) => !revoked.has(t.id)));
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: item.name, message }));
+    this.selection.replace(failed.map((f) => f.id));
+    this.bulkFailed.set(failed);
+    this.bulk.set(null);
+    // Focus goes back to the bar's button while some stay selected, else to the list's heading.
+    this.returnFocus = failed.length > 0 ? document.getElementById('bulk-revoke') : document.getElementById('api-tokens-list-title');
+    this.announcement.set(
+      failed.length === 0
+        ? `${outcome.succeeded.length} ${outcome.succeeded.length === 1 ? 'token' : 'tokens'} revoked.`
+        : `${outcome.succeeded.length} revoked. ${failed.length} could not be revoked: ${this.bulkFailedNames()}.`,
+    );
+  }
+
+  /** One token's revoke for a bulk action: '' when it is revoked, else the message to show. */
+  private async revokeOne(token: ApiToken): Promise<string> {
+    try {
+      await firstValueFrom(this.http.delete<void>(`${TOKENS_URL}/${encodeURIComponent(token.id)}`));
+      return '';
+    } catch (err) {
+      // Already revoked elsewhere (404): it is gone either way.
+      if (err instanceof HttpErrorResponse && err.status === 404) return '';
+      return refusal(err, 'The token was not revoked. Try again.');
+    }
   }
 }

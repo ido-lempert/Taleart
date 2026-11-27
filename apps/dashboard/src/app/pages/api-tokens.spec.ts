@@ -252,4 +252,87 @@ describe('ApiTokensPage: Settings > API tokens (epic developer experience 10.1)'
     expect(dialog()?.querySelector('[role=alert]')?.textContent).toContain('The token was not revoked. Try again. Check the connection.');
     expect(root().querySelector('.token')).not.toBeNull();
   });
+
+  describe('bulk revoke', () => {
+    const second = { ...listed, id: 't2', name: 'Deploy', prefix: 'tat_deploy' };
+    const third = { ...listed, id: 't3', name: 'Backup', prefix: 'tat_backup' };
+    const check = (label: string) => root().querySelector<HTMLInputElement>(`[aria-label="${label}"]`) as HTMLInputElement;
+    const names = () => [...root().querySelectorAll('.token__name')].map((h) => h.textContent?.trim());
+    const bar = () => root().querySelector<HTMLElement>('[role="region"][aria-label="Actions on the selection"]');
+    const pick = async (label: string) => {
+      check(label).click();
+      await settle(fixture);
+    };
+
+    it('shows the bar with the count, and select all and clear work', async () => {
+      await open([listed, second, third]);
+      expect(bar()).toBeNull();
+
+      await pick('Select Nightly import');
+      await pick('Select Deploy');
+      expect(bar()?.textContent).toContain('2 selected');
+
+      check('Select all API tokens').click();
+      await settle(fixture);
+      expect(bar()?.textContent).toContain('3 selected');
+      expect(check('Select Backup').checked).toBe(true);
+
+      check('Select all API tokens').click();
+      await settle(fixture);
+      expect(bar()).toBeNull();
+      expect(check('Select Deploy').checked).toBe(false);
+    });
+
+    it('asks once with the names, then revokes one token per selected item and lists the rest', async () => {
+      await open([listed, second, third]);
+      await pick('Select Nightly import');
+      await pick('Select Backup');
+      root().querySelector<HTMLButtonElement>('#bulk-revoke')?.click();
+      await settle(fixture);
+
+      expect(dialog()?.getAttribute('role')).toBe('alertdialog');
+      expect(dialog()?.textContent).toContain('Revoke 2 API tokens?');
+      expect(dialog()?.textContent).toContain('Scripts that use them stop working at once');
+      http.expectNone(`${url}/t1`);
+
+      dialog()?.querySelector<HTMLButtonElement>('#bulk-submit')?.click();
+      await settle(fixture);
+      const first = http.expectOne(`${url}/t1`);
+      const last = http.expectOne(`${url}/t3`);
+      expect(first.request.method).toBe('DELETE');
+      expect(last.request.method).toBe('DELETE');
+      first.flush(null, { status: 204, statusText: 'No Content' });
+      last.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      expect(dialog()).toBeNull();
+      expect(bar()).toBeNull();
+      expect(text()).toContain('Deploy');
+      expect(names()).toEqual(['Deploy']);
+      expect(root().querySelector('#bulk-failed')).toBeNull();
+    });
+
+    it('keeps a token that failed selected and names it in the alert', async () => {
+      await open([listed, second, third]);
+      await pick('Select Nightly import');
+      await pick('Select Deploy');
+      await pick('Select Backup');
+      root().querySelector<HTMLButtonElement>('#bulk-revoke')?.click();
+      await settle(fixture);
+      dialog()?.querySelector<HTMLButtonElement>('#bulk-submit')?.click();
+      await settle(fixture);
+      http.expectOne(`${url}/t1`).flush(null, { status: 204, statusText: 'No Content' });
+      http.expectOne(`${url}/t2`).flush({ error: { code: 'nope', message: 'Not allowed.' } }, { status: 403, statusText: 'Forbidden' });
+      http.expectOne(`${url}/t3`).flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      const alert = root().querySelector<HTMLElement>('#bulk-failed');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(alert?.textContent).toContain('1 could not be revoked: Deploy. They stay selected.');
+      expect(text()).toContain('Deploy');
+      expect(names()).toEqual(['Deploy']);
+      expect(check('Select Deploy').checked).toBe(true);
+      expect(bar()?.textContent).toContain('1 selected');
+    });
+  });
 });

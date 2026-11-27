@@ -87,9 +87,9 @@ describe('AudiencePage (epic targeting story 5.3)', () => {
       (b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').trim() === name,
     ) as HTMLButtonElement;
 
-  async function open(lists: UserList[]): Promise<void> {
+  async function open(lists: UserList[], role: 'admin' | 'viewer' = 'admin'): Promise<void> {
     const store = TestBed.inject(DashboardStore);
-    store.projects.set([{ id: 'p1', name: 'Acme', role: 'admin' }]);
+    store.projects.set([{ id: 'p1', name: 'Acme', role }]);
     store.selectProject('p1');
     fixture = TestBed.createComponent(AudiencePage);
     root = fixture.nativeElement as HTMLElement;
@@ -199,6 +199,85 @@ describe('AudiencePage (epic targeting story 5.3)', () => {
     await settle(fixture);
     expect(q('[role=alertdialog]')).toBeNull();
     expect(q('[role=status]').textContent).toContain('Loyal customers deleted');
+  });
+
+  describe('bulk delete', () => {
+    const second = list({ id: 'L2', name: 'VIP', idCount: 10 });
+    const third = list({ id: 'L3', name: 'Staff', idCount: 3 });
+    const check = (label: string) => q<HTMLInputElement>(`[aria-label="${label}"]`);
+    const bar = () => q<HTMLElement>('[role="region"][aria-label="Actions on the selection"]');
+    const pick = async (label: string) => {
+      check(label).click();
+      await settle(fixture);
+    };
+    const deleteUrl = (id: string) => ({ method: 'DELETE', url: `${listUrl}/${id}` });
+
+    it('shows the bar with the count, and select all and clear', async () => {
+      await open([list(), second, third]);
+      expect(bar()).toBeNull();
+      await pick('Select Loyal customers');
+      await pick('Select VIP');
+      expect(bar().textContent).toContain('2 selected');
+      check('Select all user lists').click();
+      await settle(fixture);
+      expect(bar().textContent).toContain('3 selected');
+      check('Select all user lists').click();
+      await settle(fixture);
+      expect(bar()).toBeNull();
+    });
+
+    it('asks once, names the lists and the IDs they hold, then deletes each and keeps the rest', async () => {
+      await open([list(), second, third]);
+      await pick('Select Loyal customers');
+      await pick('Select VIP');
+      button('Delete').click();
+      await settle(fixture);
+      const dialog = q('[role=alertdialog]');
+      expect(dialog.textContent).toContain('Delete 2 user lists?');
+      expect(dialog.textContent).toContain('the 1,214 IDs they hold');
+      http.expectNone(deleteUrl(list().id));
+
+      button('Delete 2 user lists').click();
+      await settle(fixture);
+      http.expectOne(deleteUrl(list().id)).flush(null, { status: 204, statusText: 'No Content' });
+      http.expectOne(deleteUrl('L2')).flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+      http.expectOne(listUrl).flush([third]);
+      await settle(fixture);
+
+      expect(q('[role=alertdialog]')).toBeNull();
+      expect(document.querySelectorAll('.user-list')).toHaveLength(1);
+      expect(q('.user-list h4').textContent).toBe('Staff');
+      expect(bar()).toBeNull();
+      expect(q('[role=status]').textContent).toContain('2 user lists deleted.');
+    });
+
+    it('keeps the list whose delete failed selected and names it', async () => {
+      await open([list(), second]);
+      await pick('Select Loyal customers');
+      await pick('Select VIP');
+      button('Delete').click();
+      await settle(fixture);
+      button('Delete 2 user lists').click();
+      await settle(fixture);
+      http.expectOne(deleteUrl(list().id)).flush({ error: { code: 'nope', message: 'Not allowed.' } }, { status: 403, statusText: 'Forbidden' });
+      http.expectOne(deleteUrl('L2')).flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+      http.expectOne(listUrl).flush([list()]);
+      await settle(fixture);
+
+      const alert = q<HTMLElement>('#bulk-failed');
+      expect(alert.getAttribute('role')).toBe('alert');
+      expect(alert.textContent).toContain('1 could not be deleted: Loyal customers. They stay selected.');
+      expect(check('Select Loyal customers').checked).toBe(true);
+      expect(bar().textContent).toContain('1 selected');
+    });
+
+    it('shows no checkboxes and no bar to a role that cannot edit', async () => {
+      await open([list(), second], 'viewer');
+      expect(document.querySelector('input[type=checkbox]')).toBeNull();
+      expect(bar()).toBeNull();
+    });
   });
 
   it('shows a refused rename on its field', async () => {

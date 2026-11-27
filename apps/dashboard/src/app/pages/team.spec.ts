@@ -103,7 +103,7 @@ describe('TeamPage: Settings > Team', () => {
     ) as HTMLElement;
 
   /** Opens the page as `role` in Acme and answers its reads (managers also read invitations and activity). */
-  async function open(role: ProjectRole, members: ProjectMember[] = MEMBERS): Promise<void> {
+  async function open(role: ProjectRole, members: ProjectMember[] = MEMBERS, invitations: PendingInvitation[] = INVITATIONS): Promise<void> {
     store.projects.set([{ id: 'p1', name: 'Spring Campaign', role }]);
     fixture = TestBed.createComponent(TeamPage);
     document.body.appendChild(root());
@@ -111,7 +111,7 @@ describe('TeamPage: Settings > Team', () => {
     http.expectOne(`${BASE}/members`).flush(members);
     if (role === 'admin') {
       await settle(fixture);
-      http.expectOne(`${BASE}/invitations`).flush(INVITATIONS);
+      http.expectOne(`${BASE}/invitations`).flush(invitations);
       await settle(fixture);
       http.expectOne(`${BASE}/audit-log`).flush({ entries: AUDIT, nextBefore: 'a1' });
     }
@@ -308,6 +308,167 @@ describe('TeamPage: Settings > Team', () => {
     http.expectOne(`${BASE}/audit-log`).flush({ entries: [], nextBefore: null });
     await settle(fixture);
     expect(root().querySelector('#team-no-invitations')).not.toBeNull();
+  });
+
+  describe('bulk actions', () => {
+    const check = (label: string) => root().querySelector<HTMLInputElement>(`[aria-label="${label}"]`) as HTMLInputElement;
+    const bar = () => root().querySelector<HTMLElement>('[role="region"][aria-label="Actions on the selection"]');
+    const drawer = () => document.querySelector<HTMLElement>('[role=alertdialog]');
+    const pick = async (label: string) => {
+      check(label).click();
+      await settle(fixture);
+    };
+    const invitationBoxes = () => [...root().querySelectorAll<HTMLInputElement>('[data-invitation] input[type=checkbox]')];
+    const TWO_INVITATIONS: PendingInvitation[] = [
+      INVITATIONS[0],
+      { ...INVITATIONS[0], id: 'i2', role: 'viewer', createdAt: '2026-10-29T10:00:00.000Z' },
+    ];
+
+    it('shows the bar with the count; select all leaves out the last admin, whose checkbox is disabled with the reason', async () => {
+      await open('admin');
+      expect(bar()).toBeNull();
+      await pick('Select Sam Cohen');
+      await pick('Select Kim Park');
+      expect(bar()?.textContent).toContain('2 selected');
+
+      check('Select all members').click();
+      await settle(fixture);
+      expect(bar()?.textContent).toContain('3 selected');
+      expect(check('Select Dana Levi').disabled).toBe(true);
+      expect(check('Select Dana Levi').getAttribute('aria-describedby')).toBe('team-locked-u1');
+      expect(document.getElementById('team-locked-u1')?.textContent).toContain('The last admin of the project cannot');
+
+      check('Select all members').click();
+      await settle(fixture);
+      expect(bar()).toBeNull();
+    });
+
+    it('changes the role of each selected member after one confirmation, one request each', async () => {
+      await open('admin');
+      await pick('Select Sam Cohen');
+      await pick('Select Kim Park');
+      root().querySelector<HTMLButtonElement>('#bulk-role')?.click();
+      await settle(fixture);
+      expect(drawer()?.getAttribute('role')).toBe('alertdialog');
+      expect(drawer()?.textContent).toContain('Change the role of 2 people?');
+      http.expectNone(`${BASE}/members/u2`);
+      expect(drawer()?.querySelector<HTMLButtonElement>('#bulk-submit')?.disabled).toBe(true);
+
+      (drawer()?.querySelector('input[name=team-bulk-role][value=publisher]') as HTMLInputElement).click();
+      await settle(fixture);
+      drawer()?.querySelector<HTMLButtonElement>('#bulk-submit')?.click();
+      const sam = http.expectOne(`${BASE}/members/u2`);
+      const kim = http.expectOne(`${BASE}/members/u3`);
+      expect(sam.request.method).toBe('PATCH');
+      expect(sam.request.body).toEqual({ role: 'publisher' });
+      expect(kim.request.body).toEqual({ role: 'publisher' });
+      sam.flush({ ...MEMBERS[1], role: 'publisher' });
+      kim.flush({ ...MEMBERS[2], role: 'publisher' });
+      await settle(fixture);
+
+      expect((row('Sam Cohen').querySelector('select') as HTMLSelectElement).value).toBe('publisher');
+      expect((row('Kim Park').querySelector('select') as HTMLSelectElement).value).toBe('publisher');
+      expect(drawer()).toBeNull();
+      expect(bar()).toBeNull();
+      expect(text()).toContain('2 people now Publisher.');
+    });
+
+    it('removes the selected members after one confirmation, one request each, and the rest stay', async () => {
+      await open('admin');
+      await pick('Select Kim Park');
+      await pick('Select Noa Katz');
+      root().querySelector<HTMLButtonElement>('#bulk-remove')?.click();
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('Remove 2 people from the project?');
+      http.expectNone(`${BASE}/members/u3`);
+
+      drawer()?.querySelector<HTMLButtonElement>('#bulk-submit')?.click();
+      const kim = http.expectOne(`${BASE}/members/u3`);
+      const noa = http.expectOne(`${BASE}/members/u4`);
+      expect(kim.request.method).toBe('DELETE');
+      expect(noa.request.method).toBe('DELETE');
+      kim.flush(null, { status: 204, statusText: 'No Content' });
+      noa.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      expect(row('Kim Park')).toBeUndefined();
+      expect(row('Noa Katz')).toBeUndefined();
+      expect(row('Sam Cohen')).toBeDefined();
+      expect(drawer()).toBeNull();
+      expect(text()).toContain('2 people removed from Spring Campaign.');
+    });
+
+    it('keeps the member whose removal failed selected, names them in the alert', async () => {
+      await open('admin');
+      await pick('Select Sam Cohen');
+      await pick('Select Kim Park');
+      root().querySelector<HTMLButtonElement>('#bulk-remove')?.click();
+      await settle(fixture);
+      drawer()?.querySelector<HTMLButtonElement>('#bulk-submit')?.click();
+      http.expectOne(`${BASE}/members/u2`).flush({ error: { code: 'forbidden', message: 'Not allowed.' } }, { status: 403, statusText: 'Forbidden' });
+      http.expectOne(`${BASE}/members/u3`).flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      const alert = root().querySelector<HTMLElement>('#bulk-members-failed');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(alert?.textContent).toContain('1 could not be removed: Sam Cohen. They stay selected.');
+      expect(row('Sam Cohen')).toBeDefined();
+      expect(row('Kim Park')).toBeUndefined();
+      expect(check('Select Sam Cohen').checked).toBe(true);
+      expect(bar()?.textContent).toContain('1 selected');
+    });
+
+    it('revokes the selected invitations after one confirmation, one request each', async () => {
+      await open('admin', MEMBERS, TWO_INVITATIONS);
+      invitationBoxes()[0].click();
+      await settle(fixture);
+      invitationBoxes()[1].click();
+      await settle(fixture);
+      expect(bar()?.textContent).toContain('2 selected');
+
+      root().querySelector<HTMLButtonElement>('#bulk-revoke-invitations')?.click();
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('Revoke 2 invitations?');
+      drawer()?.querySelector<HTMLButtonElement>('#bulk-submit')?.click();
+      const first = http.expectOne(`${BASE}/invitations/i1`);
+      const second = http.expectOne(`${BASE}/invitations/i2`);
+      expect(first.request.method).toBe('DELETE');
+      first.flush(null, { status: 204, statusText: 'No Content' });
+      second.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      expect(root().querySelectorAll('[data-invitation]')).toHaveLength(0);
+      expect(root().querySelector('#team-no-invitations')).not.toBeNull();
+      expect(drawer()).toBeNull();
+      expect(bar()).toBeNull();
+    });
+
+    it('keeps the invitation whose revoke failed selected and names it', async () => {
+      await open('admin', MEMBERS, TWO_INVITATIONS);
+      invitationBoxes()[0].click();
+      await settle(fixture);
+      invitationBoxes()[1].click();
+      await settle(fixture);
+      root().querySelector<HTMLButtonElement>('#bulk-revoke-invitations')?.click();
+      await settle(fixture);
+      drawer()?.querySelector<HTMLButtonElement>('#bulk-submit')?.click();
+      http.expectOne(`${BASE}/invitations/i1`).flush(null, { status: 204, statusText: 'No Content' });
+      http.expectOne(`${BASE}/invitations/i2`).flush(null, { status: 500, statusText: 'Server Error' });
+      await settle(fixture);
+
+      const alert = root().querySelector<HTMLElement>('#bulk-invitations-failed');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(alert?.textContent).toContain('1 could not be revoked: Viewer,');
+      expect(root().querySelectorAll('[data-invitation]')).toHaveLength(1);
+      expect(invitationBoxes()[0].checked).toBe(true);
+      expect(bar()?.textContent).toContain('1 selected');
+    });
+
+    it('shows no checkboxes and no bar to a role without members.manage', async () => {
+      await open('viewer');
+      expect(root().querySelector('input[type=checkbox]')).toBeNull();
+      expect(bar()).toBeNull();
+    });
   });
 
   it('is read-only for a viewer: the list and the matrix, no controls, no invitations or activity', async () => {
