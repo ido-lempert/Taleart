@@ -32,72 +32,107 @@ import { LegalLinks } from '../legal-links';
           <p class="form-error" role="alert">No sign-in method is turned on. Ask an admin of TaleArt to turn one on.</p>
         }
 
-        @if (hasPasskey()) {
-          <div class="auth-card__form">
-            @if (supported) {
-              <p class="auth-card__help">Your passkey is stored on this device or in your password manager.</p>
-              @if (error()) {
-                <p class="form-error" role="alert">{{ error() }}</p>
+        @if (step() === 'password') {
+          @if (hasPasskey()) {
+            <div class="auth-card__form">
+              @if (supported) {
+                <p class="auth-card__help">Your passkey is stored on this device or in your password manager.</p>
+                @if (error()) {
+                  <p class="form-error" role="alert">{{ error() }}</p>
+                }
+                <button type="button" class="btn btn--primary auth-card__submit" [disabled]="busy()" (click)="signIn()">
+                  {{ busy() ? 'Waiting for your passkey…' : 'Sign in with a passkey' }}
+                </button>
+              } @else {
+                <p class="form-error" role="alert">
+                  This browser does not support passkeys. Open TaleArt in a current version of Chrome, Safari, Edge or
+                  Firefox.
+                </p>
               }
-              <button type="button" class="btn btn--primary auth-card__submit" [disabled]="busy()" (click)="signIn()">
-                {{ busy() ? 'Waiting for your passkey…' : 'Sign in with a passkey' }}
-              </button>
-            } @else {
-              <p class="form-error" role="alert">
-                This browser does not support passkeys. Open TaleArt in a current version of Chrome, Safari, Edge or
-                Firefox.
-              </p>
-            }
-          </div>
-        }
+            </div>
+          }
 
-        @if (hasPassword()) {
+          @if (hasPassword()) {
+            <form
+              class="auth-card__form"
+              aria-labelledby="sign-in-password-title"
+              (ngSubmit)="signInWithPassword()"
+              novalidate
+            >
+              <h2 class="auth-card__subtitle" id="sign-in-password-title">With a username and password</h2>
+              <div class="field">
+                <label class="field__label" for="sign-in-username">Username</label>
+                <input
+                  id="sign-in-username"
+                  class="input"
+                  name="username"
+                  autocomplete="username"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  [(ngModel)]="username"
+                  [attr.aria-invalid]="passwordError() ? 'true' : null"
+                  [attr.aria-describedby]="passwordError() ? 'sign-in-password-error' : null"
+                />
+              </div>
+              <div class="field">
+                <label class="field__label" for="sign-in-password">Password</label>
+                <input
+                  id="sign-in-password"
+                  class="input"
+                  type="password"
+                  name="password"
+                  autocomplete="current-password"
+                  [(ngModel)]="password"
+                  [attr.aria-invalid]="passwordError() ? 'true' : null"
+                  [attr.aria-describedby]="passwordError() ? 'sign-in-password-error' : null"
+                />
+              </div>
+              @if (passwordError(); as message) {
+                <p class="form-error" id="sign-in-password-error" role="alert">{{ message }}</p>
+              }
+              <button type="submit" class="btn btn--primary auth-card__submit" [disabled]="busy()">
+                {{ busy() ? 'Signing in…' : 'Sign in with a password' }}
+              </button>
+            </form>
+          }
+
+          <div class="auth-card__form">
+            <app-provider-buttons [methods]="methods()" purpose="sign-in" />
+          </div>
+        } @else {
           <form
             class="auth-card__form"
-            aria-labelledby="sign-in-password-title"
-            (ngSubmit)="signInWithPassword()"
+            aria-labelledby="sign-in-code-title"
+            (ngSubmit)="signInWithCode()"
             novalidate
           >
-            <h2 class="auth-card__subtitle" id="sign-in-password-title">With a username and password</h2>
+            <h2 class="auth-card__subtitle" id="sign-in-code-title">Two-step sign-in</h2>
+            <p class="auth-card__help">Open your authenticator app and enter the code it shows for TaleArt.</p>
             <div class="field">
-              <label class="field__label" for="sign-in-username">Username</label>
+              <label class="field__label" for="sign-in-code">Authenticator code</label>
               <input
-                id="sign-in-username"
-                class="input"
-                name="username"
-                autocomplete="username"
-                autocapitalize="none"
-                spellcheck="false"
-                [(ngModel)]="username"
-                [attr.aria-invalid]="passwordError() ? 'true' : null"
-                [attr.aria-describedby]="passwordError() ? 'sign-in-password-error' : null"
+                id="sign-in-code"
+                class="input input--mono"
+                name="code"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                [(ngModel)]="code"
+                [attr.aria-invalid]="codeError() ? 'true' : null"
+                [attr.aria-describedby]="codeError() ? 'sign-in-code-error' : null"
               />
             </div>
-            <div class="field">
-              <label class="field__label" for="sign-in-password">Password</label>
-              <input
-                id="sign-in-password"
-                class="input"
-                type="password"
-                name="password"
-                autocomplete="current-password"
-                [(ngModel)]="password"
-                [attr.aria-invalid]="passwordError() ? 'true' : null"
-                [attr.aria-describedby]="passwordError() ? 'sign-in-password-error' : null"
-              />
-            </div>
-            @if (passwordError(); as message) {
-              <p class="form-error" id="sign-in-password-error" role="alert">{{ message }}</p>
+            @if (codeError(); as message) {
+              <p class="form-error" id="sign-in-code-error" role="alert">{{ message }}</p>
             }
             <button type="submit" class="btn btn--primary auth-card__submit" [disabled]="busy()">
-              {{ busy() ? 'Signing in…' : 'Sign in with a password' }}
+              {{ busy() ? 'Verifying…' : 'Verify' }}
+            </button>
+            <button type="button" class="btn btn--secondary auth-card__submit" [disabled]="busy()" (click)="back()">
+              Back
             </button>
           </form>
         }
 
-        <div class="auth-card__form">
-          <app-provider-buttons [methods]="methods()" purpose="sign-in" />
-        </div>
         <app-legal-links />
       </section>
     </main>
@@ -120,8 +155,12 @@ export class SignInPage {
   protected readonly error = signal('');
   protected readonly busy = signal(false);
   protected readonly passwordError = signal('');
+  /** The password form, or the screen for the authenticator app's code once the password was right. */
+  protected readonly step = signal<'password' | 'code'>('password');
+  protected readonly codeError = signal('');
   protected username = '';
   protected password = '';
+  protected code = '';
 
   protected async signIn(): Promise<void> {
     if (this.busy()) return;
@@ -144,14 +183,55 @@ export class SignInPage {
     }
     this.busy.set(true);
     this.passwordError.set('');
-    const refusal = await this.auth.signInWithPassword(this.username, this.password);
+    const attempt = await this.auth.signInWithPassword(this.username, this.password);
     this.busy.set(false);
-    if (refusal) {
+    if (attempt === 'second-step') {
       this.password = '';
-      this.passwordError.set(refusal.message);
+      this.code = '';
+      this.codeError.set('');
+      this.step.set('code');
+      return;
+    }
+    if (attempt) {
+      this.password = '';
+      this.passwordError.set(attempt.message);
       return;
     }
     await this.router.navigateByUrl(this.returnUrl());
+  }
+
+  protected async signInWithCode(): Promise<void> {
+    if (this.busy()) return;
+    const code = this.code.replace(/\s/g, '');
+    if (!/^\d{6}$/.test(code)) {
+      this.codeError.set('Enter the 6-digit code from your app.');
+      return;
+    }
+    this.busy.set(true);
+    this.codeError.set('');
+    const refusal = await this.auth.signInWithSecondStep(code);
+    this.busy.set(false);
+    if (refusal?.invalid) {
+      // The challenge ended: the password is needed again.
+      this.code = '';
+      this.password = '';
+      this.step.set('password');
+      this.passwordError.set(refusal.message);
+      return;
+    }
+    if (refusal) {
+      this.code = '';
+      this.codeError.set(refusal.message);
+      return;
+    }
+    await this.router.navigateByUrl(this.returnUrl());
+  }
+
+  /** Back to the password form, with the username kept and the password asked again. */
+  protected back(): void {
+    this.code = '';
+    this.codeError.set('');
+    this.step.set('password');
   }
 
   private returnUrl(): string {

@@ -5,9 +5,12 @@ import type {
   AdminUserList,
   AuthProvider,
   AuthSettings,
+  ConfirmTwoFactorRequest,
   PasswordResetLink,
   SaveAuthProviderRequest,
   SetPasswordRequest,
+  TwoFactorEnrolment,
+  TwoFactorStatus,
   UpdateAuthSettingsRequest,
 } from '@taleart/contract/core';
 import { firstValueFrom } from 'rxjs';
@@ -64,6 +67,21 @@ export class SignInMethodsApi {
 
   removePassword(): Promise<void> {
     return firstValueFrom(this.http.delete<void>(`${AUTH}/account/password`));
+  }
+
+  /** Whether the account has an authenticator app turned on. */
+  twoFactorStatus(): Promise<TwoFactorStatus> {
+    return firstValueFrom(this.http.get<TwoFactorStatus>(`${AUTH}/account/two-factor`));
+  }
+
+  /** Starts the authenticator app's set-up: the secret to type into the app. Nothing is on until `confirmTwoFactor`. */
+  startTwoFactor(): Promise<TwoFactorEnrolment> {
+    return firstValueFrom(this.http.post<TwoFactorEnrolment>(`${AUTH}/account/two-factor`, {}));
+  }
+
+  /** Turns the authenticator app on with a code from it. */
+  confirmTwoFactor(body: ConfirmTwoFactorRequest): Promise<void> {
+    return firstValueFrom(this.http.post<void>(`${AUTH}/account/two-factor/confirm`, body));
   }
 
   removePasskey(id: string): Promise<void> {

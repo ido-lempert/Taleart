@@ -252,3 +252,121 @@ describe('MySignInMethodsPage: Settings > My sign-in methods', () => {
     expect(root().querySelector('button')?.textContent).toContain('Retry');
   });
 });
+
+describe('MySignInMethodsPage: the authenticator app section', () => {
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<MySignInMethodsPage>;
+  const root = () => fixture.nativeElement as HTMLElement;
+  const text = () => (root().textContent ?? '').replace(/\s+/g, ' ');
+  const TWO_FACTOR = `${ACCOUNT}/two-factor`;
+  const ENROLMENT = { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/TaleArt:ada?secret=JBSWY3DPEHPK3PXP' };
+
+  async function openAccount(enrolled: boolean): Promise<void> {
+    TestBed.inject(AuthStore).state.set({ setupRequired: false, user: null, methods: METHODS as never });
+    fixture = TestBed.createComponent(MySignInMethodsPage);
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    http.expectOne(`${ACCOUNT}/methods`).flush({ passkeys: [PASSKEY], password: null, identities: [IDENTITY] });
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'GET' }).flush({ enrolled });
+    await settle(fixture);
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [MySignInMethodsPage],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: ActivatedRoute, useFactory: () => ({ snapshot: { queryParamMap: convertToParamMap({}) } }) },
+      ],
+    }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    http.match(() => true);
+    http.verify();
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+
+  it('shows Not set up with a Set up button when no authenticator app is on', async () => {
+    await openAccount(false);
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('Not set up');
+    expect(root().querySelector('#two-factor-set-up')?.textContent).toContain('Set up');
+  });
+
+  it('shows On when the authenticator app is on', async () => {
+    await openAccount(true);
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('On');
+    expect(root().querySelector('#two-factor-set-up')).toBeNull();
+  });
+
+  it('starts the set-up and shows the secret key in groups of four and the address', async () => {
+    await openAccount(false);
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'POST' }).flush(ENROLMENT);
+    await settle(fixture);
+    expect(root().querySelector('#two-factor-secret')?.textContent).toBe('JBSW Y3DP EHPK 3PXP');
+    expect(root().querySelector('#two-factor-uri')?.textContent).toBe(ENROLMENT.otpauthUri);
+    expect(root().querySelector('#two-factor-copy')?.textContent).toContain('Copy key');
+  });
+
+  it('explains that the server has no secret key when the set-up is refused with 503', async () => {
+    await openAccount(false);
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http
+      .expectOne({ url: TWO_FACTOR, method: 'POST' })
+      .flush({ error: { code: 'secret_key_missing', message: 'No key.' } }, { status: 503, statusText: 'Service Unavailable' });
+    await settle(fixture);
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain(
+      "Two-factor sign-in needs the server's secret key (TALEART_SECRET_KEY) to be set.",
+    );
+  });
+
+  it('turns the authenticator app on with a code from it, and shows On', async () => {
+    await openAccount(false);
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'POST' }).flush(ENROLMENT);
+    await settle(fixture);
+    const code = root().querySelector<HTMLInputElement>('#two-factor-code') as HTMLInputElement;
+    code.value = '123 456';
+    code.dispatchEvent(new Event('input'));
+    root()
+      .querySelector('#two-factor-form')
+      ?.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle(fixture);
+    const req = http.expectOne(`${ACCOUNT}/two-factor/confirm`);
+    expect(req.request.body).toEqual({ code: '123456' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await settle(fixture);
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('On');
+    expect(root().querySelector('#two-factor-form')).toBeNull();
+  });
+
+  it('says a wrong code is not right and keeps the set-up open', async () => {
+    await openAccount(false);
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'POST' }).flush(ENROLMENT);
+    await settle(fixture);
+    const code = root().querySelector<HTMLInputElement>('#two-factor-code') as HTMLInputElement;
+    code.value = '000000';
+    code.dispatchEvent(new Event('input'));
+    root()
+      .querySelector('#two-factor-form')
+      ?.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle(fixture);
+    http
+      .expectOne(`${ACCOUNT}/two-factor/confirm`)
+      .flush({ error: { code: 'two_factor_code_invalid', message: 'Wrong.' } }, { status: 401, statusText: 'Unauthorized' });
+    await settle(fixture);
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain('That code is not right.');
+    expect(root().querySelector('#two-factor-form')).not.toBeNull();
+  });
+});

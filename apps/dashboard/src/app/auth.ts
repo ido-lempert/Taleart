@@ -25,6 +25,7 @@ import {
   type PasskeyRequestOptions,
   type PasskeyResponse,
   type PasswordResetPreview,
+  type SecondStepRequired,
   type SignedIn,
   type User,
 } from '@taleart/contract/core';
@@ -96,6 +97,18 @@ function passwordRefusal(err: unknown, fallback: string): PasswordRefusal {
 /** Only same-site paths are followed after sign-in. */
 export function safeReturnUrl(url: string | null | undefined): string {
   return url && url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\') ? url : '/zones';
+}
+
+// The refusal for a throttled sign-in step (429), with the wait Retry-After gives; null for any other error.
+function throttleRefusal(err: unknown): PasswordRefusal | null {
+  if (!(err instanceof HttpErrorResponse) || err.status !== 429) return null;
+  const retryAfter = retryAfterSeconds(err.headers.get('Retry-After'));
+  return {
+    message: retryAfter
+      ? `Too many attempts for this username. Wait ${retryAfter} seconds, then try again.`
+      : 'Too many attempts for this username. Wait a few minutes, then try again.',
+    ...(retryAfter === null ? {} : { retryAfter }),
+  };
 }
 
 /** Who is signed in, and setup, sign-in and sign-out (AD-9). Each action resolves to '' or the message to show. */
@@ -191,28 +204,48 @@ export class AuthStore {
   }
 
   /**
-   * Signs in with a username and password. Resolves to null when signed in, else to what to show:
-   * the same words for a wrong password and an unknown username, and the wait when throttled.
+   * Signs in with a username and password. Resolves to null when signed in, to `second-step` when the
+   * password was right and the authenticator app's code is still needed, else to what to show: the same
+   * words for a wrong password and an unknown username, and the wait when throttled.
    */
-  async signInWithPassword(username: string, password: string): Promise<PasswordRefusal | null> {
+  async signInWithPassword(username: string, password: string): Promise<PasswordRefusal | 'second-step' | null> {
     try {
-      const { user } = await firstValueFrom(
-        this.http.post<SignedIn>(`${AUTH_BASE}/password/sign-in`, { username: normalizeUsername(username), password }),
+      const body = await firstValueFrom(
+        this.http.post<SignedIn | SecondStepRequired>(`${AUTH_BASE}/password/sign-in`, {
+          username: normalizeUsername(username),
+          password,
+        }),
       );
+      if ('secondStepRequired' in body) return 'second-step';
+      this.apply({ setupRequired: false, user: body.user });
+      return null;
+    } catch (err) {
+      const throttled = throttleRefusal(err);
+      if (throttled) return throttled;
+      if (errorCode(err) === ErrorCodes.signInFailed) return { message: 'The username or password is not right.' };
+      return { message: errorText(err, 'Sign-in did not finish. Try again.') };
+    }
+  }
+
+  /**
+   * Finishes a password sign-in with the code from the authenticator app. Resolves to null when signed in;
+   * else the refusal: a wrong code keeps the code step, and an expired challenge (`invalid`) means the
+   * password must be entered again.
+   */
+  async signInWithSecondStep(code: string): Promise<PasswordRefusal | null> {
+    try {
+      const { user } = await firstValueFrom(this.http.post<SignedIn>(`${AUTH_BASE}/second-step`, { code }));
       this.apply({ setupRequired: false, user });
       return null;
     } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 429) {
-        const retryAfter = retryAfterSeconds(err.headers.get('Retry-After'));
-        return {
-          message: retryAfter
-            ? `Too many attempts for this username. Wait ${retryAfter} seconds, then try again.`
-            : 'Too many attempts for this username. Wait a few minutes, then try again.',
-          ...(retryAfter === null ? {} : { retryAfter }),
-        };
+      switch (errorCode(err)) {
+        case ErrorCodes.twoFactorCodeInvalid:
+          return { message: 'That code is not right. Try the current code from your app.' };
+        case ErrorCodes.twoFactorChallengeInvalid:
+          return { message: 'That sign-in expired. Enter your password again.', invalid: true };
+        default:
+          return throttleRefusal(err) ?? { message: errorText(err, 'Sign-in did not finish. Try again.') };
       }
-      if (errorCode(err) === ErrorCodes.signInFailed) return { message: 'The username or password is not right.' };
-      return { message: errorText(err, 'Sign-in did not finish. Try again.') };
     }
   }
 

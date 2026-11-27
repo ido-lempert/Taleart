@@ -204,4 +204,93 @@ describe('SignInPage: the sign-in methods on (/auth/state.methods)', () => {
     expect(text()).toContain('This browser does not support passkeys');
     expect(root().querySelector('#sign-in-password')).not.toBeNull();
   });
+
+  describe('the second step (an authenticator app is on)', () => {
+    const USER = { id: 'u1', name: 'Ada', email: 'ada@example.com', role: 'admin' };
+
+    // Sends the password, which the API answers with the second step.
+    async function reachSecondStep(): Promise<void> {
+      await submitPassword('ada', 'correct horse 1');
+      http.expectOne(`${API_BASE}/auth/password/sign-in`).flush({ secondStepRequired: true }, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+    }
+
+    async function submitCode(code: string): Promise<void> {
+      // The code field registers with ngModel a microtask after it is drawn; type after that.
+      await settle(fixture);
+      field('sign-in-code').value = code;
+      field('sign-in-code').dispatchEvent(new Event('input'));
+      root()
+        .querySelector('form')
+        ?.dispatchEvent(new Event('submit', { cancelable: true }));
+      await settle(fixture);
+    }
+
+    it('shows the authenticator code screen in place of the password form', async () => {
+      setUp(METHODS);
+      await reachSecondStep();
+      expect(root().querySelector('#sign-in-code')).not.toBeNull();
+      expect(field('sign-in-code').getAttribute('autocomplete')).toBe('one-time-code');
+      expect(field('sign-in-code').getAttribute('inputmode')).toBe('numeric');
+      expect(root().querySelector('#sign-in-password')).toBeNull();
+      expect(text()).toContain('Authenticator code');
+    });
+
+    it('signs in with the right code, spaces and all, and returns to the return URL', async () => {
+      setUp(METHODS, { returnUrl: '/projects' });
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      await reachSecondStep();
+      await submitCode('123 456');
+      const req = http.expectOne(`${API_BASE}/auth/second-step`);
+      expect(req.request.body).toEqual({ code: '123456' });
+      req.flush({ user: USER }, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+      expect(navigate).toHaveBeenCalledWith('/projects');
+    });
+
+    it('says the code is not right and keeps the code screen', async () => {
+      setUp(METHODS);
+      await reachSecondStep();
+      await submitCode('000000');
+      http
+        .expectOne(`${API_BASE}/auth/second-step`)
+        .flush(
+          { error: { code: 'two_factor_code_invalid', message: 'Wrong code.' } },
+          { status: 401, statusText: 'Unauthorized' },
+        );
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-code-error')?.textContent).toContain(
+        'That code is not right. Try the current code from your app.',
+      );
+      expect(root().querySelector('#sign-in-code')).not.toBeNull();
+    });
+
+    it('returns to the password form with the message when the sign-in expired', async () => {
+      setUp(METHODS);
+      await reachSecondStep();
+      await submitCode('123456');
+      http
+        .expectOne(`${API_BASE}/auth/second-step`)
+        .flush(
+          { error: { code: 'two_factor_challenge_invalid', message: 'Expired.' } },
+          { status: 401, statusText: 'Unauthorized' },
+        );
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-code')).toBeNull();
+      expect(root().querySelector('#sign-in-password')).not.toBeNull();
+      expect(root().querySelector('#sign-in-password-error')?.textContent).toContain(
+        'That sign-in expired. Enter your password again.',
+      );
+    });
+
+    it('goes back to the password form from the code screen', async () => {
+      setUp(METHODS);
+      await reachSecondStep();
+      await settle(fixture);
+      root().querySelector<HTMLButtonElement>('button[type="button"].btn--secondary')?.click();
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-code')).toBeNull();
+      expect(root().querySelector('#sign-in-password')).not.toBeNull();
+    });
+  });
 });
