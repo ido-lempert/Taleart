@@ -6,6 +6,8 @@ import type {
   AuthProvider,
   AuthSettings,
   ConfirmTwoFactorRequest,
+  ConfirmTwoFactorResponse,
+  RecoveryCodes,
   PasswordResetLink,
   SaveAuthProviderRequest,
   SetPasswordRequest,
@@ -79,9 +81,14 @@ export class SignInMethodsApi {
     return firstValueFrom(this.http.post<TwoFactorEnrolment>(`${AUTH}/account/two-factor`, {}));
   }
 
-  /** Turns the authenticator app on with a code from it. */
-  confirmTwoFactor(body: ConfirmTwoFactorRequest): Promise<void> {
-    return firstValueFrom(this.http.post<void>(`${AUTH}/account/two-factor/confirm`, body));
+  /** Turns the authenticator app on with a code from it; the answer carries the ten recovery codes, shown once. */
+  confirmTwoFactor(body: ConfirmTwoFactorRequest): Promise<ConfirmTwoFactorResponse> {
+    return firstValueFrom(this.http.post<ConfirmTwoFactorResponse>(`${AUTH}/account/two-factor/confirm`, body));
+  }
+
+  /** Makes ten new recovery codes; the old ones stop working. */
+  regenerateRecoveryCodes(): Promise<RecoveryCodes> {
+    return firstValueFrom(this.http.post<RecoveryCodes>(`${AUTH}/account/two-factor/recovery-codes`, {}));
   }
 
   removePasskey(id: string): Promise<void> {

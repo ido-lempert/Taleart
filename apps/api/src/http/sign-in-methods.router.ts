@@ -8,8 +8,10 @@ import {
   type AuthSettings,
   type PasswordResetLink,
   type PasswordResetPreview,
+  type RecoveryCodes,
   type SaveAuthProviderRequest,
   type SecondStepRequired,
+  type ConfirmTwoFactorResponse,
   type SignedIn,
   type TwoFactorEnrolment,
   type TwoFactorStatus,
@@ -20,6 +22,8 @@ import {
   accountMethods,
   CHALLENGE_TTL_MS,
   confirmTotpEnrolment,
+  recoveryCodesLeft,
+  regenerateRecoveryCodes,
   deleteProvider,
   finishSecondStep,
   findSessionUser,
@@ -305,7 +309,11 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
   router.get('/account/two-factor', sessionUser, async (_req, res, next) => {
     try {
       noStore(res);
-      const payload: TwoFactorStatus = { enrolled: await totpEnrolled(pool, userOf(res).id) };
+      const userId = userOf(res).id;
+      const payload: TwoFactorStatus = {
+        enrolled: await totpEnrolled(pool, userId),
+        recoveryCodesLeft: await recoveryCodesLeft(pool, userId),
+      };
       res.json(payload);
     } catch (err) {
       next(err);
@@ -327,8 +335,22 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
     try {
       const code = textField(bodyObject(req.body), 'code', true) as string;
       if (code.length > 64) throw invalid('code is not valid');
-      await confirmTotpEnrolment(pool, options.secretKey, userOf(res).id, code);
-      res.status(204).end();
+      const recoveryCodes = await confirmTotpEnrolment(pool, options.secretKey, userOf(res).id, code);
+      noStore(res);
+      const payload: ConfirmTwoFactorResponse = { recoveryCodes };
+      res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // New recovery codes for the signed-in user's authenticator app; the old codes stop working. Shown once.
+  router.post('/account/two-factor/recovery-codes', sessionUser, async (_req, res, next) => {
+    try {
+      const recoveryCodes = await regenerateRecoveryCodes(pool, userOf(res).id);
+      noStore(res);
+      const payload: RecoveryCodes = { recoveryCodes };
+      res.json(payload);
     } catch (err) {
       next(err);
     }

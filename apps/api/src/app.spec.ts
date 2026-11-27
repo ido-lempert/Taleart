@@ -348,7 +348,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_audiences, tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, project_audit_log, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, user_totp, users',
+      'TRUNCATE tale_group_audiences, tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, project_audit_log, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, user_totp, user_recovery_codes, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -12829,7 +12829,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE analytics_events, site_keys, zone_keys, api_token_projects, api_tokens, project_audit_log, invitations, project_members, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, user_totp, users',
+        'TRUNCATE analytics_events, site_keys, zone_keys, api_token_projects, api_tokens, project_audit_log, invitations, project_members, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, user_totp, user_recovery_codes, users',
       );
     });
 
@@ -14319,16 +14319,30 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       vi.useRealTimers();
     });
 
-    // The admin starts and confirms an authenticator app; returns the base32 key.
-    async function enrol(): Promise<string> {
+    // The admin starts and confirms an authenticator app; returns the base32 key and the ten recovery codes.
+    async function enrolWithCodes(): Promise<{ secret: string; recoveryCodes: string[] }> {
       const started = await send('POST', '/auth/account/two-factor');
       expect(started.status).toBe(200);
       const { secret } = (await started.json()) as { secret: string };
       const confirmed = await send('POST', '/auth/account/two-factor/confirm', {
         body: { code: totpCode(base32Decode(secret), totpStep(Date.now())) },
       });
-      expect(confirmed.status).toBe(204);
-      return secret;
+      expect(confirmed.status).toBe(200);
+      const { recoveryCodes } = (await confirmed.json()) as { recoveryCodes: string[] };
+      return { secret, recoveryCodes };
+    }
+
+    // The admin starts and confirms an authenticator app; returns the base32 key.
+    async function enrol(): Promise<string> {
+      return (await enrolWithCodes()).secret;
+    }
+
+    // A recovery code of the shape xxxxx-xxxxx: ten lowercase base32 characters with a dash after the fifth.
+    const RECOVERY_CODE = /^[a-z2-7]{5}-[a-z2-7]{5}$/;
+
+    // The user's recovery codes from the status endpoint's count, after a confirm or a regenerate.
+    async function recoveryCodesLeftNow(): Promise<number> {
+      return ((await (await send('GET', '/auth/account/two-factor')).json()) as { recoveryCodesLeft: number }).recoveryCodesLeft;
     }
 
     // A code one step ahead of now: inside the window, and never the step used at enrolment.
@@ -14368,7 +14382,7 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       expect(body.secret).toMatch(/^[A-Z2-7]+$/);
       expect(body.otpauthUri.startsWith('otpauth://totp/')).toBe(true);
 
-      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: false });
+      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: false, recoveryCodesLeft: 0 });
 
       const wrong = await send('POST', '/auth/account/two-factor/confirm', { body: { code: WRONG_CODE } });
       expect(wrong.status).toBe(401);
@@ -14377,9 +14391,11 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       const right = await send('POST', '/auth/account/two-factor/confirm', {
         body: { code: totpCode(base32Decode(body.secret), totpStep(Date.now())) },
       });
-      expect(right.status).toBe(204);
+      expect(right.status).toBe(200);
+      const confirmedCodes = (await right.json()) as { recoveryCodes: string[] };
+      expect(confirmedCodes.recoveryCodes).toHaveLength(10);
 
-      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true });
+      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10 });
 
       const again = await send('POST', '/auth/account/two-factor');
       expect(again.status).toBe(409);
@@ -14412,7 +14428,7 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       expect(session).toBeDefined();
       const cookie = session!.split(';')[0];
 
-      expect(await (await send('GET', '/auth/account/two-factor', { cookie })).json()).toEqual({ enrolled: true });
+      expect(await (await send('GET', '/auth/account/two-factor', { cookie })).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10 });
     });
 
     it('refuses a wrong code with no session, and five wrong codes end the challenge even for the right one', async () => {
@@ -14503,6 +14519,90 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       const res = await send('POST', '/auth/account/two-factor');
       expect(res.status).toBe(503);
       expect((await res.json()).error.code).toBe('secret_key_missing');
+    });
+
+    it('answers ten recovery codes, each xxxxx-xxxxx and distinct, when the app is turned on', async () => {
+      const { recoveryCodes } = await enrolWithCodes();
+      expect(recoveryCodes).toHaveLength(10);
+      for (const code of recoveryCodes) expect(code).toMatch(RECOVERY_CODE);
+      expect(new Set(recoveryCodes).size).toBe(10);
+    });
+
+    it('signs in with a recovery code, which works once; the typed form with spaces and capitals works too', async () => {
+      const { recoveryCodes } = await enrolWithCodes();
+
+      const first = await secondStep(await startSecondStep(), recoveryCodes[0]);
+      expect(first.status).toBe(200);
+      expect(await first.json()).toMatchObject({ user: { id: adminId } });
+      expect(hasSessionCookie(first)).toBe(true);
+
+      const again = await secondStep(await startSecondStep(), recoveryCodes[0]);
+      expect(again.status).toBe(401);
+      expect((await again.json()).error.code).toBe('two_factor_code_invalid');
+      expect(hasSessionCookie(again)).toBe(false);
+
+      const typed = recoveryCodes[1].toUpperCase().replace('-', ' ');
+      expect((await secondStep(await startSecondStep(), typed)).status).toBe(200);
+    });
+
+    it('counts a wrong recovery code toward the five attempts, and then the challenge is over', async () => {
+      const { recoveryCodes } = await enrolWithCodes();
+      const challenge = await startSecondStep();
+      for (let i = 1; i <= 5; i++) {
+        const res = await secondStep(challenge, 'aaaaa-aaaaa');
+        expect(res.status, `wrong code ${i}`).toBe(401);
+        expect((await res.json()).error.code).toBe('two_factor_code_invalid');
+      }
+      const right = await secondStep(challenge, recoveryCodes[0]);
+      expect(right.status).toBe(401);
+      expect((await right.json()).error.code).toBe('two_factor_challenge_invalid');
+      expect(hasSessionCookie(right)).toBe(false);
+    });
+
+    it('makes new recovery codes: the old ones stop working and the new ones work', async () => {
+      const { recoveryCodes: old } = await enrolWithCodes();
+
+      const made = await send('POST', '/auth/account/two-factor/recovery-codes');
+      expect(made.status).toBe(200);
+      const { recoveryCodes } = (await made.json()) as { recoveryCodes: string[] };
+      expect(recoveryCodes).toHaveLength(10);
+      for (const code of recoveryCodes) expect(code).toMatch(RECOVERY_CODE);
+      expect(recoveryCodes.some((code) => old.includes(code))).toBe(false);
+
+      const oldRefused = await secondStep(await startSecondStep(), old[0]);
+      expect(oldRefused.status).toBe(401);
+      expect((await oldRefused.json()).error.code).toBe('two_factor_code_invalid');
+
+      expect((await secondStep(await startSecondStep(), recoveryCodes[0])).status).toBe(200);
+    });
+
+    it('counts the unused recovery codes in the status: ten, then nine after one is used', async () => {
+      const { recoveryCodes } = await enrolWithCodes();
+      expect(await recoveryCodesLeftNow()).toBe(10);
+
+      expect((await secondStep(await startSecondStep(), recoveryCodes[3])).status).toBe(200);
+      expect(await recoveryCodesLeftNow()).toBe(9);
+    });
+
+    it('refuses to make recovery codes while no authenticator app is on', async () => {
+      const res = await send('POST', '/auth/account/two-factor/recovery-codes');
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('two_factor_not_started');
+    });
+
+    it('stores only the SHA-256 hash of each recovery code, never the code itself', async () => {
+      const { recoveryCodes } = await enrolWithCodes();
+      const { rows } = await pool.query<{ code_hash: string }>(
+        'SELECT code_hash FROM user_recovery_codes WHERE user_id = $1',
+        [adminId],
+      );
+      const stored = rows.map((row) => row.code_hash);
+      expect(stored).toHaveLength(10);
+      for (const code of recoveryCodes) {
+        expect(stored).not.toContain(code);
+        expect(stored).not.toContain(code.replace('-', ''));
+        expect(stored).toContain(createHash('sha256').update(code.replace('-', '')).digest('hex'));
+      }
     });
   });
 });

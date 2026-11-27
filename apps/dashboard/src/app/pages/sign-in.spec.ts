@@ -292,5 +292,63 @@ describe('SignInPage: the sign-in methods on (/auth/state.methods)', () => {
       expect(root().querySelector('#sign-in-code')).toBeNull();
       expect(root().querySelector('#sign-in-password')).not.toBeNull();
     });
+
+    // The button that switches the code field between the app's code and a recovery code.
+    function toggleButton(): HTMLButtonElement {
+      const found = [...root().querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+        /^Use (a recovery code|the app code)$/.test((b.textContent ?? '').trim()),
+      );
+      if (!found) throw new Error('no recovery code toggle');
+      return found;
+    }
+
+    function codeLabel(): string {
+      return root().querySelector('label[for="sign-in-code"]')?.textContent?.trim() ?? '';
+    }
+
+    it('switches the code field to a recovery code, and back to the app code', async () => {
+      setUp(METHODS);
+      await reachSecondStep();
+      expect(toggleButton().textContent?.trim()).toBe('Use a recovery code');
+
+      toggleButton().click();
+      await settle(fixture);
+      expect(codeLabel()).toBe('Recovery code');
+      expect(field('sign-in-code').getAttribute('inputmode')).toBe('text');
+      expect(text()).toContain('Enter one of the recovery codes you saved. Each works once.');
+      expect(toggleButton().textContent?.trim()).toBe('Use the app code');
+
+      toggleButton().click();
+      await settle(fixture);
+      expect(codeLabel()).toBe('Authenticator code');
+      expect(field('sign-in-code').getAttribute('inputmode')).toBe('numeric');
+      expect(toggleButton().textContent?.trim()).toBe('Use a recovery code');
+    });
+
+    it('sends a recovery code as typed, with no six-digit rule, and returns to the return URL', async () => {
+      setUp(METHODS, { returnUrl: '/projects' });
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      await reachSecondStep();
+      toggleButton().click();
+      await settle(fixture);
+
+      await submitCode('ab12c-defgh');
+      const req = http.expectOne(`${API_BASE}/auth/second-step`);
+      expect(req.request.body).toEqual({ code: 'ab12c-defgh' });
+      req.flush({ user: USER }, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+      expect(navigate).toHaveBeenCalledWith('/projects');
+    });
+
+    it('asks for a recovery code, and sends nothing, when the recovery field is empty', async () => {
+      setUp(METHODS);
+      await reachSecondStep();
+      toggleButton().click();
+      await settle(fixture);
+
+      await submitCode('   ');
+      expect(root().querySelector('#sign-in-code-error')?.textContent).toContain('Enter a recovery code.');
+      http.expectNone(`${API_BASE}/auth/second-step`);
+    });
   });
 });

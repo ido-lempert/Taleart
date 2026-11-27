@@ -260,15 +260,27 @@ describe('MySignInMethodsPage: the authenticator app section', () => {
   const text = () => (root().textContent ?? '').replace(/\s+/g, ' ');
   const TWO_FACTOR = `${ACCOUNT}/two-factor`;
   const ENROLMENT = { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/TaleArt:ada?secret=JBSWY3DPEHPK3PXP' };
+  const CODES = [
+    'a2b3c-d4e5f',
+    'g6h7j-k8m9n',
+    'p2q3r-s4t5u',
+    'v6w7x-y8z2a',
+    'b3c4d-e5f6g',
+    'h7j8k-m9n2p',
+    'q3r4s-t5u6v',
+    'w7x8y-z2a3b',
+    'c4d5e-f6g7h',
+    'j8k9m-n2p3q',
+  ];
 
-  async function openAccount(enrolled: boolean): Promise<void> {
+  async function openAccount(enrolled: boolean, recoveryCodesLeft = enrolled ? 10 : 0): Promise<void> {
     TestBed.inject(AuthStore).state.set({ setupRequired: false, user: null, methods: METHODS as never });
     fixture = TestBed.createComponent(MySignInMethodsPage);
     document.body.appendChild(root());
     fixture.detectChanges();
     http.expectOne(`${ACCOUNT}/methods`).flush({ passkeys: [PASSKEY], password: null, identities: [IDENTITY] });
     await settle(fixture);
-    http.expectOne({ url: TWO_FACTOR, method: 'GET' }).flush({ enrolled });
+    http.expectOne({ url: TWO_FACTOR, method: 'GET' }).flush({ enrolled, recoveryCodesLeft });
     await settle(fixture);
   }
 
@@ -343,10 +355,125 @@ describe('MySignInMethodsPage: the authenticator app section', () => {
     await settle(fixture);
     const req = http.expectOne(`${ACCOUNT}/two-factor/confirm`);
     expect(req.request.body).toEqual({ code: '123456' });
-    req.flush(null, { status: 204, statusText: 'No Content' });
+    req.flush({ recoveryCodes: CODES }, { status: 200, statusText: 'OK' });
     await settle(fixture);
     expect(root().querySelector('#two-factor-state')?.textContent).toBe('On');
     expect(root().querySelector('#two-factor-form')).toBeNull();
+  });
+
+  it('shows the ten recovery codes once the app is on, with the warning, until the user says they saved them', async () => {
+    await openAccount(false);
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'POST' }).flush(ENROLMENT);
+    await settle(fixture);
+    root().querySelector<HTMLInputElement>('#two-factor-code')!.value = '123456';
+    root().querySelector<HTMLInputElement>('#two-factor-code')!.dispatchEvent(new Event('input'));
+    root().querySelector('#two-factor-form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle(fixture);
+    http.expectOne(`${ACCOUNT}/two-factor/confirm`).flush({ recoveryCodes: CODES }, { status: 200, statusText: 'OK' });
+    await settle(fixture);
+
+    const items = [...root().querySelectorAll('#recovery-codes-list li')].map((li) => li.textContent);
+    expect(items).toEqual(CODES);
+    expect(text()).toContain('Save these codes now. Each works once if you lose your phone. They are not shown again.');
+    expect(root().querySelector('#two-factor-left')?.textContent).toBe('10 recovery codes left');
+
+    root().querySelector<HTMLButtonElement>('#recovery-codes-saved')?.click();
+    await settle(fixture);
+    expect(root().querySelector('#recovery-codes')).toBeNull();
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('On');
+  });
+
+  it('copies all the recovery codes, one to a line', async () => {
+    await openAccount(true);
+    const enrolledStatus = root().querySelector('#two-factor-left');
+    expect(enrolledStatus?.textContent).toBe('10 recovery codes left');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    root().querySelector<HTMLButtonElement>('#two-factor-regenerate-start')?.click();
+    await settle(fixture);
+    root().querySelector<HTMLButtonElement>('#two-factor-regenerate')?.click();
+    await settle(fixture);
+    http.expectOne({ url: `${ACCOUNT}/two-factor/recovery-codes`, method: 'POST' }).flush({ recoveryCodes: CODES });
+    await settle(fixture);
+
+    root().querySelector<HTMLButtonElement>('#recovery-codes-copy')?.click();
+    await settle(fixture);
+    expect(writeText).toHaveBeenCalledWith(CODES.join('\n'));
+  });
+
+  it('downloads the recovery codes as a text file', async () => {
+    await openAccount(false);
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'POST' }).flush(ENROLMENT);
+    await settle(fixture);
+    root().querySelector<HTMLInputElement>('#two-factor-code')!.value = '123456';
+    root().querySelector<HTMLInputElement>('#two-factor-code')!.dispatchEvent(new Event('input'));
+    root().querySelector('#two-factor-form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle(fixture);
+    http.expectOne(`${ACCOUNT}/two-factor/confirm`).flush({ recoveryCodes: CODES }, { status: 200, statusText: 'OK' });
+    await settle(fixture);
+
+    URL.createObjectURL = vi.fn(() => 'blob:recovery-codes');
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    root().querySelector<HTMLButtonElement>('#recovery-codes-download')?.click();
+    await settle(fixture);
+
+    expect(click).toHaveBeenCalledTimes(1);
+    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    expect(blob.type).toBe('text/plain');
+    const body = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(blob);
+    });
+    expect(body).toBe(`${CODES.join('\n')}\n`);
+  });
+
+  it('says how many recovery codes are left when the app is on', async () => {
+    await openAccount(true, 1);
+    expect(root().querySelector('#two-factor-left')?.textContent).toBe('1 recovery code left');
+  });
+
+  it('asks for a second click before making new codes, then shows the new codes and the count of ten', async () => {
+    await openAccount(true, 3);
+    expect(root().querySelector('#two-factor-left')?.textContent).toBe('3 recovery codes left');
+
+    root().querySelector<HTMLButtonElement>('#two-factor-regenerate-start')?.click();
+    await settle(fixture);
+    expect(root().querySelector('#two-factor-regenerate')?.textContent).toContain(
+      'Really make new codes? The old ones stop working',
+    );
+    http.expectNone(`${ACCOUNT}/two-factor/recovery-codes`);
+
+    root().querySelector<HTMLButtonElement>('#two-factor-regenerate')?.click();
+    await settle(fixture);
+    http.expectOne({ url: `${ACCOUNT}/two-factor/recovery-codes`, method: 'POST' }).flush({ recoveryCodes: CODES });
+    await settle(fixture);
+
+    expect([...root().querySelectorAll('#recovery-codes-list li')].map((li) => li.textContent)).toEqual(CODES);
+    expect(root().querySelector('#two-factor-left')?.textContent).toBe('10 recovery codes left');
+    expect(root().querySelector('#two-factor-regenerate-start')).not.toBeNull();
+  });
+
+  it('reads the status again when new codes are refused because no app is on', async () => {
+    await openAccount(true, 3);
+    root().querySelector<HTMLButtonElement>('#two-factor-regenerate-start')?.click();
+    await settle(fixture);
+    root().querySelector<HTMLButtonElement>('#two-factor-regenerate')?.click();
+    await settle(fixture);
+    http
+      .expectOne({ url: `${ACCOUNT}/two-factor/recovery-codes`, method: 'POST' })
+      .flush({ error: { code: 'two_factor_not_started', message: 'Not started.' } }, { status: 409, statusText: 'Conflict' });
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'GET' }).flush({ enrolled: false, recoveryCodesLeft: 0 });
+    await settle(fixture);
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('Not set up');
+    expect(root().querySelector('#recovery-codes')).toBeNull();
   });
 
   it('says a wrong code is not right and keeps the set-up open', async () => {

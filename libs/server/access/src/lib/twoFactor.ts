@@ -11,6 +11,7 @@ import {
   TwoFactorNotStartedError,
   TwoFactorUnavailableError,
 } from './errors';
+import { consumeRecoveryCode, replaceRecoveryCodes } from './recoveryCodes';
 import { decryptSecret, encryptSecret } from './secrets';
 import { createSession } from './sessions';
 import type { PasswordThrottle } from './throttle';
@@ -69,10 +70,12 @@ export async function startTotpEnrolment(
   });
 }
 
+type ConfirmOutcome = { kind: 'done'; recoveryCodes: string[] } | { kind: 'not-started' | 'enrolled' | 'wrong' };
+
 /**
- * Finishes setup with a current code from the app. Throws {@link TwoFactorNotStartedError} when setup was never
- * started, {@link TwoFactorEnrolledError} when it is already finished, and {@link TwoFactorCodeInvalidError} for a
- * wrong code.
+ * Finishes setup with a current code from the app, and returns the user's new recovery codes (shown once). Throws
+ * {@link TwoFactorNotStartedError} when setup was never started, {@link TwoFactorEnrolledError} when it is already
+ * finished, and {@link TwoFactorCodeInvalidError} for a wrong code.
  */
 export async function confirmTotpEnrolment(
   db: TransactionalDb,
@@ -80,24 +83,42 @@ export async function confirmTotpEnrolment(
   userId: string,
   code: string,
   nowMs: number = Date.now(),
-): Promise<void> {
+): Promise<string[]> {
   if (!key) throw new TwoFactorUnavailableError();
-  const outcome = await inTransaction(db, async (tx) => {
+  const outcome = await inTransaction<ConfirmOutcome>(db, async (tx) => {
     const { rows } = await tx.query<{ secretEnc: Buffer; enrolledAt: Date | null }>(
       'SELECT secret_enc AS "secretEnc", enrolled_at AS "enrolledAt" FROM user_totp WHERE user_id = $1 FOR UPDATE',
       [userId],
     );
     const row = rows[0];
-    if (!row) return 'not-started' as const;
-    if (row.enrolledAt) return 'enrolled' as const;
+    if (!row) return { kind: 'not-started' as const };
+    if (row.enrolledAt) return { kind: 'enrolled' as const };
     const step = matchTotp(Buffer.from(decryptSecret(row.secretEnc, key), 'base64'), code, nowMs);
-    if (step === null) return 'wrong' as const;
+    if (step === null) return { kind: 'wrong' as const };
     await tx.query('UPDATE user_totp SET enrolled_at = now(), last_step = $2 WHERE user_id = $1', [userId, step]);
-    return 'done' as const;
+    return { kind: 'done' as const, recoveryCodes: await replaceRecoveryCodes(tx, userId) };
   });
-  if (outcome === 'not-started') throw new TwoFactorNotStartedError();
-  if (outcome === 'enrolled') throw new TwoFactorEnrolledError();
-  if (outcome === 'wrong') throw new TwoFactorCodeInvalidError();
+  if (outcome.kind === 'done') return outcome.recoveryCodes;
+  if (outcome.kind === 'not-started') throw new TwoFactorNotStartedError();
+  if (outcome.kind === 'enrolled') throw new TwoFactorEnrolledError();
+  throw new TwoFactorCodeInvalidError();
+}
+
+/**
+ * Makes new recovery codes for a user whose authenticator app is on; the old ones stop working. Throws
+ * {@link TwoFactorNotStartedError} when no app is on.
+ */
+export async function regenerateRecoveryCodes(db: TransactionalDb, userId: string): Promise<string[]> {
+  const outcome = await inTransaction(db, async (tx) => {
+    const { rows } = await tx.query<{ enrolledAt: Date | null }>(
+      'SELECT enrolled_at AS "enrolledAt" FROM user_totp WHERE user_id = $1 FOR UPDATE',
+      [userId],
+    );
+    if (!rows[0]?.enrolledAt) return null;
+    return replaceRecoveryCodes(tx, userId);
+  });
+  if (!outcome) throw new TwoFactorNotStartedError();
+  return outcome;
 }
 
 /**
@@ -120,9 +141,10 @@ type Outcome =
   | { kind: 'invalid' };
 
 /**
- * Finishes a sign-in with the code from the authenticator app. A wrong code counts toward the username's throttle and
- * toward the second step's own {@link SECOND_STEP_MAX_ATTEMPTS}; a code that was accepted once never works again. The
- * session exists only after a right code.
+ * Finishes a sign-in with the code from the authenticator app, or with one of the user's recovery codes (any input
+ * that is not six digits). A wrong code counts toward the username's throttle and toward the second step's own
+ * {@link SECOND_STEP_MAX_ATTEMPTS}; a code that was accepted once never works again, and a recovery code is spent by
+ * its use. The session exists only after a right code.
  */
 export async function finishSecondStep(
   db: TransactionalDb,
@@ -159,20 +181,28 @@ export async function finishSecondStep(
       return { kind: 'invalid' };
     }
 
+    // Six digits are an app code; anything else is tried as a recovery code.
+    const isAppCode = /^\d{6}$/.test(code.replace(/\s+/g, ''));
     let step: number | null = null;
-    if (key) {
-      try {
-        const secret = Buffer.from(decryptSecret(totp.rows[0].secretEnc, key), 'base64');
-        const last = totp.rows[0].lastStep;
-        step = matchTotp(secret, code, nowMs, last === null ? null : Number(last));
-      } catch {
-        // A secret that cannot be read (the key changed) never matches; the user falls back to a recovery code.
-        step = null;
+    let accepted = false;
+    if (isAppCode) {
+      if (key) {
+        try {
+          const secret = Buffer.from(decryptSecret(totp.rows[0].secretEnc, key), 'base64');
+          const last = totp.rows[0].lastStep;
+          step = matchTotp(secret, code, nowMs, last === null ? null : Number(last));
+        } catch {
+          // A secret that cannot be read (the key changed) never matches.
+          step = null;
+        }
       }
+      accepted = step !== null;
+    } else {
+      accepted = await consumeRecoveryCode(tx, userId, code);
     }
 
-    if (step !== null) {
-      await tx.query('UPDATE user_totp SET last_step = $2 WHERE user_id = $1', [userId, step]);
+    if (accepted) {
+      if (step !== null) await tx.query('UPDATE user_totp SET last_step = $2 WHERE user_id = $1', [userId, step]);
       await tx.query('DELETE FROM auth_challenges WHERE id = $1', [challengeId]);
       const users = await tx.query<User>('SELECT id, name, email, role FROM users WHERE id = $1', [userId]);
       if (!users.rows[0]) return { kind: 'invalid' };

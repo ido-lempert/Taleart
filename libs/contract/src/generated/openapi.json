@@ -515,7 +515,7 @@
         ],
         "operationId": "secondStep",
         "summary": "Finish a password sign-in with the code from the authenticator app.",
-        "description": "The second step of a password sign-in for a user with an authenticator app. Reads the challenge cookie that `POST /auth/password/sign-in` set, so no session is needed. A correct code sets the `taleart_session` cookie (7 days), as password sign-in does. A wrong code answers 401 `two_factor_code_invalid`; a missing, expired or already used challenge answers 401 `two_factor_challenge_invalid`. Failures are throttled: while throttled the answer is 429 `rate_limited` with `Retry-After`.",
+        "description": "The second step of a password sign-in for a user with an authenticator app. Reads the challenge cookie that `POST /auth/password/sign-in` set, so no session is needed. The code is the six digits of the authenticator app, or one of the user's recovery codes (`xxxxx-xxxxx`, spent by its use). A correct code sets the `taleart_session` cookie (7 days), as password sign-in does. A wrong code answers 401 `two_factor_code_invalid`; a missing, expired or already used challenge answers 401 `two_factor_challenge_invalid`. Failures are throttled: while throttled the answer is 429 `rate_limited` with `Retry-After`.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -855,7 +855,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The user's two-factor status.",
+            "description": "The user's two-factor status, with how many recovery codes are still unused.",
             "content": {
               "application/json": {
                 "schema": {
@@ -917,7 +917,7 @@
         ],
         "operationId": "confirmTwoFactor",
         "summary": "Turn the authenticator app on with a code from it.",
-        "description": "Checks the code against the secret that `POST /auth/account/two-factor` started. A wrong code answers 401 `two_factor_code_invalid`. Without a started set-up the answer is 409 `two_factor_not_started`; when the authenticator app is already on, 409 `two_factor_enrolled`.",
+        "description": "Checks the code against the secret that `POST /auth/account/two-factor` started. A wrong code answers 401 `two_factor_code_invalid`. Without a started set-up the answer is 409 `two_factor_not_started`; when the authenticator app is already on, 409 `two_factor_enrolled`. On success the answer carries the user's ten recovery codes, which are shown once and never again.",
         "security": [
           {
             "session": []
@@ -934,8 +934,51 @@
           }
         },
         "responses": {
-          "204": {
-            "description": "The authenticator app is on."
+          "200": {
+            "description": "The authenticator app is on; the new recovery codes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmTwoFactorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/auth/account/two-factor/recovery-codes": {
+      "post": {
+        "tags": [
+          "Sign-in methods"
+        ],
+        "operationId": "regenerateRecoveryCodes",
+        "summary": "Make new recovery codes; the old ones stop working.",
+        "description": "Replaces the user's recovery codes with ten new ones, returned once. Refused with 409 `two_factor_not_started` when no authenticator app is on.",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new recovery codes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryCodes"
+                }
+              }
+            }
           },
           "401": {
             "$ref": "#/components/responses/Error"
@@ -9737,13 +9780,19 @@
       "TwoFactorStatus": {
         "type": "object",
         "required": [
-          "enrolled"
+          "enrolled",
+          "recoveryCodesLeft"
         ],
         "additionalProperties": false,
         "properties": {
           "enrolled": {
             "type": "boolean",
             "description": "True when the user has an authenticator app turned on."
+          },
+          "recoveryCodesLeft": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many of the user's recovery codes are still unused."
           }
         }
       },
@@ -9776,6 +9825,42 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          }
+        }
+      },
+      "ConfirmTwoFactorResponse": {
+        "type": "object",
+        "required": [
+          "recoveryCodes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "recoveryCodes": {
+            "type": "array",
+            "description": "Ten recovery codes, each `xxxxx-xxxxx`. Shown once; each works once.",
+            "minItems": 10,
+            "maxItems": 10,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RecoveryCodes": {
+        "type": "object",
+        "required": [
+          "recoveryCodes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "recoveryCodes": {
+            "type": "array",
+            "description": "Ten new recovery codes, each `xxxxx-xxxxx`. Shown once; the old codes no longer work.",
+            "minItems": 10,
+            "maxItems": 10,
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

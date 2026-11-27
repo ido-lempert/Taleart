@@ -261,7 +261,7 @@ export interface paths {
         put?: never;
         /**
          * Finish a password sign-in with the code from the authenticator app.
-         * @description The second step of a password sign-in for a user with an authenticator app. Reads the challenge cookie that `POST /auth/password/sign-in` set, so no session is needed. A correct code sets the `taleart_session` cookie (7 days), as password sign-in does. A wrong code answers 401 `two_factor_code_invalid`; a missing, expired or already used challenge answers 401 `two_factor_challenge_invalid`. Failures are throttled: while throttled the answer is 429 `rate_limited` with `Retry-After`.
+         * @description The second step of a password sign-in for a user with an authenticator app. Reads the challenge cookie that `POST /auth/password/sign-in` set, so no session is needed. The code is the six digits of the authenticator app, or one of the user's recovery codes (`xxxxx-xxxxx`, spent by its use). A correct code sets the `taleart_session` cookie (7 days), as password sign-in does. A wrong code answers 401 `two_factor_code_invalid`; a missing, expired or already used challenge answers 401 `two_factor_challenge_invalid`. Failures are throttled: while throttled the answer is 429 `rate_limited` with `Retry-After`.
          */
         post: operations["secondStep"];
         delete?: never;
@@ -438,9 +438,29 @@ export interface paths {
         put?: never;
         /**
          * Turn the authenticator app on with a code from it.
-         * @description Checks the code against the secret that `POST /auth/account/two-factor` started. A wrong code answers 401 `two_factor_code_invalid`. Without a started set-up the answer is 409 `two_factor_not_started`; when the authenticator app is already on, 409 `two_factor_enrolled`.
+         * @description Checks the code against the secret that `POST /auth/account/two-factor` started. A wrong code answers 401 `two_factor_code_invalid`. Without a started set-up the answer is 409 `two_factor_not_started`; when the authenticator app is already on, 409 `two_factor_enrolled`. On success the answer carries the user's ten recovery codes, which are shown once and never again.
          */
         post: operations["confirmTwoFactor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/account/two-factor/recovery-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make new recovery codes; the old ones stop working.
+         * @description Replaces the user's recovery codes with ten new ones, returned once. Refused with 409 `two_factor_not_started` when no authenticator app is on.
+         */
+        post: operations["regenerateRecoveryCodes"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3296,6 +3316,8 @@ export interface components {
         TwoFactorStatus: {
             /** @description True when the user has an authenticator app turned on. */
             enrolled: boolean;
+            /** @description How many of the user's recovery codes are still unused. */
+            recoveryCodesLeft: number;
         };
         TwoFactorEnrolment: {
             /** @description The base32 key to type into the authenticator app. */
@@ -3305,6 +3327,14 @@ export interface components {
         };
         ConfirmTwoFactorRequest: {
             code: string;
+        };
+        ConfirmTwoFactorResponse: {
+            /** @description Ten recovery codes, each `xxxxx-xxxxx`. Shown once; each works once. */
+            recoveryCodes: string[];
+        };
+        RecoveryCodes: {
+            /** @description Ten new recovery codes, each `xxxxx-xxxxx`. Shown once; the old codes no longer work. */
+            recoveryCodes: string[];
         };
         AuthSettings: {
             passkeyEnabled: boolean;
@@ -4410,7 +4440,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The user's two-factor status. */
+            /** @description The user's two-factor status, with how many recovery codes are still unused. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4460,12 +4490,37 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The authenticator app is on. */
-            204: {
+            /** @description The authenticator app is on; the new recovery codes. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ConfirmTwoFactorResponse"];
+                };
+            };
+            401: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    regenerateRecoveryCodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new recovery codes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodes"];
+                };
             };
             401: components["responses"]["Error"];
             409: components["responses"]["Error"];

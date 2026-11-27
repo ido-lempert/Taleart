@@ -33,7 +33,8 @@ type Removal =
 /**
  * The account's authenticator app, a second step after the password: "Not set up" with Set up, or "On".
  * Set up shows the secret key to type into the app and the otpauth address; a code from the app turns it
- * on. No QR code yet.
+ * on, and the ten recovery codes it answers are shown once. When on, the page counts the unused recovery
+ * codes and makes new ones on a second click. No QR code yet.
  */
 @Component({
   selector: 'app-authenticator-app-section',
@@ -54,6 +55,24 @@ type Removal =
       display: flex;
       flex-direction: column;
       gap: var(--space-3);
+    }
+    .recovery-codes {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+    }
+    .recovery-codes__list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+      gap: var(--space-2);
+      margin: 0;
+      padding: var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-control);
+      background: var(--surface-sunken);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      list-style: none;
+      user-select: all;
     }
   `,
   template: `
@@ -102,6 +121,18 @@ type Removal =
         } @else if (current.enrolled) {
           <p id="two-factor-state">On</p>
           <p class="muted">Signing in with your password also asks for a code from this app.</p>
+          <p id="two-factor-left">{{ leftText(current.recoveryCodesLeft) }}</p>
+          <div class="invite-actions">
+            @if (confirmingNew()) {
+              <button type="button" class="btn btn--danger" id="two-factor-regenerate" [disabled]="busy()" (click)="regenerate()">
+                {{ busy() ? 'Making new codes…' : 'Really make new codes? The old ones stop working' }}
+              </button>
+            } @else {
+              <button type="button" class="btn btn--secondary" id="two-factor-regenerate-start" [disabled]="busy()" (click)="confirmingNew.set(true)">
+                Make new codes
+              </button>
+            }
+          </div>
         } @else {
           <p id="two-factor-state">Not set up</p>
           <div class="invite-actions">
@@ -112,6 +143,21 @@ type Removal =
         }
       } @else {
         <p class="muted" role="status">Reading your authenticator app…</p>
+      }
+      @if (codes(); as list) {
+        <div class="recovery-codes" id="recovery-codes" role="region" aria-label="Recovery codes">
+          <p>Save these codes now. Each works once if you lose your phone. They are not shown again.</p>
+          <ul class="recovery-codes__list" id="recovery-codes-list">
+            @for (recoveryCode of list; track recoveryCode) {
+              <li>{{ recoveryCode }}</li>
+            }
+          </ul>
+          <div class="invite-actions">
+            <button type="button" class="btn btn--secondary" id="recovery-codes-copy" (click)="copyCodes(list)">Copy all</button>
+            <button type="button" class="btn btn--secondary" id="recovery-codes-download" (click)="download(list)">Download</button>
+            <button type="button" class="btn btn--primary" id="recovery-codes-saved" (click)="saved()">I saved them</button>
+          </div>
+        </div>
       }
       @if (error()) {
         <p class="form-error" role="alert">{{ error() }}</p>
@@ -127,6 +173,10 @@ export class AuthenticatorAppSection implements OnInit {
   protected readonly loadFailed = signal(false);
   /** The set-up in progress: the secret and address, until a code turns the app on. */
   protected readonly enrolment = signal<TwoFactorEnrolment | null>(null);
+  /** The recovery codes just made, shown until the user says they saved them. */
+  protected readonly codes = signal<string[] | null>(null);
+  /** Making new codes waits for a second click that says the old ones stop working. */
+  protected readonly confirmingNew = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly copyStatus = signal('');
@@ -149,6 +199,10 @@ export class AuthenticatorAppSection implements OnInit {
   /** The secret in groups of four, which is easier to type. */
   protected grouped(secret: string): string {
     return secret.replace(/(.{4})(?=.)/g, '$1 ');
+  }
+
+  protected leftText(left: number): string {
+    return `${left} recovery ${left === 1 ? 'code' : 'codes'} left`;
   }
 
   protected async start(): Promise<void> {
@@ -181,6 +235,53 @@ export class AuthenticatorAppSection implements OnInit {
     }
   }
 
+  protected async copyCodes(list: string[]): Promise<void> {
+    this.copyStatus.set('');
+    try {
+      await navigator.clipboard.writeText(list.join('\n'));
+      this.announcement.set('Recovery codes copied.');
+    } catch {
+      this.announcement.set('Could not copy. Select the codes and copy them.');
+    }
+  }
+
+  /** Saves the codes as a plain text file, one code to a line. */
+  protected download(list: string[]): void {
+    const url = URL.createObjectURL(new Blob([`${list.join('\n')}\n`], { type: 'text/plain' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'taleart-recovery-codes.txt';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  protected saved(): void {
+    this.codes.set(null);
+    this.copyStatus.set('');
+  }
+
+  protected async regenerate(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const { recoveryCodes } = await this.api.regenerateRecoveryCodes();
+      this.confirmingNew.set(false);
+      this.codes.set(recoveryCodes);
+      this.status.set({ enrolled: true, recoveryCodesLeft: recoveryCodes.length });
+      this.announcement.set('New recovery codes are ready. The old ones no longer work.');
+    } catch (err) {
+      this.confirmingNew.set(false);
+      if (errorCode(err) === ErrorCodes.twoFactorNotStarted) {
+        await this.load();
+      } else {
+        this.error.set(errorText(err, 'The new recovery codes could not be made. Try again.'));
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   protected async confirm(): Promise<void> {
     if (this.busy()) return;
     const code = this.code.replace(/\s/g, '');
@@ -191,10 +292,11 @@ export class AuthenticatorAppSection implements OnInit {
     this.busy.set(true);
     this.error.set('');
     try {
-      await this.api.confirmTwoFactor({ code });
+      const { recoveryCodes } = await this.api.confirmTwoFactor({ code });
       this.enrolment.set(null);
       this.code = '';
-      this.status.set({ enrolled: true });
+      this.status.set({ enrolled: true, recoveryCodesLeft: recoveryCodes.length });
+      this.codes.set(recoveryCodes);
       this.announcement.set('Authenticator app is on.');
     } catch (err) {
       switch (errorCode(err)) {
@@ -208,7 +310,7 @@ export class AuthenticatorAppSection implements OnInit {
           break;
         case ErrorCodes.twoFactorEnrolled:
           this.enrolment.set(null);
-          this.status.set({ enrolled: true });
+          this.status.set({ enrolled: true, recoveryCodesLeft: 0 });
           break;
         default:
           this.error.set(errorText(err, 'The authenticator app was not turned on. Try again.'));

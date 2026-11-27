@@ -143,6 +143,19 @@ export async function migrateAccess(db: Db): Promise<void> {
     );
   `);
 
+  // Recovery codes for the authenticator app (two-factor). Only the SHA-256 hash of each code is stored; used_at is set
+  // when a code is spent, so it works once. Replacing the codes deletes the user's rows.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS user_recovery_codes (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+      code_hash text NOT NULL,
+      used_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query('CREATE INDEX IF NOT EXISTS user_recovery_codes_user_id_idx ON user_recovery_codes (user_id)');
+
   // Who changed who may enter a project, written in the transaction of the change itself.
   await db.query(`
     CREATE TABLE IF NOT EXISTS project_audit_log (

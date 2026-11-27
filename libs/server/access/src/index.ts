@@ -120,10 +120,12 @@ export {
   totpEnrolled,
   startTotpEnrolment,
   confirmTotpEnrolment,
+  regenerateRecoveryCodes,
   finishSecondStep,
   SECOND_STEP_MAX_ATTEMPTS,
   type TotpEnrolment,
 } from './lib/twoFactor';
+export { recoveryCodesLeft, RECOVERY_CODE_COUNT } from './lib/recoveryCodes';
 export {
   issuePasswordReset,
   previewPasswordReset,

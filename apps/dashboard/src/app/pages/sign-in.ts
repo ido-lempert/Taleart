@@ -107,15 +107,21 @@ import { LegalLinks } from '../legal-links';
             novalidate
           >
             <h2 class="auth-card__subtitle" id="sign-in-code-title">Two-step sign-in</h2>
-            <p class="auth-card__help">Open your authenticator app and enter the code it shows for TaleArt.</p>
+            @if (recovery()) {
+              <p class="auth-card__help">Enter one of the recovery codes you saved. Each works once.</p>
+            } @else {
+              <p class="auth-card__help">Open your authenticator app and enter the code it shows for TaleArt.</p>
+            }
             <div class="field">
-              <label class="field__label" for="sign-in-code">Authenticator code</label>
+              <label class="field__label" for="sign-in-code">{{ recovery() ? 'Recovery code' : 'Authenticator code' }}</label>
               <input
                 id="sign-in-code"
                 class="input input--mono"
                 name="code"
-                inputmode="numeric"
+                [attr.inputmode]="recovery() ? 'text' : 'numeric'"
                 autocomplete="one-time-code"
+                autocapitalize="none"
+                spellcheck="false"
                 [(ngModel)]="code"
                 [attr.aria-invalid]="codeError() ? 'true' : null"
                 [attr.aria-describedby]="codeError() ? 'sign-in-code-error' : null"
@@ -129,6 +135,14 @@ import { LegalLinks } from '../legal-links';
             </button>
             <button type="button" class="btn btn--secondary auth-card__submit" [disabled]="busy()" (click)="back()">
               Back
+            </button>
+            <button
+              type="button"
+              class="btn btn--secondary auth-card__submit"
+              [disabled]="busy()"
+              (click)="toggleRecovery()"
+            >
+              {{ recovery() ? 'Use the app code' : 'Use a recovery code' }}
             </button>
           </form>
         }
@@ -158,6 +172,8 @@ export class SignInPage {
   /** The password form, or the screen for the authenticator app's code once the password was right. */
   protected readonly step = signal<'password' | 'code'>('password');
   protected readonly codeError = signal('');
+  /** Whether the code field takes one of the recovery codes instead of the app's six digits. */
+  protected readonly recovery = signal(false);
   protected username = '';
   protected password = '';
   protected code = '';
@@ -189,6 +205,7 @@ export class SignInPage {
       this.password = '';
       this.code = '';
       this.codeError.set('');
+      this.recovery.set(false);
       this.step.set('code');
       return;
     }
@@ -202,9 +219,10 @@ export class SignInPage {
 
   protected async signInWithCode(): Promise<void> {
     if (this.busy()) return;
-    const code = this.code.replace(/\s/g, '');
-    if (!/^\d{6}$/.test(code)) {
-      this.codeError.set('Enter the 6-digit code from your app.');
+    // A recovery code is not six digits: it is whatever the user typed, and the API checks it.
+    const code = this.recovery() ? this.code.trim() : this.code.replace(/\s/g, '');
+    if (this.recovery() ? !code : !/^\d{6}$/.test(code)) {
+      this.codeError.set(this.recovery() ? 'Enter a recovery code.' : 'Enter the 6-digit code from your app.');
       return;
     }
     this.busy.set(true);
@@ -231,7 +249,15 @@ export class SignInPage {
   protected back(): void {
     this.code = '';
     this.codeError.set('');
+    this.recovery.set(false);
     this.step.set('password');
+  }
+
+  /** Switches the code field between the app's code and a recovery code. */
+  protected toggleRecovery(): void {
+    this.code = '';
+    this.codeError.set('');
+    this.recovery.update((on) => !on);
   }
 
   private returnUrl(): string {
