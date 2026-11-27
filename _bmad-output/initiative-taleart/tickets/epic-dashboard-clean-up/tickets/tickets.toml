@@ -93,13 +93,12 @@ risk = "medium"
 id = 11
 type = "story"
 title = "Selection on API tokens and the other lists"
-description = "API tokens, and every other list the owner names whose rows have a single-row action, get the same selection and bar; revoke is the first action on tokens."
+description = "API tokens, members, invitations, tales, media, fonts, user lists, and tags get the same selection and bar, each with the actions its rows already have; revoke is the first action on tokens."
 verify = "Select two API tokens and revoke them together; the list shows the rest."
 covers = ["R26"]
 after = [7]
 hitl = false
 risk = "medium"
-unknown = "Which other lists besides zones, tale groups and API tokens get selection? Proposed: every list whose rows have a single-row action."
 
 [[entry]]
 id = 9

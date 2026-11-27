@@ -56,7 +56,7 @@ A person managing zones and tale groups sees what visitors see, finds warnings w
 
 - Decision (2026-11-27): R23 a new project is created only from the Projects page; R24 the zone icon is a square with squares inside it; R21 both the zone Preview and the tale group Preview are in scope.
 - Decision (2026-11-27): R26 reaches API tokens and other lists as well as zones and tale groups.
-- Open question: R26 which other lists besides zones, tale groups and API tokens get selection? Proposed: every list whose rows have a single-row action (members, invitations, tales, media, fonts, user lists, tags).
+- Decision (2026-11-27): R26 selection reaches every list whose rows have a single-row action: zones, tale groups, API tokens, members, invitations, tales, media, fonts, user lists, and tags.
 - Assumption: tooltips open on keyboard focus and are read by screen readers, as the dashboard's accessibility reviews require.
 - Assumption: R20 to R26 extend the initiative's numbering after R19.
 - Unknown: the epic's position in `tickets.toml` (build order) is not set; it waits on the owner's call.
