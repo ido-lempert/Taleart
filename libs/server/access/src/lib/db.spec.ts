@@ -187,7 +187,9 @@ describe('every checked-out client goes through withClient', () => {
     const helper = join(root, 'libs/server/access/src/lib/db.ts');
     // A plain Node script cannot use the TypeScript helper: it must listen for errors itself.
     const script = join(root, 'apps/api/scripts/tale-media-rollback.mjs');
-    const offenders = files.filter((f) => f !== helper && f !== script && /\.connect\s*\(/.test(readFileSync(f, 'utf8')));
+    // The MCP SDK's `server.connect(transport)` attaches a transport to an MCP server; it checks out no database client.
+    const MCP_SERVER_CONNECT = /\bserver\.connect\(transport\)/g;
+    const offenders = files.filter((f) => f !== helper && f !== script && /\.connect\s*\(/.test(readFileSync(f, 'utf8').replaceAll(MCP_SERVER_CONNECT, '')));
     expect(offenders.map((f) => relative(root, f))).toEqual([]);
     const text = readFileSync(script, 'utf8');
     expect(text).toMatch(/pool\.on\('error'/);
