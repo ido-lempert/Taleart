@@ -250,7 +250,7 @@ describe('TaleGroupsPage bulk archive (selection, bar, confirm, failures)', () =
   const bar = () => root.querySelector<HTMLElement>('.bulk-bar');
   const rowNames = () =>
     [...root.querySelectorAll<HTMLButtonElement>('.group-row__open')].map((b) => b.textContent?.trim());
-  const dialogSubmit = () => document.querySelector<HTMLButtonElement>('#bulk-archive-submit');
+  const dialogSubmit = () => document.querySelector<HTMLButtonElement>('#bulk-submit');
   // Lets the archive requests settle and the page render their answers.
   async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve));
@@ -363,7 +363,7 @@ describe('TaleGroupsPage bulk archive (selection, bar, confirm, failures)', () =
     expect(rowNames()).toEqual(['In no zone', 'Alpha and beta']);
     expect(bar()).toBeNull();
     expect(document.querySelector('#bulk-failed')).toBeNull();
-    expect(document.querySelector('#bulk-archive-submit')).toBeNull();
+    expect(document.querySelector('#bulk-submit')).toBeNull();
   });
 
   it('keeps a group whose archive failed selected and names it', async () => {
@@ -394,5 +394,229 @@ describe('TaleGroupsPage bulk archive (selection, bar, confirm, failures)', () =
     expect(rowNames().length).toBe(5);
     expect(root.querySelector('input[type=checkbox]')).toBeNull();
     expect(root.querySelector('input[aria-label="Select all tale groups"]')).toBeNull();
+  });
+});
+
+describe('TaleGroupsPage bulk show in another zone and copy to zone', () => {
+  let http: HttpTestingController;
+  let store: DashboardStore;
+  let fixture: ComponentFixture<TaleGroupsPage>;
+  let root: HTMLElement;
+
+  const box = (name: string) => root.querySelector<HTMLInputElement>(`input[aria-label="Select ${name}"]`);
+  const pick = (name: string) => {
+    const input = box(name) as HTMLInputElement;
+    input.checked = true;
+    input.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+  };
+  const bar = () => root.querySelector<HTMLElement>('.bulk-bar');
+  const rowNames = () =>
+    [...root.querySelectorAll<HTMLButtonElement>('.group-row__open')].map((b) => b.textContent?.trim());
+  const submit = () => document.querySelector<HTMLButtonElement>('#bulk-submit');
+  const zoneRadios = () => [...document.querySelectorAll<HTMLLabelElement>('fieldset[aria-describedby="bulk-text"] .checkbox')];
+  const pickZone = (name: string) => {
+    const input = zoneRadios()
+      .find((label) => label.textContent?.trim() === name)
+      ?.querySelector('input') as HTMLInputElement;
+    input.checked = true;
+    input.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+  };
+  async function settle(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve));
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+    fixture.detectChanges();
+  }
+  // Picks the zone of a bulk copy: its select, the zone picked by its id.
+  const chooseCopyZone = (zoneId: string) => {
+    const select = document.querySelector<HTMLSelectElement>('#bulk-copy-zone') as HTMLSelectElement;
+    select.value = zoneId;
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [TaleGroupsPage],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+
+    store = TestBed.inject(DashboardStore);
+    vi.spyOn(store, 'refresh').mockResolvedValue();
+    store.projects.set([
+      { id: 'p1', name: 'Acme', role: 'admin' },
+      { id: 'p2', name: 'Other', role: 'admin' },
+    ]);
+    store.selectProject('p1');
+    store.zones.set([
+      zone('z1', 'Alpha'),
+      zone('z2', 'Beta'),
+      zone('z3', 'Gamma'),
+      { ...zone('z9', 'Elsewhere'), projectId: 'p2' } as Zone,
+    ]);
+    store.projectTaleGroups.set({
+      p1: [
+        group('g1', 'Only alpha', ['z1']),
+        group('g2', 'Only beta', ['z2']),
+        group('g3', 'In no zone', []),
+        group('g5', 'Alpha and beta', ['z1', 'z2']),
+      ],
+    });
+    store.loaded.set(true);
+    http = TestBed.inject(HttpTestingController);
+
+    fixture = TestBed.createComponent(TaleGroupsPage);
+    root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('shows Show in another zone and Copy to zone beside Archive for a role that may edit and publish', () => {
+    pick('Only alpha');
+    expect(root.querySelector('#bulk-place')?.textContent?.trim()).toBe('Show in another zone');
+    expect(root.querySelector('#bulk-copy')?.textContent?.trim()).toBe('Copy to zone');
+    expect(root.querySelector('#bulk-archive')?.textContent?.trim()).toBe('Archive');
+  });
+
+  it('offers the zones that lack one of the picked groups, and not a zone that holds them all', () => {
+    pick('Only alpha');
+    pick('Alpha and beta');
+    root.querySelector<HTMLButtonElement>('#bulk-place')?.click();
+    fixture.detectChanges();
+    // Alpha holds both groups, so it makes no sense as a target; Beta lacks Only alpha, Gamma lacks both.
+    expect(zoneRadios().map((label) => label.textContent?.trim())).toEqual(['Beta', 'Gamma']);
+    expect(submit()?.disabled).toBe(true);
+    expect(submit()?.textContent?.trim()).toBe('Add 2 groups');
+  });
+
+  it('moves two groups to the chosen zone with one request each, then the list shows them there', async () => {
+    vi.mocked(store.refresh).mockImplementation(async () => {
+      store.projectTaleGroups.set({
+        p1: [
+          group('g1', 'Only alpha', ['z1']),
+          group('g2', 'Only beta', ['z2', 'z3']),
+          group('g3', 'In no zone', ['z3']),
+          group('g5', 'Alpha and beta', ['z1', 'z2']),
+        ],
+      });
+    });
+    pick('In no zone');
+    pick('Only beta');
+    root.querySelector<HTMLButtonElement>('#bulk-place')?.click();
+    fixture.detectChanges();
+    pickZone('Gamma');
+    expect(submit()?.disabled).toBe(false);
+    submit()?.click();
+    fixture.detectChanges();
+
+    for (const id of ['g3', 'g2']) {
+      const request = http.expectOne(`${API_BASE}/zones/z3/tale-groups/${id}`);
+      expect(request.request.method).toBe('PUT');
+      request.flush({});
+    }
+    await settle();
+
+    expect(store.refresh).toHaveBeenCalled();
+    expect(bar()).toBeNull();
+    expect(document.querySelector('#bulk-failed')).toBeNull();
+    expect(document.querySelector('#bulk-submit')).toBeNull();
+    expect(root.querySelector('[aria-live=polite]')?.textContent).toContain('2 tale groups shown in Gamma.');
+    expect(rowNames()).toEqual(['Only alpha', 'Only beta', 'In no zone', 'Alpha and beta']);
+  });
+
+  it('keeps a group whose move failed selected and names it', async () => {
+    pick('In no zone');
+    pick('Only beta');
+    root.querySelector<HTMLButtonElement>('#bulk-place')?.click();
+    fixture.detectChanges();
+    pickZone('Gamma');
+    submit()?.click();
+    fixture.detectChanges();
+
+    http.expectOne(`${API_BASE}/zones/z3/tale-groups/g3`).flush({});
+    http.expectOne(`${API_BASE}/zones/z3/tale-groups/g2`).flush({}, { status: 500, statusText: 'Server Error' });
+    await settle();
+
+    const alert = root.querySelector<HTMLElement>('#bulk-failed');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent).toContain('1 could not be added to the zone: Only beta');
+    expect(box('Only beta')?.checked).toBe(true);
+    expect(box('In no zone')?.checked).toBe(false);
+    expect(bar()?.querySelector('.bulk-bar__count')?.textContent?.trim()).toBe('1 selected');
+  });
+
+  it('copies two groups to a zone of the chosen project, one copy request each', async () => {
+    pick('In no zone');
+    pick('Only alpha');
+    root.querySelector<HTMLButtonElement>('#bulk-copy')?.click();
+    fixture.detectChanges();
+    expect(document.querySelector('#bulk-copy-project')).not.toBeNull();
+    expect(submit()?.disabled).toBe(true);
+    expect(submit()?.textContent?.trim()).toBe('Copy 2 groups');
+
+    const projectSelect = document.querySelector<HTMLSelectElement>('#bulk-copy-project') as HTMLSelectElement;
+    projectSelect.value = 'p2';
+    projectSelect.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    const zoneSelect = document.querySelector<HTMLSelectElement>('#bulk-copy-zone') as HTMLSelectElement;
+    expect([...zoneSelect.options].map((o) => o.textContent?.trim())).toEqual(['Choose a zone', 'Elsewhere']);
+    zoneSelect.value = 'z9';
+    zoneSelect.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    submit()?.click();
+    fixture.detectChanges();
+
+    for (const id of ['g3', 'g1']) {
+      const request = http.expectOne(`${API_BASE}/tale-groups/${id}/copy`);
+      expect(request.request.method).toBe('POST');
+      expect(request.request.body).toEqual({ zoneId: 'z9' });
+      request.flush({ id: `${id}-copy`, name: 'copy', zoneIds: ['z9'] });
+    }
+    await settle();
+
+    expect(store.refresh).toHaveBeenCalled();
+    expect(bar()).toBeNull();
+    expect(document.querySelector('#bulk-failed')).toBeNull();
+  });
+
+  it('names the groups whose copy failed and keeps them selected', async () => {
+    pick('In no zone');
+    pick('Only alpha');
+    root.querySelector<HTMLButtonElement>('#bulk-copy')?.click();
+    fixture.detectChanges();
+    chooseCopyZone('z2');
+    submit()?.click();
+    fixture.detectChanges();
+
+    http.expectOne(`${API_BASE}/tale-groups/g3/copy`).flush({ id: 'g3-copy', name: 'copy' });
+    http.expectOne(`${API_BASE}/tale-groups/g1/copy`).flush({}, { status: 500, statusText: 'Server Error' });
+    await settle();
+
+    expect(root.querySelector('#bulk-failed')?.textContent).toContain('1 could not be copied: Only alpha');
+    expect(box('Only alpha')?.checked).toBe(true);
+    expect(box('In no zone')?.checked).toBe(false);
+  });
+
+  it('shows the checkboxes but not Archive to a role that may edit but not publish', () => {
+    store.projects.set([{ id: 'p1', name: 'Acme', role: 'editor' }]);
+    fixture.detectChanges();
+    pick('Only alpha');
+    expect(root.querySelector('#bulk-place')).not.toBeNull();
+    expect(root.querySelector('#bulk-copy')).not.toBeNull();
+    expect(root.querySelector('#bulk-archive')).toBeNull();
+  });
+
+  it('shows no checkboxes and no bulk buttons to a viewer', () => {
+    store.projects.set([{ id: 'p1', name: 'Acme', role: 'viewer' }]);
+    fixture.detectChanges();
+    expect(root.querySelector('input[type=checkbox][aria-label^="Select"]')).toBeNull();
+    expect(root.querySelector('#bulk-place')).toBeNull();
+    expect(root.querySelector('#bulk-copy')).toBeNull();
   });
 });

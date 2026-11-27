@@ -56,6 +56,19 @@ export const TALE_GROUP_FILTERS: readonly { id: TaleGroupFilter; label: string }
 const GROUP_PARAM = 'group';
 const GROUP_STATE = 'taleartGroupView';
 
+/** The bulk actions of the list: archive, and the two a row's ⋯ menu has as single actions. */
+type BulkKind = 'archive' | 'place' | 'copy';
+
+/** A group a bulk action names: its id and name, the zones it is in, and its stored status (for place). */
+type BulkItem = Pick<TaleGroupSummary, 'id' | 'name' | 'zoneIds' | 'storedStatus'>;
+
+/** What a bulk action that failed for some groups says they could not do; the failure names them. */
+const BULK_FAILED_ACTION: Record<BulkKind, string> = {
+  archive: 'archived',
+  place: 'added to the zone',
+  copy: 'copied',
+};
+
 /** The filter a `?filter=` value names; anything else is All. */
 export function taleGroupFilter(value: string | null | undefined): TaleGroupFilter {
   return TALE_GROUP_FILTERS.find((f) => f.id === value)?.id ?? 'all';
@@ -368,16 +381,26 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                       </label>
                     </div>
                     <app-bulk-bar [count]="selection.count()" (cleared)="selection.clear()">
-                      <button type="button" class="btn btn--danger btn--sm" id="bulk-archive" (click)="askBulkArchive()">
-                        Archive
-                      </button>
+                      @if (canEdit()) {
+                        <button type="button" class="btn btn--secondary btn--sm" id="bulk-place" (click)="askBulk('place')">
+                          Show in another zone
+                        </button>
+                        <button type="button" class="btn btn--secondary btn--sm" id="bulk-copy" (click)="askBulk('copy')">
+                          Copy to zone
+                        </button>
+                      }
+                      @if (canArchive()) {
+                        <button type="button" class="btn btn--danger btn--sm" id="bulk-archive" (click)="askBulk('archive')">
+                          Archive
+                        </button>
+                      }
                     </app-bulk-bar>
                   }
                   @if (bulkFailed().length > 0) {
                     <div class="banner banner--inline" role="alert" id="bulk-failed">
                       <app-icon name="alert" />
                       <span>
-                        {{ bulkFailed().length }} could not be archived: {{ bulkFailedNames() }}. They stay selected.
+                        {{ bulkFailed().length }} could not be {{ bulkFailedAction() }}: {{ bulkFailedNames() }}. They stay selected.
                       </span>
                     </div>
                   }
@@ -482,15 +505,76 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
               <app-drawer
                 [heading]="bulkHeading()"
                 dialogRole="alertdialog"
-                describedBy="bulk-archive-text"
-                initialFocus="#bulk-archive-cancel"
+                describedBy="bulk-text"
+                initialFocus="#bulk-cancel"
                 [busy]="run.phase === 'running'"
                 (closed)="closeBulk()"
               >
                 <div class="drawer__body">
-                  <p id="bulk-archive-text">
-                    They stop showing on your site. You can restore them from the Archived filter.
-                  </p>
+                  @if (run.kind === 'archive') {
+                    <p id="bulk-text">They stop showing on your site. You can restore them from the Archived filter.</p>
+                  } @else if (run.kind === 'place') {
+                    @if (bulkPlaceZones().length > 0) {
+                      <fieldset class="tag-options" aria-describedby="bulk-text">
+                        <legend class="field__label">Zone</legend>
+                        @for (zone of bulkPlaceZones(); track zone.id) {
+                          <label class="checkbox">
+                            <input
+                              type="radio"
+                              name="bulkPlaceZone"
+                              [value]="zone.id"
+                              [checked]="run.zoneId === zone.id"
+                              (change)="setBulkZone(zone.id)"
+                            />
+                            <span>{{ zone.name }}</span>
+                          </label>
+                        }
+                      </fieldset>
+                      <p class="field__hint" id="bulk-text">
+                        Each zone shows its groups last. Their tales and tags are shared: a change shows in every zone.
+                        A group already in the zone is left as it is.
+                      </p>
+                    } @else {
+                      <p class="muted" id="bulk-text">Every selected tale group is already in every zone of its project.</p>
+                    }
+                  } @else {
+                    @if (bulkCopyProjects().length > 1) {
+                      <div class="field">
+                        <label class="field__label" for="bulk-copy-project">Project</label>
+                        <select
+                          #projectPick
+                          id="bulk-copy-project"
+                          class="select"
+                          (change)="setBulkProject(projectPick.value)"
+                        >
+                          @for (project of bulkCopyProjects(); track project.id) {
+                            <option [value]="project.id" [selected]="project.id === run.projectId">{{ project.name }}</option>
+                          }
+                        </select>
+                      </div>
+                    }
+                    <div class="field">
+                      <label class="field__label" for="bulk-copy-zone">Zone</label>
+                      <select
+                        #zonePick
+                        id="bulk-copy-zone"
+                        class="select"
+                        aria-describedby="bulk-text"
+                        (change)="setBulkZone(zonePick.value)"
+                      >
+                        <option value="" [selected]="run.zoneId === ''">
+                          {{ bulkCopyZones().length > 0 ? 'Choose a zone' : 'This project has no zones' }}
+                        </option>
+                        @for (zone of bulkCopyZones(); track zone.id) {
+                          <option [value]="zone.id" [selected]="zone.id === run.zoneId">{{ zone.name }}</option>
+                        }
+                      </select>
+                      <p class="field__hint" id="bulk-text">
+                        The zone shows a new tale group for each selected one, with the same tales, media and tags.
+                        Changes to a copy do not change the original, and the other way round.
+                      </p>
+                    </div>
+                  }
                   <ul class="bulk-names">
                     @for (item of run.items.slice(0, 5); track item.id) {
                       <li>{{ item.name }}</li>
@@ -500,14 +584,14 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                     }
                   </ul>
                   @if (run.phase === 'running') {
-                    <p class="muted" role="status">Archiving {{ run.done }} of {{ run.items.length }}…</p>
+                    <p class="muted" role="status">{{ bulkVerbing() }} {{ run.done }} of {{ run.items.length }}…</p>
                   }
                 </div>
                 <div class="drawer__footer">
                   <button
                     type="button"
                     class="btn btn--secondary"
-                    id="bulk-archive-cancel"
+                    id="bulk-cancel"
                     [disabled]="run.phase === 'running'"
                     (click)="closeBulk()"
                   >
@@ -515,12 +599,12 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                   </button>
                   <button
                     type="button"
-                    class="btn btn--danger"
-                    id="bulk-archive-submit"
-                    [disabled]="run.phase === 'running'"
-                    (click)="confirmBulkArchive()"
+                    [class]="run.kind === 'archive' ? 'btn btn--danger' : 'btn btn--primary'"
+                    id="bulk-submit"
+                    [disabled]="run.phase === 'running' || !bulkCanSubmit()"
+                    (click)="confirmBulk()"
                   >
-                    {{ run.phase === 'running' ? 'Archiving…' : 'Archive ' + run.items.length + ' ' + (run.items.length === 1 ? 'group' : 'groups') }}
+                    {{ run.phase === 'running' ? bulkVerbing() + '…' : bulkSubmitLabel() }}
                   </button>
                 </div>
               </app-drawer>
@@ -682,72 +766,181 @@ export class TaleGroupsPage {
 
   /**
    * The rows picked for a bulk action (the reusable selection, `selection.ts`): the list's visible
-   * groups. Checkboxes and the bar show only to a role that may archive (content.publish).
+   * groups. Checkboxes and the bar show only to a role that may archive (content.publish); Show in
+   * another zone and Copy to zone also need content.edit, as their single actions do.
    */
   protected readonly selection = createSelection(
     () => this.groups(),
     (group: TaleGroupSummary) => group.id,
   );
-  protected readonly canSelect = computed(() => this.store.can('content.publish'));
-  /** The bulk archive being confirmed, then run: the groups it names, and how many are done. */
+  /** Checkboxes and the bar show to a role that may run one of the bulk actions. */
+  protected readonly canSelect = computed(() => this.canArchive() || this.canEdit());
+  protected readonly canArchive = computed(() => this.store.can('content.publish'));
+  protected readonly canEdit = computed(() => this.store.can('content.edit', this.store.selectedProjectId()));
+  /**
+   * The bulk action being confirmed, then run: which one, the groups it names (with the zones each
+   * is in, for the zone picker), the zone and project picked, and how many are done.
+   */
   protected readonly bulk = signal<{
+    kind: BulkKind;
     phase: 'confirm' | 'running';
-    items: readonly { id: string; name: string }[];
+    items: readonly BulkItem[];
     done: number;
+    zoneId: string;
+    projectId: string;
   } | null>(null);
-  /** The groups the last bulk archive could not archive, kept selected until the next action. */
+  /** The groups the last bulk action could not do, kept selected until the next action. */
   protected readonly bulkFailed = signal<readonly { id: string; name: string; message: string }[]>([]);
+  /** What the last bulk action failed to do, as the failure says it: "archived", "copied"... */
+  protected readonly bulkFailedAction = signal('archived');
   protected readonly bulkFailedNames = computed(() => this.bulkFailed().map((f) => f.name).join(', '));
+  /** The zones "Show in another zone" offers: those that lack at least one of the groups (as its single action does). */
+  protected readonly bulkPlaceZones = computed(() => {
+    const items = this.bulk()?.items ?? [];
+    return this.store
+      .projectZones()
+      .filter((zone) => items.some((item) => item.storedStatus !== 'archived' && !item.zoneIds.includes(zone.id)));
+  });
+  /** The projects "Copy to zone" can go to: every project the user can access, the selected one first. */
+  protected readonly bulkCopyProjects = computed(() => {
+    const own = this.store.selectedProjectId();
+    const projects = this.store.projects();
+    return [...projects.filter((p) => p.id === own), ...projects.filter((p) => p.id !== own)];
+  });
+  /** The zones of the picked project, where a copy goes. */
+  protected readonly bulkCopyZones = computed(() => {
+    const projectId = this.bulk()?.projectId;
+    return projectId ? this.store.zones().filter((z) => z.projectId === projectId) : [];
+  });
+  protected readonly bulkCanSubmit = computed(() => {
+    const run = this.bulk();
+    return !!run && (run.kind === 'archive' || run.zoneId !== '');
+  });
+  protected readonly bulkVerbing = computed(() => {
+    switch (this.bulk()?.kind) {
+      case 'place':
+        return 'Adding';
+      case 'copy':
+        return 'Copying';
+      default:
+        return 'Archiving';
+    }
+  });
   protected readonly bulkHeading = computed(() => {
-    const count = this.bulk()?.items.length ?? 0;
-    return `Archive ${count} tale ${count === 1 ? 'group' : 'groups'}?`;
+    const run = this.bulk();
+    const count = run?.items.length ?? 0;
+    const groups = `${count} tale ${count === 1 ? 'group' : 'groups'}`;
+    switch (run?.kind) {
+      case 'place':
+        return `Show ${groups} in another zone?`;
+      case 'copy':
+        return `Copy ${groups} to a zone?`;
+      default:
+        return `Archive ${groups}?`;
+    }
+  });
+  protected readonly bulkSubmitLabel = computed(() => {
+    const run = this.bulk();
+    const count = run?.items.length ?? 0;
+    const groups = `${count} ${count === 1 ? 'group' : 'groups'}`;
+    switch (run?.kind) {
+      case 'place':
+        return `Add ${groups}`;
+      case 'copy':
+        return `Copy ${groups}`;
+      default:
+        return `Archive ${groups}`;
+    }
   });
 
-  /** How many single-group status requests a bulk archive keeps in flight. */
+  /** How many single-group requests a bulk action keeps in flight. */
   private static readonly BULK_CONCURRENCY = 3;
 
-  /** Opens the confirmation for the selected groups. Archive is the only way a group leaves the list (the API has no delete). */
-  protected askBulkArchive(): void {
-    if (!this.canSelect() || this.selection.count() === 0) return;
+  /**
+   * Opens the confirmation of a bulk action for the selected groups. Archive is the only way a group
+   * leaves the list (the API has no delete).
+   */
+  protected askBulk(kind: BulkKind): void {
+    if (this.selection.count() === 0) return;
+    if (kind === 'archive' ? !this.canArchive() : !this.canEdit()) return;
     this.bulkFailed.set([]);
     this.bulk.set({
+      kind,
       phase: 'confirm',
-      items: this.selection.selectedItems().map((group) => ({ id: group.id, name: group.name })),
+      items: this.selection.selectedItems().map((group) => ({
+        id: group.id,
+        name: group.name,
+        zoneIds: group.zoneIds,
+        storedStatus: group.storedStatus,
+      })),
       done: 0,
+      zoneId: '',
+      projectId: this.store.selectedProjectId(),
     });
   }
 
-  /** Closes the confirmation; not while the archives run. */
+  /** Picks the zone a bulk "Show in another zone" or "Copy to zone" goes to. */
+  protected setBulkZone(zoneId: string): void {
+    this.bulk.update((current) => (current ? { ...current, zoneId } : current));
+  }
+
+  /** Picks the project of a bulk copy; its zone has to be picked again. */
+  protected setBulkProject(projectId: string): void {
+    this.bulk.update((current) => (current ? { ...current, projectId, zoneId: '' } : current));
+  }
+
+  /** Closes the confirmation; not while the actions run. */
   protected closeBulk(): void {
     if (this.bulk()?.phase === 'running') return;
     this.bulk.set(null);
   }
 
   /**
-   * Archives each selected group through the status endpoint, three at a time, then refreshes once.
-   * The groups that archived leave the list; the ones that failed stay selected and are named.
+   * Runs the confirmed bulk action through the single-group endpoints, a few at a time, then
+   * refreshes once. The groups that were done leave the list (archive) or show the zone (place, copy);
+   * the ones that failed stay selected and are named.
    */
-  protected async confirmBulkArchive(): Promise<void> {
+  protected async confirmBulk(): Promise<void> {
     const run = this.bulk();
-    if (!run || run.phase !== 'confirm' || !this.canSelect()) return;
+    if (!run || run.phase !== 'confirm' || !this.bulkCanSubmit()) return;
+    if (run.kind === 'archive' ? !this.canArchive() : !this.canEdit()) return;
     this.bulk.set({ ...run, phase: 'running', done: 0 });
     const outcome = await runLimited(
       run.items,
       TaleGroupsPage.BULK_CONCURRENCY,
-      async (item) => (await this.store.putTaleGroupStatus(item.id, 'archived')).message,
+      (item) => this.bulkStep(run, item),
       (done) => this.bulk.update((current) => (current ? { ...current, done } : current)),
     );
     await this.store.refresh();
     const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: item.name, message }));
     this.selection.replace(failed.map((f) => f.id));
     this.bulkFailed.set(failed);
+    this.bulkFailedAction.set(BULK_FAILED_ACTION[run.kind]);
     this.bulk.set(null);
-    const archived = outcome.succeeded.length;
-    this.announce(
-      failed.length === 0
-        ? `${archived} tale ${archived === 1 ? 'group' : 'groups'} archived.`
-        : `${archived} archived. ${failed.length} could not be archived: ${this.bulkFailedNames()}.`,
-    );
+    this.announce(this.bulkAnnouncement(run, outcome.succeeded.length, failed.length));
+  }
+
+  /** One group's request for a bulk action: '' when it is done, else the message to show. */
+  private async bulkStep(run: { kind: BulkKind; zoneId: string }, item: BulkItem): Promise<string> {
+    switch (run.kind) {
+      case 'archive':
+        return (await this.store.putTaleGroupStatus(item.id, 'archived')).message;
+      case 'place':
+        // As the single action: an archived group is not shown in a zone, and a group already in it is.
+        if (item.storedStatus === 'archived') return 'Archived. Restore it to show it in a zone';
+        if (item.zoneIds.includes(run.zoneId)) return '';
+        return this.store.placeTaleGroup(run.zoneId, item.id);
+      case 'copy':
+        return (await this.store.copyTaleGroup(item.id, run.zoneId)).message;
+    }
+  }
+
+  /** What the polite live region says when a bulk action ends: what was done, and what was not. */
+  private bulkAnnouncement(run: { kind: BulkKind; zoneId: string }, done: number, failed: number): string {
+    const zone = this.store.zone(run.zoneId)?.name ?? 'the zone';
+    const past = run.kind === 'archive' ? 'archived' : run.kind === 'place' ? `shown in ${zone}` : `copied to ${zone}`;
+    if (failed === 0) return `${done} tale ${done === 1 ? 'group' : 'groups'} ${past}.`;
+    return `${done} ${past}. ${failed} could not be ${BULK_FAILED_ACTION[run.kind]}: ${this.bulkFailedNames()}.`;
   }
 
   /** The group preview open, with the zone it shows the group in and the button that opened it; one at a time. */
