@@ -1,5 +1,5 @@
 # The epic's agreed stories, in build order. Table order is build order; id is permanent.
-# Draft of 2026-11-27, awaiting the owner's approval.
+# Draft of 2026-11-27; the owner answered the open questions the same day.
 
 [[entry]]
 id = 1
@@ -16,25 +16,23 @@ risk = "low"
 id = 2
 type = "story"
 title = "The project dropdown shows only when there is more than one project"
-description = "With one project the header has no dropdown; with two or more it appears as it does today."
-verify = "An install with one project has no dropdown; creating a second project makes it appear."
+description = "With one project the header has no dropdown; with two or more it appears as it does today. A new project is created only from the Projects page, which is where a one-project user goes."
+verify = "An install with one project has no dropdown; the Projects page creates a second project and the dropdown then appears."
 covers = ["R23"]
 after = [1]
 hitl = false
 risk = "low"
-unknown = "With the dropdown hidden, where does a user with one project create another project?"
 
 [[entry]]
 id = 3
 type = "story"
-title = "The preview shows what a visitor sees"
-description = "The preview opened from a zone or a tale group renders the content with the same layout and styling as the visitor's page."
-verify = "Open the preview of a zone and of a tale group next to the live Web SDK page: the same tale looks the same."
+title = "The previews show what a visitor sees"
+description = "The zone Preview and the tale group Preview both render the content with the same layout and styling as the visitor's page. The first step is finding why they differ today."
+verify = "Open the zone Preview and the tale group Preview next to the live Web SDK page: the same tale looks the same in all three."
 covers = ["R21"]
 after = []
 hitl = false
 risk = "high"
-unknown = "Which preview is meant, the Preview button on a zone, on a tale group, or both, and what does it show wrongly today?"
 
 [[entry]]
 id = 4
@@ -62,13 +60,12 @@ risk = "low"
 id = 6
 type = "story"
 title = "A clearer zone icon"
-description = "The icon beside a zone's title loses its frame and grows its inner glyph, using the glyph the owner picks from the candidates."
-verify = "The zone page shows the chosen glyph large and unframed."
+description = "The icon beside a zone's title loses its frame and shows a square with squares inside it, large; the owner approves the drawing on screen."
+verify = "The zone page shows the square-with-squares glyph large and unframed, and the owner approves it."
 covers = ["R24"]
 after = [1]
 hitl = true
 risk = "low"
-unknown = "Which of the three candidate icons: circles, a square with arrows, or a square within a square?"
 
 [[entry]]
 id = 7
@@ -91,7 +88,18 @@ covers = ["R26"]
 after = [7]
 hitl = false
 risk = "medium"
-unknown = "Which actions apply to a whole selection (delete, move, copy, set status, others), and on which lists beyond zones and tale groups?"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Selection on API tokens and the other lists"
+description = "API tokens, and every other list the owner names whose rows have a single-row action, get the same selection and bar; revoke is the first action on tokens."
+verify = "Select two API tokens and revoke them together; the list shows the rest."
+covers = ["R26"]
+after = [7]
+hitl = false
+risk = "medium"
+unknown = "Which other lists besides zones, tale groups and API tokens get selection? Proposed: every list whose rows have a single-row action."
 
 [[entry]]
 id = 9
@@ -100,7 +108,7 @@ title = "Refresh the docs images and previews these screens show"
 description = "Every docs image, preview, and sample app that shows the header, the zone page, the tale group lists, or a selection is retaken from the running app."
 verify = "The docs build and its tests pass, and each changed screenshot is from the running app."
 covers = ["R20", "R21", "R22", "R23", "R24", "R25", "R26"]
-after = [2, 3, 4, 5, 6, 8]
+after = [2, 3, 4, 5, 6, 8, 11]
 hitl = false
 risk = "low"
 
