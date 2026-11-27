@@ -124,3 +124,79 @@ describe('GroupRow cover (the picture of a group in a list)', () => {
     expect(cover()?.classList.contains('ring--cover')).toBe(false);
   });
 });
+
+describe('GroupRow schedule pill (the word Scheduled only beside a date)', () => {
+  let fixture: ComponentFixture<RowHost>;
+  let root: HTMLElement;
+
+  const inDays = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString();
+  const scheduled = (window: { startsAt: string | null; endsAt: string | null }): GroupRowData =>
+    ({ ...group(false), status: 'scheduled', storedStatus: 'live', ...window }) as unknown as GroupRowData;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: DashboardStore,
+          useValue: { coverSrc: () => '', can: () => true, roleNeeded: () => '' },
+        },
+        { provide: FIRST_FRAME, useValue: vi.fn(async () => 'blob:frame') },
+      ],
+    });
+    fixture = TestBed.createComponent(RowHost);
+    root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  const pills = () => Array.from(root.querySelectorAll<HTMLElement>('.status-badge[data-status="scheduled"]'));
+  const meta = () => root.querySelector<HTMLElement>('.group-row__meta');
+  const controls = () => root.querySelector<HTMLElement>('.group-row__status');
+
+  it('shows Scheduled in the meta line, beside the date chip, when the window has a start ahead', () => {
+    fixture.componentInstance.group.set(scheduled({ startsAt: inDays(3), endsAt: null }));
+    fixture.detectChanges();
+
+    expect(pills()).toHaveLength(1);
+    expect(meta()?.contains(pills()[0])).toBe(true);
+    expect(meta()?.querySelector('.window-chip')?.textContent).toContain('Starts');
+    expect(controls()?.textContent).not.toContain('Scheduled');
+  });
+
+  it('shows Scheduled beside the chip for a window with both dates', () => {
+    fixture.componentInstance.group.set(scheduled({ startsAt: inDays(3), endsAt: inDays(10) }));
+    fixture.detectChanges();
+
+    expect(pills()).toHaveLength(1);
+    expect(meta()?.querySelector('.window-chip')).not.toBeNull();
+    expect(controls()?.textContent).not.toContain('Scheduled');
+  });
+
+  it('shows no Scheduled word for a group with no window', () => {
+    fixture.componentInstance.group.set(group(false));
+    fixture.detectChanges();
+
+    expect(pills()).toHaveLength(0);
+    expect(root.querySelector('.window-chip')).toBeNull();
+    expect(root.textContent).not.toContain('Scheduled');
+  });
+
+  it('keeps the switch in the same slot whether or not the row has a schedule', () => {
+    fixture.componentInstance.group.set(group(false));
+    fixture.detectChanges();
+    const plainSwitch = root.querySelector('.group-row__switch-slot');
+    expect(plainSwitch?.querySelector('app-show-switch')).not.toBeNull();
+
+    fixture.componentInstance.group.set(scheduled({ startsAt: inDays(3), endsAt: null }));
+    fixture.detectChanges();
+    const scheduledSwitch = root.querySelector('.group-row__switch-slot');
+    expect(scheduledSwitch?.querySelector('app-show-switch')).not.toBeNull();
+    expect(scheduledSwitch?.textContent).not.toContain('Scheduled');
+  });
+});

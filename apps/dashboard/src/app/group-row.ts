@@ -52,8 +52,9 @@ export function opensFromRowClick(event: MouseEvent): boolean {
 
 /**
  * One tale group as a list row (epic UX rework R10, R14), shared by the zone page and the Tale
- * groups page: cover, name, "3 of 4 shown", tags, the schedule chip when a window exists, the
- * On/Off switch (AD-6 amended), a badge for a status the switch does not say, the indicator (R7)
+ * groups page: cover, name, "3 of 4 shown", tags, the schedule chip when a window exists (with a
+ * "Scheduled" pill beside it, and only then), the On/Off switch (AD-6 amended), a badge for a status
+ * the switch does not say, in fixed-width slots so the switches line up on every row, the indicator (R7)
  * and a ⋯ menu whose items the page gives. What differs per page is projected:
  * - `[groupRowLead]`: a first grid cell, such as the zone page's reorder handle and move buttons;
  * - `[groupRowName]`: the name's heading, at the page's level, with its own open control or none;
@@ -102,6 +103,9 @@ export function opensFromRowClick(event: MouseEvent): boolean {
             </ul>
           }
           @if (chip(); as text) {
+            @if (g.status === 'scheduled') {
+              <app-status-badge class="group-row__scheduled" [status]="g.status" kind="group" />
+            }
             <span class="window-chip" [title]="windowText()">
               <span class="visually-hidden">Schedule: </span>{{ text }}
             </span>
@@ -110,19 +114,23 @@ export function opensFromRowClick(event: MouseEvent): boolean {
         <ng-content select="[groupRowExtra]" />
       </div>
       <div class="group-row__status">
-        @if (switchable()) {
-          <app-show-switch
-            [on]="g.storedStatus === 'live'"
-            [label]="g.name + ' on site'"
-            [stateText]="stateText()"
-            [disabled]="saving()"
-            [reason]="switchReason()"
-            (toggled)="toggled.emit($event)"
-          />
-        }
-        @if (badge()) {
-          <app-status-badge [status]="g.status" kind="group" />
-        }
+        <span class="group-row__badge-slot">
+          @if (badge()) {
+            <app-status-badge [status]="g.status" kind="group" />
+          }
+        </span>
+        <span class="group-row__switch-slot">
+          @if (switchable()) {
+            <app-show-switch
+              [on]="g.storedStatus === 'live'"
+              [label]="g.name + ' on site'"
+              [stateText]="stateText()"
+              [disabled]="saving()"
+              [reason]="switchReason()"
+              (toggled)="toggled.emit($event)"
+            />
+          }
+        </span>
         <ng-content select="[groupRowAction]" />
       </div>
       <app-menu-button class="group-row__menu" [label]="'More for ' + g.name" [items]="items()" (picked)="picked.emit($event)" />

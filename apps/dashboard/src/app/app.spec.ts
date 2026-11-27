@@ -4122,7 +4122,9 @@ describe('App', () => {
       const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
       const row = groupRow(root, 'Summer');
 
-      expect(badge(row)).toBe('Status: Scheduled');
+      // The word sits beside the chip that shows its date, not in the controls.
+      expect(badge(row.querySelector('.group-row__meta') ?? row)).toBe('Status: Scheduled');
+      expect(row.querySelector('.group-row__badge-slot .status-badge')).toBeNull();
       // A chip shows the window, with the whole of it on hover.
       const chip = row.querySelector('.window-chip');
       expect(chip?.textContent?.trim()).toBe(`Schedule: Starts ${formatShort(utc(localStart))}`);

@@ -114,6 +114,18 @@ app-group-view .window-chip--card {
   font-size: 11px;
 }
 
+/* "Scheduled" sits beside the schedule chip on a tale's card, on the same line, never without its dates. */
+app-group-view .tale-card__schedule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-1);
+}
+app-group-view .tale-card__schedule .window-chip--card {
+  margin: 0;
+}
+
 /* A tale that is not Shown (Hidden or Archived): its picture fades and greys, the card's background greys with it, so it reads as off.
    The card's controls and title are not dimmed. */
 app-group-view .tale-card.tale-card--dimmed {

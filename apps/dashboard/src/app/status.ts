@@ -39,10 +39,12 @@ export function statusLabel(status: ContentStatus, kind: StatusKind): string {
 
 /**
  * True when a status as read says more than the On/Off or Shown/Hidden switch next to it: it is
- * not `live`, `draft` or `paused`, such as scheduled, expired, blocked by group or archived.
+ * not `live`, `draft` or `paused`, such as expired, blocked by group or archived. `scheduled` is
+ * not a badge: it is said as a pill beside the schedule chip, which shows its dates, so the word
+ * never appears without a date.
  */
 export function needsBadge(status: ContentStatus): boolean {
-  return status !== 'live' && status !== 'draft' && status !== 'paused';
+  return status !== 'live' && status !== 'draft' && status !== 'paused' && status !== 'scheduled';
 }
 
 /** One button that changes a stored status: its label and the status it sets. */

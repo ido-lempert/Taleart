@@ -92,6 +92,9 @@
     <p class="group-view__meta">
       <span class="group-view__count">{{ shownCount() }}<span class="group-view__max"> · max {{ maxTales }}</span></span>
       @if (windowChip(group()); as chip) {
+        @if (group().status === 'scheduled') {
+          <app-status-badge class="group-view__scheduled" [status]="group().status" kind="group" />
+        }
         <span class="window-chip" [title]="describeWindow(group())">
           <span class="visually-hidden">Schedule: </span>{{ chip }}
         </span>
@@ -212,8 +215,13 @@
             }
             <span class="tale-card__title">
               @if (cardChip(tale); as chip) {
-                <span class="window-chip window-chip--card">
-                  <span class="visually-hidden">Schedule: </span>{{ chip }}
+                <span class="tale-card__schedule">
+                  @if (tale.status === 'scheduled') {
+                    <app-status-badge class="tale-card__scheduled" [status]="tale.status" kind="tale" />
+                  }
+                  <span class="window-chip window-chip--card">
+                    <span class="visually-hidden">Schedule: </span>{{ chip }}
+                  </span>
                 </span>
               }
               <span class="tale-card__name">{{ tale.title }}</span>
