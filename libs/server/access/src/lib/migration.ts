@@ -68,7 +68,7 @@ export async function migrateAccess(db: Db): Promise<void> {
   await db.query(`
     ALTER TABLE auth_challenges
       DROP CONSTRAINT IF EXISTS auth_challenges_purpose_check,
-      ADD CONSTRAINT auth_challenges_purpose_check CHECK (purpose IN ('setup', 'sign-in', 'invitation', 'oauth'))
+      ADD CONSTRAINT auth_challenges_purpose_check CHECK (purpose IN ('setup', 'sign-in', 'invitation', 'oauth', 'second-step'))
   `);
 
   // External provider sign-ins (sign-in methods, spec) keep their state in this table too, as kind
@@ -130,6 +130,18 @@ export async function migrateAccess(db: Db): Promise<void> {
   // An invitation is bound to the email it was sent to: redeeming it needs that address. Invitations made
   // before this have no email and cannot be redeemed; an admin issues a new link.
   await db.query('ALTER TABLE invitations ADD COLUMN IF NOT EXISTS email text');
+
+  // A user's authenticator app (two-factor). The secret is encrypted with TALEART_SECRET_KEY; enrolled_at is null
+  // while setup is pending; last_step is the newest 30-second step accepted, so a code works once.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS user_totp (
+      user_id uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+      secret_enc bytea NOT NULL,
+      enrolled_at timestamptz,
+      last_step bigint,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
 
   // Who changed who may enter a project, written in the transaction of the change itself.
   await db.query(`

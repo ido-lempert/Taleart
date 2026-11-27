@@ -19,6 +19,7 @@ import { emailTaken, invitedAddress, validInvitation, type JoinedProject } from 
 import { createSession, hashSessionToken } from './sessions';
 import { assertUserKeepsSignIn, signInSettings, SIGN_IN_LOCK } from './signInMethods';
 import type { PasswordThrottle } from './throttle';
+import { beginSecondStep, totpEnrolled, type SecondStepStarted } from './twoFactor';
 
 /** The fields a password registration (setup or an invitation) carries after the name and email. */
 export interface PasswordCredentials {
@@ -118,11 +119,14 @@ export async function redeemInvitationWithPassword(
  * check, so the time does not tell them apart). A username is throttled whether or not it exists
  * (see {@link PasswordThrottle}); while it waits, {@link SignInThrottledError} says how long.
  */
+/** A signed-in user, or a sign-in whose password was right and now waits for the code of the user's authenticator app. */
+export type PasswordSignInResult = SignedInUser | { secondStep: SecondStepStarted };
+
 export async function signInWithPassword(
   db: Db,
   throttle: PasswordThrottle,
   input: { username: string; password: string },
-): Promise<SignedInUser> {
+): Promise<PasswordSignInResult> {
   const key = input.username.trim().toLowerCase();
   const wait = throttle.waitMs(key);
   if (wait > 0) throw new SignInThrottledError(Math.ceil(wait / 1000));
@@ -156,7 +160,11 @@ export async function signInWithPassword(
   }
   if (!(await verifyPassword(input.password, row.passwordHash))) return refuse();
 
+  // The password is right, so its failures end here; wrong codes count again from zero, and five wrong codes end the
+  // second step. A user with an authenticator app gets no session until the code is right.
   throttle.succeeded(key);
+  if (await totpEnrolled(db, row.id)) return { secondStep: await beginSecondStep(db, row.id, key) };
+
   const user: User = { id: row.id, name: row.name, email: row.email, role: row.role };
   return { user, session: await createSession(db, user.id) };
 }

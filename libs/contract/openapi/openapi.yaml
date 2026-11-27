@@ -345,7 +345,10 @@ paths:
         of 10, then 10 a minute) and per username: after 5 failures the username
         waits 30 s, doubling per further failure up to 15 minutes; while it waits
         the answer is 429 `rate_limited` with `Retry-After`. A success clears the
-        username's failures.
+        username's failures. A user who has set up an authenticator app is not signed
+        in by the password alone: the response is 200 `SecondStepRequired`, sets no
+        session cookie and sets the challenge cookie; the sign-in is finished with
+        `POST /auth/second-step`.
       security: []
       requestBody:
         required: true
@@ -355,13 +358,49 @@ paths:
               $ref: '#/components/schemas/PasswordSignInRequest'
       responses:
         '200':
+          description: The signed-in user, or the second step the sign-in still needs.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SignedIn'
+                  - $ref: '#/components/schemas/SecondStepRequired'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/second-step:
+    post:
+      tags:
+        - Sign-in
+      operationId: secondStep
+      summary: Finish a password sign-in with the code from the authenticator app.
+      description: >-
+        The second step of a password sign-in for a user with an authenticator app. Reads
+        the challenge cookie that `POST /auth/password/sign-in` set, so no session is
+        needed. A correct code sets the `taleart_session` cookie (7 days), as password
+        sign-in does. A wrong code answers 401 `two_factor_code_invalid`; a missing,
+        expired or already used challenge answers 401 `two_factor_challenge_invalid`.
+        Failures are throttled: while throttled the answer is 429 `rate_limited` with
+        `Retry-After`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecondStepRequest'
+      responses:
+        '200':
           description: The signed-in user.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SignedIn'
-        '400':
-          $ref: '#/components/responses/Error'
         '401':
           $ref: '#/components/responses/Error'
         '429':
@@ -580,6 +619,83 @@ paths:
         '204':
           description: The password is removed.
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/account/two-factor:
+    get:
+      tags:
+        - Sign-in methods
+      operationId: twoFactorStatus
+      summary: Whether the signed-in user has an authenticator app set up.
+      description: >-
+        A session cookie only; a request with an `Authorization` header is refused.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The user's two-factor status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorStatus'
+        '401':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+        - Sign-in methods
+      operationId: startTwoFactor
+      summary: Start setting up an authenticator app.
+      description: >-
+        Creates a new secret and returns it with the otpauth address a QR code carries.
+        Nothing is turned on until `POST /auth/account/two-factor/confirm` checks a code
+        from the app. Refused with 409 `two_factor_enrolled` when the user already has an
+        authenticator app, and with 503 `secret_key_missing` when the server has no valid
+        `TALEART_SECRET_KEY` to store the secret under.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The new secret and the address a QR code carries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorEnrolment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/account/two-factor/confirm:
+    post:
+      tags:
+        - Sign-in methods
+      operationId: confirmTwoFactor
+      summary: Turn the authenticator app on with a code from it.
+      description: >-
+        Checks the code against the secret that `POST /auth/account/two-factor` started.
+        A wrong code answers 401 `two_factor_code_invalid`. Without a started set-up the
+        answer is 409 `two_factor_not_started`; when the authenticator app is already on,
+        409 `two_factor_enrolled`.
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmTwoFactorRequest'
+      responses:
+        '204':
+          description: The authenticator app is on.
+        '401':
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
@@ -6653,6 +6769,24 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+    SecondStepRequired:
+      type: object
+      required: [secondStepRequired]
+      additionalProperties: false
+      properties:
+        secondStepRequired:
+          type: boolean
+          enum: [true]
+          description: Always true. The password was right; the code from the authenticator app finishes the sign-in.
+    SecondStepRequest:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
     PasswordRegistrationRequest:
       type: object
       required: [name, email, username, password]
@@ -6761,6 +6895,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AccountIdentity'
+    TwoFactorStatus:
+      type: object
+      required: [enrolled]
+      additionalProperties: false
+      properties:
+        enrolled:
+          type: boolean
+          description: True when the user has an authenticator app turned on.
+    TwoFactorEnrolment:
+      type: object
+      required: [secret, otpauthUri]
+      additionalProperties: false
+      properties:
+        secret:
+          type: string
+          description: The base32 key to type into the authenticator app.
+        otpauthUri:
+          type: string
+          description: The otpauth://totp/ address a QR code carries.
+    ConfirmTwoFactorRequest:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
     AuthSettings:
       type: object
       required: [passkeyEnabled, passwordEnabled, secretKeyConfigured]
@@ -7012,6 +7174,10 @@ components:
         - forbidden
         - invitation_invalid
         - invitation_email_mismatch
+        - two_factor_code_invalid
+        - two_factor_challenge_invalid
+        - two_factor_enrolled
+        - two_factor_not_started
         - email_taken
         - tag_exists
         - tag_not_found

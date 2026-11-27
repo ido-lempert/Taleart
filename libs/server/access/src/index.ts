@@ -68,6 +68,11 @@ export {
   InputInvalidError,
   UsernameTakenError,
   PasswordIncorrectError,
+  TwoFactorCodeInvalidError,
+  TwoFactorChallengeInvalidError,
+  TwoFactorEnrolledError,
+  TwoFactorNotStartedError,
+  TwoFactorUnavailableError,
   PasswordResetInvalidError,
   SignInMethodDisabledError,
   LastSignInMethodError,
@@ -108,7 +113,17 @@ export {
   setOwnPassword,
   removeOwnPassword,
   type PasswordCredentials,
+  type PasswordSignInResult,
 } from './lib/passwordSignIn';
+export { base32Decode, base32Encode, matchTotp, totpCode, totpStep } from './lib/totp';
+export {
+  totpEnrolled,
+  startTotpEnrolment,
+  confirmTotpEnrolment,
+  finishSecondStep,
+  SECOND_STEP_MAX_ATTEMPTS,
+  type TotpEnrolment,
+} from './lib/twoFactor';
 export {
   issuePasswordReset,
   previewPasswordReset,

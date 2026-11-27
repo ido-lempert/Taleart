@@ -241,9 +241,29 @@ export interface paths {
         put?: never;
         /**
          * Sign in with a username and password.
-         * @description Only while the password method is on (an admin turns it on under Sign-in methods). Sets the `taleart_session` cookie (7 days) and, like a passkey sign-in, ends the user's other sessions only when they change their password. An unknown username, a wrong password and a turned-off method all answer the same 401 `sign_in_failed`. Failures are throttled per address (a burst of 10, then 10 a minute) and per username: after 5 failures the username waits 30 s, doubling per further failure up to 15 minutes; while it waits the answer is 429 `rate_limited` with `Retry-After`. A success clears the username's failures.
+         * @description Only while the password method is on (an admin turns it on under Sign-in methods). Sets the `taleart_session` cookie (7 days) and, like a passkey sign-in, ends the user's other sessions only when they change their password. An unknown username, a wrong password and a turned-off method all answer the same 401 `sign_in_failed`. Failures are throttled per address (a burst of 10, then 10 a minute) and per username: after 5 failures the username waits 30 s, doubling per further failure up to 15 minutes; while it waits the answer is 429 `rate_limited` with `Retry-After`. A success clears the username's failures. A user who has set up an authenticator app is not signed in by the password alone: the response is 200 `SecondStepRequired`, sets no session cookie and sets the challenge cookie; the sign-in is finished with `POST /auth/second-step`.
          */
         post: operations["signInWithPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/second-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a password sign-in with the code from the authenticator app.
+         * @description The second step of a password sign-in for a user with an authenticator app. Reads the challenge cookie that `POST /auth/password/sign-in` set, so no session is needed. A correct code sets the `taleart_session` cookie (7 days), as password sign-in does. A wrong code answers 401 `two_factor_code_invalid`; a missing, expired or already used challenge answers 401 `two_factor_challenge_invalid`. Failures are throttled: while throttled the answer is 429 `rate_limited` with `Retry-After`.
+         */
+        post: operations["secondStep"];
         delete?: never;
         options?: never;
         head?: never;
@@ -378,6 +398,50 @@ export interface paths {
          * @description Refused with 409 `last_sign_in_method` unless another method the user holds stays usable: a passkey, or a provider identity whose provider is on. Without a password: 404 `not_found`.
          */
         delete: operations["removeAccountPassword"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/account/two-factor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the signed-in user has an authenticator app set up.
+         * @description A session cookie only; a request with an `Authorization` header is refused.
+         */
+        get: operations["twoFactorStatus"];
+        put?: never;
+        /**
+         * Start setting up an authenticator app.
+         * @description Creates a new secret and returns it with the otpauth address a QR code carries. Nothing is turned on until `POST /auth/account/two-factor/confirm` checks a code from the app. Refused with 409 `two_factor_enrolled` when the user already has an authenticator app, and with 503 `secret_key_missing` when the server has no valid `TALEART_SECRET_KEY` to store the secret under.
+         */
+        post: operations["startTwoFactor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/account/two-factor/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the authenticator app on with a code from it.
+         * @description Checks the code against the secret that `POST /auth/account/two-factor` started. A wrong code answers 401 `two_factor_code_invalid`. Without a started set-up the answer is 409 `two_factor_not_started`; when the authenticator app is already on, 409 `two_factor_enrolled`.
+         */
+        post: operations["confirmTwoFactor"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3158,6 +3222,16 @@ export interface components {
             username: string;
             password: string;
         };
+        SecondStepRequired: {
+            /**
+             * @description Always true. The password was right; the code from the authenticator app finishes the sign-in.
+             * @enum {boolean}
+             */
+            secondStepRequired: true;
+        };
+        SecondStepRequest: {
+            code: string;
+        };
         PasswordRegistrationRequest: {
             name: string;
             /** Format: email */
@@ -3218,6 +3292,19 @@ export interface components {
                 updatedAt: string;
             } | null;
             identities: components["schemas"]["AccountIdentity"][];
+        };
+        TwoFactorStatus: {
+            /** @description True when the user has an authenticator app turned on. */
+            enrolled: boolean;
+        };
+        TwoFactorEnrolment: {
+            /** @description The base32 key to type into the authenticator app. */
+            secret: string;
+            /** @description The otpauth://totp/ address a QR code carries. */
+            otpauthUri: string;
+        };
+        ConfirmTwoFactorRequest: {
+            code: string;
         };
         AuthSettings: {
             passkeyEnabled: boolean;
@@ -3353,7 +3440,7 @@ export interface components {
             [key: string]: unknown;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "invitation_email_mismatch" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "user_not_found" | "member_exists" | "member_not_found" | "invitation_not_found" | "last_project_admin" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "invitation_email_mismatch" | "two_factor_code_invalid" | "two_factor_challenge_invalid" | "two_factor_enrolled" | "two_factor_not_started" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "user_not_found" | "member_exists" | "member_not_found" | "invitation_not_found" | "last_project_admin" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -4085,6 +4172,34 @@ export interface operations {
             };
         };
         responses: {
+            /** @description The signed-in user, or the second step the sign-in still needs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignedIn"] | components["schemas"]["SecondStepRequired"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    secondStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondStepRequest"];
+            };
+        };
+        responses: {
             /** @description The signed-in user. */
             200: {
                 headers: {
@@ -4094,7 +4209,6 @@ export interface operations {
                     "application/json": components["schemas"]["SignedIn"];
                 };
             };
-            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             429: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -4283,6 +4397,77 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    twoFactorStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's two-factor status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoFactorStatus"];
+                };
+            };
+            401: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    startTwoFactor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new secret and the address a QR code carries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoFactorEnrolment"];
+                };
+            };
+            401: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    confirmTwoFactor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmTwoFactorRequest"];
+            };
+        };
+        responses: {
+            /** @description The authenticator app is on. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
             409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
@@ -7137,7 +7322,7 @@ export const projectFontFallbackValues: ReadonlyArray<FlattenedDeepRequired<comp
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const authMethodKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthMethodKind"]> = ["passkey", "password", "oidc", "google", "apple"];
 export const authProviderKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthProviderKind"]> = ["oidc", "google", "apple"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "invitation_email_mismatch", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "invitation_email_mismatch", "two_factor_code_invalid", "two_factor_challenge_invalid", "two_factor_enrolled", "two_factor_not_started", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
 export const v1Schema$defsMediaBackgroundKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["kind"]> = ["image", "video"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];

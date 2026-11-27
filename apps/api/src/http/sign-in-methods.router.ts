@@ -1,4 +1,5 @@
 import {
+  CHALLENGE_COOKIE,
   ErrorCodes,
   passwordResetPath,
   SESSION_COOKIE,
@@ -8,13 +9,19 @@ import {
   type PasswordResetLink,
   type PasswordResetPreview,
   type SaveAuthProviderRequest,
+  type SecondStepRequired,
   type SignedIn,
+  type TwoFactorEnrolment,
+  type TwoFactorStatus,
   type UpdateAuthSettingsRequest,
   type User,
 } from '@taleart/contract';
 import {
   accountMethods,
+  CHALLENGE_TTL_MS,
+  confirmTotpEnrolment,
   deleteProvider,
+  finishSecondStep,
   findSessionUser,
   issuePasswordReset,
   listProviders,
@@ -31,11 +38,13 @@ import {
   setupWithPassword,
   signInSettings,
   signInWithPassword,
+  startTotpEnrolment,
   SignInThrottledError,
+  totpEnrolled,
   type NewSession,
   type ProviderContext,
 } from '@taleart/server-access';
-import { Router, type RequestHandler, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
 import { requireAdmin } from './authorize';
 import { readCookie, setCookie } from './cookies';
@@ -44,6 +53,9 @@ import { Buckets, RATE_LIMIT_MAX_CLIENTS, rateLimitClient, type RateLimitOptions
 import { requiredString } from './validation';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** The path the challenge cookie of a sign-in that waits for its code is sent on. */
+const CHALLENGE_PATH = '/api/v1/auth';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -151,25 +163,62 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
   const admin: RequestHandler[] = [sessionUser, requireAdmin];
   const userOf = (res: Response): User => res.locals['user'] as User;
 
-  // Username and password sign-in, after the address's allowance (429 once it is spent).
+  // Takes one of the address's sign-in attempts; answers 429 and returns false once they are spent. Password sign-in and
+  // the code step share it, so guessing codes across many sign-ins is bounded too.
+  const takeAddressAttempt = (req: Request, res: Response): boolean => {
+    if (!addressLimit) return true;
+    const bucket = addressLimit.get(rateLimitClient(req.ip ?? req.socket.remoteAddress), Date.now());
+    if (bucket.tokens < 1) {
+      res.setHeader('Retry-After', String(addressLimit.wait(bucket)));
+      noStore(res);
+      res.status(429).json(errorBody(ErrorCodes.rateLimited, 'Too many sign-in attempts. Try again later.'));
+      return false;
+    }
+    bucket.tokens -= 1;
+    return true;
+  };
+
+  // Username and password sign-in, after the address's allowance (429 once it is spent). A user with an authenticator app
+  // gets no session yet: the answer is SecondStepRequired and the code step finishes the sign-in.
   router.post('/password/sign-in', async (req, res, next) => {
     try {
       const body = bodyObject(req.body);
       const username = textField(body, 'username', true) as string;
       const password = textField(body, 'password', true) as string;
-      if (addressLimit) {
-        const now = Date.now();
-        const bucket = addressLimit.get(rateLimitClient(req.ip ?? req.socket.remoteAddress), now);
-        if (bucket.tokens < 1) {
-          res.setHeader('Retry-After', String(addressLimit.wait(bucket)));
-          noStore(res);
-          res.status(429).json(errorBody(ErrorCodes.rateLimited, 'Too many sign-in attempts. Try again later.'));
-          return;
-        }
-        bucket.tokens -= 1;
+      if (!takeAddressAttempt(req, res)) return;
+      const result = await signInWithPassword(pool, throttle, { username, password });
+      if ('secondStep' in result) {
+        setCookie(res, CHALLENGE_COOKIE, result.secondStep.id, {
+          maxAge: CHALLENGE_TTL_MS / 1000,
+          path: CHALLENGE_PATH,
+          secure: options.secureCookies,
+        });
+        noStore(res);
+        const required: SecondStepRequired = { secondStepRequired: true };
+        res.json(required);
+        return;
       }
-      const signedIn = await signInWithPassword(pool, throttle, { username, password });
+      setSession(res, result.session, options.secureCookies);
+      const payload: SignedIn = { user: result.user };
+      res.json(payload);
+    } catch (err) {
+      if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      next(err);
+    }
+  });
+
+  // The code step of a sign-in: the challenge cookie from the password step and a current code from the authenticator app
+  // (or a recovery code) make the session. Five wrong codes end the challenge; they also count toward the username's wait.
+  router.post('/second-step', async (req, res, next) => {
+    try {
+      const body = bodyObject(req.body);
+      const code = textField(body, 'code', true) as string;
+      if (code.length > 64) throw invalid('code is not valid');
+      if (!takeAddressAttempt(req, res)) return;
+      const signedIn = await finishSecondStep(pool, options.secretKey, throttle, readCookie(req, CHALLENGE_COOKIE), code);
+      setCookie(res, CHALLENGE_COOKIE, '', { maxAge: 0, path: CHALLENGE_PATH, secure: options.secureCookies });
       setSession(res, signedIn.session, options.secureCookies);
+      noStore(res);
       const payload: SignedIn = { user: signedIn.user };
       res.json(payload);
     } catch (err) {
@@ -246,6 +295,40 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       noStore(res);
       const body: AccountMethods = await accountMethods(pool, userOf(res).id);
       res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // The signed-in user's authenticator app: whether it is set up, start setting it up (a key and a QR code address),
+  // and finish with a current code. All need the session, so no API token reaches them.
+  router.get('/account/two-factor', sessionUser, async (_req, res, next) => {
+    try {
+      noStore(res);
+      const payload: TwoFactorStatus = { enrolled: await totpEnrolled(pool, userOf(res).id) };
+      res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/account/two-factor', sessionUser, async (_req, res, next) => {
+    try {
+      const started = await startTotpEnrolment(pool, options.secretKey, userOf(res));
+      noStore(res);
+      const payload: TwoFactorEnrolment = { secret: started.secret, otpauthUri: started.otpauthUri };
+      res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/account/two-factor/confirm', sessionUser, async (req, res, next) => {
+    try {
+      const code = textField(bodyObject(req.body), 'code', true) as string;
+      if (code.length > 64) throw invalid('code is not valid');
+      await confirmTotpEnrolment(pool, options.secretKey, userOf(res).id, code);
+      res.status(204).end();
     } catch (err) {
       next(err);
     }

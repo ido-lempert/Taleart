@@ -153,6 +153,34 @@ export class UsernameTakenError extends SignInRefusal {
   }
 }
 
+/** The code from an authenticator app (or a recovery code) is wrong, used already, or outside the time window. */
+export class TwoFactorCodeInvalidError extends SignInRefusal {
+  constructor() {
+    super(401, ErrorCodes.twoFactorCodeInvalid, 'That code is not right. Check your authenticator app and try again.');
+  }
+}
+
+/** The second step of a sign-in is unknown, used, expired, or out of attempts: the user signs in again. */
+export class TwoFactorChallengeInvalidError extends SignInRefusal {
+  constructor() {
+    super(401, ErrorCodes.twoFactorChallengeInvalid, 'This sign-in has expired. Enter your password again.');
+  }
+}
+
+/** The user already has an authenticator app set up. */
+export class TwoFactorEnrolledError extends SignInRefusal {
+  constructor() {
+    super(409, ErrorCodes.twoFactorEnrolled, 'An authenticator app is already set up. Turn it off first to set up another.');
+  }
+}
+
+/** A code was sent to finish setup that was never started. */
+export class TwoFactorNotStartedError extends SignInRefusal {
+  constructor() {
+    super(409, ErrorCodes.twoFactorNotStarted, 'Start setting up the authenticator app first.');
+  }
+}
+
 /** The signed-in user's current password is wrong. */
 export class PasswordIncorrectError extends SignInRefusal {
   constructor() {
@@ -193,6 +221,17 @@ export class SignInLockoutError extends SignInRefusal {
 }
 
 /** A provider secret cannot be saved: the server has no valid TALEART_SECRET_KEY. */
+/** Authenticator apps need the server's secret key to keep their secrets; without a valid one they cannot be set up. */
+export class TwoFactorUnavailableError extends SignInRefusal {
+  constructor() {
+    super(
+      503,
+      ErrorCodes.secretKeyMissing,
+      'The server has no valid TALEART_SECRET_KEY (32 bytes, base64), so an authenticator app cannot be set up',
+    );
+  }
+}
+
 export class SecretKeyMissingError extends SignInRefusal {
   constructor() {
     super(

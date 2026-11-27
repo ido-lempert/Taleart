@@ -97,6 +97,11 @@ export type SaveAuthProviderRequest = Schemas['SaveAuthProviderRequest'];
 export type PasswordResetLink = Schemas['PasswordResetLink'];
 export type SetupRequest = Schemas['SetupRequest'];
 export type SignedIn = Schemas['SignedIn'];
+export type SecondStepRequired = Schemas['SecondStepRequired'];
+export type SecondStepRequest = Schemas['SecondStepRequest'];
+export type TwoFactorStatus = Schemas['TwoFactorStatus'];
+export type TwoFactorEnrolment = Schemas['TwoFactorEnrolment'];
+export type ConfirmTwoFactorRequest = Schemas['ConfirmTwoFactorRequest'];
 export type RedeemInvitationRequest = Schemas['RedeemInvitationRequest'];
 export type Invitation = Schemas['Invitation'];
 export type InvitationPreview = Schemas['InvitationPreview'];
@@ -764,6 +769,10 @@ export const ErrorCodes = {
   forbidden: 'forbidden',
   invitationInvalid: 'invitation_invalid',
   invitationEmailMismatch: 'invitation_email_mismatch',
+  twoFactorCodeInvalid: 'two_factor_code_invalid',
+  twoFactorChallengeInvalid: 'two_factor_challenge_invalid',
+  twoFactorEnrolled: 'two_factor_enrolled',
+  twoFactorNotStarted: 'two_factor_not_started',
   emailTaken: 'email_taken',
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',

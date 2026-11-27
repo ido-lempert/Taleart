@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   addProjectMember,
+  base32Decode,
   createApiToken,
   createSession,
   createUser,
@@ -15,6 +16,8 @@ import {
   hashPassword,
   PasskeyFailedError,
   type PasskeyVerifier,
+  totpCode,
+  totpStep,
   type TransactionalDb,
 } from '@taleart/server-access';
 import {
@@ -345,7 +348,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_audiences, tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, project_audit_log, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
+      'TRUNCATE tale_group_audiences, tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, analytics_events, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zone_keys, zones, api_token_projects, api_tokens, project_audit_log, invitations, project_members, projects, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, user_totp, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -12826,7 +12829,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE analytics_events, site_keys, zone_keys, api_token_projects, api_tokens, project_audit_log, invitations, project_members, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, users',
+        'TRUNCATE analytics_events, site_keys, zone_keys, api_token_projects, api_tokens, project_audit_log, invitations, project_members, auth_challenges, sessions, passkeys, user_identities, user_passwords, password_resets, auth_providers, auth_settings, user_totp, users',
       );
     });
 
@@ -14301,6 +14304,206 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
     expect(gone.status).toBe(409);
     expect((await gone.json()).error.code).toBe('last_sign_in_method');
     expect((await send('GET', '/auth/providers')).status).toBe(200);
+  });
+
+  describe('two-factor second step (authenticator app)', () => {
+    const WRONG_CODE = '000000';
+
+    // Sets the password method up with ada.admin's password, so the password sign-in tests can run.
+    beforeEach(async () => {
+      expect((await send('PUT', '/auth/account/password', { body: { username: 'ada.admin', password: PASSWORD } })).status).toBe(204);
+      await turnPasswordOn();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // The admin starts and confirms an authenticator app; returns the base32 key.
+    async function enrol(): Promise<string> {
+      const started = await send('POST', '/auth/account/two-factor');
+      expect(started.status).toBe(200);
+      const { secret } = (await started.json()) as { secret: string };
+      const confirmed = await send('POST', '/auth/account/two-factor/confirm', {
+        body: { code: totpCode(base32Decode(secret), totpStep(Date.now())) },
+      });
+      expect(confirmed.status).toBe(204);
+      return secret;
+    }
+
+    // A code one step ahead of now: inside the window, and never the step used at enrolment.
+    const laterCode = (secret: string): string => totpCode(base32Decode(secret), totpStep(Date.now()) + 1);
+
+    // The `taleart_challenge=<id>` a response set, to send back as a Cookie header.
+    function challengeCookieOf(res: Response): string {
+      const line = res.headers.getSetCookie().find((l) => l.startsWith('taleart_challenge='));
+      if (!line) throw new Error('the response set no challenge cookie');
+      return line.split(';')[0];
+    }
+
+    function hasSessionCookie(res: Response): boolean {
+      return res.headers.getSetCookie().some((l) => l.startsWith('taleart_session='));
+    }
+
+    function passwordSignIn(username: string, password: string): Promise<Response> {
+      return send('POST', '/auth/password/sign-in', { cookie: '', body: { username, password } });
+    }
+
+    function secondStep(cookie: string, code: string): Promise<Response> {
+      return send('POST', '/auth/second-step', { cookie, body: { code } });
+    }
+
+    // A password sign-in for an enrolled user: the challenge cookie, which the code step needs.
+    async function startSecondStep(): Promise<string> {
+      const res = await passwordSignIn('ada.admin', PASSWORD);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ secondStepRequired: true });
+      return challengeCookieOf(res);
+    }
+
+    it('enrols an authenticator app: start, a wrong and a right code, then the status and a second start refused', async () => {
+      const started = await send('POST', '/auth/account/two-factor');
+      expect(started.status).toBe(200);
+      const body = (await started.json()) as { secret: string; otpauthUri: string };
+      expect(body.secret).toMatch(/^[A-Z2-7]+$/);
+      expect(body.otpauthUri.startsWith('otpauth://totp/')).toBe(true);
+
+      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: false });
+
+      const wrong = await send('POST', '/auth/account/two-factor/confirm', { body: { code: WRONG_CODE } });
+      expect(wrong.status).toBe(401);
+      expect((await wrong.json()).error.code).toBe('two_factor_code_invalid');
+
+      const right = await send('POST', '/auth/account/two-factor/confirm', {
+        body: { code: totpCode(base32Decode(body.secret), totpStep(Date.now())) },
+      });
+      expect(right.status).toBe(204);
+
+      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true });
+
+      const again = await send('POST', '/auth/account/two-factor');
+      expect(again.status).toBe(409);
+      expect((await again.json()).error.code).toBe('two_factor_enrolled');
+    });
+
+    it('refuses to confirm before the app was started', async () => {
+      const res = await send('POST', '/auth/account/two-factor/confirm', { body: { code: WRONG_CODE } });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('two_factor_not_started');
+    });
+
+    it('answers an enrolled user\'s password sign-in with a second step, and a right code gives the session', async () => {
+      const secret = await enrol();
+
+      const first = await passwordSignIn('ada.admin', PASSWORD);
+      expect(first.status).toBe(200);
+      expect(await first.json()).toEqual({ secondStepRequired: true });
+      expect(hasSessionCookie(first)).toBe(false);
+      const challenge = challengeCookieOf(first);
+
+      // Session-only routes are closed until the second step is done.
+      expect((await send('GET', '/auth/account/two-factor', { cookie: '' })).status).toBe(401);
+
+      const done = await secondStep(challenge, laterCode(secret));
+      expect(done.status).toBe(200);
+      const body = await done.json();
+      expect(body).toEqual({ user: { id: adminId, name: 'Ada Admin', email: 'ada@example.com', role: 'admin' } });
+      const session = done.headers.getSetCookie().find((l) => l.startsWith('taleart_session='));
+      expect(session).toBeDefined();
+      const cookie = session!.split(';')[0];
+
+      expect(await (await send('GET', '/auth/account/two-factor', { cookie })).json()).toEqual({ enrolled: true });
+    });
+
+    it('refuses a wrong code with no session, and five wrong codes end the challenge even for the right one', async () => {
+      const secret = await enrol();
+
+      const challenge = await startSecondStep();
+      const wrong = await secondStep(challenge, WRONG_CODE);
+      expect(wrong.status).toBe(401);
+      expect((await wrong.json()).error.code).toBe('two_factor_code_invalid');
+      expect(hasSessionCookie(wrong)).toBe(false);
+
+      // Four more wrong codes on the same challenge make five in all.
+      for (let i = 1; i < 5; i++) {
+        const res = await secondStep(challenge, WRONG_CODE);
+        expect(res.status, `wrong code ${i + 1}`).toBe(401);
+        expect((await res.json()).error.code).toBe('two_factor_code_invalid');
+      }
+
+      const right = await secondStep(challenge, laterCode(secret));
+      expect(right.status).toBe(401);
+      expect((await right.json()).error.code).toBe('two_factor_challenge_invalid');
+      expect(hasSessionCookie(right)).toBe(false);
+    });
+
+    it('refuses a second step with no challenge cookie, and with one that was never issued', async () => {
+      await enrol();
+
+      const none = await secondStep('', WRONG_CODE);
+      expect(none.status).toBe(401);
+      expect((await none.json()).error.code).toBe('two_factor_challenge_invalid');
+
+      const madeUp = await secondStep(`taleart_challenge=${randomUUID()}`, WRONG_CODE);
+      expect(madeUp.status).toBe(401);
+      expect((await madeUp.json()).error.code).toBe('two_factor_challenge_invalid');
+    });
+
+    it('refuses a code that was accepted once, and accepts the code of the next step', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const start = totpStep(Date.now()) * 30_000;
+      const N = totpStep(start);
+      vi.setSystemTime(start);
+      const secret = await enrol(); // confirmed at step N
+      const key = base32Decode(secret);
+
+      // Sign-in one, at step N + 1: its code is accepted.
+      vi.setSystemTime(start + 30_000);
+      const first = await passwordSignIn('ada.admin', PASSWORD);
+      const done = await secondStep(challengeCookieOf(first), totpCode(key, N + 1));
+      expect(done.status).toBe(200);
+
+      // Sign-in two, same step: the code of N + 1 was accepted once, so it is refused again.
+      const second = await passwordSignIn('ada.admin', PASSWORD);
+      const replay = await secondStep(challengeCookieOf(second), totpCode(key, N + 1));
+      expect(replay.status).toBe(401);
+      expect((await replay.json()).error.code).toBe('two_factor_code_invalid');
+
+      // Thirty seconds on, the code of the new current step (N + 2) works.
+      vi.setSystemTime(start + 60_000);
+      const third = await passwordSignIn('ada.admin', PASSWORD);
+      const next = await secondStep(challengeCookieOf(third), totpCode(key, N + 2));
+      expect(next.status).toBe(200);
+    });
+
+    it('answers a wrong password for an enrolled user with the same refusal as for an unenrolled one', async () => {
+      expect((await send('PUT', '/auth/account/password', { cookie: managerCookie, body: { username: 'casey.content', password: PASSWORD } })).status).toBe(204);
+      await enrol();
+
+      const enrolled = await passwordSignIn('ada.admin', 'not-the-passphrase');
+      const unenrolled = await passwordSignIn('casey.content', 'not-the-passphrase');
+      expect(enrolled.status).toBe(401);
+      expect(unenrolled.status).toBe(401);
+      const [enrolledBody, unenrolledBody] = [await enrolled.text(), await unenrolled.text()];
+      expect(JSON.parse(enrolledBody)).toEqual({ error: { code: 'sign_in_failed', message: 'The username or password is not correct' } });
+      expect(enrolledBody).toBe(unenrolledBody);
+    });
+
+    it('signs in a user without an app with the password alone', async () => {
+      expect((await send('PUT', '/auth/account/password', { cookie: managerCookie, body: { username: 'casey.content', password: PASSWORD } })).status).toBe(204);
+
+      const res = await passwordSignIn('casey.content', PASSWORD);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ user: { id: managerId } });
+      expect(hasSessionCookie(res)).toBe(true);
+    });
+
+    it('answers 503 secret_key_missing when starting an app on a server without a secret key', async () => {
+      await useApp({ secretKey: null });
+      const res = await send('POST', '/auth/account/two-factor');
+      expect(res.status).toBe(503);
+      expect((await res.json()).error.code).toBe('secret_key_missing');
+    });
   });
 });
 
