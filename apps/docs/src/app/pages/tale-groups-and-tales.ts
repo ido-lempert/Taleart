@@ -40,6 +40,12 @@ import { RouterLink } from '@angular/router';
 </tbody>
 </table></div>
 <p>The filter chips on the list (All, Visible, Off, Scheduled, Targeted, Not in a zone, Archived) count groups by state.</p>
+<h2 id="select-several">Select several groups</h2>
+<p>Select several tale groups with the checkboxes. A bar shows how many are selected and offers <strong>Archive</strong>, <strong>Show in another zone</strong> and <strong>Copy to zone</strong>. The same checkboxes work on API tokens, team members, invitations, user lists, tales in a tale group, and fonts.</p>
+<figure>
+  <img class="guide-img" alt="The Tale groups list with two groups selected: the checkboxes of Care tips and Living room are ticked. A bar above the list reads 2 selected and offers Show in another zone, Copy to zone, Archive and Clear selection." src="images/bulk-shot-tale-groups-selection.png" width="1000" height="800" />
+  <figcaption>Two tale groups selected, a real screenshot. <em>Select all</em> sits above the list.</figcaption>
+</figure>
 <h2 id="the-group-menu">The group menu</h2>
 <p>The <strong>...</strong> menu on each group has:</p>
 <ul>

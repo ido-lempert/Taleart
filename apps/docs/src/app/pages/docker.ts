@@ -173,7 +173,7 @@ import { RouterLink } from '@angular/router';
     <figure>
       <img
         src="images/docker-shot-demo-zones.png"
-        alt="The dashboard after setup on the quick try: the Zones page of the Spring Campaign demo project, signed in as Ada Admin, with three zone cards, Home stories, Sale banner and Collection posters."
+        alt="The dashboard after setup on the quick try: the Zones page of the Spring Campaign demo project, signed in as the first admin, with three zone cards, Home stories, Sale banner and Collection posters."
         width="1280"
         height="800"
       />

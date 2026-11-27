@@ -20,7 +20,7 @@ import { RouterLink } from '@angular/router';
 <h2 id="settings">Settings</h2>
 <p><strong>Settings</strong> holds your <a routerLink="/api-tokens">API tokens</a>, your sign-in methods, the project's <strong>Team</strong>, and, for the install's admin, the sign-in methods of the install and the list of users.</p>
 <h2 id="switching-projects">Switching projects</h2>
-<p>The project picker in the header changes which project the dashboard shows. <strong>New project</strong> creates another one.</p>
+<p>The project picker in the header changes which project the dashboard shows. The picker appears only when you are in more than one project. <strong>New project</strong> creates another one.</p>
   `,
 })
 export class ProjectsAndTeamPage {}

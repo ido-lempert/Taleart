@@ -25,7 +25,7 @@ import { RouterLink } from '@angular/router';
     <figure>
       <img
         src="images/docker-shot-demo-zones.png"
-        alt="The Zones page of the Spring Campaign project: three zone cards, Home stories, Sale banner and Collection posters, each marked Visible on site and Installed, with 5, 2 and 3 tale groups."
+        alt="The Zones page of the Spring Campaign project: three zone cards, Home stories, Sale banner and Collection posters, each with a green check for visible on site and an Installed label, with 5, 2 and 3 tale groups."
         width="1280"
         height="800"
       />
@@ -43,11 +43,11 @@ import { RouterLink } from '@angular/router';
     <figure>
       <img
         src="images/demo-shot-zone-groups.png"
-        alt="The Home stories zone page, Tale groups tab: a list of tale groups with covers, tags, On switches and the reason each is visible on the site."
+        alt="The Home stories zone page, Tale groups tab: a list of tale groups with round covers, tags and On switches. Each group has a marker by its name: a green check when it is visible on the site, an orange exclamation mark when it needs attention."
         width="1280"
         height="800"
       />
-      <figcaption>Inside the zone <em>Home stories</em>: each group shows why it is visible, here for viewers with a matching tag.</figcaption>
+      <figcaption>Inside the zone <em>Home stories</em>: each group has a marker. Its tooltip says why it is visible, here for viewers with a matching tag.</figcaption>
     </figure>
     <p>The details are in the table at the end of the page.</p>
 
@@ -112,7 +112,7 @@ import { RouterLink } from '@angular/router';
     <figure>
       <img
         src="images/demo-shot-team.png"
-        alt="Settings, Team for Spring Campaign: four members, Pia Publisher, Elin Editor, Viktor Viewer with access until 14 Nov 2026 and Olle Former marked Expired, and below them a Pending invitations table with a Viewer and a Publisher invitation."
+        alt="Settings, Team for Spring Campaign: four members, Pia Publisher, Elin Editor, Viktor Viewer with access until 11 Dec 2026 and Olle Former marked Expired, and below them a Pending invitations table with a Viewer and a Publisher invitation."
         width="1280"
         height="800"
       />
