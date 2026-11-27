@@ -58,6 +58,9 @@ export type TaleGroupCover = Schemas['TaleGroupCover'];
 export type MediaKind = Schemas['MediaKind'];
 export type MediaContentType = Schemas['MediaContentType'];
 export type UserRole = Schemas['UserRole'];
+/** The dashboard appearance: `system` follows the device, `light` and `dark` are explicit choices. */
+export type Appearance = Schemas['Appearance'];
+export type PreferencesRequest = Schemas['PreferencesRequest'];
 /** The role matrix (`GET /roles`): each role with its permissions. */
 export type ProjectRoleMatrix = Schemas['ProjectRoleMatrix'];
 /** A user's membership of a project as members.manage and project.view callers see it. */
@@ -179,6 +182,9 @@ export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
 
 /** Every role a user can have. */
 export const USER_ROLES: readonly UserRole[] = userRoleValues;
+
+/** Every dashboard appearance, in the order the profile page offers them. */
+export const APPEARANCES: readonly Appearance[] = ['system', 'light', 'dark'];
 
 /** The http-only cookie holding the session token (AD-9). */
 export const SESSION_COOKIE = 'taleart_session';

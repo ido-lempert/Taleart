@@ -9,6 +9,7 @@ import { authRouter } from './http/auth.router';
 import { providerLoginRouter } from './http/provider-login.router';
 import { signInMethodsRouter } from './http/sign-in-methods.router';
 import { listUsersRoute } from './http/users.router';
+import { meRouter } from './http/me.router';
 import { apiTokensRouter, userApiTokensRouter } from './http/api-tokens.router';
 import { refuseAuthorizationHeader, requireCaller } from './http/credentials';
 import { coversRouter } from './http/covers.router';
@@ -227,6 +228,8 @@ export function createApp(
   if (mcp.enabled !== false) v1.use(MCP_PATH, mcpRouter(openapiDocument, mcp));
   // Personal API tokens: a passkey session only.
   v1.use('/api-tokens', apiTokensRouter(pool));
+  // The signed-in user's own preferences (the dashboard appearance): a passkey session only.
+  v1.use('/me', meRouter(pool));
   v1.use('/users', userApiTokensRouter(pool));
   v1.use('/roles', rolesRouter());
   v1.use('/projects', projectsRouter(pool, { dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200' }));

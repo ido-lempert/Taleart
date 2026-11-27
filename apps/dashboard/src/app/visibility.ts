@@ -194,16 +194,16 @@ export function tipPosition(
       flex: none;
       width: 10px;
       height: 10px;
-      border: 2px solid #b54708;
+      border: 2px solid var(--warning-text);
       border-radius: 50%;
       background: transparent;
     }
     .visibility--visible .visibility__line {
-      color: #067647;
+      color: var(--success-text);
     }
     .visibility--visible .visibility__dot {
-      border-color: #067647;
-      background: #067647;
+      border-color: var(--success-text);
+      background: var(--success-text);
     }
     /* In the top layer, placed by script beside or below what it belongs to. */
     .visibility__tip {
@@ -215,9 +215,9 @@ export function tipPosition(
       padding: var(--space-2) var(--space-3);
       border: 0;
       border-radius: var(--radius-control);
-      background: var(--ink);
+      background: var(--inverse);
       box-shadow: var(--shadow-raised);
-      color: #fff;
+      color: var(--on-inverse);
       font-size: var(--text-sm);
       font-weight: 400;
       line-height: 1.4;

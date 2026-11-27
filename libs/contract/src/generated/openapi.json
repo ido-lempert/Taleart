@@ -68,6 +68,10 @@
       "description": "The install's users for admins (the Users page). A passkey session only; any request with an `Authorization` header is refused."
     },
     {
+      "name": "Profile",
+      "description": "The signed-in user's own dashboard preferences (the appearance). A passkey session only; any request with an `Authorization` header is refused."
+    },
+    {
       "name": "Sign-in methods",
       "description": "Which sign-in methods are on, the external identity providers, and admin-issued password reset links. Admins only, with a session cookie; any request with an `Authorization` header is refused."
     }
@@ -1834,6 +1838,55 @@
             "$ref": "#/components/responses/Error"
           },
           "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/me/preferences": {
+      "put": {
+        "tags": [
+          "Profile"
+        ],
+        "operationId": "setMyPreferences",
+        "summary": "Set the signed-in user's dashboard appearance.",
+        "description": "The appearance is per user: `system` (the default) follows the device's light or dark setting, `light` and `dark` are explicit choices kept on the account, so every device signed in as the user shows them. A passkey session only: an API token answers 403 `forbidden`. A value other than `system`, `light` or `dark` answers 400 `validation_failed`. Answers the user with the new appearance.",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The preferences are saved; the user as now stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
             "$ref": "#/components/responses/Error"
           },
           "default": {
@@ -9569,6 +9622,15 @@
           "content_manager"
         ]
       },
+      "Appearance": {
+        "type": "string",
+        "enum": [
+          "system",
+          "light",
+          "dark"
+        ],
+        "description": "How the dashboard is shown: `system` follows the device, `light` and `dark` are explicit."
+      },
       "User": {
         "type": "object",
         "required": [
@@ -9591,6 +9653,21 @@
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/Appearance",
+            "description": "The dashboard appearance the user chose; `system` until they choose."
+          }
+        }
+      },
+      "PreferencesRequest": {
+        "type": "object",
+        "required": [
+          "appearance"
+        ],
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/Appearance"
           }
         }
       },

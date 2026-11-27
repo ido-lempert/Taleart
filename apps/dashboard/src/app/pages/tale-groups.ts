@@ -175,8 +175,8 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
     }
     .group-filter__option:has(input:checked) {
       border-color: var(--ink);
-      background: var(--ink);
-      color: #fff;
+      background: var(--inverse);
+      color: var(--on-inverse);
     }
     .group-filter__option:has(input:focus-visible) {
       outline: 3px solid var(--focus);

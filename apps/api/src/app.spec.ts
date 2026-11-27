@@ -4276,7 +4276,7 @@ describe('Management API v1: projects and zones', () => {
       expect(user).toEqual({ id: expect.any(String), name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
       sessionCookie = `taleart_session=${cookieValue(res, 'taleart_session')}`;
 
-      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user, methods: [PASSKEY_METHOD] });
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user: { ...user, appearance: 'system' }, methods: [PASSKEY_METHOD] });
       expect(await (await send('GET', '/projects')).json()).toEqual([{ ...a.project, role: 'editor' }]);
       expect(await (await send('GET', '/zones')).json()).toEqual([{ ...a.zone, visibility: SOME_VISIBILITY }]);
       expect((await send('GET', `/zones/${a.zone.id}/tale-groups`)).status).toBe(200);
@@ -12891,7 +12891,7 @@ describe('Management API v1: projects and zones', () => {
       const passkeys = await pool.query('SELECT credential_id, counter FROM passkeys');
       expect(passkeys.rows).toEqual([{ credential_id: 'cred-1', counter: '0' }]);
 
-      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user, methods: [PASSKEY_METHOD] });
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user: { ...user, appearance: 'system' }, methods: [PASSKEY_METHOD] });
       expect((await send('GET', '/projects')).status).toBe(200);
     });
 
@@ -16352,5 +16352,100 @@ describe('Management API v1: project roles', () => {
       expect(await (await api('GET', '/projects', cookie)).json()).toEqual([{ id: otherProjectId, name: 'Other', role: 'publisher' }]);
       expect(await status('GET', `/projects/${otherProjectId}/audit-log`, adminCookie)).toBe(200);
     });
+  });
+});
+
+describe('Management API v1: the dashboard appearance on the user (dashboard dark mode)', () => {
+  let pool: Pool;
+  let base = '';
+  const servers: Server[] = [];
+  let userId = '';
+  let cookie = '';
+
+  async function useApp(): Promise<void> {
+    const s = createApp(
+      pool,
+      loadFrameTypeRegistry(frameTypesDir),
+      new LocalDiskStorage(mediaDir),
+      { verifier: fakeVerifier, passwordAddressLimit: null },
+      { publicApiUrl },
+      undefined,
+      { rateLimit: null },
+    ).listen(0);
+    await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+    servers.push(s);
+    base = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+  }
+
+  async function signedInState(sessionCookie: string): Promise<{ user: { appearance?: string } | null }> {
+    const res = await globalThis.fetch(`${base}/api/v1/auth/state`, { headers: sessionCookie ? { Cookie: sessionCookie } : {} });
+    return res.json() as Promise<{ user: { appearance?: string } | null }>;
+  }
+
+  function setPreference(appearance: unknown, sessionCookie = cookie): Promise<Response> {
+    return globalThis.fetch(`${base}/api/v1/me/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+      body: JSON.stringify({ appearance }),
+    });
+  }
+
+  beforeAll(async () => {
+    pool = createPool(testDatabaseUrl);
+    await migrate(pool);
+  });
+
+  beforeEach(async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await pool.query('TRUNCATE users, projects CASCADE');
+    const user = await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+    userId = user.id;
+    cookie = `taleart_session=${(await createSession(pool, userId)).token}`;
+    await useApp();
+  });
+
+  afterAll(async () => {
+    await Promise.all(servers.map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+    await pool.end();
+  });
+
+  it('is system for a user who has not chosen, from the column default', async () => {
+    expect((await signedInState(cookie)).user?.appearance).toBe('system');
+    const { rows } = await pool.query<{ column_default: string }>(
+      `SELECT column_default FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'appearance'`,
+    );
+    expect(rows[0]?.column_default).toContain('system');
+  });
+
+  it('keeps the chosen appearance on the account, so a second session of the same user shows it', async () => {
+    const res = await setPreference('dark');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: userId, appearance: 'dark' });
+
+    const otherDevice = `taleart_session=${(await createSession(pool, userId)).token}`;
+    expect((await signedInState(otherDevice)).user?.appearance).toBe('dark');
+    expect((await signedInState(cookie)).user?.appearance).toBe('dark');
+  });
+
+  it('answers 400 for a value the API does not know and keeps the stored choice', async () => {
+    expect((await setPreference('light')).status).toBe(200);
+    const res = await setPreference('purple');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('validation_failed');
+    expect((await signedInState(cookie)).user?.appearance).toBe('light');
+  });
+
+  it('refuses a request without a session with 401 and stores nothing', async () => {
+    const res = await setPreference('dark', '');
+    expect(res.status).toBe(401);
+    expect((await pool.query<{ appearance: string }>('SELECT appearance FROM users WHERE id = $1', [userId])).rows[0]?.appearance).toBe(
+      'system',
+    );
+  });
+
+  it('refuses a value the database check does not allow', async () => {
+    await expect(pool.query(`UPDATE users SET appearance = 'purple' WHERE id = $1`, [userId])).rejects.toMatchObject({ code: '23514' });
   });
 });

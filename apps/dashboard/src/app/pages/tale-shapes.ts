@@ -193,7 +193,7 @@ export function emojiGridMove(layout: EmojiLayout, index: number, key: string, c
       cursor: pointer;
     }
     .emoji-choice:hover {
-      border-color: var(--line, #ccc);
+      border-color: var(--line, var(--border-strong));
     }
     .emoji-choice:focus-visible {
       outline: 3px solid var(--brand);

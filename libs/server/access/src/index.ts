@@ -137,6 +137,7 @@ export {
 } from './lib/passwordResets';
 export { accountMethods, removeOwnPasskey, removeOwnIdentity } from './lib/accountMethods';
 export { listUsers, USER_DIRECTORY_LIMIT } from './lib/userDirectory';
+export { setAppearance } from './lib/users';
 export {
   API_TOKEN_LAST_USED_INTERVAL_MS,
   createApiToken,

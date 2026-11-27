@@ -71,9 +71,9 @@ const GLYPHS: Readonly<Record<StatusTone, string>> = { green: '✓', orange: '!'
       max-width: min(20rem, calc(100vw - 32px));
       padding: var(--space-2) var(--space-3);
       border-radius: var(--radius-control);
-      background: var(--ink);
+      background: var(--inverse);
       box-shadow: var(--shadow-raised);
-      color: #fff;
+      color: var(--on-inverse);
       font-size: var(--text-sm);
       font-weight: 400;
       line-height: 1.4;

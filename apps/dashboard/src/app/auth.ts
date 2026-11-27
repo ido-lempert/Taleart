@@ -19,6 +19,7 @@ import {
 import {
   ErrorCodes,
   isErrorBody,
+  type Appearance,
   type AuthState,
   type EnrolConfirmResponse,
   type EnrolmentRequired,
@@ -33,6 +34,7 @@ import {
   type User,
 } from '@taleart/contract/core';
 import { catchError, firstValueFrom, throwError, type Observable } from 'rxjs';
+import { AppearanceService } from './appearance';
 import { API_BASE, DashboardStore } from './dashboard.store';
 import {
   errorCode,
@@ -120,6 +122,7 @@ export class AuthStore {
   private readonly http = inject(HttpClient);
   private readonly passkeys = inject(PasskeyClient);
   private readonly store = inject(DashboardStore);
+  private readonly appearanceService = inject(AppearanceService);
 
   /** The auth state, or null until it was read (or when the API could not be reached). */
   readonly state = signal<AuthState | null>(null);
@@ -140,6 +143,25 @@ export class AuthStore {
       .catch(() => null)
       .finally(() => (this.loading = null));
     return this.loading;
+  }
+
+  /**
+   * Saves the signed-in user's dashboard appearance (Profile). It shows at once; when the save fails the previous
+   * appearance comes back. Resolves to '' when saved, or to the message to show.
+   */
+  async saveAppearance(choice: Appearance): Promise<string> {
+    const previous = this.appearanceService.appearance();
+    this.appearanceService.set(choice);
+    try {
+      const saved = await firstValueFrom(this.http.put<User>(`${API_BASE}/me/preferences`, { appearance: choice }));
+      const stored: Appearance = saved.appearance ?? choice;
+      this.user.update((current) => (current ? { ...current, appearance: stored } : current));
+      this.state.update((current) => (current?.user ? { ...current, user: { ...current.user, appearance: stored } } : current));
+      return '';
+    } catch {
+      this.appearanceService.set(previous);
+      return 'Could not save appearance. Try again.';
+    }
   }
 
   /** Forgets the signed-in user, for example after the API answered 401. */
@@ -395,6 +417,8 @@ export class AuthStore {
     const state: AuthState = { ...next, methods: next.methods ?? this.state()?.methods ?? [] };
     this.state.set(state);
     this.user.set(state.user);
+    // The account's appearance, or System when nobody is signed in (the device's setting then).
+    this.appearanceService.set(state.user?.appearance ?? 'system');
     // Signed out, or someone else signed in on this browser (joining by invitation): drop the old data.
     if (!state.user || (previous && previous.id !== state.user.id)) this.store.reset();
   }

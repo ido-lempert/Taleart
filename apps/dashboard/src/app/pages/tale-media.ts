@@ -86,7 +86,7 @@ export function mediaChoiceName(media: ProjectMedia): string {
       aspect-ratio: 9 / 16;
       padding: 0;
       overflow: hidden;
-      border: 1px solid var(--line, #ccc);
+      border: 1px solid var(--line, var(--border-strong));
       border-radius: var(--radius-control);
       background: #111;
       cursor: pointer;

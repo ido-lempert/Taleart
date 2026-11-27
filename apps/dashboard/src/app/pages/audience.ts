@@ -189,10 +189,10 @@ function readSample(file: Blob): Promise<string> {
       display: flex;
       gap: var(--space-3);
       padding: var(--space-3) var(--space-4);
-      border: 1px solid #fedf89;
+      border: 1px solid var(--warning-border);
       border-radius: var(--radius-control);
-      background: #fffaeb;
-      color: #7a2e0e;
+      background: var(--warning-tint);
+      color: var(--warning-on-tint);
     }
     .audience-report {
       display: flex;

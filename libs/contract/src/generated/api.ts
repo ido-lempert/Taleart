@@ -790,6 +790,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the signed-in user's dashboard appearance.
+         * @description The appearance is per user: `system` (the default) follows the device's light or dark setting, `light` and `dark` are explicit choices kept on the account, so every device signed in as the user shows them. A passkey session only: an API token answers 403 `forbidden`. A value other than `system`, `light` or `dark` answers 400 `validation_failed`. Answers the user with the new appearance.
+         */
+        put: operations["setMyPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -3256,6 +3276,11 @@ export interface components {
         };
         /** @enum {string} */
         UserRole: "admin" | "content_manager";
+        /**
+         * @description How the dashboard is shown: `system` follows the device, `light` and `dark` are explicit.
+         * @enum {string}
+         */
+        Appearance: "system" | "light" | "dark";
         User: {
             /** Format: uuid */
             id: string;
@@ -3263,6 +3288,11 @@ export interface components {
             /** Format: email */
             email: string;
             role: components["schemas"]["UserRole"];
+            /** @description The dashboard appearance the user chose; `system` until they choose. */
+            appearance?: components["schemas"]["Appearance"];
+        };
+        PreferencesRequest: {
+            appearance: components["schemas"]["Appearance"];
         };
         AuthState: {
             /** @description True while no user exists; the dashboard then shows the setup screen. */
@@ -5103,6 +5133,34 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setMyPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description The preferences are saved; the user as now stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -7525,6 +7583,7 @@ export const projectMediaSourceValues: ReadonlyArray<FlattenedDeepRequired<compo
 export const projectFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["style"]> = ["normal", "italic"];
 export const projectFontFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
+export const appearanceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["Appearance"]> = ["system", "light", "dark"];
 export const authMethodKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthMethodKind"]> = ["passkey", "password", "oidc", "google", "apple"];
 export const twoFactorModeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TwoFactorMode"]> = ["off", "optional", "required"];
 export const authProviderKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthProviderKind"]> = ["oidc", "google", "apple"];

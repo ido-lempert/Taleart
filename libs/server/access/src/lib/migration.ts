@@ -30,6 +30,15 @@ export async function migrateAccess(db: Db): Promise<void> {
   `);
   await db.query('CREATE UNIQUE INDEX IF NOT EXISTS users_email_key ON users (lower(email))');
 
+  // The dashboard appearance the user chose (dashboard dark mode): system follows the device until they choose.
+  // Every step is idempotent.
+  await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS appearance text NOT NULL DEFAULT 'system'`);
+  await db.query(`
+    ALTER TABLE users
+      DROP CONSTRAINT IF EXISTS users_appearance_check,
+      ADD CONSTRAINT users_appearance_check CHECK (appearance IN ('system', 'light', 'dark'))
+  `);
+
   await db.query(`
     CREATE TABLE IF NOT EXISTS passkeys (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -34,7 +34,7 @@ export async function createSession(db: Db, userId: string): Promise<NewSession>
 export async function findSessionUser(db: Db, token: string | undefined): Promise<User | null> {
   if (!token) return null;
   const { rows } = await db.query<User>(
-    `SELECT u.id, u.name, u.email, u.role
+    `SELECT u.id, u.name, u.email, u.role, u.appearance
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = $1 AND s.expires_at > now()`,
     [hashSessionToken(token)],

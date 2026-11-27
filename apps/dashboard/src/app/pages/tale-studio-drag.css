@@ -102,8 +102,8 @@
   margin: 16px 0 0 16px;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
-  background: var(--ink);
-  color: #fff;
+  background: var(--inverse);
+  color: var(--on-inverse);
   font-size: var(--text-xs);
   pointer-events: none;
 }

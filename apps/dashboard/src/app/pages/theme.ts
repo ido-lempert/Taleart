@@ -157,10 +157,10 @@ function isDefault(field: ThemeField, value: unknown): boolean {
       flex-direction: column;
       gap: var(--space-2);
       padding: var(--space-3) var(--space-4);
-      border: 1px solid #fedf89;
+      border: 1px solid var(--warning-border);
       border-radius: var(--radius-control);
-      background: #fffaeb;
-      color: #93370d;
+      background: var(--warning-tint);
+      color: var(--warning-on-tint);
     }
     .contrast--note {
       border-color: var(--border);
@@ -174,10 +174,10 @@ function isDefault(field: ThemeField, value: unknown): boolean {
     .text-contrast {
       margin: 0;
       padding: var(--space-2) var(--space-3);
-      border: 1px solid #fedf89;
+      border: 1px solid var(--warning-border);
       border-radius: var(--radius-control);
-      background: #fffaeb;
-      color: #93370d;
+      background: var(--warning-tint);
+      color: var(--warning-on-tint);
       font-size: var(--text-sm);
     }
     .theme-actions {

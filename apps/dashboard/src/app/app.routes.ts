@@ -153,6 +153,13 @@ export const appRoutes: Route[] = [
         data: { ownHeader: true, heading: 'Settings' } satisfies ShellData,
       },
       {
+        // Settings > Profile: the signed-in user's own settings, the dashboard's appearance (dashboard dark mode).
+        path: 'settings/profile',
+        loadComponent: () => import('./pages/profile').then((m) => m.ProfilePage),
+        title: 'Profile · Settings · TaleArt',
+        data: { ownHeader: true, heading: 'Settings' } satisfies ShellData,
+      },
+      {
         // Personal API tokens for scripts and the CLI (epic developer experience 10.1).
         path: 'settings/api-tokens',
         loadComponent: () => import('./pages/api-tokens').then((m) => m.ApiTokensPage),

@@ -4,9 +4,9 @@
  * 1024 px wide the regions stack in focus order and the page scrolls (1.4.10 at 320 px).
  */
 :host {
-  --workspace: #e9eaf0;
+  --workspace: var(--studio-workspace);
   --selection: #2563eb;
-  --selection-tint: #dbeafe;
+  --selection-tint: var(--studio-selection-tint);
   --guide: #db2777;
   --left-panel: 280px;
   --inspector: 320px;
@@ -150,12 +150,12 @@
   vertical-align: -1px;
   width: 10px;
   height: 10px;
-  border: 2px solid #b54708;
+  border: 2px solid var(--warning-text);
   border-radius: 50%;
 }
 .studio-update__dot.is-visible {
-  border-color: #067647;
-  background: #067647;
+  border-color: var(--success-text);
+  background: var(--success-text);
 }
 
 /* Undo, Redo, Safe area and Preview keep their names, shown as icons (with a tooltip) when the bar is short of room. */

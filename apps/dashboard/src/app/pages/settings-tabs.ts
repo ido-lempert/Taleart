@@ -3,8 +3,8 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthStore } from '../auth';
 
 /**
- * The tabs of Settings: API tokens, the project's Team, the signed-in user's own sign-in methods, and (admins only) the
- * sign-in methods and users of the install.
+ * The tabs of Settings: API tokens, the project's Team, the signed-in user's own sign-in methods and Profile (the
+ * dashboard's appearance), and (admins only) the sign-in methods and users of the install.
  */
 @Component({
   selector: 'app-settings-tabs',
@@ -36,6 +36,7 @@ import { AuthStore } from '../auth';
         My sign-in methods
       </a>
       <a routerLink="/settings/team" routerLinkActive="active" ariaCurrentWhenActive="page">Team</a>
+      <a routerLink="/settings/profile" routerLinkActive="active" ariaCurrentWhenActive="page">Profile</a>
       @if (auth.isAdmin()) {
         <a routerLink="/settings/sign-in-methods" routerLinkActive="active" ariaCurrentWhenActive="page"
           >Sign-in methods</a

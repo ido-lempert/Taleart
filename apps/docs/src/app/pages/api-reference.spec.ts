@@ -125,6 +125,7 @@ describe('the API reference spec (epic developer experience 10.2)', () => {
         'POST /auth/account/two-factor/recovery-codes',
         'DELETE /auth/account/passkeys/{passkeyId}',
         'DELETE /auth/account/identities/{identityId}',
+        'PUT /me/preferences',
       ].sort(),
     );
   });

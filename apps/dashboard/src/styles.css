@@ -32,10 +32,22 @@
   --border: #e5e7eb;
   --border-strong: #d1d5db;
   --success: #12b76a;
+  --success-text: #067647; /* success text on --surface and --canvas */
+  --warning-text: #b54708; /* warning marks on --surface and --canvas */
+  --warning-tint: #fffaeb; /* a warning box */
+  --warning-border: #fedf89;
+  --warning-on-tint: #7a2e0e; /* text on --warning-tint */
   --danger: #d92d20;
   --danger-tint: #fef3f2;
   --danger-text: #b42318; /* danger text on --danger-tint */
   --focus: #4f1dfc;
+  /* A dark plate with light text, such as a tooltip or the skip link: the inverse of --ink. */
+  --inverse: #111827;
+  --on-inverse: #ffffff;
+  /* Tale Studio's workspace and its selection tint (the tale canvas itself stays light). */
+  --studio-workspace: #e9eaf0;
+  --studio-selection-tint: #dbeafe;
+  --studio-selection-text: #1e40af;
 
   /* Tale placeholder palette: pairs of tones, picked from the tale id. */
   --tone-0-a: #4f1dfc;
@@ -68,6 +80,7 @@
   --radius-pill: 999px;
   --shadow-card: 0 1px 2px rgb(16 24 40 / 6%);
   --shadow-raised: 0 12px 32px rgb(16 24 40 / 16%);
+  color-scheme: light;
 
   /* Type */
   --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -87,6 +100,81 @@
   --tale-width: 120px;
   --tale-height: 213px;
   --ring-size: 56px;
+}
+
+/*
+ * The dark appearance (Settings > Profile, dashboard dark mode): the colour tokens above with dark values, the same
+ * list twice. appearance.ts sets data-theme on <html> to the shown appearance; the media query covers a page that
+ * runs no script yet, and follows the device when no choice is set. `data-theme="light"` always keeps the light values.
+ * Text pairs meet WCAG AA (4.5:1): --text-muted 6.8:1 on --surface, --brand-text 7.7:1 on --brand-tint, --ember-strong
+ * 7.1:1 on --canvas. Filled --brand buttons keep white text (7.2:1).
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ink: #f3f4f6;
+    --text: #f3f4f6;
+    --text-muted: #9ca3af;
+    --text-secondary: #d1d5db;
+    --surface: #1a1733;
+    --surface-sunken: #252141;
+    --canvas: #0f0c1f;
+    --border: #34305a;
+    --border-strong: #4b4680;
+    --success-text: #6ce9a6;
+    --warning-text: #fdb022;
+    --warning-tint: #2b1f0c;
+    --warning-border: #6b4a12;
+    --warning-on-tint: #fed7aa;
+    --danger: #f97066;
+    --danger-tint: #3a1719;
+    --danger-text: #fda29b;
+    --focus: #a78bfa;
+    --inverse: #e5e7eb;
+    --on-inverse: #111827;
+    --studio-workspace: #0b0a16;
+    --studio-selection-tint: #1e3a8a;
+    --studio-selection-text: #bfdbfe;
+    --brand-tint: #2a2160;
+    --brand-text: #c4b5fd;
+    --ember-strong: #a78bfa;
+    --ember-strong-hover: #c4b5fd;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-raised: 0 12px 32px rgb(0 0 0 / 50%);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --ink: #f3f4f6;
+  --text: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-secondary: #d1d5db;
+  --surface: #1a1733;
+  --surface-sunken: #252141;
+  --canvas: #0f0c1f;
+  --border: #34305a;
+  --border-strong: #4b4680;
+  --success-text: #6ce9a6;
+  --warning-text: #fdb022;
+  --warning-tint: #2b1f0c;
+  --warning-border: #6b4a12;
+  --warning-on-tint: #fed7aa;
+  --danger: #f97066;
+  --danger-tint: #3a1719;
+  --danger-text: #fda29b;
+  --focus: #a78bfa;
+  --inverse: #e5e7eb;
+  --on-inverse: #111827;
+  --studio-workspace: #0b0a16;
+  --studio-selection-tint: #1e3a8a;
+  --studio-selection-text: #bfdbfe;
+  --brand-tint: #2a2160;
+  --brand-text: #c4b5fd;
+  --ember-strong: #a78bfa;
+  --ember-strong-hover: #c4b5fd;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-raised: 0 12px 32px rgb(0 0 0 / 50%);
+  color-scheme: dark;
 }
 
 *,
