@@ -154,6 +154,8 @@ type Removal =
                 Turn off
               </button>
             </div>
+          } @else {
+            <p class="muted" id="two-factor-required-note">Your administrator requires an authenticator app, so it cannot be turned off.</p>
           }
           <div class="invite-actions">
             @if (confirmingNew()) {
