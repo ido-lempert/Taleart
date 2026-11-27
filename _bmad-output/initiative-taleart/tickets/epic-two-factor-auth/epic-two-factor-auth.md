@@ -3,8 +3,7 @@ type: epic
 title: "Two-factor authentication with authenticator apps"
 parent: initiative-taleart
 covers: []
-sources:
-  - _bmad-output/initiative-taleart/sign-in-methods/spec.md
+sources: [_bmad-output/initiative-taleart/sign-in-methods/spec.md]
 companions: []
 after: []
 refined: false
@@ -58,6 +57,10 @@ A team that signs in with a password or a provider can protect its install with 
 
 ## Notes
 
+- Decision (2026-11-27): the tracer bullet is story 1, enrolling with the typed key and signing in with a code for password users; stories 3, 4 and 5 can run in any order after it.
+- Decision (2026-11-27): the qrcode package is the epic's one new dependency, drawing the QR code in the browser; the key never leaves it.
+- Decision (2026-11-27): 2FA defaults to off on existing installs; nothing changes until an admin sets optional or required.
+- Decision (2026-11-27): the breakdown has a refactor sweep (10) and a closing end-to-end suite (11), the owner agreeing to both.
 - Decision (2026-11-27): in required mode, users without 2FA are blocked at sign-in until they enrol, admins included; enrolment happens inside the sign-in, before any session exists.
 - Decision (2026-11-26): 2FA is self-service; an admin does not reset a user's 2FA in this epic. Enrolment uses a QR code.
 - Assumption: R14 to R19 extend the initiative's numbering after R13.

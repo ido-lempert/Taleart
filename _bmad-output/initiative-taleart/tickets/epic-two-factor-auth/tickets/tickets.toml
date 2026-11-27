@@ -1,0 +1,123 @@
+# The epic's agreed stories, in build order. Table order is build order; id is permanent.
+# Approved by the owner 2026-11-27.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: enrol with a key and sign in with a code"
+description = "A password user adds an authenticator app by typing the key, signs out, and signs in with the correct password plus a current code; a password alone no longer signs in."
+verify = "In the running app, enrol with a standard authenticator app using the manual key, sign out, sign in with the password: no session until the app's current code is entered; a wrong code is refused; a passkey sign-in asks for nothing."
+covers = ["R14", "R16", "R17"]
+after = []
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Required mode: unenrolled users enrol inside the sign-in"
+description = "With the install set to required, a password or provider user without 2FA who signs in correctly is taken through enrolment before any session exists, admins included."
+verify = "Set the install to required; a user without 2FA signs in with the password, is shown enrolment, finishes it, and only then has a session; abandoning enrolment leaves no session."
+covers = ["R18"]
+after = [1]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Replay protection and throttle for the second step"
+description = "A code works once per 30-second window, one step of clock drift is allowed, and wrong codes count toward the same per-username throttle as wrong passwords."
+verify = "Reusing an accepted code in the same window is refused; five wrong codes make the username wait exactly as five wrong passwords do."
+covers = ["R16"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Enrol by scanning a QR code"
+description = "The enrolment step shows a QR code that standard authenticator apps scan, with the key kept as the typed fallback; the code is drawn in the browser with the qrcode package, the epic's one new dependency, and the key never leaves the browser."
+verify = "Scan the shown QR code with an authenticator app and complete enrolment with its first code."
+covers = ["R14"]
+after = [1]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Recovery codes"
+description = "Completing enrolment shows ten single-use recovery codes once; a recovery code signs in once in place of an app code; regenerating the set invalidates the old codes. Stored only as hashes."
+verify = "Use a recovery code to sign in once; the same code is then refused; regenerating makes every earlier code fail."
+covers = ["R15", "R16"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Second step for provider sign-in"
+description = "A user who signs in by Google, Apple, or OpenID Connect and has 2FA is asked for a code after the provider confirms them, before a session is created."
+verify = "A provider sign-in for a user with 2FA ends at the code step; a correct code signs in and a wrong one does not."
+covers = ["R16"]
+after = [1, 3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Install setting: off, optional, required"
+description = "An admin sets 2FA for the install in the dashboard's sign-in settings; optional lets users enrol, off hides it, required is story 2; the setting applies at the next sign-in and defaults to off."
+verify = "Switch the setting among off, optional and required in the dashboard and see each take effect at the next sign-in without a restart."
+covers = ["R18"]
+after = [1, 2]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Self-service: disable and regenerate in My sign-in methods"
+description = "A user adds, disables, and regenerates recovery codes for their own 2FA from their account page, each needing a current code or recovery code; no admin reset."
+verify = "Disable 2FA with a current code and sign in with the password alone (optional mode); regenerate recovery codes and see the old set fail."
+covers = ["R19", "R15"]
+after = [1, 5, 7]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Docs: 2FA guide, reference and security page"
+description = "A 2FA guide with real screenshots, the API reference and sign-in settings reference updated, and the security page's hardening advice extended."
+verify = "The docs build and its tests pass, and each screenshot in the guide is from the running app."
+covers = ["R14", "R15", "R16", "R17", "R18", "R19"]
+after = [8]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at its start from what the epic's reviews deferred."
+verify = "The full test suites and builds pass unchanged."
+covers = []
+after = [3, 4, 6, 9]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 11
+type = "story"
+title = "End-to-end suite: enrol, sign out, sign in with a code"
+description = "A Playwright flow in the dashboard e2e project enrols an authenticator key, signs out, signs in with a generated code, and checks that a passkey sign-in asks for none."
+verify = "The e2e suite passes on a fresh database, and fails if the second step is removed."
+covers = ["R14", "R16", "R17"]
+after = [10]
+hitl = false
+risk = "medium"
