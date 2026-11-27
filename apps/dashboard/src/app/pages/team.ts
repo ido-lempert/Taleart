@@ -71,7 +71,7 @@ function refusal(err: unknown, fallback: string): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .team-section {
-      max-width: 1000px;
+      max-width: 1180px;
       margin-bottom: var(--space-4);
     }
     /* The row's first cell: its checkbox, narrow, at the top of the row. */
@@ -117,13 +117,23 @@ function refusal(err: unknown, fallback: string): string {
     .team-table th {
       font-weight: 600;
     }
+    /* Words and addresses never break in the middle: a column takes its natural width and the scroll wrapper takes the rest. */
     .team-table td {
-      overflow-wrap: anywhere;
+      overflow-wrap: normal;
+      word-break: normal;
     }
     .team-table .select,
     .team-table .input {
       min-height: 32px;
       font-size: var(--text-sm);
+    }
+    .team-table .select {
+      min-width: 9.5rem;
+    }
+    .team-table .team-email,
+    .team-table .team-date,
+    .team-table .access-text {
+      white-space: nowrap;
     }
     .team-ends {
       display: flex;
@@ -304,7 +314,7 @@ function refusal(err: unknown, fallback: string): string {
                           <p class="form-error team-error" role="alert">{{ message }}</p>
                         }
                       </th>
-                      <td>{{ member.email }}</td>
+                      <td class="team-email">{{ member.email }}</td>
                       <td>
                         @if (canManage()) {
                           <label class="visually-hidden" [for]="'role-' + member.userId"
@@ -371,7 +381,7 @@ function refusal(err: unknown, fallback: string): string {
                           }
                         }
                       </td>
-                      <td>{{ joined(member) }}</td>
+                      <td class="team-date">{{ joined(member) }}</td>
                       @if (canManage()) {
                         <td>
                           <button
@@ -462,11 +472,11 @@ function refusal(err: unknown, fallback: string): string {
                             roleLabels[invitation.role]
                           }}</span>
                         </td>
-                        <td>
+                        <td class="team-date">
                           {{ invitation.accessExpiresAt ? 'Until ' + date(invitation.accessExpiresAt) : 'Permanent' }}
                         </td>
-                        <td>{{ invitation.createdBy?.name ?? 'Former member' }}, {{ date(invitation.createdAt) }}</td>
-                        <td>{{ date(invitation.expiresAt) }}</td>
+                        <td class="team-date">{{ invitation.createdBy?.name ?? 'Former member' }}, {{ date(invitation.createdAt) }}</td>
+                        <td class="team-date">{{ date(invitation.expiresAt) }}</td>
                         <td>
                           <button
                             type="button"
