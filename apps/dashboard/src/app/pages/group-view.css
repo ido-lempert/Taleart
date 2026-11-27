@@ -78,6 +78,33 @@ app-group-view .group-view__empty {
 app-group-view .group-view__list {
   flex-wrap: wrap;
 }
+/* The head checkbox of the tales, above the bar and the cards. */
+app-group-view .group-view__select {
+  display: flex;
+  align-items: center;
+}
+/* The bar sticks at the top of the group view's own scrolling body, not under the page's top bar. */
+app-group-view .group-view__body app-bulk-bar .bulk-bar {
+  top: 0;
+}
+app-group-view .group-view__names {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+/* A card's checkbox, under its ⋯ menu at the top right, above the card's open button. */
+app-group-view .tale-card__select {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--space-2) + 28px);
+  right: var(--space-1);
+  padding: 4px;
+  border-radius: var(--radius-control);
+  background: rgb(0 0 0 / 55%);
+}
+app-group-view .tale-card__select input {
+  margin: 0;
+}
+
 /* A tale's schedule chip on its card: above the title, on a dark plate so it reads over any media. */
 app-group-view .window-chip--card {
   margin: 0 0 var(--space-1);

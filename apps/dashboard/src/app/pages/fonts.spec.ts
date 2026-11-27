@@ -250,4 +250,58 @@ describe('FontsPage (story 7.17)', () => {
     expect(root.querySelector('[role=alert]')?.textContent).toContain('used by the tale "Beach"');
     expect(root.querySelectorAll('.fonts-face')).toHaveLength(1);
   });
+
+  describe('bulk delete', () => {
+    const idA = '0f0e0d0c-0000-4000-8000-00000000000a';
+    const idB = '0f0e0d0c-0000-4000-8000-00000000000b';
+    const unused = (id: string, weight: number) => font({ id, weight, style: 'normal', inUse: false });
+    const bar = () => root.querySelector<HTMLElement>('[role=region][aria-label="Actions on the selection"]');
+    const drawer = () => document.querySelector<HTMLElement>('[role=alertdialog]');
+
+    it('shows a bar with the count, selects all and clears the selection', async () => {
+      await open([unused(idA, 700), unused(idB, 400)]);
+      expect(bar()).toBeNull();
+      (root.querySelector('.fonts-select input') as HTMLInputElement).click();
+      await settle(fixture);
+      expect(bar()?.textContent).toContain('2 selected');
+      (bar()?.querySelector('.bulk-bar__clear') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(bar()).toBeNull();
+    });
+
+    it('sends one delete per face, drops the deleted ones from the list and keeps a failed one selected and named', async () => {
+      await open([unused(idA, 700), unused(idB, 400)]);
+      (root.querySelector('.fonts-select input') as HTMLInputElement).click();
+      await settle(fixture);
+      root.querySelector<HTMLButtonElement>('#bulk-delete-fonts')?.click();
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('Delete 2 fonts?');
+      drawer()?.querySelector<HTMLButtonElement>('#fonts-bulk-submit')?.click();
+      await settle(fixture);
+      const deleteA = http.expectOne({ method: 'DELETE', url: `${listUrl}/${idA}` });
+      const deleteB = http.expectOne({ method: 'DELETE', url: `${listUrl}/${idB}` });
+      deleteA.flush(null);
+      deleteB.flush({ error: { code: 'font_in_use', message: 'A tale started using it.' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      await settle(fixture);
+      // A's request was the only one for it; B failed, so it is still listed and still selected.
+      expect(root.querySelectorAll('.fonts-face')).toHaveLength(1);
+      expect(root.querySelector('#bulk-fonts-failed')?.textContent).toContain('1 could not be deleted: Brand Sans Regular');
+      // The face left in the list is the one that failed.
+      expect(root.querySelector<HTMLInputElement>('.fonts-face input[type=checkbox]')?.checked).toBe(true);
+      expect(bar()?.textContent).toContain('1 selected');
+    });
+
+    it('does not offer a checkbox to a role that cannot edit, and disables the one of a face a tale uses', async () => {
+      TestBed.inject(DashboardStore).projects.set([{ id: 'p1', name: 'Acme', role: 'viewer' }]);
+      await open([unused(idA, 700)]);
+      expect(root.querySelector('.fonts-face input[type=checkbox]')).toBeNull();
+      root.remove();
+      TestBed.inject(DashboardStore).projects.set([{ id: 'p1', name: 'Acme', role: 'publisher' }]);
+      await open([font({ id: idB, weight: 400, style: 'normal', inUse: true })]);
+      const input = root.querySelector<HTMLInputElement>('.fonts-face input[type=checkbox]') as HTMLInputElement;
+      expect(input.disabled).toBe(true);
+      expect(root.querySelector(`#${input.getAttribute('aria-describedby')}`)?.textContent).toContain('cannot be deleted');
+    });
+  });
 });

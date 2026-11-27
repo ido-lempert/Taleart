@@ -31,9 +31,13 @@ import {
   textFontFamily,
   type SystemFontStack,
 } from '@taleart/contract/text-style';
+import { BulkBar } from '../bulk-bar';
+import { runLimited } from '../bulk-run';
 import { DashboardStore } from '../dashboard.store';
+import { Drawer } from '../drawer';
 import { Icon } from '../icon';
 import { projectFontFileUrl, ProjectFontsService } from '../project-fonts.service';
+import { createSelection } from '../selection';
 
 /** The fields of the upload form that can be refused. */
 type FontField = 'file' | 'family' | 'licence';
@@ -54,6 +58,16 @@ const FIELD_IDS: Readonly<Record<FontField, string>> = {
   family: 'font-family',
   licence: 'font-licence',
 };
+
+/** How many single-font requests a bulk delete keeps in flight (as the other lists do). */
+const BULK_CONCURRENCY = 3;
+
+/** A font a bulk delete could not finish, kept selected and named. */
+interface FontBulkFailure {
+  id: string;
+  name: string;
+  message: string;
+}
 
 /** A family with its faces, as the list shows them. */
 interface FontFamily {
@@ -81,7 +95,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
  */
 @Component({
   selector: 'app-fonts-page',
-  imports: [RouterLink, Icon],
+  imports: [RouterLink, Icon, BulkBar, Drawer],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .fonts-section {
@@ -144,6 +158,15 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
     .fonts-saved {
       margin: 0;
       color: var(--text-secondary);
+    }
+    .fonts-select {
+      display: flex;
+      align-items: center;
+      align-self: flex-start;
+    }
+    .fonts-names {
+      margin: var(--space-2) 0 0;
+      padding-inline-start: var(--space-5);
     }
   `,
   template: `
@@ -283,6 +306,32 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
           @if (list.length === 0) {
             <p class="muted">No fonts yet. A font uploaded here can be picked for any text in this project's tales.</p>
           } @else {
+            <!-- Escape clears the selection while focus is in the list (its checkboxes, its faces, the bar). -->
+            <div (keydown.escape)="selection.clear()">
+            @if (canEdit()) {
+              <div class="fonts-select">
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all fonts"
+                    [checked]="selection.allSelected()"
+                    [indeterminate]="selection.someSelected()"
+                    (change)="selection.toggleAll()"
+                  />
+                  <span>Select all</span>
+                </label>
+              </div>
+              <app-bulk-bar [count]="selection.count()" (cleared)="selection.clear()">
+                <button type="button" class="btn btn--danger btn--sm" id="bulk-delete-fonts" [disabled]="busy()" (click)="askBulkDelete()">
+                  Delete
+                </button>
+              </app-bulk-bar>
+            }
+            @if (bulkFailed().length > 0) {
+              <p class="form-error" role="alert" id="bulk-fonts-failed">
+                {{ bulkFailed().length }} could not be deleted: {{ bulkFailedNames() }}. They stay selected.
+              </p>
+            }
             <ul class="fonts-list" aria-labelledby="fonts-list-title">
               @for (group of families(); track group.family) {
                 <li>
@@ -290,6 +339,19 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
                   <ul class="fonts-faces" [attr.aria-label]="group.family + ' faces'">
                     @for (font of group.faces; track font.id) {
                       <li class="fonts-face">
+                        @if (canEdit()) {
+                          <!-- A face a tale uses is disabled, with the reason, so a bulk delete never sends it. -->
+                          <label class="checkbox">
+                            <input
+                              type="checkbox"
+                              [attr.aria-label]="'Select ' + group.family + ' ' + faceLabel(font)"
+                              [checked]="selection.isSelected(font.id)"
+                              [disabled]="font.inUse"
+                              [attr.aria-describedby]="font.inUse ? 'font-in-use-' + font.id : null"
+                              (change)="selection.toggle(font.id)"
+                            />
+                          </label>
+                        }
                         <span class="fonts-face__text">
                           <span
                             class="fonts-sample"
@@ -329,12 +391,49 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
                 </li>
               }
             </ul>
+            </div>
           }
         } @else if (!listError()) {
           <p class="muted">Loading the fonts…</p>
         }
       </section>
     </div>
+    @if (bulkDelete(); as run) {
+      <app-drawer
+        [heading]="bulkDeleteHeading()"
+        dialogRole="alertdialog"
+        describedBy="fonts-bulk-text"
+        initialFocus="#fonts-bulk-cancel"
+        [returnFocus]="bulkFocus"
+        [busy]="run.phase === 'running'"
+        (closed)="closeBulkDelete()"
+      >
+        <form class="drawer__form" (submit)="$event.preventDefault(); confirmBulkDelete()" novalidate>
+          <div class="drawer__body">
+            <p id="fonts-bulk-text">Texts can no longer pick them.</p>
+            <ul class="fonts-names">
+              @for (font of run.items.slice(0, 5); track font.id) {
+                <li>{{ fontName(font) }}</li>
+              }
+              @if (run.items.length > 5) {
+                <li class="muted">+{{ run.items.length - 5 }} more</li>
+              }
+            </ul>
+            @if (run.phase === 'running') {
+              <p class="muted" role="status">Deleting {{ run.done }} of {{ run.items.length }}…</p>
+            }
+          </div>
+          <div class="drawer__footer">
+            <button type="button" class="btn btn--secondary" id="fonts-bulk-cancel" [disabled]="run.phase === 'running'" (click)="closeBulkDelete()">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn--danger" id="fonts-bulk-submit" [disabled]="run.phase === 'running'">
+              {{ run.phase === 'running' ? 'Deleting…' : bulkDeleteSubmitLabel() }}
+            </button>
+          </div>
+        </form>
+      </app-drawer>
+    }
   `,
 })
 export class FontsPage implements OnInit {
@@ -362,6 +461,27 @@ export class FontsPage implements OnInit {
   protected readonly listError = signal('');
   protected readonly said = signal('');
   protected readonly busy = signal(false);
+
+  /** The faces picked for a bulk delete (the reusable selection, `selection.ts`). */
+  protected readonly selection = createSelection(
+    () => this.fonts() ?? [],
+    (font: ProjectFont) => font.id,
+  );
+  /** The bulk delete being confirmed, then run. */
+  protected readonly bulkDelete = signal<{ phase: 'confirm' | 'running'; items: readonly ProjectFont[]; done: number } | null>(null);
+  protected readonly bulkFailed = signal<readonly FontBulkFailure[]>([]);
+  protected readonly bulkFailedNames = computed(() => this.bulkFailed().map((f) => f.name).join(', '));
+  protected readonly bulkDeleteHeading = computed(() => {
+    const count = this.bulkDelete()?.items.length ?? 0;
+    return `Delete ${count} ${count === 1 ? 'font' : 'fonts'}?`;
+  });
+  protected readonly bulkDeleteSubmitLabel = computed(() => {
+    const count = this.bulkDelete()?.items.length ?? 0;
+    return `Delete ${count} ${count === 1 ? 'font' : 'fonts'}`;
+  });
+  /** Where focus goes when the bulk delete confirmation closes: its button, else the upload button. */
+  protected readonly bulkFocus = (): HTMLElement | null =>
+    document.getElementById('bulk-delete-fonts') ?? document.querySelector<HTMLElement>('.fonts-form button[type=submit]');
 
   protected readonly weights = FONT_WEIGHTS;
   protected readonly weightNames = FONT_WEIGHT_NAMES;
@@ -404,6 +524,57 @@ export class FontsPage implements OnInit {
 
   protected sampleFamily(font: ProjectFont): string {
     return textFontFamily({ font: { source: 'project', fontId: font.id }, fallback: font.fallback });
+  }
+
+  /** A face as a bulk action names it: its family and its face. */
+  protected fontName(font: ProjectFont): string {
+    return `${font.family} ${fontFaceName(font)}`;
+  }
+
+  /** Opens the confirmation of a bulk delete for the picked faces. */
+  protected askBulkDelete(): void {
+    if (this.busy() || !this.canEdit() || this.selection.count() === 0) return;
+    this.bulkFailed.set([]);
+    this.bulkDelete.set({ phase: 'confirm', items: this.selection.selectedItems(), done: 0 });
+  }
+
+  /** Closes the bulk delete confirmation; not while the deletes run. */
+  protected closeBulkDelete(): void {
+    if (this.bulkDelete()?.phase === 'running') return;
+    this.bulkDelete.set(null);
+  }
+
+  /**
+   * Deletes the confirmed faces through the single-font endpoint, a few at a time. The ones deleted
+   * leave the list; the ones that failed stay selected and are named.
+   */
+  protected async confirmBulkDelete(): Promise<void> {
+    const run = this.bulkDelete();
+    if (!run || run.phase !== 'confirm' || !this.canEdit()) return;
+    const projectId = this.projectId();
+    this.bulkDelete.set({ ...run, phase: 'running', done: 0 });
+    this.busy.set(true);
+    this.said.set('');
+    this.listError.set('');
+    const outcome = await runLimited(
+      run.items,
+      BULK_CONCURRENCY,
+      async (font) => {
+        const { value, message } = await this.service.remove(projectId, font.id);
+        return value === null ? message || 'The font was not deleted. Try again.' : '';
+      },
+      (done) => this.bulkDelete.update((current) => (current ? { ...current, done } : current)),
+    );
+    const deleted = new Set(outcome.succeeded.map((font) => font.id));
+    this.fonts.update((list) => (list ? list.filter((font) => !deleted.has(font.id)) : list));
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: this.fontName(item), message }));
+    this.selection.replace(failed.map((f) => f.id));
+    this.bulkFailed.set(failed);
+    this.bulkDelete.set(null);
+    this.busy.set(false);
+    const count = outcome.succeeded.length;
+    const summary = `${count} ${count === 1 ? 'font' : 'fonts'} deleted.`;
+    this.said.set(failed.length === 0 ? summary : `${summary} ${failed.length} could not be deleted: ${this.bulkFailedNames()}.`);
   }
 
   protected size(bytes: number): string {

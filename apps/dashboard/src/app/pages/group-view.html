@@ -7,6 +7,45 @@
     (closed)="duplicating.set(null)"
   />
 }
+@if (bulkDelete(); as run) {
+  <app-drawer
+    [heading]="bulkDeleteHeading()"
+    dialogRole="alertdialog"
+    describedBy="group-view-bulk-text"
+    initialFocus="#group-view-bulk-cancel"
+    [returnFocus]="bulkFocus"
+    [busy]="run.phase === 'running'"
+    (closed)="closeBulkDelete()"
+  >
+    <form class="drawer__form" (submit)="$event.preventDefault(); confirmBulkDelete()" novalidate>
+      <div class="drawer__body">
+        <p id="group-view-bulk-text">
+          They stop showing on your site, and their content goes with them. This cannot be undone.
+        </p>
+        <p class="muted">Copies of these tales and the project's uploaded media are kept.</p>
+        <ul class="group-view__names">
+          @for (tale of run.items.slice(0, 5); track tale.id) {
+            <li>{{ tale.title }}</li>
+          }
+          @if (run.items.length > 5) {
+            <li class="muted">+{{ run.items.length - 5 }} more</li>
+          }
+        </ul>
+        @if (run.phase === 'running') {
+          <p class="muted" role="status">Deleting {{ run.done }} of {{ run.items.length }}…</p>
+        }
+      </div>
+      <div class="drawer__footer">
+        <button type="button" class="btn btn--secondary" id="group-view-bulk-cancel" [disabled]="run.phase === 'running'" (click)="closeBulkDelete()">
+          Cancel
+        </button>
+        <button type="submit" class="btn btn--danger" id="group-view-bulk-submit" [disabled]="run.phase === 'running'">
+          {{ run.phase === 'running' ? 'Deleting…' : bulkDeleteSubmitLabel() }}
+        </button>
+      </div>
+    </form>
+  </app-drawer>
+}
 @if (deleting(); as d) {
   <app-delete-tale
     [tale]="d.tale"
@@ -105,6 +144,43 @@
     @if (group().tales.length === 0) {
       <p class="muted group-view__empty">No tales yet. Add one: it shows on the site while the group is on.</p>
     } @else {
+      <!-- Escape clears the selection while focus is in the list (its checkboxes, its cards, the bar). -->
+      <div (keydown.escape)="taleSelection.clear()">
+      @if (canEdit()) {
+        <div class="group-view__select">
+          <label class="checkbox">
+            <input
+              type="checkbox"
+              aria-label="Select all tales"
+              [checked]="taleSelection.allSelected()"
+              [indeterminate]="taleSelection.someSelected()"
+              (change)="taleSelection.toggleAll()"
+            />
+            <span>Select all</span>
+          </label>
+        </div>
+        <app-bulk-bar [count]="taleSelection.count()" (cleared)="taleSelection.clear()">
+          @if (archivePicks().length > 0 && canPublishTales()) {
+            <button type="button" class="btn btn--secondary btn--sm" id="group-view-bulk-archive" [disabled]="bulkBusy()" (click)="bulkStatus('archive')">
+              Archive
+            </button>
+          }
+          @if (restorePicks().length > 0 && canPublishTales()) {
+            <button type="button" class="btn btn--secondary btn--sm" id="group-view-bulk-restore" [disabled]="bulkBusy()" (click)="bulkStatus('restore')">
+              Restore
+            </button>
+          }
+          <button type="button" class="btn btn--danger btn--sm" id="group-view-bulk-delete" [disabled]="bulkBusy()" (click)="askBulkDelete()">
+            Delete
+          </button>
+        </app-bulk-bar>
+      }
+      @if (bulkFailed().length > 0) {
+        <div class="banner banner--inline" role="alert" id="group-view-bulk-failed">
+          <app-icon name="alert" />
+          <span>{{ bulkFailed().length }} could not be changed: {{ bulkFailedNames() }}. They stay selected.</span>
+        </div>
+      }
       <ol
         class="tale-list group-view__list"
         [attr.aria-label]="'Tales in ' + group().name"
@@ -116,6 +192,17 @@
         @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
           <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent" (contextmenu)="taleContextMenu($event, taleMenu)">
             <app-tale-thumbnail [tales]="[tale]" mediaClass="tale-card__media" />
+            @if (canEdit()) {
+              <!-- Beside the card's controls, not in its drag handle or its open button: a click here only picks the tale. -->
+              <label class="checkbox tale-card__select">
+                <input
+                  type="checkbox"
+                  [attr.aria-label]="'Select ' + tale.title"
+                  [checked]="taleSelection.isSelected(tale.id)"
+                  (change)="taleSelection.toggle(tale.id)"
+                />
+              </label>
+            }
             <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
             <app-visibility class="tale-card__visibility" [visibility]="tale.visibility" viewing="tale" [compact]="true" />
             <!-- Shown or Hidden is set in Tale Studio; here it only reads. -->
@@ -176,6 +263,7 @@
           </li>
         }
       </ol>
+      </div>
     }
   </div>
 </app-drawer>

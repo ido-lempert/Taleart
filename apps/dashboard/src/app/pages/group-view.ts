@@ -28,12 +28,15 @@ import {
   type TaleGroup,
   type Zone,
 } from '@taleart/contract/core';
+import { BulkBar } from '../bulk-bar';
+import { runLimited } from '../bulk-run';
 import { DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
 import { Icon } from '../icon';
 import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
 import { gateMenu } from '../project-roles';
 import { describeWindow, windowChip } from '../schedule';
+import { createSelection } from '../selection';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { TaleThumbnailComponent } from '../tale-thumbnail';
 import { visibilityLine, visibilityMark, VisibilityIndicator, type VisibilityMark } from '../visibility';
@@ -42,6 +45,23 @@ import { DeleteTale, deletedMessage, type DeletedTale } from './delete-tale';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 
 const TONES = 6;
+
+/** How many single-tale requests a bulk action keeps in flight (as the team and tale groups lists do). */
+const BULK_CONCURRENCY = 3;
+
+/** The bulk Delete being confirmed, then run: the tales picked, and how many are done. */
+interface TaleBulk {
+  phase: 'confirm' | 'running';
+  items: readonly Tale[];
+  done: number;
+}
+
+/** A tale a bulk action could not finish, kept selected and named. */
+interface TaleBulkFailure {
+  id: string;
+  name: string;
+  message: string;
+}
 
 /** Which way a move button moves its item. */
 type Direction = 'earlier' | 'later';
@@ -96,6 +116,7 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
     DuplicateTale,
     DeleteTale,
     TaleThumbnailComponent,
+    BulkBar,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(keydown)': 'cardKeydown($event)' },
@@ -229,6 +250,45 @@ export class GroupView implements OnDestroy {
 
   /** True while a new tale is being added, so the button waits for it. */
   protected readonly adding = signal(false);
+
+  /**
+   * The tales picked for a bulk action (the reusable selection, `selection.ts`). The checkboxes show
+   * only to a role that may edit content, as the cards' own controls do.
+   */
+  protected readonly taleSelection = createSelection(
+    () => this.group().tales,
+    (tale: Tale) => tale.id,
+  );
+  /** The bulk Delete being confirmed, then run. */
+  protected readonly bulkDelete = signal<TaleBulk | null>(null);
+  /** True while a bulk Archive, Restore or Delete runs: the bar's buttons wait for it. */
+  protected readonly bulkBusy = signal(false);
+  protected readonly bulkFailed = signal<readonly TaleBulkFailure[]>([]);
+  protected readonly bulkFailedNames = computed(() => this.bulkFailed().map((f) => f.name).join(', '));
+  protected readonly bulkDeleteHeading = computed(() => {
+    const count = this.bulkDelete()?.items.length ?? 0;
+    return `Delete ${count} ${count === 1 ? 'tale' : 'tales'}?`;
+  });
+  protected readonly bulkDeleteSubmitLabel = computed(() => {
+    const count = this.bulkDelete()?.items.length ?? 0;
+    return `Delete ${count} ${count === 1 ? 'tale' : 'tales'}`;
+  });
+  /** Where focus goes when the bulk Delete confirmation closes: the bar's Delete, else Add tale. */
+  protected readonly bulkFocus = (): HTMLElement | null => {
+    const host = this.host.nativeElement;
+    return host.querySelector<HTMLElement>('#group-view-bulk-delete') ?? host.querySelector<HTMLElement>('#group-view-add-tale');
+  };
+  /** The picked tales whose own single action is Archive, and those whose single action is Restore. */
+  protected readonly archivePicks = computed(() =>
+    this.taleSelection.selectedItems().filter((tale) => statusActions(tale.storedStatus)[0]?.status === 'archived'),
+  );
+  protected readonly restorePicks = computed(() =>
+    this.taleSelection.selectedItems().filter(
+      (tale) => statusActions(tale.storedStatus)[0] !== undefined && statusActions(tale.storedStatus)[0].status !== 'archived',
+    ),
+  );
+  /** Archive and Restore are the tale menu's own actions, set by a role that may publish. */
+  protected readonly canPublishTales = computed(() => this.store.can('content.publish', this.group().projectId));
 
   /**
    * Each tale card's ⋯ menu, by tale id (epic UX rework R8, R11): one computed map, so an open
@@ -413,6 +473,75 @@ export class GroupView implements OnDestroy {
   protected duplicated(result: DuplicatedTale): void {
     this.duplicating.set(null);
     this.announce.emit(duplicatedMessage(result));
+  }
+
+  /**
+   * Runs the tale menu's Archive or Restore on each picked tale that offers it, a few at a time, as
+   * its own single action does (no confirmation, as the single one asks none). The ones that failed
+   * stay selected and are named.
+   */
+  protected async bulkStatus(kind: 'archive' | 'restore'): Promise<void> {
+    if (this.bulkBusy() || !this.canPublishTales()) return;
+    const picks = kind === 'archive' ? this.archivePicks() : this.restorePicks();
+    if (picks.length === 0) return;
+    this.bulkBusy.set(true);
+    this.bulkFailed.set([]);
+    this.error.set('');
+    const outcome = await runLimited(picks, BULK_CONCURRENCY, async (tale) => {
+      const action = statusActions(tale.storedStatus)[0];
+      if (!action) return '';
+      const result = await this.store.setTaleStatus(tale.id, action.status);
+      return result.message;
+    });
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: item.title, message }));
+    this.taleSelection.replace(failed.map((f) => f.id));
+    this.bulkFailed.set(failed);
+    this.bulkBusy.set(false);
+    const count = outcome.succeeded.length;
+    const summary = `${count} ${count === 1 ? 'tale' : 'tales'} ${kind === 'archive' ? 'archived' : 'restored'}.`;
+    this.announce.emit(
+      failed.length === 0
+        ? summary
+        : `${summary} ${failed.length} could not be ${kind === 'archive' ? 'archived' : 'restored'}: ${this.bulkFailedNames()}.`,
+    );
+  }
+
+  /** Opens the confirmation of a bulk Delete for the picked tales. */
+  protected askBulkDelete(): void {
+    if (this.bulkBusy() || !this.canEdit() || this.taleSelection.count() === 0) return;
+    this.bulkFailed.set([]);
+    this.bulkDelete.set({ phase: 'confirm', items: this.taleSelection.selectedItems(), done: 0 });
+  }
+
+  /** Closes the bulk Delete confirmation; not while the deletes run. */
+  protected closeBulkDelete(): void {
+    if (this.bulkDelete()?.phase === 'running') return;
+    this.bulkDelete.set(null);
+  }
+
+  /**
+   * Deletes the confirmed tales through the single-tale endpoint, a few at a time. Each one leaves
+   * the group as it is deleted; the ones that failed stay selected and are named.
+   */
+  protected async confirmBulkDelete(): Promise<void> {
+    const run = this.bulkDelete();
+    if (!run || run.phase !== 'confirm' || !this.canEdit()) return;
+    this.bulkDelete.set({ ...run, phase: 'running', done: 0 });
+    const outcome = await runLimited(
+      run.items,
+      BULK_CONCURRENCY,
+      (tale) => this.store.deleteTale(tale.id),
+      (done) => this.bulkDelete.update((current) => (current ? { ...current, done } : current)),
+    );
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: item.title, message }));
+    this.taleSelection.replace(failed.map((f) => f.id));
+    this.bulkFailed.set(failed);
+    this.bulkDelete.set(null);
+    const count = outcome.succeeded.length;
+    const summary = `${count} ${count === 1 ? 'tale' : 'tales'} deleted from ${this.group().name}. ${shownCount(this.group())}.`;
+    this.announce.emit(
+      failed.length === 0 ? summary : `${summary} ${failed.length} could not be deleted: ${this.bulkFailedNames()}.`,
+    );
   }
 
   // Moving an item re-inserts its element, which drops focus; put focus back on
