@@ -51,8 +51,11 @@ import { TalePreviewPane } from './tale-preview';
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
+      align-items: center;
       gap: var(--space-3);
-      width: min(100%, 560px);
+      /* As wide as the phone needs: the pane is a phone-sized screen, so the card wraps it rather than a fixed width. */
+      width: fit-content;
+      max-width: 100%;
       max-height: 100%;
       overflow: auto;
       padding: var(--space-4, 16px);

@@ -573,4 +573,21 @@ describe('the group preview', () => {
     expect(group.isOpen).toBe(true);
     expect(viewerTexts()).toEqual(['Hello']);
   });
+
+  it('opens the tapped group of a zone preview that edits no group', () => {
+    group.show(zoneOf([summer(), winter()], barFrame), '');
+    entries()[1].click();
+    expect(group.isOpen).toBe(true);
+    expect(gq('.name')?.textContent).toBe('Winter');
+    expect(viewerTexts()).toEqual(['Cold']);
+  });
+
+  it('plays the zone from its first group on replay when no group is being edited', () => {
+    group.show(zoneOf([summer(), winter()], barFrame), '');
+    expect(group.isOpen).toBe(false);
+    group.replay();
+    expect(group.isOpen).toBe(true);
+    expect(gq('.name')?.textContent).toBe('Summer');
+    expect(viewerTexts()).toEqual(['Hello']);
+  });
 });

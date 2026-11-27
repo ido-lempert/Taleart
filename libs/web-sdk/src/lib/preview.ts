@@ -550,9 +550,14 @@ export class GroupPreview {
     this.redrawTimer = setTimeout(() => this.redraw(), PREVIEW_REDRAW_MS);
   }
 
-  /** Opens the viewer on the group again, from its first tale (after the viewer ended or was closed). */
+  /**
+   * Opens the viewer on the group again, from its first tale (after the viewer ended or was closed). With no group being
+   * edited (the zone's own preview), it plays the zone's first group that has tales.
+   */
   replay(): void {
-    if (this.zone && this.groupId !== null) this.openGroup(this.groupId);
+    if (!this.zone || this.groupId === null) return;
+    const first = this.zone.taleGroups.find((group) => group.tales.length > 0);
+    this.openGroup(this.groupId || first?.id || '');
   }
 
   /** Pauses or resumes the viewer, as its Pause button does. */
@@ -657,8 +662,11 @@ export class GroupPreview {
   }
 }
 
-// The page the zone's display sits on in the group preview: a plain white page with the display's gutter.
+// The page the zone's display sits on in the group preview: a plain white page with the display's gutter. The viewer's
+// layer lies over the page but takes no pointer events of its own while no viewer is open, so the display's entries
+// still receive taps; the open viewer's dialog takes them back.
 const GROUP_PAGE_STYLES = `
 .group-page { position: absolute; inset: 0; overflow: hidden; padding: 16px 12px; background: #ffffff; box-sizing: border-box; }
-.group-viewer { position: absolute; inset: 0; }
+.group-viewer { position: absolute; inset: 0; pointer-events: none; }
+.group-viewer > * { pointer-events: auto; }
 `;

@@ -219,6 +219,28 @@ describe('Zones page: Preview of a zone', () => {
     expect(document.activeElement).toBe(button('zone-z1'));
   });
 
+  it('opens the viewer of a tapped circle in the phone, and Play from the start plays the zone from its first group', async () => {
+    TestBed.inject(DashboardStore).taleGroups.set({
+      z1: [zoneGroup('g1', 'Summer', [tale('t1', 'Beach')]), zoneGroup('g2', 'Winter', [tale('t2', 'Snow')])],
+    });
+    fixture.detectChanges();
+    button('zone-z1').click();
+    fixture.detectChanges();
+    answerPreviewReads(http);
+    await settle(fixture);
+    const shadow = root.querySelector<HTMLElement>('#preview-host')?.shadowRoot as ShadowRoot;
+    const viewerOpen = () => shadow.querySelector<HTMLDialogElement>('dialog')?.hasAttribute('open') ?? false;
+    expect(viewerOpen()).toBe(false);
+    shadow.querySelector<HTMLButtonElement>('button.item[data-tale-group-id="g2"]')?.click();
+    fixture.detectChanges();
+    expect(viewerOpen()).toBe(true);
+    expect(shadow.querySelector('.name')?.textContent).toBe('Winter');
+    root.querySelector<HTMLButtonElement>('#preview-replay')?.click();
+    fixture.detectChanges();
+    expect(viewerOpen()).toBe(true);
+    expect(shadow.querySelector('.name')?.textContent).toBe('Summer');
+  });
+
   it('does not preview a zone with no display', async () => {
     expect(button('zone-z2').getAttribute('aria-disabled')).toBe('true');
     button('zone-z2').click();
