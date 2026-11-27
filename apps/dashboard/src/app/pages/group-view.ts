@@ -562,6 +562,11 @@ export class GroupView implements OnDestroy {
     );
   }
 
+  /** Whether a tale is Shown; a Hidden or Archived tale is dimmed on its card (its stored key is not `live`). */
+  protected isShown(tale: Tale): boolean {
+    return taleShownStatus(tale.storedStatus) === 'shown';
+  }
+
   /** A stable placeholder tone for a tale, derived from its id. */
   protected tone(id: string): number {
     let hash = 0;

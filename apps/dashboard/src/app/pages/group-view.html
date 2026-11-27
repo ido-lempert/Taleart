@@ -190,7 +190,7 @@
         (cdkDropListDropped)="dropTale($event)"
       >
         @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
-          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent" (contextmenu)="taleContextMenu($event, taleMenu)">
+          <li class="tale-card" [class.tale-card--dimmed]="!isShown(tale)" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag [cdkDragDisabled]="!canEdit()" cdkDragPreviewContainer="parent" (contextmenu)="taleContextMenu($event, taleMenu)">
             <app-tale-thumbnail [tales]="[tale]" mediaClass="tale-card__media" />
             @if (canEdit()) {
               <!-- Beside the card's controls, not in its drag handle or its open button: a click here only picks the tale. -->
@@ -205,9 +205,9 @@
             }
             <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
             <app-visibility class="tale-card__visibility" [visibility]="tale.visibility" viewing="tale" [compact]="true" />
-            <!-- Shown or Hidden is set in Tale Studio; here it only reads. -->
-            <span class="tale-card__switch">{{ shownLabel(tale.storedStatus, 'tale') }}</span>
-            @if (needsBadge(tale.status)) {
+            <!-- Shown or Hidden is set in Tale Studio; here it only reads. Not drawn over the picture: a not-Shown tale is dimmed instead, and its open button reads this text. -->
+            <span class="visually-hidden" [attr.id]="'tale-state-' + tale.id">{{ shownLabel(tale.storedStatus, 'tale') }}</span>
+            @if (needsBadge(tale.status) && tale.storedStatus !== 'archived') {
               <app-status-badge class="tale-card__status" [status]="tale.status" kind="tale" />
             }
             <span class="tale-card__title">
@@ -223,6 +223,7 @@
                 type="button"
                 class="tale-card__open"
                 [attr.aria-label]="'Open tale ' + tale.title"
+                [attr.aria-describedby]="'tale-state-' + tale.id"
                 (click)="openInStudio(tale)"
               ></button>
             }

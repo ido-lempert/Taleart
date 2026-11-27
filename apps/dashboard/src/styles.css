@@ -493,27 +493,6 @@ html[data-nav-direction='back']::view-transition-new(root) {
   }
 }
 
-/* On a tale card: below the position badge, on a dark plate so it reads over any media. */
-.tale-card__switch {
-  position: absolute;
-  /* Above the card's open button, which covers the card. */
-  z-index: 1;
-  top: calc(var(--space-2) + 28px);
-  left: var(--space-2);
-  padding: 2px var(--space-2) 2px 2px;
-  border-radius: var(--radius-pill);
-  background: rgb(0 0 0 / 62%);
-  color: #fff;
-}
-
-.tale-card__switch .show-switch__state {
-  font-size: var(--text-xs);
-}
-
-.tale-card__switch .show-switch__button {
-  border-color: #d1d5db;
-}
-
 /* A tale's start and end time in its drawer, with the button that edits them. */
 .schedule-summary {
   display: flex;
@@ -543,7 +522,7 @@ html[data-nav-direction='back']::view-transition-new(root) {
 /* A tale card's status, below its switch. */
 .tale-card__status {
   position: absolute;
-  top: calc(var(--space-2) + 60px);
+  top: calc(var(--space-2) + 28px);
   left: var(--space-2);
 }
 

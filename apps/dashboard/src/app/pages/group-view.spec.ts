@@ -82,6 +82,24 @@ describe('GroupView bulk actions on its tales', () => {
     vi.restoreAllMocks();
   });
 
+  it('dims a tale that is not Shown, and draws no Shown or Hidden text over any card', async () => {
+    await open('editor', [tale('t1', 'One', 'live'), tale('t2', 'Two', 'draft'), tale('t3', 'Three', 'archived')]);
+    const cards = [...root.querySelectorAll<HTMLElement>('.tale-card')];
+    expect(cards.map((card) => card.classList.contains('tale-card--dimmed'))).toEqual([false, true, true]);
+    // No visible label over the picture: the status is visually hidden, and the open button describes it.
+    expect(root.querySelector('.tale-card__switch')).toBeNull();
+    const states = cards.map((card) => card.querySelector('.visually-hidden')?.textContent?.trim());
+    expect(states).toEqual(['Shown', 'Hidden', 'Archived']);
+    const opens = cards.map((card) => card.querySelector('.tale-card__open'));
+    opens.forEach((open, i) => {
+      const id = cards[i].querySelector('.visually-hidden')?.id;
+      expect(id).toBeTruthy();
+      expect(open?.getAttribute('aria-describedby')).toBe(id);
+    });
+    // An archived tale has no visible badge over its picture either; its dim and its text say it.
+    expect(root.querySelector('.tale-card__status')).toBeNull();
+  });
+
   it('gives each card a checkbox to an editor, and none to a viewer', async () => {
     await open('editor', [tale('t1', 'One'), tale('t2', 'Two')]);
     expect(cardBoxes().map((box) => box.getAttribute('aria-label'))).toEqual(['Select One', 'Select Two']);

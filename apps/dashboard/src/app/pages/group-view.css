@@ -114,6 +114,22 @@ app-group-view .window-chip--card {
   font-size: 11px;
 }
 
+/* A tale that is not Shown (Hidden or Archived): its picture fades and greys, the card's background greys with it, so it reads as off.
+   The card's controls and title are not dimmed. */
+app-group-view .tale-card.tale-card--dimmed {
+  background: linear-gradient(160deg, #9ca3af, #4b5563);
+}
+app-group-view .tale-card.tale-card--dimmed .tale-card__media {
+  opacity: 0.5;
+  filter: grayscale(1);
+  transition: opacity 200ms ease, filter 200ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  app-group-view .tale-card.tale-card--dimmed .tale-card__media {
+    transition: none;
+  }
+}
+
 /* On phones the group view is the whole page: no backdrop, no shadow, edge to edge. */
 @media (max-width: 639.98px) {
   app-group-view .drawer--wide {

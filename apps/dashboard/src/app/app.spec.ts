@@ -3454,7 +3454,10 @@ describe('App', () => {
       });
       await settle(fixture);
       expect(cardOf('A').querySelector('[role=switch]')).toBeNull();
-      expect(cardOf('A').querySelector('.status-badge')?.textContent).toContain('Archived');
+      // Dimmed, with no visible badge over the picture; the word is visually hidden for assistive tech.
+      expect(cardOf('A').classList.contains('tale-card--dimmed')).toBe(true);
+      expect(cardOf('A').querySelector('.status-badge')).toBeNull();
+      expect(cardOf('A').querySelector('.visually-hidden')?.textContent?.trim()).toBe('Archived');
       expect(menuItems(view(), 'More for A').at(-2)?.label).toBe('Restore');
       expect(announced(groupView() as HTMLElement)).toContain('A is now archived');
     });
@@ -3796,7 +3799,10 @@ describe('App', () => {
       // The copy is in Autumn: its group view shows it.
       await expandGroups(fixture, root, 'Autumn');
       const card = root.querySelector('[aria-label="More for A (copy)"]')?.closest('.tale-card');
-      expect(card?.querySelector('.tale-card__switch')?.textContent?.trim()).toBe('Hidden');
+      // Not drawn over the picture: the card is dimmed, and its Hidden text is for assistive tech.
+      expect(card?.classList.contains('tale-card--dimmed')).toBe(true);
+      expect(card?.querySelector('.visually-hidden')?.textContent?.trim()).toBe('Hidden');
+      expect(card?.querySelector('.tale-card__open')?.getAttribute('aria-describedby')).toBe(card?.querySelector('.visually-hidden')?.id);
     });
 
     it("keeps the drawer open with the API's message when the group is full, and refuses a full group at once", async () => {

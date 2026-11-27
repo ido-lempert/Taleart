@@ -683,7 +683,8 @@ export class ApiTokensPage {
       this.readOnly.set(true);
       // The form collapses behind its button now that a token is active; focus returns to that button.
       this.formOpen.set(false);
-      this.returnFocus = document.getElementById('api-token-add');
+      // The button appears only with this render (no tokens were active before), so it is looked up after it.
+      afterNextRender(() => (this.returnFocus = document.getElementById('api-token-add')), { injector: this.injector });
       this.announcement.set(`Token ${token.name} created.`);
     } catch (err) {
       this.createError.set(refusal(err, 'The token was not created. Try again.'));
