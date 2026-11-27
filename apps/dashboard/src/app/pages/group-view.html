@@ -145,7 +145,7 @@
       <p class="muted group-view__empty">No tales yet. Add one: it shows on the site while the group is on.</p>
     } @else {
       <!-- Escape clears the selection while focus is in the list (its checkboxes, its cards, the bar). -->
-      <div (keydown.escape)="taleSelection.clear()">
+      <div role="group" (keydown.escape)="taleSelection.clear()">
       @if (canEdit()) {
         <div class="group-view__select">
           <label class="checkbox">

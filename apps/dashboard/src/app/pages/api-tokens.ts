@@ -342,7 +342,7 @@ export function tokenScope(token: Pick<ApiToken, 'readOnly' | 'projectIds'>, pro
             </p>
           } @else {
             <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
-            <div (keydown.escape)="selection.clear()">
+            <div role="group" (keydown.escape)="selection.clear()">
               <div class="tokens-list__head">
                 <label class="checkbox">
                   <input

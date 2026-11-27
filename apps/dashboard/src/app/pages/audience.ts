@@ -255,7 +255,7 @@ function readSample(file: Blob): Promise<string> {
               </div>
             } @else {
               <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
-              <div (keydown.escape)="selection.clear()">
+              <div role="group" (keydown.escape)="selection.clear()">
               @if (canEdit()) {
                 <div class="user-lists__head">
                   <label class="checkbox">

@@ -41,6 +41,9 @@ export default [
             "src/app/pages/tale-*.ts",
             "src/app/pages/theme.ts",
             "src/app/pages/theme-*.ts",
+            // The zone preview is loaded only by the lazy Zones and Tale groups pages (its helper, like the tale-* ones).
+            "src/app/pages/zone-preview.ts",
+            "src/app/pages/zone-preview.spec.ts",
             "src/app/pages/fonts.ts",
             "src/app/tale-document.service.ts",
             "src/app/theme.service.ts"

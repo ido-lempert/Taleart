@@ -218,7 +218,7 @@ function refusal(err: unknown, fallback: string): string {
             <p class="muted" role="status">Reading the team…</p>
           } @else {
             <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
-            <div (keydown.escape)="memberSelection.clear()">
+            <div role="group" (keydown.escape)="memberSelection.clear()">
             @if (canManage()) {
               <app-bulk-bar [count]="memberSelection.count()" (cleared)="memberSelection.clear()">
                 <button type="button" class="btn btn--secondary btn--sm" id="bulk-role" (click)="askMemberBulk('role')">
@@ -405,7 +405,7 @@ function refusal(err: unknown, fallback: string): string {
               </p>
             } @else {
               <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
-              <div (keydown.escape)="inviteSelection.clear()">
+              <div role="group" (keydown.escape)="inviteSelection.clear()">
               <app-bulk-bar [count]="inviteSelection.count()" (cleared)="inviteSelection.clear()">
                 <button type="button" class="btn btn--danger btn--sm" id="bulk-revoke-invitations" (click)="askInviteBulk()">
                   Revoke

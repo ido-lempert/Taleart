@@ -307,7 +307,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
             <p class="muted">No fonts yet. A font uploaded here can be picked for any text in this project's tales.</p>
           } @else {
             <!-- Escape clears the selection while focus is in the list (its checkboxes, its faces, the bar). -->
-            <div (keydown.escape)="selection.clear()">
+            <div role="group" (keydown.escape)="selection.clear()">
             @if (canEdit()) {
               <div class="fonts-select">
                 <label class="checkbox">

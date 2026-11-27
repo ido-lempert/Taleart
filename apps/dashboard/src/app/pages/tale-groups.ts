@@ -366,7 +366,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
               }
               @if (groups().length > 0) {
                 <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
-                <div class="tale-groups-list" (keydown.escape)="selection.clear()">
+                <div class="tale-groups-list" role="group" (keydown.escape)="selection.clear()">
                   @if (canSelect()) {
                     <div class="tale-groups-list__head">
                       <label class="checkbox">
@@ -424,7 +424,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                         (click)="rowClick(group, $event)"
                       >
                         @if (canSelect()) {
-                          <label groupRowLead class="checkbox group-row__select" (click)="$event.stopPropagation()">
+                          <label groupRowLead class="checkbox group-row__select">
                             <input
                               type="checkbox"
                               [attr.aria-label]="'Select ' + group.name"
