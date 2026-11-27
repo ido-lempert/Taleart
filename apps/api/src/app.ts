@@ -27,7 +27,7 @@ import { talesRouter } from './http/tales.router';
 import { zoneKeysRouter } from './http/zone-keys.router';
 import { taleResponsesRouter } from './http/responses.router';
 import { zoneAnalyticsRouter } from './http/analytics.router';
-import type { RateLimitOptions } from './http/rate-limit';
+import { PUBLIC_READ_RATE_LIMIT, rateLimit, type RateLimitOptions } from './http/rate-limit';
 import {
   defaultSdkFiles,
   installRouter,
@@ -260,11 +260,11 @@ export function createApp(
     }));
 
   // Published media is public at unguessable URLs (AD-11): no session, no zone or site key.
-  app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));
+  app.use(PUBLIC_MEDIA_BASE, rateLimit(PUBLIC_READ_RATE_LIMIT), publicMediaRouter(pool, storage));
 
   // The Web SDK bundle for host pages and the test page that renders one zone with it (epic UX
   // rework R13): public, no session and no key.
-  app.use(SDK_BASE, sdkRouter(sdkFiles, publicApiUrl, sdkServed));
+  app.use(SDK_BASE, rateLimit(PUBLIC_READ_RATE_LIMIT), sdkRouter(sdkFiles, publicApiUrl, sdkServed));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

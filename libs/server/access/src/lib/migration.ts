@@ -149,6 +149,11 @@ export async function migrateAccess(db: Db): Promise<void> {
   await db.query(
     'CREATE INDEX IF NOT EXISTS project_audit_log_project_idx ON project_audit_log (project_id, created_at DESC, id DESC)',
   );
+  // Entries written in one transaction share a timestamp; seq keeps them in the order they were written.
+  await db.query('ALTER TABLE project_audit_log ADD COLUMN IF NOT EXISTS seq bigserial');
+  await db.query(
+    'CREATE INDEX IF NOT EXISTS project_audit_log_order_idx ON project_audit_log (project_id, created_at DESC, seq DESC)',
+  );
 
   // A project's site key (AD-9 amended, epic UX rework R3).
   await migrateSiteKeys(db);

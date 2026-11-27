@@ -321,14 +321,14 @@ export async function listProjectAuditLog(
   if (options.before !== undefined) {
     if (!UUID.test(options.before)) return { entries: [], nextBefore: null };
     params.push(options.before);
-    cursor = `AND (created_at, id) < (SELECT created_at, id FROM project_audit_log WHERE id = $3 AND project_id = $1)`;
+    cursor = `AND (created_at, seq) < (SELECT created_at, seq FROM project_audit_log WHERE id = $3 AND project_id = $1)`;
   }
   const { rows } = await db.query<AuditRow>(
     `SELECT id, action, actor_id AS "actorId", actor_name AS "actorName", target_user_id AS "targetUserId",
             target_email AS "targetEmail", detail, created_at AS "createdAt"
        FROM project_audit_log
       WHERE project_id = $1 ${cursor}
-      ORDER BY created_at DESC, id DESC
+      ORDER BY created_at DESC, seq DESC
       LIMIT $2`,
     params,
   );

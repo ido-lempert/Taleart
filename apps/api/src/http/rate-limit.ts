@@ -31,6 +31,13 @@ export const DEFAULT_DELIVERY_RATE_LIMIT: RateLimitOptions = { burst: 600, perSe
  */
 export const ADDRESS_BACKSTOP_FACTOR = 10;
 
+/**
+ * The limit on the public media and Web SDK bundle routes, per client address (they carry no visitor id): a page
+ * loads a few dozen media and one bundle, so a burst of 300 and 20 a second leaves real pages alone and stops a
+ * flood of anonymous reads.
+ */
+export const PUBLIC_READ_RATE_LIMIT: RateLimitOptions = { burst: 300, perSecond: 20 };
+
 /** The header a visitor's id comes in: a UUID v4 the SDK generates once per device. */
 export const VISITOR_HEADER = 'X-TaleArt-Visitor';
 
