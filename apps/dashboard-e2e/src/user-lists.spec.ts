@@ -81,7 +81,8 @@ test.describe.serial('user lists on the Audience page (epic targeting story 5.3)
   test('creates a list from the verify CSV: 8 IDs, and the report names the refused line', async () => {
     await page.goto('/audience');
     await page.getByRole('link', { name: 'Audience' }).first().waitFor();
-    await expect(page.getByRole('tab', { name: 'User lists', selected: true })).toBeVisible();
+    // The page lists user lists under its title, with no tab strip above them.
+    await expect(page.getByRole('region', { name: 'User lists' })).toBeVisible();
     await expect(page.getByText('No user lists yet')).toBeVisible();
     await page.getByRole('button', { name: 'New user list' }).click();
     const drawer = page.getByRole('dialog', { name: 'New user list' });

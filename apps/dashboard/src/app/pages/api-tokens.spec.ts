@@ -201,6 +201,8 @@ describe('ApiTokensPage: Settings > API tokens (epic developer experience 10.1)'
     await settle(fixture);
     expect(dialog()).toBeNull();
     expect(document.body.innerHTML).not.toContain(SECRET);
+    // The first token made the "Add a token…" button (no tokens were active before): focus goes back to it.
+    expect(document.activeElement?.id).toBe('api-token-add');
   });
 
   it('a token for all projects and read-write that never expires', async () => {

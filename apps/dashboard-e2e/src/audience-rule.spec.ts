@@ -109,7 +109,7 @@ test.describe.serial('the audience rule of a tale group (epic viewer properties)
     const indicator = page
       .locator('app-group-row')
       .filter({ has: page.getByRole('heading', { name: 'Pro members', exact: true }) })
-      .locator('app-visibility')
+      .locator('app-status-marker')
       .getByRole('button');
     await expect(indicator).toHaveAccessibleName(SUMMARY);
 
@@ -182,11 +182,12 @@ test.describe.serial('the audience rule of a tale group (epic viewer properties)
 
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();
+    // The marker's button is named by the status text; with no rule it names the group's plain visibility.
     const indicator = page
       .locator('app-group-row')
       .filter({ has: page.getByRole('heading', { name: 'Pro members', exact: true }) })
-      .locator('app-visibility');
-    await expect(indicator).toHaveText('Visible on site in at least one zone', { useInnerText: true });
-    await expect(indicator.getByRole('button')).toHaveCount(0);
+      .locator('app-status-marker')
+      .getByRole('button');
+    await expect(indicator).toHaveAccessibleName('Visible on site in at least one zone');
   });
 });

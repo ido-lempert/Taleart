@@ -209,7 +209,9 @@ test.describe.serial('Tale Studio accessibility (story 7.10)', () => {
     await expect(page.locator('#preview-host')).toBeVisible();
     await shot(page, 'studio-preview');
     expect(await axeViolations(page), 'with the preview open').toEqual([]);
-    await page.locator('#studio-preview').click();
+    // The preview is a full view over the studio, which covers the Preview button: its own Close button ends it.
+    await page.locator('#studio-preview-close').click();
+    await expect(page.locator('#preview-host')).toHaveCount(0);
   });
 
   test('judges a text over a photo from its pixels', async () => {

@@ -71,6 +71,8 @@ const REASON_TONE: Readonly<Record<VisibilityReasonCode, StatusTone>> = {
 export interface VisibilityMark {
   tone: StatusTone;
   text: string;
+  /** Who a targeted group is for, in full: the marker's description (the summary is its name). */
+  detail?: string;
 }
 
 /**
@@ -88,7 +90,8 @@ export function visibilityMark(
   if (visibility.visible) {
     const base = options.anyZone ? `${VISIBLE_ON_SITE_TEXT} in at least one zone` : VISIBLE_ON_SITE_TEXT;
     const audience = options.targeting ? audienceSummary(options.targeting) : null;
-    return { tone: 'green', text: withAudience(base, audience) };
+    const detail = options.targeting ? audienceDetail(options.targeting).join(' ') : '';
+    return { tone: 'green', text: withAudience(base, audience), ...(detail ? { detail } : {}) };
   }
   const [first] = visibility.reasons;
   return {

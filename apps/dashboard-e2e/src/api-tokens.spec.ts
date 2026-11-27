@@ -112,8 +112,8 @@ test.describe.serial('API tokens for scripts (story 10.1)', () => {
 
     await drawer.getByRole('button', { name: 'Done' }).click();
     await expect(drawer).toBeHidden();
-    // Focus goes back to the button that created it.
-    await expect(page.getByRole('button', { name: 'Create token' })).toBeFocused();
+    // The form collapses behind "Add a token…" once a token exists; focus returns to that button.
+    await expect(page.getByRole('button', { name: 'Add a token…' })).toBeFocused();
     const item = page.getByRole('listitem').filter({ hasText: 'Nightly import' });
     await expect(item).toContainText(`${token.slice(0, 10)}…`);
     await expect(item).toContainText('Read-only · Acme');

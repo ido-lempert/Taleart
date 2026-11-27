@@ -312,6 +312,8 @@ describe('visibilityMark (the status marker beside a name)', () => {
     expect(visibilityMark({ visible: true, reasons: [] }, 'group', { targeting })).toEqual({
       tone: 'green',
       text: 'Visible on site · for viewers tagged vip',
+      // The full audience is the marker's description, read by a screen reader.
+      detail: 'Shown to viewers tagged vip. A page that passes no tags shows it to every viewer.',
     });
   });
 

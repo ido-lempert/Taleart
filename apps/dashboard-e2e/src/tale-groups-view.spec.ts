@@ -54,9 +54,12 @@ test.describe.serial('the Tale groups page group view (story 8.19)', () => {
       // Add tale makes an "Untitled tale" and opens it in Tale Studio: its media and title are set there.
       await view.getByRole('button', { name: 'Add tale to Loose ideas' }).click();
       await expect(page).toHaveURL(/\/tales\/[^/]+\/studio\?from=tale-groups$/);
+      // The studio drops a picked file until its tale has loaded, so wait for the new tale's title first.
+      await expect(page.locator('#studio-title')).toContainText('Untitled tale');
       // Replace media keeps the picked file as the tale's media (the API check below reads it).
       await page.locator('#studio-media-input').setInputFiles(files[i]);
-      await expect(page.getByText('Media replaced.').first()).toBeVisible({ timeout: 30_000 });
+      // The studio says it in its polite live region (visually hidden), not on screen.
+      await expect(page.locator('#studio-live')).toHaveText('Media replaced.', { timeout: 30_000 });
       await page.locator('#studio-menu').click();
       await page.locator('#studio-rename').click();
       const rename = page.getByRole('dialog', { name: 'Rename tale' });

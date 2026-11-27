@@ -155,7 +155,9 @@ test.describe.serial('a Rating (epic interactive components story 4.2)', () => {
       'You rated 100. Ratings are not recorded in the preview.',
     );
     expect(await responseRows()).toEqual([]);
-    await page.locator('#studio-preview').click();
+    // The preview is a full view over the studio, which covers the Preview button: its own Close button ends it.
+    await page.locator('#studio-preview-close').click();
+    await expect(page.locator('#studio-preview-pane')).toHaveCount(0);
   });
 
   test('drags the emoji to 80 on the test page: the average shows, and the viewer stays put', async ({ browser }) => {

@@ -56,7 +56,7 @@ test.describe.serial('a targeted group says who it is for (epic targeting story 
 
   // The indicator of the row whose name is `name`.
   const indicator = (scope: Page | Locator, name: string): Locator =>
-    scope.locator('app-group-row').filter({ has: page.getByRole('heading', { name, exact: true }) }).locator('app-visibility');
+    scope.locator('app-group-row').filter({ has: page.getByRole('heading', { name, exact: true }) }).locator('app-status-marker');
 
   test.beforeAll(async ({ browser, baseURL }) => {
     context = await browser.newContext();
@@ -98,17 +98,15 @@ test.describe.serial('a targeted group says who it is for (epic targeting story 
     await expect(clearance).toHaveAccessibleDescription(
       'Shown to viewers tagged with any of members, sale, summer or vip. A page that passes no tags shows it to every viewer.',
     );
-    // An untagged group: "Visible on site" and nothing more, not a button.
-    const everyone = indicator(page, 'Everyone');
-    await expect(everyone).toHaveText('Visible on site', { useInnerText: true });
-    await expect(everyone.getByRole('button')).toHaveCount(0);
-    // The tooltip opens on focus, as the reasons of a hidden group do, and closes with Escape.
-    const tip = beach.getByRole('tooltip', { includeHidden: true });
+    // An untagged group: a marker named "Visible on site", with no audience to describe.
+    const everyone = indicator(page, 'Everyone').getByRole('button');
+    await expect(everyone).toHaveAccessibleName('Visible on site');
+    await expect(everyone).not.toHaveAttribute('aria-describedby');
+    // The marker's tooltip shows the line on focus (the full audience is its description), and Escape closes it.
+    const tip = beach.locator('.status-marker__tip');
     await beach.getByRole('button').focus();
     await expect(tip).toBeVisible();
-    await expect(tip).toHaveText(
-      'Shown to viewers tagged with any of summer or vip.A page that passes no tags shows it to every viewer.',
-    );
+    await expect(tip).toHaveText(ANY_LINE);
     await shot(page, 'targeting-5-2-zone-rows');
     await page.keyboard.press('Escape');
     await expect(tip).toBeHidden();
@@ -130,7 +128,7 @@ test.describe.serial('a targeted group says who it is for (epic targeting story 
     await expect(indicator(page, 'Beach days').getByRole('button')).toHaveAccessibleName(
       'Visible on site in at least one zone · for viewers tagged summer or vip',
     );
-    await expect(indicator(page, 'Everyone')).toHaveText('Visible on site in at least one zone');
+    await expect(indicator(page, 'Everyone').getByRole('button')).toHaveAccessibleName('Visible on site in at least one zone');
     const targeted = page.getByRole('radio', { name: /^Targeted/ });
     await expect(targeted).toHaveAccessibleName('Targeted , 3');
     await targeted.check();

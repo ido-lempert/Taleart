@@ -112,7 +112,9 @@ test.describe.serial('a poll (epic interactive components story 4.1)', () => {
       'You chose Tea. Votes are not recorded in the preview.',
     );
     expect(await responseRows()).toEqual([]);
-    await page.locator('#studio-preview').click();
+    // The preview is a full view over the studio, which covers the Preview button: its own Close button ends it.
+    await page.locator('#studio-preview-close').click();
+    await expect(page.locator('#studio-preview-pane')).toHaveCount(0);
   });
 
   test('votes Tea by keyboard on the test page: percentages, the choice marked, no step', async ({ browser }) => {

@@ -68,7 +68,7 @@ test.describe.serial('user-list targeting (epic targeting story 5.4)', () => {
   }
 
   const indicator = (scope: Page | Locator, name: string): Locator =>
-    scope.locator('app-group-row').filter({ has: page.getByRole('heading', { name, exact: true }) }).locator('app-visibility');
+    scope.locator('app-group-row').filter({ has: page.getByRole('heading', { name, exact: true }) }).locator('app-status-marker');
 
   test.beforeAll(async ({ browser, baseURL }) => {
     context = await browser.newContext();
@@ -125,7 +125,7 @@ test.describe.serial('user-list targeting (epic targeting story 5.4)', () => {
     await expect(indicator(page, 'Loyal only').getByRole('button')).toHaveAccessibleDescription(
       'Shown to viewers whose external user ID is in the user list Loyal (2 IDs). A page that sets no external user ID does not show it.',
     );
-    await expect(indicator(page, 'Everyone')).toHaveText('Visible on site', { useInnerText: true });
+    await expect(indicator(page, 'Everyone').getByRole('button')).toHaveAccessibleName('Visible on site');
     await shot(page, 'group-summary-user-list');
   });
 

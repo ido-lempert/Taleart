@@ -89,7 +89,7 @@ export function opensFromRowClick(event: MouseEvent): boolean {
         <div class="group-row__title">
           <ng-content select="[groupRowName]" />
           @if (mark(); as m) {
-            <app-status-marker [tone]="m.tone" [text]="m.text" />
+            <app-status-marker [tone]="m.tone" [text]="m.text" [detail]="m.detail ?? ''" />
           }
         </div>
         <div class="group-row__meta">

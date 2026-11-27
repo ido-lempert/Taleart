@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, input, signal, viewChild } from '@angular/core';
 
+let nextMarkerId = 0;
+
 /** orange: a warning, will change or is partial; red: a problem, not visible because something is off or missing; green: fine. */
 export type StatusTone = 'green' | 'orange' | 'red';
 
@@ -99,15 +101,22 @@ const GLYPHS: Readonly<Record<StatusTone, string>> = { green: '✓', orange: '!'
       [class.status-marker--red]="tone() === 'red'"
       [class.status-marker--dismissed]="dismissed()"
       [attr.aria-label]="text()"
+      [attr.aria-describedby]="detail() ? describedId : null"
       (keydown.escape)="escape($event)"
     ><span aria-hidden="true">{{ glyph() }}</span></button>
     <span class="status-marker__tip" aria-hidden="true">{{ text() }}</span>
+    @if (detail()) {
+      <span class="visually-hidden" [id]="describedId">{{ detail() }}</span>
+    }
   `,
 })
 export class StatusMarker {
   readonly tone = input.required<StatusTone>();
   /** The status text: the accessible name, and the tooltip's content. */
   readonly text = input.required<string>();
+  /** More about the status, read as the marker's description (not shown on screen). */
+  readonly detail = input<string>('');
+  protected readonly describedId = `status-marker-detail-${++nextMarkerId}`;
 
   protected readonly dismissed = signal(false);
   private readonly button = viewChild.required<ElementRef<HTMLButtonElement>>('button');
