@@ -483,7 +483,7 @@ describe('App', () => {
 
   describe('shell', () => {
     it('redirects / to the zones page and shows the rail, top bar and project switcher', async () => {
-      const { root } = await open('/', oneZone);
+      const { root } = await open('/', { projects: [acme, globex], zones: [zone] });
 
       expect(TestBed.inject(Router).url).toBe('/zones');
       expect(root.querySelector('nav[aria-label=Main]')?.textContent).toContain('Projects');
@@ -491,6 +491,18 @@ describe('App', () => {
       expect(root.querySelector<HTMLSelectElement>('#project-switcher')?.selectedOptions[0].textContent).toContain(
         'Acme',
       );
+    });
+
+    it('shows the project switcher with two projects', async () => {
+      const { root } = await open('/zones', { projects: [acme, globex], zones: [zone] });
+
+      expect(root.querySelector('#project-switcher')).not.toBeNull();
+    });
+
+    it('shows no project switcher when there is only one project', async () => {
+      const { root } = await open('/zones', oneZone);
+
+      expect(root.querySelector('#project-switcher')).toBeNull();
     });
 
     it('shows a non-blocking banner when the API cannot be reached', async () => {
@@ -702,7 +714,10 @@ describe('App', () => {
     it('keeps the logo, the project and the user in the top bar; the title and create control move into the page heading', async () => {
       const restore = onPhone();
       try {
-        const { root } = await open('/zones', { projects: [{ id: 'p1', role: 'admin' }], zones: [zone] });
+        const { root } = await open('/zones', {
+          projects: [{ id: 'p1', role: 'admin' }, globex],
+          zones: [zone],
+        });
 
         expect(root.querySelector('.topbar__brand')).toBeNull();
         expect(root.querySelector('.topbar__logo')?.getAttribute('aria-label')).toBe('TaleArt home');
@@ -7018,13 +7033,19 @@ describe('App', () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       await navigate(fixture, '/projects', { setupRequired: false, user: manager, methods: PASSKEY_ONLY });
-      await flushRefresh(fixture, { projects: [{ ...acme, role: 'editor' }], zones: [zone] });
+      await flushRefresh(fixture, {
+        projects: [
+          { ...acme, role: 'editor' },
+          { ...globex, role: 'editor' },
+        ],
+        zones: [zone],
+      });
       const root = fixture.nativeElement as HTMLElement;
 
       expect(root.textContent).not.toContain('New project');
       expect(root.querySelector('[aria-label^="Invite to"]')).toBeNull();
       const options = [...(root.querySelector<HTMLSelectElement>('#project-switcher')?.options ?? [])];
-      expect(options.map((o) => o.textContent?.trim())).toEqual(['Acme']);
+      expect(options.map((o) => o.textContent?.trim())).toEqual(['Acme', 'Globex']);
     });
 
     it('tells a content manager without projects to ask for an invitation', async () => {
