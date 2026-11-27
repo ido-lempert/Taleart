@@ -166,9 +166,12 @@ describe('MySignInMethodsPage: Settings > My sign-in methods', () => {
     await open();
     clickById('password-set');
     await settle(fixture);
-    type('my-password-username', 'Ada');
-    type('my-password-password', 'correct horse 1');
-    type('my-password-confirm', 'correct horse 1');
+    root().querySelector<HTMLInputElement>('#my-password-username')!.value = 'Ada';
+    root().querySelector<HTMLInputElement>('#my-password-username')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLInputElement>('#my-password-password')!.value = 'correct horse 1';
+    root().querySelector<HTMLInputElement>('#my-password-password')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLInputElement>('#my-password-confirm')!.value = 'correct horse 1';
+    root().querySelector<HTMLInputElement>('#my-password-confirm')!.dispatchEvent(new Event('input'));
     submitDrawer();
     await settle(fixture);
     const req = http.expectOne(`${ACCOUNT}/password`);
@@ -186,12 +189,15 @@ describe('MySignInMethodsPage: Settings > My sign-in methods', () => {
     clickById('password-change');
     await settle(fixture);
     expect(root().querySelector('#my-password-username')).toBeNull();
-    type('my-password-password', 'correct horse 2');
-    type('my-password-confirm', 'correct horse 2');
+    root().querySelector<HTMLInputElement>('#my-password-password')!.value = 'correct horse 2';
+    root().querySelector<HTMLInputElement>('#my-password-password')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLInputElement>('#my-password-confirm')!.value = 'correct horse 2';
+    root().querySelector<HTMLInputElement>('#my-password-confirm')!.dispatchEvent(new Event('input'));
     submitDrawer();
     await settle(fixture);
     expect(root().querySelector('#my-password-current-error')?.textContent).toContain('Enter your current password.');
-    type('my-password-current', 'old password here');
+    root().querySelector<HTMLInputElement>('#my-password-current')!.value = 'old password here';
+    root().querySelector<HTMLInputElement>('#my-password-current')!.dispatchEvent(new Event('input'));
     submitDrawer();
     await settle(fixture);
     const req = http.expectOne(`${ACCOUNT}/password`);
@@ -206,9 +212,12 @@ describe('MySignInMethodsPage: Settings > My sign-in methods', () => {
     await open({ passkeys: [], password: { username: 'ada', updatedAt: '2026-10-03T10:00:00.000Z' }, identities: [] });
     clickById('password-change');
     await settle(fixture);
-    type('my-password-current', 'old password here');
-    type('my-password-password', 'password1234');
-    type('my-password-confirm', 'password1234');
+    root().querySelector<HTMLInputElement>('#my-password-current')!.value = 'old password here';
+    root().querySelector<HTMLInputElement>('#my-password-current')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLInputElement>('#my-password-password')!.value = 'password1234';
+    root().querySelector<HTMLInputElement>('#my-password-password')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLInputElement>('#my-password-confirm')!.value = 'password1234';
+    root().querySelector<HTMLInputElement>('#my-password-confirm')!.dispatchEvent(new Event('input'));
     submitDrawer();
     await settle(fixture);
     http
@@ -329,6 +338,19 @@ describe('MySignInMethodsPage: the authenticator app section', () => {
     expect(root().querySelector('#two-factor-secret')?.textContent).toBe('JBSW Y3DP EHPK 3PXP');
     expect(root().querySelector('#two-factor-uri')?.textContent).toBe(ENROLMENT.otpauthUri);
     expect(root().querySelector('#two-factor-copy')?.textContent).toContain('Copy key');
+    expect(text()).toContain('Cannot scan? Type this key instead.');
+  });
+
+  it('draws a QR code of the otpauth address beside the key, once it is ready', async () => {
+    await openAccount(false);
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'POST' }).flush(ENROLMENT);
+    await settle(fixture);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    fixture.detectChanges();
+    const qr = root().querySelector<HTMLImageElement>('img[alt="QR code to scan with your authenticator app"]');
+    expect(qr?.getAttribute('src')).toMatch(/^data:image\//);
   });
 
   it('explains that the server has no secret key when the set-up is refused with 503', async () => {
@@ -499,6 +521,64 @@ describe('MySignInMethodsPage: the authenticator app section', () => {
     await settle(fixture);
     expect(root().querySelector('[role="alert"]')?.textContent).toContain('That code is not right.');
     expect(root().querySelector('#two-factor-form')).not.toBeNull();
+  });
+
+  it('turns the app off with a code: the field shows, and on 204 the page says it is not set up', async () => {
+    await openAccount(true, 10, 'optional');
+    root().querySelector<HTMLButtonElement>('#two-factor-off-start')?.click();
+    await settle(fixture);
+    expect(text()).toContain('Current code or a recovery code');
+    root().querySelector<HTMLInputElement>('#two-factor-off-code')!.value = '123456';
+    root().querySelector<HTMLInputElement>('#two-factor-off-code')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLButtonElement>('#two-factor-off-confirm')?.click();
+    await settle(fixture);
+    const req = http.expectOne({ url: TWO_FACTOR, method: 'DELETE' });
+    expect(req.request.body).toEqual({ code: '123456' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await settle(fixture);
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('Not set up');
+    expect(root().querySelector('#two-factor-off-form')).toBeNull();
+    expect(root().querySelector('#recovery-codes')).toBeNull();
+  });
+
+  it('keeps the field open with a message for a wrong code, and says it is not required when the mode is required', async () => {
+    await openAccount(true, 10, 'optional');
+    root().querySelector<HTMLButtonElement>('#two-factor-off-start')?.click();
+    await settle(fixture);
+    root().querySelector<HTMLInputElement>('#two-factor-off-code')!.value = '000000';
+    root().querySelector<HTMLInputElement>('#two-factor-off-code')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLButtonElement>('#two-factor-off-confirm')?.click();
+    await settle(fixture);
+    http
+      .expectOne({ url: TWO_FACTOR, method: 'DELETE' })
+      .flush({ error: { code: 'two_factor_code_invalid', message: 'Wrong.' } }, { status: 401, statusText: 'Unauthorized' });
+    await settle(fixture);
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain('That code is not right.');
+    expect(root().querySelector('#two-factor-off-form')).not.toBeNull();
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('On');
+  });
+
+  it('shows the administrator message when the server refuses the turn-off with 409 two_factor_required', async () => {
+    await openAccount(true, 10, 'optional');
+    root().querySelector<HTMLButtonElement>('#two-factor-off-start')?.click();
+    await settle(fixture);
+    root().querySelector<HTMLInputElement>('#two-factor-off-code')!.value = '123456';
+    root().querySelector<HTMLInputElement>('#two-factor-off-code')!.dispatchEvent(new Event('input'));
+    root().querySelector<HTMLButtonElement>('#two-factor-off-confirm')?.click();
+    await settle(fixture);
+    http
+      .expectOne({ url: TWO_FACTOR, method: 'DELETE' })
+      .flush({ error: { code: 'two_factor_required', message: 'Required.' } }, { status: 409, statusText: 'Conflict' });
+    await settle(fixture);
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain('Your administrator requires an authenticator app.');
+    expect(root().querySelector('#two-factor-off-form')).toBeNull();
+    expect(root().querySelector('#two-factor-off-start')).toBeNull();
+  });
+
+  it('does not offer to turn the app off while the mode is required', async () => {
+    await openAccount(true, 10, 'required');
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('On');
+    expect(root().querySelector('#two-factor-off-start')).toBeNull();
   });
 
   it('hides the Set up button and says so while two-factor sign-in is off on the server', async () => {

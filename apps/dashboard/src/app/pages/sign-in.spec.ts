@@ -226,6 +226,36 @@ describe('SignInPage: the sign-in methods on (/auth/state.methods)', () => {
       await settle(fixture);
     }
 
+    it('starts on the code screen when a provider sign-in marks it (second-step=1), and Back returns to the password form', async () => {
+      setUp(METHODS, { 'second-step': '1' });
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-code')).not.toBeNull();
+      expect(root().querySelector('#sign-in-password')).toBeNull();
+      expect(text()).toContain('Authenticator code');
+      http.expectNone(`${API_BASE}/auth/enrol/start`);
+
+      const back = [...root().querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Back') as HTMLButtonElement;
+      back.click();
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-code')).toBeNull();
+      expect(root().querySelector('#sign-in-password')).not.toBeNull();
+    });
+
+    it('starts on the code screen of a provider sign-in marked second-step=1, and signs in with the code', async () => {
+      setUp(METHODS, { 'second-step': '1', returnUrl: '/projects' });
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      await settle(fixture);
+      field('sign-in-code').value = '123456';
+      field('sign-in-code').dispatchEvent(new Event('input'));
+      root()
+        .querySelector('form')
+        ?.dispatchEvent(new Event('submit', { cancelable: true }));
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/auth/second-step`).flush({ user: USER }, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+      expect(navigate).toHaveBeenCalledWith('/projects');
+    });
+
     it('shows the authenticator code screen in place of the password form', async () => {
       setUp(METHODS);
       await reachSecondStep();
@@ -375,6 +405,15 @@ describe('SignInPage: the sign-in methods on (/auth/state.methods)', () => {
       await settle(fixture);
     }
 
+    it('starts on the set-up screen when a provider sign-in marks it (enrol=1), without a password step', async () => {
+      setUp(METHODS, { enrol: '1' });
+      http.expectOne(`${API_BASE}/auth/enrol/start`).flush(ENROLMENT, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-password')).toBeNull();
+      expect(root().querySelector('#sign-in-enrol-secret')?.textContent).toBe('JBSW Y3DP EHPK 3PXP');
+      expect(text()).toContain('Your administrator requires an authenticator app.');
+    });
+
     it('says the administrator requires an app, and shows the secret in groups of four and the address on entry', async () => {
       setUp(METHODS);
       await reachEnrolment();
@@ -382,6 +421,10 @@ describe('SignInPage: the sign-in methods on (/auth/state.methods)', () => {
       expect(root().querySelector('#sign-in-password')).toBeNull();
       expect(root().querySelector('#sign-in-enrol-secret')?.textContent).toBe('JBSW Y3DP EHPK 3PXP');
       expect(root().querySelector('#sign-in-enrol-uri')?.textContent).toBe(ENROLMENT.otpauthUri);
+      expect(text()).toContain('Cannot scan? Type this key instead.');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      fixture.detectChanges();
+      expect(root().querySelector<HTMLImageElement>('img[alt="QR code to scan with your authenticator app"]')?.getAttribute('src')).toMatch(/^data:image\//);
       expect(text()).toContain('Code from your app');
       expect(text()).toContain('Turn on and sign in');
     });

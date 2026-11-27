@@ -41,6 +41,7 @@ export const SIGN_IN_ENDPOINTS = [
   { method: 'POST', path: '/auth/account/two-factor', who: 'A signed-in user', purpose: 'Start setting up an authenticator app: the secret and the otpauth address for a QR code. Refused with two_factor_off while the two-factor mode is off.' },
   { method: 'POST', path: '/auth/account/two-factor/confirm', who: 'A signed-in user', purpose: 'Turn the authenticator app on with a code from it; answers the ten recovery codes, shown once.' },
   { method: 'POST', path: '/auth/account/two-factor/recovery-codes', who: 'A signed-in user (session cookie)', purpose: 'Make ten new recovery codes; the old ones stop working.' },
+  { method: 'DELETE', path: '/auth/account/two-factor', who: 'A signed-in user (session cookie)', purpose: 'Turn the authenticator app off. Needs a current code from the app or an unused recovery code; the app and all recovery codes are deleted. Refused with two_factor_required while the two-factor mode is required.' },
   { method: 'DELETE', path: '/auth/account/passkeys/{passkeyId}', who: 'A signed-in user', purpose: 'Remove one of the user\'s passkeys, if another method stays usable.' },
   { method: 'DELETE', path: '/auth/account/identities/{identityId}', who: 'A signed-in user', purpose: 'Unlink one of the user\'s provider identities, if another method stays usable.' },
   { method: 'GET', path: '/auth/settings', who: 'An admin', purpose: 'Which methods are on, the two-factor mode, and whether the server has the secret key.' },
@@ -81,6 +82,7 @@ export const SIGN_IN_ERRORS = [
   { code: 'two_factor_enrolled', meaning: 'The user already has an authenticator app turned on.' },
   { code: 'two_factor_not_started', meaning: 'No authenticator app set-up is waiting for a code.' },
   { code: 'two_factor_off', meaning: 'Authenticator apps cannot be set up while the two-factor mode is off.' },
+  { code: 'two_factor_required', meaning: 'The two-factor mode is required, so the user\'s authenticator app cannot be turned off.' },
   { code: 'rate_limited', meaning: 'Too many attempts from this address. Wait, then try again .' },
   { code: 'not_found', meaning: 'The item does not exist, or it is another user\'s.' },
 ] as const;
@@ -92,6 +94,7 @@ export const SECURITY_PROPERTIES = [
   'Throttling: 5 failed password sign-ins for a username wait 30 seconds, doubling per failure, up to 15 minutes; failures are forgotten after an hour. Per address: 10 password sign-ins in a burst, then 10 a minute. Provider sign-ins: 20 in a burst, then 20 a minute. The throttle is in memory, per API process.',
   'Session revocation: a password change or a reset ends the user\'s other sessions; the session making the change stays signed in. A reset ends every session and starts a new one.',
   'Provider flows use PKCE (S256), a state and a nonce of 32 random bytes each, stored server-side and bound to the browser by the taleart_oauth cookie (http-only, SameSite=Lax, path /api/v1/auth, 10 minutes). Each challenge is single use.',
+  'Second step for provider sign-in: a user with an authenticator app gets no session from the provider callback. The callback sets the same challenge cookie as password sign-in and sends the browser to the sign-in page (?second-step=1, or ?enrol=1 while the mode is required). The code is then checked as password sign-in checks it. Passkey sign-in has no second step: a passkey is already a strong second factor.',
   'ID tokens: only RS256, ES256 and PS256 signatures are accepted (never none or HS*); issuer, audience, expiry and nonce are checked, with 60 seconds of clock skew.',
   'Discovery: the document\'s issuer must equal the configured issuer exactly; endpoints must be https (plain http only on localhost outside production); 5 second timeout; 256 KiB size cap; redirects are refused. The JWKS is cached for 5 minutes.',
   'Apple: the client secret is an ES256 JWT signed with the .p8 key, with the key ID in its header, created for each sign-in with a 5-minute lifetime and never stored.',

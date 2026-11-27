@@ -6,6 +6,7 @@ import type {
   AuthProvider,
   AuthSettings,
   ConfirmTwoFactorRequest,
+  DisableTwoFactorRequest,
   ConfirmTwoFactorResponse,
   RecoveryCodes,
   PasswordResetLink,
@@ -84,6 +85,11 @@ export class SignInMethodsApi {
   /** Turns the authenticator app on with a code from it; the answer carries the ten recovery codes, shown once. */
   confirmTwoFactor(body: ConfirmTwoFactorRequest): Promise<ConfirmTwoFactorResponse> {
     return firstValueFrom(this.http.post<ConfirmTwoFactorResponse>(`${AUTH}/account/two-factor/confirm`, body));
+  }
+
+  /** Turns the authenticator app off with a current code or a recovery code; the app and its recovery codes are deleted. */
+  turnOffTwoFactor(body: DisableTwoFactorRequest): Promise<void> {
+    return firstValueFrom(this.http.request<void>('DELETE', `${AUTH}/account/two-factor`, { body }));
   }
 
   /** Makes ten new recovery codes; the old ones stop working. */

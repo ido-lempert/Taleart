@@ -1,5 +1,6 @@
-import { ErrorCodes, OAUTH_COOKIE, SESSION_COOKIE, type ProviderAuthErrorCode } from '@taleart/contract';
+import { CHALLENGE_COOKIE, ErrorCodes, OAUTH_COOKIE, SESSION_COOKIE, type ProviderAuthErrorCode } from '@taleart/contract';
 import {
+  CHALLENGE_TTL_MS,
   checkProviderSlug,
   completeProviderLogin,
   findSessionUser,
@@ -43,9 +44,11 @@ export interface ProviderLoginOptions {
   flowAddressLimit?: RateLimitOptions | null;
 }
 
-// The redirect a flow ends with: the dashboard, with the short code of a refusal when there is one.
-function dashboardUrl(dashboardOrigin: string, code?: ProviderAuthErrorCode): string {
+// The redirect a flow ends with: the dashboard, with the short code of a refusal when there is one. A sign-in that waits
+// for the authenticator app goes to the sign-in page with a marker: `second-step=1` for the code, `enrol=1` for the set-up.
+function dashboardUrl(dashboardOrigin: string, code?: ProviderAuthErrorCode, step?: 'second-step' | 'enrol'): string {
   const base = `${dashboardOrigin.replace(/\/+$/, '')}/`;
+  if (step) return `${base}sign-in?${step}=1`;
   return code ? `${base}?auth_error=${encodeURIComponent(code)}` : base;
 }
 
@@ -64,6 +67,9 @@ function noStoreHeader(res: Response): void {
 
 // Provider form fields and query values as text; anything else is absent.
 const text = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+
+// The path the challenge cookie of a sign-in that waits for its code is sent on (as the sign-in methods router sets it).
+const CHALLENGE_PATH = '/api/v1/auth';
 
 /**
  * Provider sign-in (sign-in methods spec, "Provider flow"): the start of a flow for the sign-in,
@@ -182,8 +188,19 @@ export function providerLoginRouter(pool: Pool, options: ProviderLoginOptions): 
       });
       if (result.kind === 'signed-in') {
         setSession(res, result.signedIn.session.token, result.signedIn.session.expiresAt);
+        res.redirect(302, dashboardUrl(options.dashboardOrigin));
+      } else if (result.kind === 'second-step' || result.kind === 'enrolment') {
+        // No session yet: the challenge cookie (as password sign-in sets it) leads to the code or the set-up.
+        const challenge = result.kind === 'second-step' ? result.secondStep : result.enrolment;
+        setCookie(res, CHALLENGE_COOKIE, challenge.id, {
+          maxAge: CHALLENGE_TTL_MS / 1000,
+          path: CHALLENGE_PATH,
+          secure: options.secureCookies,
+        });
+        res.redirect(302, dashboardUrl(options.dashboardOrigin, undefined, result.kind === 'second-step' ? 'second-step' : 'enrol'));
+      } else {
+        res.redirect(302, dashboardUrl(options.dashboardOrigin));
       }
-      res.redirect(302, dashboardUrl(options.dashboardOrigin));
     } catch (err) {
       const code = redirectCode(err);
       if (code === null) {

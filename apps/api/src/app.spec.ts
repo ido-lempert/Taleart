@@ -14741,6 +14741,61 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       const done = await secondStep(challengeCookieOf(first), laterCode(secret));
       expect(done.status).toBe(200);
     });
+
+    describe('turning the app off (DELETE /auth/account/two-factor)', () => {
+      const turnOff = (body: unknown, cookie?: string): Promise<Response> =>
+        send('DELETE', '/auth/account/two-factor', { body, cookie });
+
+      it('refuses a wrong code with 401, and deletes nothing', async () => {
+        await enrol();
+        const res = await turnOff({ code: WRONG_CODE });
+        expect(res.status).toBe(401);
+        expect((await res.json()).error.code).toBe('two_factor_code_invalid');
+        expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10, twoFactorMode: 'optional' });
+      });
+
+      it('answers 204 to a right code, after which the status is not enrolled and password sign-in needs no second step', async () => {
+        const secret = await enrol();
+        const res = await turnOff({ code: laterCode(secret) });
+        expect(res.status).toBe(204);
+
+        expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: false, recoveryCodesLeft: 0, twoFactorMode: 'optional' });
+        const signIn = await passwordSignIn('ada.admin', PASSWORD);
+        expect(signIn.status).toBe(200);
+        expect(await signIn.json()).toMatchObject({ user: { id: adminId } });
+        expect(hasSessionCookie(signIn)).toBe(true);
+      });
+
+      it('accepts one of the recovery codes, which turns the app off too', async () => {
+        const { recoveryCodes } = await enrolWithCodes();
+        const res = await turnOff({ code: recoveryCodes[0] });
+        expect(res.status).toBe(204);
+        expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: false, recoveryCodesLeft: 0, twoFactorMode: 'optional' });
+      });
+
+      it('is refused with 409 two_factor_required while the two-factor mode is required', async () => {
+        const secret = await enrol();
+        expect((await setTwoFactorMode('required')).status).toBe(200);
+        const res = await turnOff({ code: laterCode(secret) });
+        expect(res.status).toBe(409);
+        expect((await res.json()).error.code).toBe('two_factor_required');
+        expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10, twoFactorMode: 'required' });
+      });
+
+      it('needs a session: with no cookie it is 401 unauthenticated', async () => {
+        const secret = await enrol();
+        const res = await turnOff({ code: laterCode(secret) }, '');
+        expect(res.status).toBe(401);
+        expect((await res.json()).error.code).toBe('unauthenticated');
+        expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10, twoFactorMode: 'optional' });
+      });
+
+      it('answers 409 two_factor_not_started when no app is on', async () => {
+        const res = await turnOff({ code: WRONG_CODE });
+        expect(res.status).toBe(409);
+        expect((await res.json()).error.code).toBe('two_factor_not_started');
+      });
+    });
   });
 });
 
@@ -15081,6 +15136,79 @@ describe('Provider sign-in: OpenID Connect, Google and Apple', () => {
     expect(signedIn(done)).toBe(true);
     // The client secret never leaves the server.
     expect(JSON.stringify([...done.headers.entries()])).not.toContain(clientSecret);
+  });
+
+  // An authenticator app for a user, stored as a set-up app would be (the secret encrypted under the server key).
+  async function enrolAppFor(userId: string): Promise<Buffer> {
+    const secret = randomBytes(20);
+    await pool.query('INSERT INTO user_totp (user_id, secret_enc, enrolled_at) VALUES ($1, $2, now())', [
+      userId,
+      encryptSecret(secret.toString('base64'), sessionKey),
+    ]);
+    return secret;
+  }
+
+  // The `taleart_challenge` cookie a response set, as the browser keeps it.
+  function challengeCookieFrom(res: Response): string | undefined {
+    return res.headers.getSetCookie().find((l) => l.startsWith('taleart_challenge='))?.split(';')[0];
+  }
+
+  it('sends a provider sign-in of a user with an authenticator app to the second step: no session until the code is right', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const user = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    await addIdentity(user.id, 'oidc:corp');
+    const secret = await enrolAppFor(user.id);
+
+    const done = await signInFlow('corp', 'purpose=sign-in');
+    expect(done.status).toBe(302);
+    expect(done.headers.get('location')).toBe(`${dashboard}/sign-in?second-step=1`);
+    expect(signedIn(done)).toBe(false);
+    const cookie = challengeCookieFrom(done);
+    expect(cookie).toBeDefined();
+
+    // Without the code there is no session; the challenge cookie is what the code step needs.
+    const wrong = await globalThis.fetch(`${origin}/api/v1/auth/second-step`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: cookie! },
+      body: JSON.stringify({ code: '000000' }),
+    });
+    expect(wrong.status).toBe(401);
+    expect((await wrong.json()).error.code).toBe('two_factor_code_invalid');
+    expect(signedIn(wrong)).toBe(false);
+
+    const right = await globalThis.fetch(`${origin}/api/v1/auth/second-step`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: cookie! },
+      body: JSON.stringify({ code: totpCode(secret, totpStep(Date.now())) }),
+    });
+    expect(right.status).toBe(200);
+    expect(await right.json()).toMatchObject({ user: { id: user.id } });
+    expect(signedIn(right)).toBe(true);
+  });
+
+  it('sends a provider sign-in of a user with no app to the enrolment, while the two-factor mode is required', async () => {
+    await addProvider('corp', 'oidc', { issuer: fake.base, clientId }, clientSecret);
+    const user = await createUser(pool, { name: 'Member', email: 'member@example.com', role: 'content_manager' });
+    await addIdentity(user.id, 'oidc:corp');
+    await pool.query(
+      `INSERT INTO auth_settings (id, passkey_enabled, password_enabled, two_factor_mode, updated_at, updated_by)
+       VALUES (1, true, true, 'required', now(), $1)
+       ON CONFLICT (id) DO UPDATE SET two_factor_mode = 'required', updated_at = now(), updated_by = EXCLUDED.updated_by`,
+      [user.id],
+    );
+
+    const done = await signInFlow('corp', 'purpose=sign-in');
+    expect(done.headers.get('location')).toBe(`${dashboard}/sign-in?enrol=1`);
+    expect(signedIn(done)).toBe(false);
+    const cookie = challengeCookieFrom(done);
+    expect(cookie).toBeDefined();
+
+    const started = await globalThis.fetch(`${origin}/api/v1/auth/enrol/start`, {
+      method: 'POST',
+      headers: { cookie: cookie! },
+    });
+    expect(started.status).toBe(200);
+    expect(await started.json()).toMatchObject({ secret: expect.stringMatching(/^[A-Z2-7]+$/) });
   });
 
   it('refuses a sign-in whose identity is not linked, with the generic code', async () => {

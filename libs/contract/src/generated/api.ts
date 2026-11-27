@@ -461,7 +461,11 @@ export interface paths {
          * @description Creates a new secret and returns it with the otpauth address a QR code carries. Nothing is turned on until `POST /auth/account/two-factor/confirm` checks a code from the app. Refused with 409 `two_factor_off` while the install's two-factor mode is `off`, with 409 `two_factor_enrolled` when the user already has an authenticator app, and with 503 `secret_key_missing` when the server has no valid `TALEART_SECRET_KEY` to store the secret under.
          */
         post: operations["startTwoFactor"];
-        delete?: never;
+        /**
+         * Turn the signed-in user's authenticator app off.
+         * @description Needs a current code from the app, or one of the user's unused recovery codes (spent by its use). On success the app's secret and all of the user's recovery codes are deleted, so password sign-in needs no second step again. A wrong code answers 401 `two_factor_code_invalid`, nothing is deleted, and wrong codes count toward a limit that answers 429 `rate_limited` with `Retry-After`. Refused with 409 `two_factor_required` while the install's two-factor mode is `required`, and with 409 `two_factor_not_started` when no app is on. A session cookie only; a request with an `Authorization` header is refused.
+         */
+        delete: operations["disableTwoFactor"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3386,6 +3390,10 @@ export interface components {
             /** @description The otpauth://totp/ address a QR code carries. */
             otpauthUri: string;
         };
+        DisableTwoFactorRequest: {
+            /** @description The six digits of the authenticator app, or one of the user's recovery codes. */
+            code: string;
+        };
         ConfirmTwoFactorRequest: {
             code: string;
         };
@@ -3534,7 +3542,7 @@ export interface components {
             [key: string]: unknown;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "invitation_email_mismatch" | "two_factor_code_invalid" | "two_factor_challenge_invalid" | "two_factor_enrolled" | "two_factor_not_started" | "two_factor_off" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "user_not_found" | "member_exists" | "member_not_found" | "invitation_not_found" | "last_project_admin" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "invitation_email_mismatch" | "two_factor_code_invalid" | "two_factor_challenge_invalid" | "two_factor_enrolled" | "two_factor_not_started" | "two_factor_off" | "two_factor_required" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "user_not_found" | "member_exists" | "member_not_found" | "invitation_not_found" | "last_project_admin" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -4590,6 +4598,32 @@ export interface operations {
             401: components["responses"]["Error"];
             409: components["responses"]["Error"];
             503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    disableTwoFactor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisableTwoFactorRequest"];
+            };
+        };
+        responses: {
+            /** @description The authenticator app and the recovery codes are deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -7494,7 +7528,7 @@ export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["sc
 export const authMethodKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthMethodKind"]> = ["passkey", "password", "oidc", "google", "apple"];
 export const twoFactorModeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TwoFactorMode"]> = ["off", "optional", "required"];
 export const authProviderKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthProviderKind"]> = ["oidc", "google", "apple"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "invitation_email_mismatch", "two_factor_code_invalid", "two_factor_challenge_invalid", "two_factor_enrolled", "two_factor_not_started", "two_factor_off", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "invitation_email_mismatch", "two_factor_code_invalid", "two_factor_challenge_invalid", "two_factor_enrolled", "two_factor_not_started", "two_factor_off", "two_factor_required", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
 export const v1Schema$defsMediaBackgroundKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["kind"]> = ["image", "video"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];

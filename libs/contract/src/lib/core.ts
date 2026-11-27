@@ -107,6 +107,7 @@ export type TwoFactorMode = Schemas['TwoFactorMode'];
 export type TwoFactorStatus = Schemas['TwoFactorStatus'];
 export type TwoFactorEnrolment = Schemas['TwoFactorEnrolment'];
 export type ConfirmTwoFactorRequest = Schemas['ConfirmTwoFactorRequest'];
+export type DisableTwoFactorRequest = Schemas['DisableTwoFactorRequest'];
 export type ConfirmTwoFactorResponse = Schemas['ConfirmTwoFactorResponse'];
 export type RecoveryCodes = Schemas['RecoveryCodes'];
 export type RedeemInvitationRequest = Schemas['RedeemInvitationRequest'];
@@ -781,6 +782,7 @@ export const ErrorCodes = {
   twoFactorEnrolled: 'two_factor_enrolled',
   twoFactorNotStarted: 'two_factor_not_started',
   twoFactorOff: 'two_factor_off',
+  twoFactorRequired: 'two_factor_required',
   emailTaken: 'email_taken',
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',

@@ -10,6 +10,7 @@ import {
   TwoFactorEnrolledError,
   TwoFactorNotStartedError,
   TwoFactorOffError,
+  TwoFactorRequiredError,
   TwoFactorUnavailableError,
 } from './errors';
 import { consumeRecoveryCode, replaceRecoveryCodes } from './recoveryCodes';
@@ -138,6 +139,33 @@ export async function beginSecondStep(db: Db, userId: string, throttleKey: strin
   return { id, expiresAt };
 }
 
+/**
+ * Whether a code is right for the user's authenticator app or is one of their recovery codes. Six digits are an app
+ * code, a step later than `lastStep`, and `step` is that step so the caller can record it. Anything else is tried as a
+ * recovery code, which is spent when it matches. A secret that cannot be read (the key changed) never matches.
+ */
+async function acceptSecondFactor(
+  tx: Db,
+  key: Buffer | null,
+  userId: string,
+  totp: { secretEnc: Buffer; lastStep: string | null },
+  code: string,
+  nowMs: number,
+): Promise<{ accepted: boolean; step: number | null }> {
+  const isAppCode = /^\d{6}$/.test(code.replace(/\s+/g, ''));
+  if (!isAppCode) return { accepted: await consumeRecoveryCode(tx, userId, code), step: null };
+  let step: number | null = null;
+  if (key) {
+    try {
+      const secret = Buffer.from(decryptSecret(totp.secretEnc, key), 'base64');
+      step = matchTotp(secret, code, nowMs, totp.lastStep === null ? null : Number(totp.lastStep));
+    } catch {
+      step = null;
+    }
+  }
+  return { accepted: step !== null, step };
+}
+
 type Outcome =
   | { kind: 'signed-in'; signedIn: SignedInUser; throttleKey: string }
   | { kind: 'wrong'; throttleKey: string }
@@ -185,25 +213,7 @@ export async function finishSecondStep(
       return { kind: 'invalid' };
     }
 
-    // Six digits are an app code; anything else is tried as a recovery code.
-    const isAppCode = /^\d{6}$/.test(code.replace(/\s+/g, ''));
-    let step: number | null = null;
-    let accepted = false;
-    if (isAppCode) {
-      if (key) {
-        try {
-          const secret = Buffer.from(decryptSecret(totp.rows[0].secretEnc, key), 'base64');
-          const last = totp.rows[0].lastStep;
-          step = matchTotp(secret, code, nowMs, last === null ? null : Number(last));
-        } catch {
-          // A secret that cannot be read (the key changed) never matches.
-          step = null;
-        }
-      }
-      accepted = step !== null;
-    } else {
-      accepted = await consumeRecoveryCode(tx, userId, code);
-    }
+    const { accepted, step } = await acceptSecondFactor(tx, key, userId, totp.rows[0], code, nowMs);
 
     if (accepted) {
       if (step !== null) await tx.query('UPDATE user_totp SET last_step = $2 WHERE user_id = $1', [userId, step]);
@@ -236,6 +246,47 @@ export async function finishSecondStep(
   }
   throttle.succeeded(outcome.throttleKey);
   return outcome.signedIn;
+}
+
+/**
+ * Turns the signed-in user's authenticator app off: the secret and every recovery code are deleted in one transaction,
+ * so password sign-in needs no second step again. It needs a current code from the app or an unused recovery code.
+ * Wrong codes count against a per-user limit (`throttleKey` in the shared throttle; a wait answers
+ * {@link SignInThrottledError}). Refused with {@link TwoFactorRequiredError} while the two-factor mode is `required`,
+ * and with {@link TwoFactorNotStartedError} when no app is on; a wrong code is {@link TwoFactorCodeInvalidError}.
+ */
+export async function turnOffTotp(
+  db: TransactionalDb,
+  key: Buffer | null,
+  throttle: PasswordThrottle,
+  userId: string,
+  code: string,
+  nowMs: number = Date.now(),
+): Promise<void> {
+  if ((await signInSettings(db)).twoFactorMode === 'required') throw new TwoFactorRequiredError();
+  const throttleKey = `two-factor-off:${userId}`;
+  const wait = throttle.waitMs(throttleKey);
+  if (wait > 0) throw new SignInThrottledError(Math.ceil(wait / 1000));
+
+  const outcome = await inTransaction<'off' | 'wrong' | 'not-enrolled'>(db, async (tx) => {
+    const { rows } = await tx.query<{ secretEnc: Buffer; lastStep: string | null }>(
+      `SELECT secret_enc AS "secretEnc", last_step AS "lastStep" FROM user_totp
+       WHERE user_id = $1 AND enrolled_at IS NOT NULL FOR UPDATE`,
+      [userId],
+    );
+    if (!rows[0]) return 'not-enrolled';
+    const { accepted } = await acceptSecondFactor(tx, key, userId, rows[0], code, nowMs);
+    if (!accepted) return 'wrong';
+    await tx.query('DELETE FROM user_recovery_codes WHERE user_id = $1', [userId]);
+    await tx.query('DELETE FROM user_totp WHERE user_id = $1', [userId]);
+    return 'off';
+  });
+  if (outcome === 'not-enrolled') throw new TwoFactorNotStartedError();
+  if (outcome === 'wrong') {
+    throttle.failed(throttleKey);
+    throw new TwoFactorCodeInvalidError();
+  }
+  throttle.succeeded(throttleKey);
 }
 
 /**

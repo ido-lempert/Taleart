@@ -23,6 +23,7 @@ import {
 } from '../sign-in-methods';
 import { SignInMethodsApi } from '../sign-in-methods.service';
 import { SettingsTabs } from './settings-tabs';
+import { TotpQr } from './totp-qr';
 
 /** What the confirm drawer is about to remove. */
 type Removal =
@@ -34,11 +35,13 @@ type Removal =
  * The account's authenticator app, a second step after the password: "Not set up" with Set up, or "On".
  * Set up shows the secret key to type into the app and the otpauth address; a code from the app turns it
  * on, and the ten recovery codes it answers are shown once. When on, the page counts the unused recovery
- * codes and makes new ones on a second click. No QR code yet.
+ * codes and makes new ones on a second click. Turning it off needs a current code or a recovery code; while the
+ * two-factor mode is required the app cannot be turned off, so the button is not shown. The set-up shows a QR code
+ * of the address too, drawn in the browser.
  */
 @Component({
   selector: 'app-authenticator-app-section',
-  imports: [FormsModule],
+  imports: [FormsModule, TotpQr],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .two-factor-secret {
@@ -86,7 +89,9 @@ type Removal =
       } @else if (status(); as current) {
         @if (enrolment(); as setup) {
           <form id="two-factor-form" class="two-factor-setup" (ngSubmit)="confirm()" novalidate>
-            <p class="muted">Add TaleArt to your authenticator app with this key, then enter the code the app shows.</p>
+            <p class="muted">Add TaleArt to your authenticator app by scanning this QR code, then enter the code the app shows.</p>
+            <app-totp-qr [uri]="setup.otpauthUri" />
+            <p class="muted">Cannot scan? Type this key instead.</p>
             <div class="field">
               <span class="field__label">Secret key</span>
               <p class="two-factor-secret" id="two-factor-secret">{{ grouped(setup.secret) }}</p>
@@ -122,6 +127,34 @@ type Removal =
           <p id="two-factor-state">On</p>
           <p class="muted">Signing in with your password also asks for a code from this app.</p>
           <p id="two-factor-left">{{ leftText(current.recoveryCodesLeft) }}</p>
+          @if (turningOff()) {
+            <form id="two-factor-off-form" class="two-factor-setup" (ngSubmit)="turnOff()" novalidate>
+              <div class="field">
+                <label class="field__label" for="two-factor-off-code">Current code or a recovery code</label>
+                <input
+                  id="two-factor-off-code"
+                  class="input input--mono"
+                  name="offCode"
+                  autocomplete="one-time-code"
+                  [(ngModel)]="offCode"
+                />
+              </div>
+              <div class="invite-actions">
+                <button type="submit" class="btn btn--danger" id="two-factor-off-confirm" [disabled]="busy()">
+                  {{ busy() ? 'Turning off…' : 'Turn off authenticator app' }}
+                </button>
+                <button type="button" class="btn btn--secondary" id="two-factor-off-cancel" [disabled]="busy()" (click)="cancelTurnOff()">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          } @else if (current.twoFactorMode !== 'required') {
+            <div class="invite-actions">
+              <button type="button" class="btn btn--secondary" id="two-factor-off-start" [disabled]="busy()" (click)="startTurnOff()">
+                Turn off
+              </button>
+            </div>
+          }
           <div class="invite-actions">
             @if (confirmingNew()) {
               <button type="button" class="btn btn--danger" id="two-factor-regenerate" [disabled]="busy()" (click)="regenerate()">
@@ -181,11 +214,14 @@ export class AuthenticatorAppSection implements OnInit {
   protected readonly codes = signal<string[] | null>(null);
   /** Making new codes waits for a second click that says the old ones stop working. */
   protected readonly confirmingNew = signal(false);
+  /** Turning the app off shows the code field until it is turned off or cancelled. */
+  protected readonly turningOff = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly copyStatus = signal('');
   protected readonly announcement = signal('');
   protected code = '';
+  protected offCode = '';
 
   ngOnInit(): void {
     void this.load();
@@ -270,6 +306,60 @@ export class AuthenticatorAppSection implements OnInit {
   protected saved(): void {
     this.codes.set(null);
     this.copyStatus.set('');
+  }
+
+  protected startTurnOff(): void {
+    this.error.set('');
+    this.offCode = '';
+    this.confirmingNew.set(false);
+    this.turningOff.set(true);
+  }
+
+  protected cancelTurnOff(): void {
+    this.turningOff.set(false);
+    this.offCode = '';
+    this.error.set('');
+  }
+
+  /** Turns the app off with a current code or a recovery code: the app and all recovery codes go. */
+  protected async turnOff(): Promise<void> {
+    if (this.busy()) return;
+    const code = this.offCode.replace(/\s/g, '');
+    if (!code) {
+      this.error.set('Enter a code from your app, or a recovery code.');
+      return;
+    }
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      await this.api.turnOffTwoFactor({ code });
+      this.turningOff.set(false);
+      this.offCode = '';
+      this.codes.set(null);
+      this.withStatus({ enrolled: false, recoveryCodesLeft: 0 });
+      this.announcement.set('Authenticator app is off.');
+    } catch (err) {
+      switch (errorCode(err)) {
+        case ErrorCodes.twoFactorCodeInvalid:
+          this.error.set('That code is not right. Use the current code from your app, or a recovery code.');
+          break;
+        case ErrorCodes.twoFactorRequired:
+          this.turningOff.set(false);
+          this.offCode = '';
+          this.withStatus({ twoFactorMode: 'required' });
+          this.error.set('Your administrator requires an authenticator app.');
+          break;
+        case ErrorCodes.twoFactorNotStarted:
+          this.turningOff.set(false);
+          this.offCode = '';
+          await this.load();
+          break;
+        default:
+          this.error.set(errorText(err, 'The authenticator app could not be turned off. Try again.'));
+      }
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected async regenerate(): Promise<void> {

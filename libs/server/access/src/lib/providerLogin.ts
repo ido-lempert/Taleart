@@ -19,9 +19,10 @@ import {
 } from './oidc';
 import type { ProviderContext } from './providers';
 import { decryptSecret } from './secrets';
-import { providerMethodId, type ProviderKind } from './signInMethods';
+import { providerMethodId, signInSettings, type ProviderKind } from './signInMethods';
 import { createSession } from './sessions';
 import { hashToken } from './tokens';
+import { beginEnrolStep, beginSecondStep, totpEnrolled, type SecondStepStarted } from './twoFactor';
 
 /** How long a provider sign-in may take from start to callback (spec: 10 min). */
 export const OAUTH_TTL_MS = 10 * 60 * 1000;
@@ -39,8 +40,16 @@ export type ProviderFlow =
   | { purpose: 'invitation'; token: string; email: string }
   | { purpose: 'link'; userId: string; sessionHash: string };
 
-/** What a finished callback did: a session for the user, or a link attached to the signed-in user. */
-export type ProviderLoginResult = { kind: 'signed-in'; signedIn: SignedInUser } | { kind: 'linked'; userId: string };
+/**
+ * What a finished callback did: a session for the user, or a link attached to the signed-in user. A sign-in of a user
+ * with an authenticator app gets no session: `second-step` parks it until the code is sent (as password sign-in does).
+ * While the two-factor mode is required, a user without an app gets `enrolment` instead, the enrolment challenge.
+ */
+export type ProviderLoginResult =
+  | { kind: 'signed-in'; signedIn: SignedInUser }
+  | { kind: 'linked'; userId: string }
+  | { kind: 'second-step'; secondStep: SecondStepStarted }
+  | { kind: 'enrolment'; enrolment: SecondStepStarted };
 
 /** The result of the admin's Test button: discovery worked (its issuer and endpoints), or a short code. */
 export type ProviderTestResult =
@@ -225,7 +234,8 @@ const nameFor = (identity: VerifiedIdentity): string => identity.name ?? identit
  * Finishes a provider sign-in. The challenge is taken once (whatever happens); the cookie's
  * challenge and the state must match, the provider must still be usable, the code is exchanged and
  * the ID token verified. Then the flow decides:
- * - `sign-in`: the (provider, subject) identity must already exist; then a session for its user.
+ * - `sign-in`: the (provider, subject) identity must already exist; then a session for its user, or, when the user has an
+ *   authenticator app (or the mode is required and the user has none), a second-step or enrolment challenge instead.
  * - `setup`: no user may exist (the setup lock), the email must be verified; creates the first admin.
  * - `invitation`: the invitation must be valid (locked), the verified email must equal the invitation's
  *   email, the email and the identity must be new; creates the content manager and the membership.
@@ -295,6 +305,12 @@ export async function completeProviderLogin(
     const user = rows[0];
     if (!user) throw new ProviderAuthError('sign_in_failed');
     await db.query('UPDATE user_identities SET last_used_at = now() WHERE provider = $1 AND subject = $2', [provider, identity.subject]);
+    // The same second factor as password sign-in: the identity is the first factor, the app's code the second.
+    const throttleKey = `provider:${user.id}`;
+    if (await totpEnrolled(db, user.id)) return { kind: 'second-step', secondStep: await beginSecondStep(db, user.id, throttleKey) };
+    if ((await signInSettings(db)).twoFactorMode === 'required') {
+      return { kind: 'enrolment', enrolment: await beginEnrolStep(db, user.id, throttleKey) };
+    }
     return { kind: 'signed-in', signedIn: { user, session: await createSession(db, user.id) } };
   }
 

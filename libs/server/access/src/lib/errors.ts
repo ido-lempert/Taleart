@@ -188,6 +188,13 @@ export class TwoFactorOffError extends SignInRefusal {
   }
 }
 
+/** The install requires an authenticator app, so the user cannot turn theirs off. */
+export class TwoFactorRequiredError extends SignInRefusal {
+  constructor() {
+    super(409, ErrorCodes.twoFactorRequired, 'Your administrator requires an authenticator app.');
+  }
+}
+
 /** The two-factor mode cannot be optional or required: the server has no valid TALEART_SECRET_KEY to keep the secrets. */
 export class TwoFactorModeUnavailableError extends SignInRefusal {
   constructor() {

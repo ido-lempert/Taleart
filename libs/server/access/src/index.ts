@@ -121,6 +121,7 @@ export {
   startTotpEnrolment,
   confirmTotpEnrolment,
   regenerateRecoveryCodes,
+  turnOffTotp,
   finishSecondStep,
   startEnrolStep,
   finishEnrolStep,

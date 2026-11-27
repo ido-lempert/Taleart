@@ -50,6 +50,7 @@ import {
   startTotpEnrolment,
   SignInThrottledError,
   totpEnrolled,
+  turnOffTotp,
   type NewSession,
   type ProviderContext,
 } from '@taleart/server-access';
@@ -413,6 +414,22 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       const payload: RecoveryCodes = { recoveryCodes };
       res.json(payload);
     } catch (err) {
+      next(err);
+    }
+  });
+
+  // Turns the signed-in user's authenticator app off: a current code or an unused recovery code, then the app's secret and
+  // every recovery code are deleted. Wrong codes count per user and per address; the session is needed.
+  router.delete('/account/two-factor', sessionUser, async (req, res, next) => {
+    try {
+      const code = textField(bodyObject(req.body), 'code', true) as string;
+      if (code.length > 64) throw invalid('code is not valid');
+      if (!takeAddressAttempt(req, res)) return;
+      await turnOffTotp(pool, options.secretKey, throttle, userOf(res).id, code);
+      noStore(res);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
       next(err);
     }
   });

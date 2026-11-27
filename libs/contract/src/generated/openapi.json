@@ -991,6 +991,46 @@
             "$ref": "#/components/responses/Error"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Sign-in methods"
+        ],
+        "operationId": "disableTwoFactor",
+        "summary": "Turn the signed-in user's authenticator app off.",
+        "description": "Needs a current code from the app, or one of the user's unused recovery codes (spent by its use). On success the app's secret and all of the user's recovery codes are deleted, so password sign-in needs no second step again. A wrong code answers 401 `two_factor_code_invalid`, nothing is deleted, and wrong codes count toward a limit that answers 429 `rate_limited` with `Retry-After`. Refused with 409 `two_factor_required` while the install's two-factor mode is `required`, and with 409 `two_factor_not_started` when no app is on. A session cookie only; a request with an `Authorization` header is refused.",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisableTwoFactorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The authenticator app and the recovery codes are deleted."
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
       }
     },
     "/auth/account/two-factor/confirm": {
@@ -9962,6 +10002,20 @@
           }
         }
       },
+      "DisableTwoFactorRequest": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The six digits of the authenticator app, or one of the user's recovery codes."
+          }
+        }
+      },
       "ConfirmTwoFactorRequest": {
         "type": "object",
         "required": [
@@ -10426,6 +10480,7 @@
           "two_factor_enrolled",
           "two_factor_not_started",
           "two_factor_off",
+          "two_factor_required",
           "email_taken",
           "tag_exists",
           "tag_not_found",

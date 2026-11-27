@@ -7,6 +7,7 @@ import { ProviderButtons } from '../sign-in-controls';
 import { authErrorMessage } from '../sign-in-methods';
 import { Mark } from '../icon';
 import { LegalLinks } from '../legal-links';
+import { TotpQr } from './totp-qr';
 
 /** The screens of the sign-in: the password, the code of an app already set up, the app's set-up, the recovery codes. */
 type SignInStep = 'password' | 'code' | 'enrol' | 'recovery';
@@ -19,11 +20,13 @@ type SignInStep = 'password' | 'code' | 'enrol' | 'recovery';
  *
  * After the password, a user with an authenticator app gets the code screen. While the install requires
  * two-factor sign-in and the user has no app yet, the enrolment screen sets one up, then the recovery codes
- * are shown, and only then does the sign-in complete.
+ * are shown, and only then does the sign-in complete. A provider sign-in that waits for the app comes back here
+ * with `?second-step=1` (the code screen) or `?enrol=1` (the set-up screen). Passkey sign-in has no second step:
+ * a passkey is itself a strong second factor.
  */
 @Component({
   selector: 'app-sign-in-page',
-  imports: [FormsModule, Mark, ProviderButtons, LegalLinks],
+  imports: [FormsModule, Mark, ProviderButtons, LegalLinks, TotpQr],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .enrol-secret {
@@ -142,7 +145,9 @@ type SignInStep = 'password' | 'code' | 'enrol' | 'recovery';
             <h2 class="auth-card__subtitle" id="sign-in-enrol-title">Set up your authenticator app</h2>
             <p class="auth-card__help">Your administrator requires an authenticator app.</p>
             @if (enrolment(); as setup) {
-              <p class="auth-card__help">Add TaleArt to your authenticator app with this key, then enter the code it shows.</p>
+              <p class="auth-card__help">Add TaleArt to your authenticator app by scanning this QR code, then enter the code it shows.</p>
+              <app-totp-qr [uri]="setup.otpauthUri" />
+              <p class="auth-card__help">Cannot scan? Type this key instead.</p>
               <div class="field">
                 <span class="field__label">Secret key</span>
                 <p class="enrol-secret" id="sign-in-enrol-secret">{{ grouped(setup.secret) }}</p>
@@ -290,6 +295,18 @@ export class SignInPage {
   protected enrolCode = '';
   /** The user the set-up signed in, applied to the store only after the recovery codes were shown. */
   private signedInUser: User | null = null;
+
+  constructor() {
+    // A provider sign-in of a user with an authenticator app lands here with a marker (the API's redirect): the code
+    // screen for `second-step`, the app's set-up for `enrol`. The challenge cookie is already set.
+    const query = this.route.snapshot.queryParamMap;
+    if (query.get('second-step') === '1') {
+      this.step.set('code');
+    } else if (query.get('enrol') === '1') {
+      this.step.set('enrol');
+      void this.startEnrolment();
+    }
+  }
 
   protected async signIn(): Promise<void> {
     if (this.busy()) return;

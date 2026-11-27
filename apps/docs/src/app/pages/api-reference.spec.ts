@@ -121,6 +121,7 @@ describe('the API reference spec (epic developer experience 10.2)', () => {
         'GET /auth/account/two-factor',
         'POST /auth/account/two-factor',
         'POST /auth/account/two-factor/confirm',
+        'DELETE /auth/account/two-factor',
         'POST /auth/account/two-factor/recovery-codes',
         'DELETE /auth/account/passkeys/{passkeyId}',
         'DELETE /auth/account/identities/{identityId}',
