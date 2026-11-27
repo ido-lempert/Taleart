@@ -1,0 +1,116 @@
+# The epic's agreed stories, in build order. Table order is build order; id is permanent.
+# Draft of 2026-11-27, awaiting the owner's approval.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: the header drops the role label"
+description = "The header no longer shows the signed-in user's role; the docs images that show the header are refreshed in the same story."
+verify = "Sign in as an admin: the header has no role text, and the docs header screenshot matches."
+covers = ["R22"]
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 2
+type = "story"
+title = "The project dropdown shows only when there is more than one project"
+description = "With one project the header has no dropdown; with two or more it appears as it does today."
+verify = "An install with one project has no dropdown; creating a second project makes it appear."
+covers = ["R23"]
+after = [1]
+hitl = false
+risk = "low"
+unknown = "With the dropdown hidden, where does a user with one project create another project?"
+
+[[entry]]
+id = 3
+type = "story"
+title = "The preview shows what a visitor sees"
+description = "The preview opened from a zone or a tale group renders the content with the same layout and styling as the visitor's page."
+verify = "Open the preview of a zone and of a tale group next to the live Web SDK page: the same tale looks the same."
+covers = ["R21"]
+after = []
+hitl = false
+risk = "high"
+unknown = "Which preview is meant, the Preview button on a zone, on a tale group, or both, and what does it show wrongly today?"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Warnings become a coloured marker with a tooltip"
+description = "On the zones list, the tale groups list and a tale group's page, each warning is an orange, red, or green marker beside the name with its text in a keyboard-reachable tooltip."
+verify = "A page with warnings shows no open warning text; focusing or hovering the marker shows the reason."
+covers = ["R25"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Main pictures in the tale group and tale lists"
+description = "Each tale group and each tale shows its main picture in the lists outside the studio."
+verify = "The tale groups list and a group's tale list show a picture on every row that has one."
+covers = ["R20"]
+after = [1]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 6
+type = "story"
+title = "A clearer zone icon"
+description = "The icon beside a zone's title loses its frame and grows its inner glyph, using the glyph the owner picks from the candidates."
+verify = "The zone page shows the chosen glyph large and unframed."
+covers = ["R24"]
+after = [1]
+hitl = true
+risk = "low"
+unknown = "Which of the three candidate icons: circles, a square with arrows, or a square within a square?"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Select several tale groups and delete them together"
+description = "The tale groups list gets row selection and a bar of actions on the selection, starting with delete; the pattern is the one the other lists reuse."
+verify = "Select three tale groups and delete them in one action; the list shows the rest."
+covers = ["R26"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "The same selection on zones, with move and copy"
+description = "The zones list gets the same selection, and move and copy are added to the selection actions wherever a single row has them."
+verify = "Select two zones and delete them together; select tale groups and move or copy them in one action."
+covers = ["R26"]
+after = [7]
+hitl = false
+risk = "medium"
+unknown = "Which actions apply to a whole selection (delete, move, copy, set status, others), and on which lists beyond zones and tale groups?"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Refresh the docs images and previews these screens show"
+description = "Every docs image, preview, and sample app that shows the header, the zone page, the tale group lists, or a selection is retaken from the running app."
+verify = "The docs build and its tests pass, and each changed screenshot is from the running app."
+covers = ["R20", "R21", "R22", "R23", "R24", "R25", "R26"]
+after = [2, 3, 4, 5, 6, 8]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at its start from what the epic's reviews deferred."
+verify = "The full test suites and builds pass unchanged."
+covers = []
+after = [9]
+hitl = false
+risk = "low"
