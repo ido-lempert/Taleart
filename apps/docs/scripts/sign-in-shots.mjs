@@ -339,7 +339,7 @@ async function main() {
 
     // Step 7: the invitation page, opened by a fresh visitor (signed out). The page shows the passkey, the password and the
     // provider once the sign-in methods have loaded. The link is not in the picture: the page has no token of its own.
-    const invitation = await call('post', `/projects/${project.id}/invitations`);
+    const invitation = await call('post', `/projects/${project.id}/invitations`, { email: 'invitee@example.com' });
     const token = new URL(invitation.url).pathname.split('/').pop();
     await outside.goto(`${dashboardOrigin}/invite/${token}`);
     await outside.getByRole('heading', { name: 'Join Shop on TaleArt' }).waitFor({ timeout: 60_000 });

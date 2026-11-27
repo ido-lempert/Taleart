@@ -34,7 +34,7 @@ const OPT_OUT_ELEMENT_SAMPLE = `<!-- Off for this element only; any other value,
         <figure>
           <img
             src="images/analytics-shot-tab.png"
-            alt="The Analytics tab of a zone with 30 days chosen: seven metric tiles across the top with their numbers, and below them a line chart of daily impressions and clicks that rises through the month and peaks on a launch day."
+            alt="The Analytics tab of a zone with 30 days chosen: seven metric tiles at the top, in two rows, with their numbers, and below them a line chart of daily impressions and clicks that rises through the month and peaks on a launch day."
             width="980"
             height="829"
           />

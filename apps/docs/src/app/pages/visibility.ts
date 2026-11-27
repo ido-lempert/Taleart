@@ -19,7 +19,7 @@ import { RouterLink } from '@angular/router';
 <li>Now is inside the group's schedule, if it has one.</li>
 <li>The visitor matches the group's tags and user lists, if it has any.</li>
 </ol>
-<p><img class="guide-img" alt="Not visible: group is off" src="guides/images/22-groups-visibility.png" width="1280" height="800" /></p>
+<p><img class="guide-img" alt="The Tale groups list with Staff picks switched off: its switch reads Off and a red marker sits beside its name." src="guides/images/22-groups-visibility.png" width="1280" height="800" /></p>
 <h2 id="common-cases">Common cases</h2>
 <div class="table-wrap" tabindex="0" role="region" aria-label="Table"><table>
 <thead>

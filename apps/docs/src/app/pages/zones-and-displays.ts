@@ -18,8 +18,8 @@ import { RouterLink } from '@angular/router';
 <p>A template sets the display once, when the zone is created. After that you change the display on the zone's <strong>Display</strong> tab.</p>
 <p><img class="guide-img" alt="A new zone that is not visible yet" src="guides/images/03-zone-new.png" width="1280" height="800" /></p>
 <h2 id="the-zone-list">The zone list</h2>
-<p>Each zone card shows its slug, whether it is <strong>Visible on site</strong>, how many tale groups it holds and whether the install snippet was used.</p>
-<p><img class="guide-img" alt="The zone list" src="guides/images/15-zones.png" width="1280" height="800" /></p>
+<p>Each zone card shows its slug, a marker beside its name that is green when the zone is <strong>Visible on site</strong> and red when something stops it (orange when it is only partly there), how many tale groups it holds, and whether the install snippet was used: <strong>Installed</strong> or <strong>Not installed</strong>.</p>
+<p><img class="guide-img" alt="The zone list: three zone cards. Home top has a green marker, 3 tale groups and Installed; Sale banner and Category page have red markers, with Not installed and No display yet." src="guides/images/15-zones.png" width="1280" height="800" /></p>
 <h2 id="display-tab">Display tab</h2>
 <p><img class="guide-img" alt="Display tab" src="guides/images/06-display-tab.png" width="1280" height="800" /></p>
 <h3 id="stories-bar">Stories bar</h3>

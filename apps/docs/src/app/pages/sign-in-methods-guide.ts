@@ -158,9 +158,9 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         <figure>
           <img
             src="images/signin-shot-07-invitation.png"
-            alt="The invitation page Join Shop on TaleArt, opened by a signed-out visitor. It has Name and Email fields, Create passkey, a username and password form with Join with a password, and a Continue with Company SSO button for the provider."
+            alt="The invitation page Join Shop on TaleArt, opened by a signed-out visitor. It says You'll join Shop as an Editor, and has Name and Email fields, Create passkey, a username and password form with Join with a password, and a Continue with Company SSO button for the provider."
             width="1000"
-            height="1038"
+            height="1102"
           />
           <figcaption>The invitation page for a fresh visitor, a real full-page screenshot of the dashboard. The link itself is not shown.</figcaption>
         </figure>
@@ -210,7 +210,7 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
         <figure>
           <img
             src="images/signin-shot-10-lockout.png"
-            alt="The Sign-in methods page with the passkey switched off. A red message reads: That would leave an admin with no way to sign in. Every admin needs a passkey, a password, or a linked provider that is on."
+            alt="The Sign-in methods page after switching the passkey off was refused: Passkey and Username and password both still read On, and a red message reads: That would leave an admin with no way to sign in. Every admin needs a passkey, a password, or a linked provider that is on."
             width="1000"
             height="900"
           />
