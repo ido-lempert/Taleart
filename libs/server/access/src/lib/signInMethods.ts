@@ -125,7 +125,7 @@ export interface ProviderState {
 }
 
 /** The providers as stored, by slug. */
-export async function providerStates(db: Db): Promise<ProviderState[]> {
+async function providerStates(db: Db): Promise<ProviderState[]> {
   const { rows } = await db.query<ProviderState>(
     'SELECT slug, enabled, secret_enc IS NOT NULL AS "hasSecret" FROM auth_providers ORDER BY slug',
   );

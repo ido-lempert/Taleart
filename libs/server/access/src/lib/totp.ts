@@ -2,10 +2,10 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /** One-time codes as RFC 6238 defines them for authenticator apps: HMAC-SHA1, 6 digits, a new code every 30 seconds. */
 export const TOTP_PERIOD_SECONDS = 30;
-export const TOTP_DIGITS = 6;
-export const TOTP_SECRET_BYTES = 20;
+const TOTP_DIGITS = 6;
+const TOTP_SECRET_BYTES = 20;
 /** Steps either side of now that are accepted, for a phone clock that is a little off. */
-export const TOTP_WINDOW_STEPS = 1;
+const TOTP_WINDOW_STEPS = 1;
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 

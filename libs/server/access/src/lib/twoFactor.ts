@@ -1,3 +1,8 @@
+/**
+ * The authenticator-app (TOTP) sign-in: the set-up of an app, the code step after a password, the enrolment a
+ * required sign-in makes, and turning the app off. The one-time codes are in `totp.ts`, the recovery codes in
+ * `recoveryCodes.ts`; the provider sign-ins that wait for the app are in `providerLogin.ts`.
+ */
 import { randomBytes } from 'node:crypto';
 import type { User } from '@taleart/contract';
 import type { SignedInUser } from './auth';
@@ -21,7 +26,7 @@ import type { PasswordThrottle } from './throttle';
 import { base32Encode, matchTotp, newTotpSecret, otpauthUri } from './totp';
 
 /** The name an authenticator app shows beside the account. */
-export const TOTP_ISSUER = 'TaleArt';
+const TOTP_ISSUER = 'TaleArt';
 
 /** Wrong codes one second step allows before the user must sign in again. */
 export const SECOND_STEP_MAX_ATTEMPTS = 5;

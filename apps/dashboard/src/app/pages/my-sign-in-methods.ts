@@ -22,6 +22,7 @@ import {
   type PasswordFieldErrors,
 } from '../sign-in-methods';
 import { SignInMethodsApi } from '../sign-in-methods.service';
+import { copyText, downloadRecoveryCodes, groupSecretKey } from '../two-factor-copy';
 import { SettingsTabs } from './settings-tabs';
 import { TotpQr } from './totp-qr';
 
@@ -243,10 +244,7 @@ export class AuthenticatorAppSection implements OnInit {
     this.status.update((current) => (current ? { ...current, ...patch } : current));
   }
 
-  /** The secret in groups of four, which is easier to type. */
-  protected grouped(secret: string): string {
-    return secret.replace(/(.{4})(?=.)/g, '$1 ');
-  }
+  protected readonly grouped = groupSecretKey;
 
   protected leftText(left: number): string {
     return `${left} recovery ${left === 1 ? 'code' : 'codes'} left`;
@@ -277,32 +275,18 @@ export class AuthenticatorAppSection implements OnInit {
 
   protected async copy(secret: string): Promise<void> {
     this.copyStatus.set('');
-    try {
-      await navigator.clipboard.writeText(secret);
-      this.copyStatus.set('Key copied');
-    } catch {
-      this.copyStatus.set('Could not copy. Select the key and copy it.');
-    }
+    this.copyStatus.set((await copyText(secret)) ? 'Key copied' : 'Could not copy. Select the key and copy it.');
   }
 
   protected async copyCodes(list: string[]): Promise<void> {
     this.copyStatus.set('');
-    try {
-      await navigator.clipboard.writeText(list.join('\n'));
-      this.announcement.set('Recovery codes copied.');
-    } catch {
-      this.announcement.set('Could not copy. Select the codes and copy them.');
-    }
+    this.announcement.set(
+      (await copyText(list.join('\n'))) ? 'Recovery codes copied.' : 'Could not copy. Select the codes and copy them.',
+    );
   }
 
-  /** Saves the codes as a plain text file, one code to a line. */
   protected download(list: string[]): void {
-    const url = URL.createObjectURL(new Blob([`${list.join('\n')}\n`], { type: 'text/plain' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'taleart-recovery-codes.txt';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadRecoveryCodes(list);
   }
 
   protected saved(): void {

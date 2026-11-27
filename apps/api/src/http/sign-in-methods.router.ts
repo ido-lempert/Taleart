@@ -72,7 +72,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Password sign-in per address (spec: rate limit per IP, reusing the existing limiter): a burst of 10
  * attempts, then 10 a minute. Every attempt takes one, whether or not it succeeds.
  */
-export const PASSWORD_SIGN_IN_ADDRESS_LIMIT: RateLimitOptions = { burst: 10, perSecond: 10 / 60 };
+const PASSWORD_SIGN_IN_ADDRESS_LIMIT: RateLimitOptions = { burst: 10, perSecond: 10 / 60 };
 
 /** How the sign-in methods router is set up. */
 export interface SignInMethodsOptions {
@@ -132,6 +132,28 @@ function twoFactorModeField(body: Record<string, unknown>): TwoFactorMode | unde
   if (value === undefined) return undefined;
   if (typeof value !== 'string' || !TWO_FACTOR_MODES.includes(value)) throw invalid('twoFactorMode is off, optional or required');
   return value as TwoFactorMode;
+}
+
+// The code a sign-in or two-factor step is given: required text, at most 64 characters.
+function codeField(body: unknown): string {
+  const code = textField(bodyObject(body), 'code', true) as string;
+  if (code.length > 64) throw invalid('code is not valid');
+  return code;
+}
+
+/** Sets the challenge cookie that carries a waiting sign-in to its next step (the code step or the enrolment). */
+function setChallenge(res: Response, id: string, secure: boolean): void {
+  setCookie(res, CHALLENGE_COOKIE, id, { maxAge: CHALLENGE_TTL_MS / 1000, path: CHALLENGE_PATH, secure });
+}
+
+/** Clears the challenge cookie once the sign-in it carried is finished. */
+function clearChallenge(res: Response, secure: boolean): void {
+  setCookie(res, CHALLENGE_COOKIE, '', { maxAge: 0, path: CHALLENGE_PATH, secure });
+}
+
+/** Sets the Retry-After header of a throttled sign-in attempt; other errors pass by. */
+function throttleRetryAfter(res: Response, err: unknown): void {
+  if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
 }
 
 /** Answers with the cookie that carries the new session, as the passkey routes do. */
@@ -208,11 +230,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       if (!takeAddressAttempt(req, res)) return;
       const result = await signInWithPassword(pool, throttle, { username, password });
       if ('secondStep' in result) {
-        setCookie(res, CHALLENGE_COOKIE, result.secondStep.id, {
-          maxAge: CHALLENGE_TTL_MS / 1000,
-          path: CHALLENGE_PATH,
-          secure: options.secureCookies,
-        });
+        setChallenge(res, result.secondStep.id, options.secureCookies);
         noStore(res);
         const required: SecondStepRequired = { secondStepRequired: true };
         res.json(required);
@@ -220,11 +238,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       }
       if ('enrolment' in result) {
         // Required two-factor mode and no app yet: the challenge cookie leads to the enrolment steps.
-        setCookie(res, CHALLENGE_COOKIE, result.enrolment.id, {
-          maxAge: CHALLENGE_TTL_MS / 1000,
-          path: CHALLENGE_PATH,
-          secure: options.secureCookies,
-        });
+        setChallenge(res, result.enrolment.id, options.secureCookies);
         noStore(res);
         const required: EnrolmentRequired = { enrolmentRequired: true };
         res.json(required);
@@ -234,7 +248,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       const payload: SignedIn = { user: result.user };
       res.json(payload);
     } catch (err) {
-      if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      throttleRetryAfter(res, err);
       next(err);
     }
   });
@@ -243,18 +257,16 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
   // (or a recovery code) make the session. Five wrong codes end the challenge; they also count toward the username's wait.
   router.post('/second-step', async (req, res, next) => {
     try {
-      const body = bodyObject(req.body);
-      const code = textField(body, 'code', true) as string;
-      if (code.length > 64) throw invalid('code is not valid');
+      const code = codeField(req.body);
       if (!takeAddressAttempt(req, res)) return;
       const signedIn = await finishSecondStep(pool, options.secretKey, throttle, readCookie(req, CHALLENGE_COOKIE), code);
-      setCookie(res, CHALLENGE_COOKIE, '', { maxAge: 0, path: CHALLENGE_PATH, secure: options.secureCookies });
+      clearChallenge(res, options.secureCookies);
       setSession(res, signedIn.session, options.secureCookies);
       noStore(res);
       const payload: SignedIn = { user: signedIn.user };
       res.json(payload);
     } catch (err) {
-      if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      throttleRetryAfter(res, err);
       next(err);
     }
   });
@@ -276,18 +288,16 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
 
   router.post('/enrol/confirm', async (req, res, next) => {
     try {
-      const body = bodyObject(req.body);
-      const code = textField(body, 'code', true) as string;
-      if (code.length > 64) throw invalid('code is not valid');
+      const code = codeField(req.body);
       if (!takeAddressAttempt(req, res)) return;
       const done = await finishEnrolStep(pool, options.secretKey, throttle, readCookie(req, CHALLENGE_COOKIE), code);
-      setCookie(res, CHALLENGE_COOKIE, '', { maxAge: 0, path: CHALLENGE_PATH, secure: options.secureCookies });
+      clearChallenge(res, options.secureCookies);
       setSession(res, done.signedIn.session, options.secureCookies);
       noStore(res);
       const payload: EnrolConfirmResponse = { user: done.signedIn.user, recoveryCodes: done.recoveryCodes };
       res.json(payload);
     } catch (err) {
-      if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      throttleRetryAfter(res, err);
       next(err);
     }
   });
@@ -395,8 +405,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
 
   router.post('/account/two-factor/confirm', sessionUser, async (req, res, next) => {
     try {
-      const code = textField(bodyObject(req.body), 'code', true) as string;
-      if (code.length > 64) throw invalid('code is not valid');
+      const code = codeField(req.body);
       const recoveryCodes = await confirmTotpEnrolment(pool, options.secretKey, userOf(res).id, code);
       noStore(res);
       const payload: ConfirmTwoFactorResponse = { recoveryCodes };
@@ -422,14 +431,13 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
   // every recovery code are deleted. Wrong codes count per user and per address; the session is needed.
   router.delete('/account/two-factor', sessionUser, async (req, res, next) => {
     try {
-      const code = textField(bodyObject(req.body), 'code', true) as string;
-      if (code.length > 64) throw invalid('code is not valid');
+      const code = codeField(req.body);
       if (!takeAddressAttempt(req, res)) return;
       await turnOffTotp(pool, options.secretKey, throttle, userOf(res).id, code);
       noStore(res);
       res.status(204).end();
     } catch (err) {
-      if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      throttleRetryAfter(res, err);
       next(err);
     }
   });

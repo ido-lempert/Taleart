@@ -1,3 +1,7 @@
+/**
+ * Recovery codes: the ten one-time codes a user keeps when an authenticator app is on. They are stored as hashes
+ * and each works once; making new ones replaces the old.
+ */
 import { createHash, randomBytes } from 'node:crypto';
 import type { Db } from './db';
 import { base32Encode } from './totp';
@@ -12,7 +16,7 @@ const RECOVERY_CODE_LENGTH = 10;
  * Ten new recovery codes, each shown as `xxxxx-xxxxx` in lowercase. A code is 50 random bits from the base32 alphabet,
  * so the stored hash needs no slow hash to resist guessing.
  */
-export function generateRecoveryCodes(): string[] {
+function generateRecoveryCodes(): string[] {
   return Array.from({ length: RECOVERY_CODE_COUNT }, () => {
     const raw = base32Encode(randomBytes(7)).slice(0, RECOVERY_CODE_LENGTH).toLowerCase();
     return `${raw.slice(0, 5)}-${raw.slice(5)}`;

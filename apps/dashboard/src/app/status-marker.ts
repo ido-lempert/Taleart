@@ -18,7 +18,6 @@ const GLYPHS: Readonly<Record<StatusTone, string>> = { green: '✓', orange: '!'
   selector: 'app-status-marker',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    class: 'status-marker-host',
     '(mouseenter)': 'dismissed.set(false)',
     '(mouseleave)': 'dismissed.set(false)',
     '(focusin)': 'dismissed.set(false)',

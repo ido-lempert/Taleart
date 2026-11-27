@@ -5,6 +5,7 @@ import type { TwoFactorEnrolment, User } from '@taleart/contract/core';
 import { AuthStore, PasskeyClient, safeReturnUrl } from '../auth';
 import { ProviderButtons } from '../sign-in-controls';
 import { authErrorMessage } from '../sign-in-methods';
+import { copyText, downloadRecoveryCodes, groupSecretKey } from '../two-factor-copy';
 import { Mark } from '../icon';
 import { LegalLinks } from '../legal-links';
 import { TotpQr } from './totp-qr';
@@ -398,19 +399,11 @@ export class SignInPage {
     this.recovery.update((on) => !on);
   }
 
-  /** The secret in groups of four, which is easier to type. */
-  protected grouped(secret: string): string {
-    return secret.replace(/(.{4})(?=.)/g, '$1 ');
-  }
+  protected readonly grouped = groupSecretKey;
 
   protected async copyKey(secret: string): Promise<void> {
     this.copyStatus.set('');
-    try {
-      await navigator.clipboard.writeText(secret);
-      this.copyStatus.set('Key copied');
-    } catch {
-      this.copyStatus.set('Could not copy. Select the key and copy it.');
-    }
+    this.copyStatus.set((await copyText(secret)) ? 'Key copied' : 'Could not copy. Select the key and copy it.');
   }
 
   /** Back to the password form from the set-up or the codes; the set-up is started again at the next sign-in. */
@@ -456,22 +449,13 @@ export class SignInPage {
   /** Copies all recovery codes, one to a line. */
   protected async copyCodes(): Promise<void> {
     this.copyStatus.set('');
-    try {
-      await navigator.clipboard.writeText(this.recoveryCodes().join('\n'));
-      this.copyStatus.set('Recovery codes copied.');
-    } catch {
-      this.copyStatus.set('Could not copy. Select the codes and copy them.');
-    }
+    this.copyStatus.set(
+      (await copyText(this.recoveryCodes().join('\n'))) ? 'Recovery codes copied.' : 'Could not copy. Select the codes and copy them.',
+    );
   }
 
-  /** Saves the codes as a plain text file, one code to a line. */
   protected downloadCodes(): void {
-    const url = URL.createObjectURL(new Blob([`${this.recoveryCodes().join('\n')}\n`], { type: 'text/plain' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'taleart-recovery-codes.txt';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadRecoveryCodes(this.recoveryCodes());
   }
 
   /** The user saw and saved the codes: the sign-in completes and the page goes on to the return URL. */

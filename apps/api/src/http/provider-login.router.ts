@@ -21,10 +21,10 @@ import { HttpError, errorBody } from './errors';
 import { Buckets, RATE_LIMIT_MAX_CLIENTS, rateLimitClient, type RateLimitOptions } from './rate-limit';
 
 /** Provider starts and callbacks per address (spec: rate limit per IP): a burst of 20, then 20 a minute. */
-export const PROVIDER_FLOW_ADDRESS_LIMIT: RateLimitOptions = { burst: 20, perSecond: 20 / 60 };
+const PROVIDER_FLOW_ADDRESS_LIMIT: RateLimitOptions = { burst: 20, perSecond: 20 / 60 };
 
 /** The most bytes a form-posted callback may be (Apple's form_post carries the code, state and ID token). */
-export const CALLBACK_FORM_LIMIT = '16kb';
+const CALLBACK_FORM_LIMIT = '16kb';
 
 /** How the provider routes are set up. */
 export interface ProviderLoginOptions {
