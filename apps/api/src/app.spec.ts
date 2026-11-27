@@ -13777,6 +13777,11 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
     expect((await setSettings(true, true)).status).toBe(200);
   }
 
+  // The install-wide two-factor mode, through the admin's settings request (passkey and password stay on).
+  async function setTwoFactorMode(twoFactorMode: 'off' | 'optional' | 'required'): Promise<Response> {
+    return send('PUT', '/auth/settings', { body: { passkeyEnabled: true, passwordEnabled: true, twoFactorMode } });
+  }
+
   beforeAll(async () => {
     pool = createPool(testDatabaseUrl);
     await migrate(pool);
@@ -13823,7 +13828,7 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
 
     const settings = await send('GET', '/auth/settings');
     expect(settings.status).toBe(200);
-    expect(await settings.json()).toEqual({ passkeyEnabled: true, passwordEnabled: false, secretKeyConfigured: true });
+    expect(await settings.json()).toEqual({ passkeyEnabled: true, passwordEnabled: false, twoFactorMode: 'off', secretKeyConfigured: true });
   });
 
   it('keeps the settings, providers and reset links from content managers, strangers and API tokens', async () => {
@@ -14313,6 +14318,8 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
     beforeEach(async () => {
       expect((await send('PUT', '/auth/account/password', { body: { username: 'ada.admin', password: PASSWORD } })).status).toBe(204);
       await turnPasswordOn();
+      // Optional: users may set an app up (the tests of the required and off modes change it).
+      expect((await setTwoFactorMode('optional')).status).toBe(200);
     });
 
     afterEach(() => {
@@ -14382,7 +14389,7 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       expect(body.secret).toMatch(/^[A-Z2-7]+$/);
       expect(body.otpauthUri.startsWith('otpauth://totp/')).toBe(true);
 
-      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: false, recoveryCodesLeft: 0 });
+      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: false, recoveryCodesLeft: 0, twoFactorMode: 'optional' });
 
       const wrong = await send('POST', '/auth/account/two-factor/confirm', { body: { code: WRONG_CODE } });
       expect(wrong.status).toBe(401);
@@ -14395,7 +14402,7 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       const confirmedCodes = (await right.json()) as { recoveryCodes: string[] };
       expect(confirmedCodes.recoveryCodes).toHaveLength(10);
 
-      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10 });
+      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10, twoFactorMode: 'optional' });
 
       const again = await send('POST', '/auth/account/two-factor');
       expect(again.status).toBe(409);
@@ -14428,7 +14435,7 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
       expect(session).toBeDefined();
       const cookie = session!.split(';')[0];
 
-      expect(await (await send('GET', '/auth/account/two-factor', { cookie })).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10 });
+      expect(await (await send('GET', '/auth/account/two-factor', { cookie })).json()).toEqual({ enrolled: true, recoveryCodesLeft: 10, twoFactorMode: 'optional' });
     });
 
     it('refuses a wrong code with no session, and five wrong codes end the challenge even for the right one', async () => {
@@ -14603,6 +14610,136 @@ describe('Management API v1: sign-in methods (password sign-in, method settings,
         expect(stored).not.toContain(code.replace('-', ''));
         expect(stored).toContain(createHash('sha256').update(code.replace('-', '')).digest('hex'));
       }
+    });
+
+    it('keeps the two-factor mode off by default', async () => {
+      await pool.query('UPDATE auth_settings SET two_factor_mode = DEFAULT WHERE id = 1');
+      expect(await (await send('GET', '/auth/settings')).json()).toMatchObject({ twoFactorMode: 'off' });
+    });
+
+    it('lets the admin set the mode to optional, required and off, and leaves it as it is when the request does not say', async () => {
+      for (const mode of ['optional', 'required', 'off'] as const) {
+        const res = await setTwoFactorMode(mode);
+        expect(res.status, mode).toBe(200);
+        expect(await res.json()).toMatchObject({ twoFactorMode: mode, secretKeyConfigured: true });
+      }
+      const kept = await send('PUT', '/auth/settings', { body: { passkeyEnabled: true, passwordEnabled: true } });
+      expect(kept.status).toBe(200);
+      expect(await kept.json()).toMatchObject({ twoFactorMode: 'off' });
+      expect((await send('PUT', '/auth/settings', { body: { passkeyEnabled: true, passwordEnabled: true, twoFactorMode: 'sometimes' } })).status).toBe(400);
+    });
+
+    it('refuses optional and required without the server secret key (409 secret_key_missing), and a non-admin cannot change the mode', async () => {
+      const manager = await send('PUT', '/auth/settings', {
+        cookie: managerCookie,
+        body: { passkeyEnabled: true, passwordEnabled: true, twoFactorMode: 'required' },
+      });
+      expect(manager.status).toBe(403);
+
+      await useApp({ secretKey: null });
+      for (const mode of ['optional', 'required'] as const) {
+        const res = await setTwoFactorMode(mode);
+        expect(res.status, mode).toBe(409);
+        expect((await res.json()).error.code).toBe('secret_key_missing');
+      }
+      expect(await (await send('GET', '/auth/settings')).json()).toMatchObject({ twoFactorMode: 'optional' });
+      expect((await setTwoFactorMode('off')).status).toBe(200);
+    });
+
+    it('required: a user with no app gets the enrolment answer and no session, administrators included', async () => {
+      expect((await setTwoFactorMode('required')).status).toBe(200);
+
+      const res = await passwordSignIn('ada.admin', PASSWORD);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ enrolmentRequired: true });
+      expect(hasSessionCookie(res)).toBe(false);
+      expect(challengeCookieOf(res)).toMatch(/^taleart_challenge=[0-9a-f-]{36}$/);
+    });
+
+    it('required: start and confirm the app, get the recovery codes and the session, and the next sign-in asks for a code', async () => {
+      expect((await setTwoFactorMode('required')).status).toBe(200);
+      const challenge = challengeCookieOf(await passwordSignIn('ada.admin', PASSWORD));
+
+      const started = await send('POST', '/auth/enrol/start', { cookie: challenge });
+      expect(started.status).toBe(200);
+      const { secret, otpauthUri } = (await started.json()) as { secret: string; otpauthUri: string };
+      expect(secret).toMatch(/^[A-Z2-7]+$/);
+      expect(otpauthUri.startsWith('otpauth://totp/')).toBe(true);
+
+      const done = await send('POST', '/auth/enrol/confirm', {
+        cookie: challenge,
+        body: { code: totpCode(base32Decode(secret), totpStep(Date.now())) },
+      });
+      expect(done.status).toBe(200);
+      const body = (await done.json()) as { user: { id: string }; recoveryCodes: string[] };
+      expect(body.user).toEqual({ id: adminId, name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+      expect(body.recoveryCodes).toHaveLength(10);
+      for (const code of body.recoveryCodes) expect(code).toMatch(RECOVERY_CODE);
+      expect(hasSessionCookie(done)).toBe(true);
+      const session = done.headers.getSetCookie().find((l) => l.startsWith('taleart_session='))!.split(';')[0];
+
+      // The challenge is spent: it cannot start or confirm again.
+      expect((await send('POST', '/auth/enrol/start', { cookie: challenge })).status).toBe(401);
+
+      expect(await (await send('GET', '/auth/account/two-factor', { cookie: session })).json()).toEqual({
+        enrolled: true,
+        recoveryCodesLeft: 10,
+        twoFactorMode: 'required',
+      });
+      const next = await passwordSignIn('ada.admin', PASSWORD);
+      expect(await next.json()).toEqual({ secondStepRequired: true });
+      expect(hasSessionCookie(next)).toBe(false);
+    });
+
+    it('required: a wrong enrolment code is refused and counted, and five end the enrolment challenge', async () => {
+      expect((await setTwoFactorMode('required')).status).toBe(200);
+      const challenge = challengeCookieOf(await passwordSignIn('ada.admin', PASSWORD));
+      const started = await send('POST', '/auth/enrol/start', { cookie: challenge });
+      const { secret } = (await started.json()) as { secret: string };
+
+      for (let i = 1; i <= 5; i++) {
+        const res = await send('POST', '/auth/enrol/confirm', { cookie: challenge, body: { code: WRONG_CODE } });
+        expect(res.status, `wrong code ${i}`).toBe(401);
+        expect((await res.json()).error.code).toBe('two_factor_code_invalid');
+        expect(hasSessionCookie(res)).toBe(false);
+      }
+      const right = await send('POST', '/auth/enrol/confirm', {
+        cookie: challenge,
+        body: { code: totpCode(base32Decode(secret), totpStep(Date.now())) },
+      });
+      expect(right.status).toBe(401);
+      expect((await right.json()).error.code).toBe('two_factor_challenge_invalid');
+      expect(hasSessionCookie(right)).toBe(false);
+    });
+
+    it('required: the enrolment steps refuse a missing or made-up challenge with two_factor_challenge_invalid', async () => {
+      expect((await setTwoFactorMode('required')).status).toBe(200);
+      const none = await send('POST', '/auth/enrol/start', { cookie: '' });
+      expect(none.status).toBe(401);
+      expect((await none.json()).error.code).toBe('two_factor_challenge_invalid');
+
+      const madeUp = await send('POST', '/auth/enrol/confirm', { cookie: `taleart_challenge=${randomUUID()}`, body: { code: WRONG_CODE } });
+      expect(madeUp.status).toBe(401);
+      expect((await madeUp.json()).error.code).toBe('two_factor_challenge_invalid');
+    });
+
+    it('off: nobody starts an app (409 two_factor_off), and an enrolled user still gets the second step', async () => {
+      const secret = await enrol();
+      expect((await setTwoFactorMode('off')).status).toBe(200);
+
+      const start = await send('POST', '/auth/account/two-factor');
+      expect(start.status).toBe(409);
+      expect((await start.json()).error.code).toBe('two_factor_off');
+      expect(await (await send('GET', '/auth/account/two-factor')).json()).toEqual({
+        enrolled: true,
+        recoveryCodesLeft: 10,
+        twoFactorMode: 'off',
+      });
+
+      const first = await passwordSignIn('ada.admin', PASSWORD);
+      expect(await first.json()).toEqual({ secondStepRequired: true });
+      const done = await secondStep(challengeCookieOf(first), laterCode(secret));
+      expect(done.status).toBe(200);
     });
   });
 });

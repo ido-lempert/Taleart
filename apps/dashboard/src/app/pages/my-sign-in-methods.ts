@@ -135,11 +135,15 @@ type Removal =
           </div>
         } @else {
           <p id="two-factor-state">Not set up</p>
-          <div class="invite-actions">
-            <button type="button" class="btn btn--secondary" id="two-factor-set-up" [disabled]="busy()" (click)="start()">
-              Set up
-            </button>
-          </div>
+          @if (current.twoFactorMode === 'off') {
+            <p class="muted" id="two-factor-off">Two-factor sign-in is off on this server.</p>
+          } @else {
+            <div class="invite-actions">
+              <button type="button" class="btn btn--secondary" id="two-factor-set-up" [disabled]="busy()" (click)="start()">
+                Set up
+              </button>
+            </div>
+          }
         }
       } @else {
         <p class="muted" role="status">Reading your authenticator app…</p>
@@ -196,6 +200,11 @@ export class AuthenticatorAppSection implements OnInit {
     }
   }
 
+  /** Changes the parts of the status the page knows now; the two-factor mode it was read with stays. */
+  private withStatus(patch: Partial<TwoFactorStatus>): void {
+    this.status.update((current) => (current ? { ...current, ...patch } : current));
+  }
+
   /** The secret in groups of four, which is easier to type. */
   protected grouped(secret: string): string {
     return secret.replace(/(.{4})(?=.)/g, '$1 ');
@@ -215,6 +224,9 @@ export class AuthenticatorAppSection implements OnInit {
     } catch (err) {
       if (errorCode(err) === ErrorCodes.twoFactorEnrolled) {
         await this.load();
+      } else if (errorCode(err) === ErrorCodes.twoFactorOff) {
+        await this.load();
+        this.error.set('Two-factor sign-in is off on this server.');
       } else if (errorCode(err) === ErrorCodes.secretKeyMissing) {
         this.error.set("Two-factor sign-in needs the server's secret key (TALEART_SECRET_KEY) to be set.");
       } else {
@@ -268,7 +280,7 @@ export class AuthenticatorAppSection implements OnInit {
       const { recoveryCodes } = await this.api.regenerateRecoveryCodes();
       this.confirmingNew.set(false);
       this.codes.set(recoveryCodes);
-      this.status.set({ enrolled: true, recoveryCodesLeft: recoveryCodes.length });
+      this.withStatus({ enrolled: true, recoveryCodesLeft: recoveryCodes.length });
       this.announcement.set('New recovery codes are ready. The old ones no longer work.');
     } catch (err) {
       this.confirmingNew.set(false);
@@ -295,7 +307,7 @@ export class AuthenticatorAppSection implements OnInit {
       const { recoveryCodes } = await this.api.confirmTwoFactor({ code });
       this.enrolment.set(null);
       this.code = '';
-      this.status.set({ enrolled: true, recoveryCodesLeft: recoveryCodes.length });
+      this.withStatus({ enrolled: true, recoveryCodesLeft: recoveryCodes.length });
       this.codes.set(recoveryCodes);
       this.announcement.set('Authenticator app is on.');
     } catch (err) {
@@ -310,7 +322,7 @@ export class AuthenticatorAppSection implements OnInit {
           break;
         case ErrorCodes.twoFactorEnrolled:
           this.enrolment.set(null);
-          this.status.set({ enrolled: true, recoveryCodesLeft: 0 });
+          this.withStatus({ enrolled: true, recoveryCodesLeft: 0 });
           break;
         default:
           this.error.set(errorText(err, 'The authenticator app was not turned on. Try again.'));

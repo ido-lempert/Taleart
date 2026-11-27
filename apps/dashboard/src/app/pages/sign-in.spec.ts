@@ -351,4 +351,108 @@ describe('SignInPage: the sign-in methods on (/auth/state.methods)', () => {
       http.expectNone(`${API_BASE}/auth/second-step`);
     });
   });
+  describe('the enrolment (two-factor required, and the user has no authenticator app yet)', () => {
+    const USER = { id: 'u1', name: 'Ada', email: 'ada@example.com', role: 'admin' };
+    const ENROLMENT = { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/TaleArt:ada?secret=JBSWY3DPEHPK3PXP' };
+    const CODES = ['a2b3c-d4e5f', 'g6h7j-k8m9n', 'p2q3r-s4t5u', 'v6w7x-y8z2a', 'b3c4d-e5f6g', 'h7j8k-m9n2p', 'q3r4s-t5u6v', 'w7x8y-z2a3b', 'c4d5e-f6g7h', 'j8k9m-n2p3q'];
+
+    // Sends the password, which the API answers with the enrolment step; the page then starts the app's set-up.
+    async function reachEnrolment(): Promise<void> {
+      await submitPassword('ada', 'correct horse 1');
+      http.expectOne(`${API_BASE}/auth/password/sign-in`).flush({ enrolmentRequired: true }, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/auth/enrol/start`).flush(ENROLMENT, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+    }
+
+    async function submitEnrolCode(code: string): Promise<void> {
+      await settle(fixture);
+      field('sign-in-enrol-code').value = code;
+      field('sign-in-enrol-code').dispatchEvent(new Event('input'));
+      root()
+        .querySelector('form')
+        ?.dispatchEvent(new Event('submit', { cancelable: true }));
+      await settle(fixture);
+    }
+
+    it('says the administrator requires an app, and shows the secret in groups of four and the address on entry', async () => {
+      setUp(METHODS);
+      await reachEnrolment();
+      expect(text()).toContain('Your administrator requires an authenticator app.');
+      expect(root().querySelector('#sign-in-password')).toBeNull();
+      expect(root().querySelector('#sign-in-enrol-secret')?.textContent).toBe('JBSW Y3DP EHPK 3PXP');
+      expect(root().querySelector('#sign-in-enrol-uri')?.textContent).toBe(ENROLMENT.otpauthUri);
+      expect(text()).toContain('Code from your app');
+      expect(text()).toContain('Turn on and sign in');
+    });
+
+    it('turns the app on, shows the recovery codes, and completes the sign-in only when they are saved', async () => {
+      setUp(METHODS, { returnUrl: '/projects' });
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      const auth = TestBed.inject(AuthStore);
+      await reachEnrolment();
+
+      await submitEnrolCode('123 456');
+      const req = http.expectOne(`${API_BASE}/auth/enrol/confirm`);
+      expect(req.request.body).toEqual({ code: '123456' });
+      req.flush({ user: USER, recoveryCodes: CODES }, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+
+      expect(root().querySelectorAll('#sign-in-recovery-list li').length).toBe(10);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(auth.user()).toBeNull();
+
+      root().querySelector<HTMLButtonElement>('#sign-in-recovery-continue')?.click();
+      await settle(fixture);
+      expect(auth.user()?.id).toBe('u1');
+      expect(navigate).toHaveBeenCalledWith('/projects');
+    });
+
+    it('says a wrong code is not right and keeps the set-up screen', async () => {
+      setUp(METHODS);
+      await reachEnrolment();
+      await submitEnrolCode('000000');
+      http
+        .expectOne(`${API_BASE}/auth/enrol/confirm`)
+        .flush({ error: { code: 'two_factor_code_invalid', message: 'Wrong.' } }, { status: 401, statusText: 'Unauthorized' });
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-enrol-error')?.textContent).toContain('That code is not right.');
+      expect(root().querySelector('#sign-in-enrol-secret')).not.toBeNull();
+    });
+
+    it('returns to the password form when the sign-in expired', async () => {
+      setUp(METHODS);
+      await reachEnrolment();
+      await submitEnrolCode('123456');
+      http
+        .expectOne(`${API_BASE}/auth/enrol/confirm`)
+        .flush({ error: { code: 'two_factor_challenge_invalid', message: 'Expired.' } }, { status: 401, statusText: 'Unauthorized' });
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-enrol-secret')).toBeNull();
+      expect(root().querySelector('#sign-in-password')).not.toBeNull();
+      expect(root().querySelector('#sign-in-password-error')?.textContent).toContain('That sign-in expired.');
+    });
+
+    it('explains a set-up that cannot start for the missing key, and keeps the screen', async () => {
+      setUp(METHODS);
+      await submitPassword('ada', 'correct horse 1');
+      http.expectOne(`${API_BASE}/auth/password/sign-in`).flush({ enrolmentRequired: true }, { status: 200, statusText: 'OK' });
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/auth/enrol/start`)
+        .flush({ error: { code: 'secret_key_missing', message: 'No key.' } }, { status: 503, statusText: 'Service Unavailable' });
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-enrol-error')?.textContent).toContain('TALEART_SECRET_KEY');
+      expect(root().querySelector('#sign-in-password')).toBeNull();
+    });
+
+    it('goes back to the password form from the set-up screen', async () => {
+      setUp(METHODS);
+      await reachEnrolment();
+      root().querySelector<HTMLButtonElement>('#sign-in-enrol-back')?.click();
+      await settle(fixture);
+      expect(root().querySelector('#sign-in-enrol-secret')).toBeNull();
+      expect(root().querySelector('#sign-in-password')).not.toBeNull();
+    });
+  });
 });

@@ -6,12 +6,15 @@ import {
   type AccountMethods,
   type AuthProvider,
   type AuthSettings,
+  type EnrolConfirmResponse,
+  type EnrolmentRequired,
   type PasswordResetLink,
   type PasswordResetPreview,
   type RecoveryCodes,
   type SaveAuthProviderRequest,
   type SecondStepRequired,
   type ConfirmTwoFactorResponse,
+  type TwoFactorMode,
   type SignedIn,
   type TwoFactorEnrolment,
   type TwoFactorStatus,
@@ -25,6 +28,7 @@ import {
   recoveryCodesLeft,
   regenerateRecoveryCodes,
   deleteProvider,
+  finishEnrolStep,
   finishSecondStep,
   findSessionUser,
   issuePasswordReset,
@@ -42,6 +46,7 @@ import {
   setupWithPassword,
   signInSettings,
   signInWithPassword,
+  startEnrolStep,
   startTotpEnrolment,
   SignInThrottledError,
   totpEnrolled,
@@ -116,6 +121,16 @@ function nameAndEmail(body: Record<string, unknown>): { name: string; email: str
 function switchField(body: Record<string, unknown>, field: string): boolean {
   if (typeof body[field] !== 'boolean') throw invalid(`${field} is true or false`);
   return body[field] as boolean;
+}
+
+const TWO_FACTOR_MODES: readonly string[] = ['off', 'optional', 'required'];
+
+// The two-factor mode of a settings body, when it is sent; left out, undefined.
+function twoFactorModeField(body: Record<string, unknown>): TwoFactorMode | undefined {
+  const value = body['twoFactorMode'];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !TWO_FACTOR_MODES.includes(value)) throw invalid('twoFactorMode is off, optional or required');
+  return value as TwoFactorMode;
 }
 
 /** Answers with the cookie that carries the new session, as the passkey routes do. */
@@ -202,6 +217,18 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
         res.json(required);
         return;
       }
+      if ('enrolment' in result) {
+        // Required two-factor mode and no app yet: the challenge cookie leads to the enrolment steps.
+        setCookie(res, CHALLENGE_COOKIE, result.enrolment.id, {
+          maxAge: CHALLENGE_TTL_MS / 1000,
+          path: CHALLENGE_PATH,
+          secure: options.secureCookies,
+        });
+        noStore(res);
+        const required: EnrolmentRequired = { enrolmentRequired: true };
+        res.json(required);
+        return;
+      }
       setSession(res, result.session, options.secureCookies);
       const payload: SignedIn = { user: result.user };
       res.json(payload);
@@ -224,6 +251,39 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       setSession(res, signedIn.session, options.secureCookies);
       noStore(res);
       const payload: SignedIn = { user: signedIn.user };
+      res.json(payload);
+    } catch (err) {
+      if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      next(err);
+    }
+  });
+
+  // The enrolment of a required sign-in (two-factor mode required): the challenge cookie from the password step leads to a
+  // new authenticator app. Start it, then confirm with a current code; the right code makes the session and the recovery
+  // codes. No session is needed; a wrong code counts toward the same five attempts as the second step.
+  router.post('/enrol/start', async (req, res, next) => {
+    try {
+      if (!takeAddressAttempt(req, res)) return;
+      const started = await startEnrolStep(pool, options.secretKey, readCookie(req, CHALLENGE_COOKIE));
+      noStore(res);
+      const payload: TwoFactorEnrolment = { secret: started.secret, otpauthUri: started.otpauthUri };
+      res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/enrol/confirm', async (req, res, next) => {
+    try {
+      const body = bodyObject(req.body);
+      const code = textField(body, 'code', true) as string;
+      if (code.length > 64) throw invalid('code is not valid');
+      if (!takeAddressAttempt(req, res)) return;
+      const done = await finishEnrolStep(pool, options.secretKey, throttle, readCookie(req, CHALLENGE_COOKIE), code);
+      setCookie(res, CHALLENGE_COOKIE, '', { maxAge: 0, path: CHALLENGE_PATH, secure: options.secureCookies });
+      setSession(res, done.signedIn.session, options.secureCookies);
+      noStore(res);
+      const payload: EnrolConfirmResponse = { user: done.signedIn.user, recoveryCodes: done.recoveryCodes };
       res.json(payload);
     } catch (err) {
       if (err instanceof SignInThrottledError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
@@ -313,6 +373,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       const payload: TwoFactorStatus = {
         enrolled: await totpEnrolled(pool, userId),
         recoveryCodesLeft: await recoveryCodesLeft(pool, userId),
+        twoFactorMode: (await signInSettings(pool)).twoFactorMode,
       };
       res.json(payload);
     } catch (err) {
@@ -411,6 +472,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       const body: AuthSettings = {
         passkeyEnabled: settings.passkeyEnabled,
         passwordEnabled: settings.passwordEnabled,
+        twoFactorMode: settings.twoFactorMode,
         secretKeyConfigured: secretsAvailable,
       };
       res.json(body);
@@ -422,9 +484,11 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
   router.put('/settings', ...admin, async (req, res, next) => {
     try {
       const fields = bodyObject(req.body);
+      const twoFactorMode = twoFactorModeField(fields);
       const body: UpdateAuthSettingsRequest = {
         passkeyEnabled: switchField(fields, 'passkeyEnabled'),
         passwordEnabled: switchField(fields, 'passwordEnabled'),
+        ...(twoFactorMode === undefined ? {} : { twoFactorMode }),
       };
       await setSignInSettings(
         pool,
@@ -436,6 +500,7 @@ export function signInMethodsRouter(pool: Pool, options: SignInMethodsOptions): 
       const payload: AuthSettings = {
         passkeyEnabled: settings.passkeyEnabled,
         passwordEnabled: settings.passwordEnabled,
+        twoFactorMode: settings.twoFactorMode,
         secretKeyConfigured: secretsAvailable,
       };
       res.json(payload);

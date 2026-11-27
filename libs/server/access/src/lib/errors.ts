@@ -181,6 +181,24 @@ export class TwoFactorNotStartedError extends SignInRefusal {
   }
 }
 
+/** Authenticator apps cannot be started while the install's two-factor mode is off. */
+export class TwoFactorOffError extends SignInRefusal {
+  constructor() {
+    super(409, ErrorCodes.twoFactorOff, 'Two-factor sign-in is off on this server. Ask an admin to turn it on.');
+  }
+}
+
+/** The two-factor mode cannot be optional or required: the server has no valid TALEART_SECRET_KEY to keep the secrets. */
+export class TwoFactorModeUnavailableError extends SignInRefusal {
+  constructor() {
+    super(
+      409,
+      ErrorCodes.secretKeyMissing,
+      'Two-factor sign-in needs the server secret key (TALEART_SECRET_KEY, 32 bytes, base64). Set it, or keep two-factor sign-in off',
+    );
+  }
+}
+
 /** The signed-in user's current password is wrong. */
 export class PasswordIncorrectError extends SignInRefusal {
   constructor() {

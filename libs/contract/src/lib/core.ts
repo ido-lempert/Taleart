@@ -99,6 +99,11 @@ export type SetupRequest = Schemas['SetupRequest'];
 export type SignedIn = Schemas['SignedIn'];
 export type SecondStepRequired = Schemas['SecondStepRequired'];
 export type SecondStepRequest = Schemas['SecondStepRequest'];
+export type EnrolmentRequired = Schemas['EnrolmentRequired'];
+export type EnrolConfirmRequest = Schemas['EnrolConfirmRequest'];
+export type EnrolConfirmResponse = Schemas['EnrolConfirmResponse'];
+/** The install-wide two-factor mode: off, optional or required. */
+export type TwoFactorMode = Schemas['TwoFactorMode'];
 export type TwoFactorStatus = Schemas['TwoFactorStatus'];
 export type TwoFactorEnrolment = Schemas['TwoFactorEnrolment'];
 export type ConfirmTwoFactorRequest = Schemas['ConfirmTwoFactorRequest'];
@@ -775,6 +780,7 @@ export const ErrorCodes = {
   twoFactorChallengeInvalid: 'two_factor_challenge_invalid',
   twoFactorEnrolled: 'two_factor_enrolled',
   twoFactorNotStarted: 'two_factor_not_started',
+  twoFactorOff: 'two_factor_off',
   emailTaken: 'email_taken',
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',

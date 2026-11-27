@@ -9,10 +9,12 @@ import {
   TwoFactorCodeInvalidError,
   TwoFactorEnrolledError,
   TwoFactorNotStartedError,
+  TwoFactorOffError,
   TwoFactorUnavailableError,
 } from './errors';
 import { consumeRecoveryCode, replaceRecoveryCodes } from './recoveryCodes';
 import { decryptSecret, encryptSecret } from './secrets';
+import { signInSettings } from './signInMethods';
 import { createSession } from './sessions';
 import type { PasswordThrottle } from './throttle';
 import { base32Encode, matchTotp, newTotpSecret, otpauthUri } from './totp';
@@ -45,14 +47,16 @@ export async function totpEnrolled(db: Db, userId: string): Promise<boolean> {
 
 /**
  * Starts (or restarts) setting up an authenticator app: a new secret, kept encrypted and not yet in force. The user
- * proves they have it by sending a current code to {@link confirmTotpEnrolment}. Throws
- * {@link TwoFactorEnrolledError} when an app is already set up.
+ * proves they have it by sending a current code to {@link confirmTotpEnrolment}. Throws {@link TwoFactorOffError} while
+ * the install's two-factor mode is off (nobody starts an app then), {@link TwoFactorUnavailableError} without the
+ * secret key, and {@link TwoFactorEnrolledError} when an app is already set up.
  */
 export async function startTotpEnrolment(
   db: TransactionalDb,
   key: Buffer | null,
   user: Pick<User, 'id' | 'email'>,
 ): Promise<TotpEnrolment> {
+  if ((await signInSettings(db)).twoFactorMode === 'off') throw new TwoFactorOffError();
   if (!key) throw new TwoFactorUnavailableError();
   return inTransaction(db, async (tx) => {
     const { rows } = await tx.query<{ enrolledAt: Date | null }>(
@@ -232,4 +236,138 @@ export async function finishSecondStep(
   }
   throttle.succeeded(outcome.throttleKey);
   return outcome.signedIn;
+}
+
+/**
+ * Parks a required sign-in whose password was right, for a user with no authenticator app yet: the browser's challenge
+ * cookie leads to the enrolment steps ({@link startEnrolStep}, {@link finishEnrolStep}). No session exists until the
+ * app is on.
+ */
+export async function beginEnrolStep(db: Db, userId: string, throttleKey: string): Promise<SecondStepStarted> {
+  const { id, expiresAt } = await createChallenge(db, 'enrol-step', randomBytes(16).toString('base64url'), {
+    userId,
+    throttleKey,
+    attempts: 0,
+  });
+  return { id, expiresAt };
+}
+
+// The user of a live enrolment challenge; a missing, expired or unknown one is the challenge refusal.
+async function enrolChallengeUser(db: Db, challengeId: string | undefined): Promise<string> {
+  if (!challengeId || !UUID.test(challengeId)) throw new TwoFactorChallengeInvalidError();
+  const { rows } = await db.query<{ data: { userId: string }; valid: boolean }>(
+    `SELECT data, expires_at > now() AS valid FROM auth_challenges WHERE id = $1 AND purpose = 'enrol-step'`,
+    [challengeId],
+  );
+  if (!rows[0] || !rows[0].valid) throw new TwoFactorChallengeInvalidError();
+  return rows[0].data.userId;
+}
+
+/**
+ * Starts (or restarts) the authenticator app of the user a required sign-in is for, from its enrolment challenge. The
+ * secret is not in force until {@link finishEnrolStep} accepts a code.
+ */
+export async function startEnrolStep(
+  db: TransactionalDb,
+  key: Buffer | null,
+  challengeId: string | undefined,
+): Promise<TotpEnrolment> {
+  const userId = await enrolChallengeUser(db, challengeId);
+  const { rows } = await db.query<{ id: string; email: string }>('SELECT id, email FROM users WHERE id = $1', [userId]);
+  if (!rows[0]) throw new TwoFactorChallengeInvalidError();
+  return startTotpEnrolment(db, key, rows[0]);
+}
+
+type EnrolOutcome =
+  | { kind: 'signed-in'; signedIn: SignedInUser; recoveryCodes: string[]; throttleKey: string }
+  | { kind: 'wrong'; throttleKey: string }
+  | { kind: 'throttled'; waitMs: number }
+  | { kind: 'not-started' }
+  | { kind: 'invalid' };
+
+/**
+ * Finishes a required sign-in: a right code from the app being set up turns it on, makes the user's recovery codes,
+ * ends the challenge and makes the session. A wrong code counts toward the username's throttle and toward
+ * {@link SECOND_STEP_MAX_ATTEMPTS}. Throws {@link TwoFactorNotStartedError} when the app was never started.
+ */
+export async function finishEnrolStep(
+  db: TransactionalDb,
+  key: Buffer | null,
+  throttle: PasswordThrottle,
+  challengeId: string | undefined,
+  code: string,
+  nowMs: number = Date.now(),
+): Promise<{ signedIn: SignedInUser; recoveryCodes: string[] }> {
+  if (!challengeId || !UUID.test(challengeId)) throw new TwoFactorChallengeInvalidError();
+  if (!key) throw new TwoFactorUnavailableError();
+  const outcome = await inTransaction<EnrolOutcome>(db, async (tx) => {
+    const found = await tx.query<{ data: { userId: string; throttleKey: string; attempts: number }; valid: boolean }>(
+      `SELECT data, expires_at > now() AS valid FROM auth_challenges
+       WHERE id = $1 AND purpose = 'enrol-step' FOR UPDATE`,
+      [challengeId],
+    );
+    const challenge = found.rows[0];
+    if (!challenge) return { kind: 'invalid' };
+    if (!challenge.valid) {
+      await tx.query('DELETE FROM auth_challenges WHERE id = $1', [challengeId]);
+      return { kind: 'invalid' };
+    }
+    const { userId, throttleKey, attempts } = challenge.data;
+    const wait = throttle.waitMs(throttleKey);
+    if (wait > 0) return { kind: 'throttled', waitMs: wait };
+
+    const totp = await tx.query<{ secretEnc: Buffer; enrolledAt: Date | null }>(
+      'SELECT secret_enc AS "secretEnc", enrolled_at AS "enrolledAt" FROM user_totp WHERE user_id = $1 FOR UPDATE',
+      [userId],
+    );
+    if (!totp.rows[0]) return { kind: 'not-started' };
+    if (totp.rows[0].enrolledAt) {
+      // Set up in another sign-in meanwhile: this challenge has nothing left to do.
+      await tx.query('DELETE FROM auth_challenges WHERE id = $1', [challengeId]);
+      return { kind: 'invalid' };
+    }
+
+    let step: number | null = null;
+    try {
+      const secret = Buffer.from(decryptSecret(totp.rows[0].secretEnc, key), 'base64');
+      step = matchTotp(secret, code, nowMs);
+    } catch {
+      // A secret that cannot be read (the key changed) never matches.
+      step = null;
+    }
+
+    if (step !== null) {
+      await tx.query('UPDATE user_totp SET enrolled_at = now(), last_step = $2 WHERE user_id = $1', [userId, step]);
+      await tx.query('DELETE FROM auth_challenges WHERE id = $1', [challengeId]);
+      const users = await tx.query<User>('SELECT id, name, email, role FROM users WHERE id = $1', [userId]);
+      if (!users.rows[0]) return { kind: 'invalid' };
+      const recoveryCodes = await replaceRecoveryCodes(tx, userId);
+      return {
+        kind: 'signed-in',
+        signedIn: { user: users.rows[0], session: await createSession(tx, userId) },
+        recoveryCodes,
+        throttleKey,
+      };
+    }
+
+    if (attempts + 1 >= SECOND_STEP_MAX_ATTEMPTS) {
+      await tx.query('DELETE FROM auth_challenges WHERE id = $1', [challengeId]);
+    } else {
+      await tx.query(`UPDATE auth_challenges SET data = jsonb_set(data, '{attempts}', to_jsonb($2::int)) WHERE id = $1`, [
+        challengeId,
+        attempts + 1,
+      ]);
+    }
+    return { kind: 'wrong', throttleKey };
+  });
+
+  if (outcome.kind === 'throttled') throw new SignInThrottledError(Math.ceil(outcome.waitMs / 1000));
+  if (outcome.kind === 'not-started') throw new TwoFactorNotStartedError();
+  if (outcome.kind === 'invalid') throw new TwoFactorChallengeInvalidError();
+  if (outcome.kind === 'wrong') {
+    throttle.failed(outcome.throttleKey);
+    throw new TwoFactorCodeInvalidError();
+  }
+  throttle.succeeded(outcome.throttleKey);
+  return { signedIn: outcome.signedIn, recoveryCodes: outcome.recoveryCodes };
 }

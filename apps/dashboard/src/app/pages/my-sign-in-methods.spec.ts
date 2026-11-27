@@ -273,14 +273,18 @@ describe('MySignInMethodsPage: the authenticator app section', () => {
     'j8k9m-n2p3q',
   ];
 
-  async function openAccount(enrolled: boolean, recoveryCodesLeft = enrolled ? 10 : 0): Promise<void> {
+  async function openAccount(
+    enrolled: boolean,
+    recoveryCodesLeft = enrolled ? 10 : 0,
+    twoFactorMode: 'off' | 'optional' | 'required' = 'optional',
+  ): Promise<void> {
     TestBed.inject(AuthStore).state.set({ setupRequired: false, user: null, methods: METHODS as never });
     fixture = TestBed.createComponent(MySignInMethodsPage);
     document.body.appendChild(root());
     fixture.detectChanges();
     http.expectOne(`${ACCOUNT}/methods`).flush({ passkeys: [PASSKEY], password: null, identities: [IDENTITY] });
     await settle(fixture);
-    http.expectOne({ url: TWO_FACTOR, method: 'GET' }).flush({ enrolled, recoveryCodesLeft });
+    http.expectOne({ url: TWO_FACTOR, method: 'GET' }).flush({ enrolled, recoveryCodesLeft, twoFactorMode });
     await settle(fixture);
   }
 
@@ -495,5 +499,32 @@ describe('MySignInMethodsPage: the authenticator app section', () => {
     await settle(fixture);
     expect(root().querySelector('[role="alert"]')?.textContent).toContain('That code is not right.');
     expect(root().querySelector('#two-factor-form')).not.toBeNull();
+  });
+
+  it('hides the Set up button and says so while two-factor sign-in is off on the server', async () => {
+    await openAccount(false, 0, 'off');
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('Not set up');
+    expect(root().querySelector('#two-factor-set-up')).toBeNull();
+    expect(root().querySelector('#two-factor-off')?.textContent).toBe('Two-factor sign-in is off on this server.');
+  });
+
+  it('still shows an app that is on while the mode is off, with no Set up and no notice', async () => {
+    await openAccount(true, 10, 'off');
+    expect(root().querySelector('#two-factor-state')?.textContent).toBe('On');
+    expect(root().querySelector('#two-factor-off')).toBeNull();
+  });
+
+  it('explains a set-up refused because the mode went off, and hides the Set up button', async () => {
+    await openAccount(false, 0, 'optional');
+    root().querySelector<HTMLButtonElement>('#two-factor-set-up')?.click();
+    await settle(fixture);
+    http
+      .expectOne({ url: TWO_FACTOR, method: 'POST' })
+      .flush({ error: { code: 'two_factor_off', message: 'Off.' } }, { status: 409, statusText: 'Conflict' });
+    await settle(fixture);
+    http.expectOne({ url: TWO_FACTOR, method: 'GET' }).flush({ enrolled: false, recoveryCodesLeft: 0, twoFactorMode: 'off' });
+    await settle(fixture);
+    expect(text()).toContain('Two-factor sign-in is off on this server.');
+    expect(root().querySelector('#two-factor-set-up')).toBeNull();
   });
 });

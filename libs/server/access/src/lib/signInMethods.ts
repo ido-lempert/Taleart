@@ -1,6 +1,6 @@
-import type { AuthMethod } from '@taleart/contract';
+import type { AuthMethod, TwoFactorMode } from '@taleart/contract';
 import { inTransaction, type Db, type TransactionalDb } from './db';
-import { LastSignInMethodError, SignInLockoutError } from './errors';
+import { LastSignInMethodError, SignInLockoutError, TwoFactorModeUnavailableError } from './errors';
 
 /**
  * Forward-only migration for the sign-in method tables (sign-in methods epic): identities of
@@ -101,18 +101,20 @@ export function providerMethodId(slug: string): string {
   return kind === 'oidc' ? `oidc:${slug}` : kind;
 }
 
-/** The passkey and password switches. */
+/** The passkey and password switches, and the install-wide two-factor mode. */
 export interface SignInSettings {
   passkeyEnabled: boolean;
   passwordEnabled: boolean;
+  twoFactorMode: TwoFactorMode;
 }
 
 /** The settings as they are now. The migration always makes the row. */
 export async function signInSettings(db: Db): Promise<SignInSettings> {
-  const { rows } = await db.query<{ passkeyEnabled: boolean; passwordEnabled: boolean }>(
-    'SELECT passkey_enabled AS "passkeyEnabled", password_enabled AS "passwordEnabled" FROM auth_settings WHERE id = 1',
+  const { rows } = await db.query<SignInSettings>(
+    `SELECT passkey_enabled AS "passkeyEnabled", password_enabled AS "passwordEnabled",
+            two_factor_mode AS "twoFactorMode" FROM auth_settings WHERE id = 1`,
   );
-  return rows[0] ?? { passkeyEnabled: true, passwordEnabled: false };
+  return rows[0] ?? { passkeyEnabled: true, passwordEnabled: false, twoFactorMode: 'off' };
 }
 
 /** A provider as the sign-in rules read it: its slug, whether it is on, and whether its secret is stored. */
@@ -221,21 +223,31 @@ export async function assertUserKeepsSignIn(db: Db, userId: string, secretsAvail
   if (!keeps) throw new LastSignInMethodError('Keep another sign-in method that is on before removing this one');
 }
 
-/** Writes the passkey and password switches, then runs the lock-out guard; a refusal changes nothing. */
+/**
+ * Writes the passkey and password switches and, when given, the two-factor mode, then runs the lock-out guard; a
+ * refusal changes nothing. A mode of `optional` or `required` needs the server's secret key, because enrolment stores
+ * the authenticator secret under it: without the key it throws {@link TwoFactorModeUnavailableError}. Left out, the
+ * mode stays as it is.
+ */
 export async function setSignInSettings(
   db: TransactionalDb,
-  update: { passkeyEnabled: boolean; passwordEnabled: boolean },
+  update: { passkeyEnabled: boolean; passwordEnabled: boolean; twoFactorMode?: TwoFactorMode },
   actorId: string,
   secretsAvailable: boolean,
 ): Promise<SignInSettings> {
   return inTransaction(db, async (tx) => {
     await tx.query(SIGN_IN_LOCK);
+    if (update.twoFactorMode !== undefined && update.twoFactorMode !== 'off' && !secretsAvailable) {
+      throw new TwoFactorModeUnavailableError();
+    }
+    const twoFactorMode = update.twoFactorMode ?? (await signInSettings(tx)).twoFactorMode;
     await tx.query(
-      `INSERT INTO auth_settings (id, passkey_enabled, password_enabled, updated_at, updated_by)
-       VALUES (1, $1, $2, now(), $3)
+      `INSERT INTO auth_settings (id, passkey_enabled, password_enabled, two_factor_mode, updated_at, updated_by)
+       VALUES (1, $1, $2, $3, now(), $4)
        ON CONFLICT (id) DO UPDATE SET passkey_enabled = EXCLUDED.passkey_enabled,
-         password_enabled = EXCLUDED.password_enabled, updated_at = now(), updated_by = EXCLUDED.updated_by`,
-      [update.passkeyEnabled, update.passwordEnabled, actorId],
+         password_enabled = EXCLUDED.password_enabled, two_factor_mode = EXCLUDED.two_factor_mode,
+         updated_at = now(), updated_by = EXCLUDED.updated_by`,
+      [update.passkeyEnabled, update.passwordEnabled, twoFactorMode, actorId],
     );
     await assertSignInMethodsWork(tx, secretsAvailable);
     return signInSettings(tx);

@@ -1,13 +1,32 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
-import type { AuthProvider, AuthSettings } from '@taleart/contract/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, OnInit, signal } from '@angular/core';
+import { ErrorCodes, type AuthProvider, type AuthSettings, type TwoFactorMode } from '@taleart/contract/core';
 import { AuthStore } from '../auth';
 import { Drawer } from '../drawer';
 import { ShowSwitch } from '../status';
 import { SignInMethodsApi } from '../sign-in-methods.service';
-import { adminRefusal } from '../sign-in-methods';
+import { adminRefusal, errorCode } from '../sign-in-methods';
 import { ProviderDrawer } from './provider-drawer';
 import { SettingsTabs } from './settings-tabs';
+
+/** The two-factor choices, in the order the radio buttons show them, with what each one means. */
+const TWO_FACTOR_CHOICES: readonly { value: TwoFactorMode; label: string; help: string }[] = [
+  {
+    value: 'off',
+    label: 'Off',
+    help: 'Off: nobody can set up an authenticator app. People who already have one still enter its code.',
+  },
+  {
+    value: 'optional',
+    label: 'Optional',
+    help: 'Optional: people may set up an authenticator app, which asks for a code after their password.',
+  },
+  {
+    value: 'required',
+    label: 'Required',
+    help: 'Required: everyone enrols an authenticator app at their next sign-in, administrators included.',
+  },
+];
 
 /** The kind of each provider, as the list reads it. */
 const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', apple: 'Apple', oidc: 'OpenID Connect' };
@@ -150,6 +169,34 @@ const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', ap
           }
         </section>
 
+        <section class="card section methods-section" aria-labelledby="two-factor-mode-title">
+          <h3 class="section__title" id="two-factor-mode-title">Two-factor sign-in</h3>
+          <p class="muted">
+            An authenticator app adds a second step after the password. The choice applies to everyone on this server.
+          </p>
+          <fieldset class="method-list" id="two-factor-mode" aria-labelledby="two-factor-mode-title">
+            @for (choice of twoFactorChoices; track choice.value) {
+              <label class="method">
+                <span class="method__text">
+                  <input
+                    type="radio"
+                    name="two-factor-mode"
+                    [value]="choice.value"
+                    [checked]="current.twoFactorMode === choice.value"
+                    [disabled]="toggling() !== null"
+                    (change)="setTwoFactorMode(choice.value)"
+                  />
+                  <span class="method__name">{{ choice.label }}</span>
+                </span>
+                <span class="muted">{{ choice.help }}</span>
+              </label>
+            }
+          </fieldset>
+          @if (twoFactorError()) {
+            <p class="form-error" role="alert">{{ twoFactorError() }}</p>
+          }
+        </section>
+
         <section class="card section providers-section" aria-labelledby="providers-title">
           <div class="invite-actions">
             <h3 class="section__title" id="providers-title" tabindex="-1">Providers</h3>
@@ -251,12 +298,15 @@ const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', ap
 export class SignInMethodsPage implements OnInit {
   protected readonly auth = inject(AuthStore);
   private readonly api = inject(SignInMethodsApi);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   protected readonly settings = signal<AuthSettings | null>(null);
   protected readonly providers = signal<AuthProvider[]>([]);
   protected readonly loadFailed = signal(false);
-  protected readonly toggling = signal<'passkey' | 'password' | null>(null);
+  protected readonly toggling = signal<'passkey' | 'password' | 'two-factor' | null>(null);
   protected readonly settingsError = signal('');
+  protected readonly twoFactorError = signal('');
+  protected readonly twoFactorChoices = TWO_FACTOR_CHOICES;
   /** The drawer: a provider to edit, `new` to add one, or null when closed. */
   protected readonly editing = signal<AuthProvider | 'new' | null>(null);
   protected readonly deleting = signal<AuthProvider | null>(null);
@@ -304,6 +354,41 @@ export class SignInMethodsPage implements OnInit {
       this.settingsError.set(adminRefusal(err, 'The setting was not saved. Try again.'));
     } finally {
       this.toggling.set(null);
+    }
+  }
+
+  /** Saves the two-factor mode. The other switches go along unchanged, so only the mode is sent as new. */
+  protected async setTwoFactorMode(twoFactorMode: TwoFactorMode): Promise<void> {
+    const current = this.settings();
+    if (!current || this.toggling() !== null || current.twoFactorMode === twoFactorMode) return;
+    this.toggling.set('two-factor');
+    this.twoFactorError.set('');
+    try {
+      this.settings.set(
+        await this.api.saveSettings({
+          passkeyEnabled: current.passkeyEnabled,
+          passwordEnabled: current.passwordEnabled,
+          twoFactorMode,
+        }),
+      );
+      const label = TWO_FACTOR_CHOICES.find((choice) => choice.value === twoFactorMode)?.label ?? twoFactorMode;
+      this.announcement.set(`Two-factor sign-in ${label.toLowerCase()}.`);
+    } catch (err) {
+      // The radio the admin clicked shows the choice, though the server kept the mode: show it as it is.
+      this.showTwoFactorMode(current.twoFactorMode);
+      this.twoFactorError.set(
+        errorCode(err) === ErrorCodes.secretKeyMissing
+          ? 'Two-factor sign-in needs TALEART_SECRET_KEY on the API. Set it, restart the API, then try again.'
+          : adminRefusal(err, 'The setting was not saved. Try again.'),
+      );
+    } finally {
+      this.toggling.set(null);
+    }
+  }
+
+  private showTwoFactorMode(mode: TwoFactorMode): void {
+    for (const radio of this.host.nativeElement.querySelectorAll<HTMLInputElement>('input[name="two-factor-mode"]')) {
+      radio.checked = radio.value === mode;
     }
   }
 

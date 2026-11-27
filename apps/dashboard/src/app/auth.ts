@@ -20,6 +20,8 @@ import {
   ErrorCodes,
   isErrorBody,
   type AuthState,
+  type EnrolConfirmResponse,
+  type EnrolmentRequired,
   type InvitationPreview,
   type PasskeyCreationOptions,
   type PasskeyRequestOptions,
@@ -27,6 +29,7 @@ import {
   type PasswordResetPreview,
   type SecondStepRequired,
   type SignedIn,
+  type TwoFactorEnrolment,
   type User,
 } from '@taleart/contract/core';
 import { catchError, firstValueFrom, throwError, type Observable } from 'rxjs';
@@ -205,18 +208,20 @@ export class AuthStore {
 
   /**
    * Signs in with a username and password. Resolves to null when signed in, to `second-step` when the
-   * password was right and the authenticator app's code is still needed, else to what to show: the same
-   * words for a wrong password and an unknown username, and the wait when throttled.
+   * password was right and the authenticator app's code is still needed, to `enrolment` when the install
+   * requires an authenticator app this user has not set up, else to what to show: the same words for a
+   * wrong password and an unknown username, and the wait when throttled.
    */
-  async signInWithPassword(username: string, password: string): Promise<PasswordRefusal | 'second-step' | null> {
+  async signInWithPassword(username: string, password: string): Promise<PasswordRefusal | 'second-step' | 'enrolment' | null> {
     try {
       const body = await firstValueFrom(
-        this.http.post<SignedIn | SecondStepRequired>(`${AUTH_BASE}/password/sign-in`, {
+        this.http.post<SignedIn | SecondStepRequired | EnrolmentRequired>(`${AUTH_BASE}/password/sign-in`, {
           username: normalizeUsername(username),
           password,
         }),
       );
       if ('secondStepRequired' in body) return 'second-step';
+      if ('enrolmentRequired' in body) return 'enrolment';
       this.apply({ setupRequired: false, user: body.user });
       return null;
     } catch (err) {
@@ -225,6 +230,52 @@ export class AuthStore {
       if (errorCode(err) === ErrorCodes.signInFailed) return { message: 'The username or password is not right.' };
       return { message: errorText(err, 'Sign-in did not finish. Try again.') };
     }
+  }
+
+  /**
+   * Starts the authenticator app of a required sign-in: the secret and the address to add it with. The refusal
+   * is `invalid` when the sign-in expired, so the password is needed again.
+   */
+  async startEnrolment(): Promise<TwoFactorEnrolment | PasswordRefusal> {
+    try {
+      return await firstValueFrom(this.http.post<TwoFactorEnrolment>(`${AUTH_BASE}/enrol/start`, {}));
+    } catch (err) {
+      switch (errorCode(err)) {
+        case ErrorCodes.twoFactorChallengeInvalid:
+          return { message: 'That sign-in expired. Enter your password again.', invalid: true };
+        case ErrorCodes.secretKeyMissing:
+          return { message: 'The server has no TALEART_SECRET_KEY, so an authenticator app cannot be set up. Ask an admin.' };
+        default:
+          return throttleRefusal(err) ?? { message: errorText(err, 'The authenticator app could not be set up. Try again.') };
+      }
+    }
+  }
+
+  /**
+   * Turns the authenticator app on with a code from it, which finishes a required sign-in. Resolves to the user and
+   * the recovery codes. No session is applied yet: {@link completeSignIn} does that once the codes are shown.
+   */
+  async confirmEnrolment(code: string): Promise<{ user: User; recoveryCodes: string[] } | PasswordRefusal> {
+    try {
+      const body = await firstValueFrom(this.http.post<EnrolConfirmResponse>(`${AUTH_BASE}/enrol/confirm`, { code }));
+      return { user: body.user, recoveryCodes: body.recoveryCodes };
+    } catch (err) {
+      switch (errorCode(err)) {
+        case ErrorCodes.twoFactorCodeInvalid:
+          return { message: 'That code is not right. Try the current code from your app.' };
+        case ErrorCodes.twoFactorChallengeInvalid:
+          return { message: 'That sign-in expired. Enter your password again.', invalid: true };
+        case ErrorCodes.twoFactorNotStarted:
+          return { message: 'Set up the authenticator app again.', invalid: true };
+        default:
+          return throttleRefusal(err) ?? { message: errorText(err, 'The authenticator app was not turned on. Try again.') };
+      }
+    }
+  }
+
+  /** Completes a required sign-in whose session the API already set, once its recovery codes were shown. */
+  completeSignIn(user: User): void {
+    this.apply({ setupRequired: false, user });
   }
 
   /**

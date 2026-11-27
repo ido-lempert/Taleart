@@ -122,6 +122,8 @@ export {
   confirmTotpEnrolment,
   regenerateRecoveryCodes,
   finishSecondStep,
+  startEnrolStep,
+  finishEnrolStep,
   SECOND_STEP_MAX_ATTEMPTS,
   type TotpEnrolment,
 } from './lib/twoFactor';

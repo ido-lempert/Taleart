@@ -19,7 +19,7 @@ import { emailTaken, invitedAddress, validInvitation, type JoinedProject } from 
 import { createSession, hashSessionToken } from './sessions';
 import { assertUserKeepsSignIn, signInSettings, SIGN_IN_LOCK } from './signInMethods';
 import type { PasswordThrottle } from './throttle';
-import { beginSecondStep, totpEnrolled, type SecondStepStarted } from './twoFactor';
+import { beginEnrolStep, beginSecondStep, totpEnrolled, type SecondStepStarted } from './twoFactor';
 
 /** The fields a password registration (setup or an invitation) carries after the name and email. */
 export interface PasswordCredentials {
@@ -119,8 +119,12 @@ export async function redeemInvitationWithPassword(
  * check, so the time does not tell them apart). A username is throttled whether or not it exists
  * (see {@link PasswordThrottle}); while it waits, {@link SignInThrottledError} says how long.
  */
-/** A signed-in user, or a sign-in whose password was right and now waits for the code of the user's authenticator app. */
-export type PasswordSignInResult = SignedInUser | { secondStep: SecondStepStarted };
+/**
+ * A signed-in user; a sign-in whose password was right and now waits for the code of the user's authenticator app
+ * (`secondStep`); or, while the two-factor mode is `required`, a sign-in whose user has no app yet and must set one up
+ * (`enrolment`).
+ */
+export type PasswordSignInResult = SignedInUser | { secondStep: SecondStepStarted } | { enrolment: SecondStepStarted };
 
 export async function signInWithPassword(
   db: Db,
@@ -144,7 +148,8 @@ export async function signInWithPassword(
     await verifyAgainstDummyHash(input.password);
     return refuse();
   }
-  if (!(await signInSettings(db)).passwordEnabled) {
+  const settings = await signInSettings(db);
+  if (!settings.passwordEnabled) {
     await verifyAgainstDummyHash(input.password);
     return refuse();
   }
@@ -161,9 +166,11 @@ export async function signInWithPassword(
   if (!(await verifyPassword(input.password, row.passwordHash))) return refuse();
 
   // The password is right, so its failures end here; wrong codes count again from zero, and five wrong codes end the
-  // second step. A user with an authenticator app gets no session until the code is right.
+  // second step. A user with an authenticator app gets no session until the code is right. While the two-factor mode is
+  // required, a user without an app gets no session either, until they have set one up and confirmed a code.
   throttle.succeeded(key);
   if (await totpEnrolled(db, row.id)) return { secondStep: await beginSecondStep(db, row.id, key) };
+  if (settings.twoFactorMode === 'required') return { enrolment: await beginEnrolStep(db, row.id, key) };
 
   const user: User = { id: row.id, name: row.name, email: row.email, role: row.role };
   return { user, session: await createSession(db, user.id) };

@@ -68,7 +68,7 @@ export async function migrateAccess(db: Db): Promise<void> {
   await db.query(`
     ALTER TABLE auth_challenges
       DROP CONSTRAINT IF EXISTS auth_challenges_purpose_check,
-      ADD CONSTRAINT auth_challenges_purpose_check CHECK (purpose IN ('setup', 'sign-in', 'invitation', 'oauth', 'second-step'))
+      ADD CONSTRAINT auth_challenges_purpose_check CHECK (purpose IN ('setup', 'sign-in', 'invitation', 'oauth', 'second-step', 'enrol-step'))
   `);
 
   // External provider sign-ins (sign-in methods, spec) keep their state in this table too, as kind
@@ -188,4 +188,13 @@ export async function migrateAccess(db: Db): Promise<void> {
 
   // Sign-in methods: passwords, provider identities, the method settings, providers and reset links.
   await migrateSignInMethods(db);
+
+  // The install-wide two-factor mode (two-factor, required mode): off, optional or required. Existing installs start off.
+  // Every step is idempotent.
+  await db.query(`ALTER TABLE auth_settings ADD COLUMN IF NOT EXISTS two_factor_mode text NOT NULL DEFAULT 'off'`);
+  await db.query(`
+    ALTER TABLE auth_settings
+      DROP CONSTRAINT IF EXISTS auth_settings_two_factor_mode_check,
+      ADD CONSTRAINT auth_settings_two_factor_mode_check CHECK (two_factor_mode IN ('off', 'optional', 'required'))
+  `);
 }

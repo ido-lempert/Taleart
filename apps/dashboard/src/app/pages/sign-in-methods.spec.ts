@@ -11,7 +11,12 @@ const SECRET = 'TOPSECRET-VALUE-42';
 const ORIGIN_CALLBACK = 'https://api.example.com/api/v1/auth/callback';
 
 const ADMIN = { id: 'u1', name: 'Ada', email: 'ada@example.com', role: 'admin' };
-const SETTINGS = { passkeyEnabled: true, passwordEnabled: false, secretKeyConfigured: true };
+const SETTINGS: {
+  passkeyEnabled: boolean;
+  passwordEnabled: boolean;
+  twoFactorMode: 'off' | 'optional' | 'required';
+  secretKeyConfigured: boolean;
+} = { passkeyEnabled: true, passwordEnabled: false, twoFactorMode: 'off', secretKeyConfigured: true };
 const GOOGLE = {
   slug: 'google',
   kind: 'google',
@@ -128,6 +133,39 @@ describe('SignInMethodsPage: Settings > Sign-in methods (admins)', () => {
       .flush({ error: { code: 'last_sign_in_method', message: 'Last.' } }, { status: 409, statusText: 'Conflict' });
     await settle(fixture);
     expect(root().querySelector('[role="alert"]')?.textContent).toContain('Keep at least one sign-in method on');
+  });
+
+  it('shows the two-factor choices, with the one in force checked and each choice explained', async () => {
+    await ready({ ...SETTINGS, twoFactorMode: 'optional' });
+    const radios = [...root().querySelectorAll<HTMLInputElement>('input[name="two-factor-mode"]')];
+    expect(radios.map((radio) => radio.value)).toEqual(['off', 'optional', 'required']);
+    expect(radios.filter((radio) => radio.checked).map((radio) => radio.value)).toEqual(['optional']);
+    expect(text()).toContain('Required: everyone enrols an authenticator app at their next sign-in, administrators included.');
+  });
+
+  it('saves a new two-factor mode, sending the other switches as they are', async () => {
+    await ready({ ...SETTINGS, passwordEnabled: true, twoFactorMode: 'off' });
+    choose('two-factor-mode', 'required');
+    const req = http.expectOne(`${AUTH}/settings`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ passkeyEnabled: true, passwordEnabled: true, twoFactorMode: 'required' });
+    req.flush({ ...SETTINGS, passwordEnabled: true, twoFactorMode: 'required' });
+    await settle(fixture);
+    expect(root().querySelector<HTMLInputElement>('input[name="two-factor-mode"][value="required"]')?.checked).toBe(true);
+  });
+
+  it('explains a two-factor mode refused for the missing key, and shows the mode the server kept', async () => {
+    await ready({ ...SETTINGS, twoFactorMode: 'off' });
+    choose('two-factor-mode', 'optional');
+    http
+      .expectOne(`${AUTH}/settings`)
+      .flush({ error: { code: 'secret_key_missing', message: 'No key.' } }, { status: 409, statusText: 'Conflict' });
+    await settle(fixture);
+    expect(root().querySelector('#two-factor-mode ~ .form-error')?.textContent).toContain(
+      'Two-factor sign-in needs TALEART_SECRET_KEY on the API',
+    );
+    expect(root().querySelector<HTMLInputElement>('input[name="two-factor-mode"][value="off"]')?.checked).toBe(true);
+    expect(root().querySelector<HTMLInputElement>('input[name="two-factor-mode"][value="optional"]')?.checked).toBe(false);
   });
 
   it('lists each provider with its state, and never a secret', async () => {

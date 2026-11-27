@@ -241,7 +241,7 @@ export interface paths {
         put?: never;
         /**
          * Sign in with a username and password.
-         * @description Only while the password method is on (an admin turns it on under Sign-in methods). Sets the `taleart_session` cookie (7 days) and, like a passkey sign-in, ends the user's other sessions only when they change their password. An unknown username, a wrong password and a turned-off method all answer the same 401 `sign_in_failed`. Failures are throttled per address (a burst of 10, then 10 a minute) and per username: after 5 failures the username waits 30 s, doubling per further failure up to 15 minutes; while it waits the answer is 429 `rate_limited` with `Retry-After`. A success clears the username's failures. A user who has set up an authenticator app is not signed in by the password alone: the response is 200 `SecondStepRequired`, sets no session cookie and sets the challenge cookie; the sign-in is finished with `POST /auth/second-step`.
+         * @description Only while the password method is on (an admin turns it on under Sign-in methods). Sets the `taleart_session` cookie (7 days) and, like a passkey sign-in, ends the user's other sessions only when they change their password. An unknown username, a wrong password and a turned-off method all answer the same 401 `sign_in_failed`. Failures are throttled per address (a burst of 10, then 10 a minute) and per username: after 5 failures the username waits 30 s, doubling per further failure up to 15 minutes; while it waits the answer is 429 `rate_limited` with `Retry-After`. A success clears the username's failures. A user who has set up an authenticator app is not signed in by the password alone: the response is 200 `SecondStepRequired`, sets no session cookie and sets the challenge cookie; the sign-in is finished with `POST /auth/second-step`. When the install's two-factor mode is `required` and the user has no authenticator app yet (admins included), the answer is 200 `EnrolmentRequired`, with the same challenge cookie and no session; the sign-in is finished with `POST /auth/enrol/start` and `POST /auth/enrol/confirm`.
          */
         post: operations["signInWithPassword"];
         delete?: never;
@@ -264,6 +264,46 @@ export interface paths {
          * @description The second step of a password sign-in for a user with an authenticator app. Reads the challenge cookie that `POST /auth/password/sign-in` set, so no session is needed. The code is the six digits of the authenticator app, or one of the user's recovery codes (`xxxxx-xxxxx`, spent by its use). A correct code sets the `taleart_session` cookie (7 days), as password sign-in does. A wrong code answers 401 `two_factor_code_invalid`; a missing, expired or already used challenge answers 401 `two_factor_challenge_invalid`. Failures are throttled: while throttled the answer is 429 `rate_limited` with `Retry-After`.
          */
         post: operations["secondStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/enrol/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start setting up an authenticator app during a required sign-in.
+         * @description The enrolment step of a password sign-in while the two-factor mode is `required`. Reads the challenge cookie that `POST /auth/password/sign-in` set (`EnrolmentRequired`), so no session is needed. Creates the user's secret, or a new one when the user starts again, and returns it with the otpauth address a QR code carries. Nothing is turned on until `POST /auth/enrol/confirm` checks a code. A missing, expired or already used challenge answers 401 `two_factor_challenge_invalid`; with no valid `TALEART_SECRET_KEY` the answer is 503 `secret_key_missing`.
+         */
+        post: operations["startEnrol"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/enrol/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the authenticator app on with a code from it, and finish the required sign-in.
+         * @description The last step of a required sign-in, after `POST /auth/enrol/start`. Reads the challenge cookie, checks the six-digit code from the app against the started secret and, when it is right, turns the app on, makes the user's ten recovery codes, ends the challenge and sets the `taleart_session` cookie (7 days). The recovery codes are shown once. A wrong code answers 401 `two_factor_code_invalid` and counts toward five attempts; after five the challenge is over (401 `two_factor_challenge_invalid`). Setup that was never started answers 409 `two_factor_not_started`. Failures are throttled: while throttled the answer is 429 `rate_limited` with `Retry-After`.
+         */
+        post: operations["confirmEnrol"];
         delete?: never;
         options?: never;
         head?: never;
@@ -418,7 +458,7 @@ export interface paths {
         put?: never;
         /**
          * Start setting up an authenticator app.
-         * @description Creates a new secret and returns it with the otpauth address a QR code carries. Nothing is turned on until `POST /auth/account/two-factor/confirm` checks a code from the app. Refused with 409 `two_factor_enrolled` when the user already has an authenticator app, and with 503 `secret_key_missing` when the server has no valid `TALEART_SECRET_KEY` to store the secret under.
+         * @description Creates a new secret and returns it with the otpauth address a QR code carries. Nothing is turned on until `POST /auth/account/two-factor/confirm` checks a code from the app. Refused with 409 `two_factor_off` while the install's two-factor mode is `off`, with 409 `two_factor_enrolled` when the user already has an authenticator app, and with 503 `secret_key_missing` when the server has no valid `TALEART_SECRET_KEY` to store the secret under.
          */
         post: operations["startTwoFactor"];
         delete?: never;
@@ -521,13 +561,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Which sign-in methods are on.
-         * @description Passkey and password on or off, and whether the server has the key that encrypts provider secrets (`secretKeyConfigured`). Admins only.
+         * Which sign-in methods are on, and the two-factor mode.
+         * @description Passkey and password on or off, the install-wide two-factor mode, and whether the server has the key that encrypts provider secrets (`secretKeyConfigured`). Admins only.
          */
         get: operations["getAuthSettings"];
         /**
          * Turn the passkey and password methods on or off.
-         * @description Admins only. At least one method must stay on: none on answers 409 `last_sign_in_method`. A change that would leave no method on that every admin can use (every admin needs a passkey, a password, or an identity of a provider that is on) answers 409 `sign_in_lockout`. A fresh install has the passkey on and the password off.
+         * @description Admins only. At least one method must stay on: none on answers 409 `last_sign_in_method`. A change that would leave no method on that every admin can use (every admin needs a passkey, a password, or an identity of a provider that is on) answers 409 `sign_in_lockout`. The two-factor mode (`off`, `optional` or `required`) is set with the same request when given; `optional` and `required` need the server's `TALEART_SECRET_KEY` and answer 409 `secret_key_missing` without it. A fresh install has the passkey on, the password off and two-factor `off`.
          */
         put: operations["setAuthSettings"];
         post?: never;
@@ -3252,6 +3292,21 @@ export interface components {
         SecondStepRequest: {
             code: string;
         };
+        EnrolmentRequired: {
+            /**
+             * @description Always true. The password was right, and the install requires an authenticator app that this user has not set up: `POST /auth/enrol/start`, then `POST /auth/enrol/confirm`.
+             * @enum {boolean}
+             */
+            enrolmentRequired: true;
+        };
+        EnrolConfirmRequest: {
+            code: string;
+        };
+        EnrolConfirmResponse: {
+            user: components["schemas"]["User"];
+            /** @description Ten recovery codes, each `xxxxx-xxxxx`. Shown once; each works once. */
+            recoveryCodes: string[];
+        };
         PasswordRegistrationRequest: {
             name: string;
             /** Format: email */
@@ -3313,11 +3368,17 @@ export interface components {
             } | null;
             identities: components["schemas"]["AccountIdentity"][];
         };
+        /**
+         * @description The install-wide two-factor mode. `off`: nobody can start an authenticator app, and an enrolled user still gets the second step. `optional`: users may set one up. `required`: every user, admins included, sets one up at their next password sign-in.
+         * @enum {string}
+         */
+        TwoFactorMode: "off" | "optional" | "required";
         TwoFactorStatus: {
             /** @description True when the user has an authenticator app turned on. */
             enrolled: boolean;
             /** @description How many of the user's recovery codes are still unused. */
             recoveryCodesLeft: number;
+            twoFactorMode: components["schemas"]["TwoFactorMode"];
         };
         TwoFactorEnrolment: {
             /** @description The base32 key to type into the authenticator app. */
@@ -3339,12 +3400,15 @@ export interface components {
         AuthSettings: {
             passkeyEnabled: boolean;
             passwordEnabled: boolean;
+            twoFactorMode: components["schemas"]["TwoFactorMode"];
             /** @description True when the server has a valid `TALEART_SECRET_KEY`, so provider secrets can be saved. */
             secretKeyConfigured: boolean;
         };
         UpdateAuthSettingsRequest: {
             passkeyEnabled: boolean;
             passwordEnabled: boolean;
+            /** @description The two-factor mode; left out, it stays as it is. */
+            twoFactorMode?: components["schemas"]["TwoFactorMode"];
         };
         /** @enum {string} */
         AuthProviderKind: "oidc" | "google" | "apple";
@@ -3470,7 +3534,7 @@ export interface components {
             [key: string]: unknown;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "invitation_email_mismatch" | "two_factor_code_invalid" | "two_factor_challenge_invalid" | "two_factor_enrolled" | "two_factor_not_started" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "user_not_found" | "member_exists" | "member_not_found" | "invitation_not_found" | "last_project_admin" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "invitation_email_mismatch" | "two_factor_code_invalid" | "two_factor_challenge_invalid" | "two_factor_enrolled" | "two_factor_not_started" | "two_factor_off" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "sign_in_failed" | "password_rejected" | "username_taken" | "password_incorrect" | "password_reset_invalid" | "sign_in_method_disabled" | "last_sign_in_method" | "sign_in_lockout" | "secret_key_missing" | "provider_not_found" | "identity_in_use" | "email_not_verified" | "email_mismatch" | "session_required" | "discovery_failed" | "provider_unavailable" | "user_not_found" | "member_exists" | "member_not_found" | "invitation_not_found" | "last_project_admin" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -4202,13 +4266,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The signed-in user, or the second step the sign-in still needs. */
+            /** @description The signed-in user, the second step the sign-in still needs, or the enrolment it needs. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SignedIn"] | components["schemas"]["SecondStepRequired"];
+                    "application/json": components["schemas"]["SignedIn"] | components["schemas"]["SecondStepRequired"] | components["schemas"]["EnrolmentRequired"];
                 };
             };
             400: components["responses"]["Error"];
@@ -4240,6 +4304,58 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    startEnrol: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new secret and the address a QR code carries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoFactorEnrolment"];
+                };
+            };
+            401: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    confirmEnrol: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrolConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description The signed-in user and the new recovery codes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrolConfirmResponse"];
+                };
+            };
+            401: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             429: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
@@ -7376,8 +7492,9 @@ export const projectFontStyleValues: ReadonlyArray<FlattenedDeepRequired<compone
 export const projectFontFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const authMethodKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthMethodKind"]> = ["passkey", "password", "oidc", "google", "apple"];
+export const twoFactorModeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TwoFactorMode"]> = ["off", "optional", "required"];
 export const authProviderKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["AuthProviderKind"]> = ["oidc", "google", "apple"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "invitation_email_mismatch", "two_factor_code_invalid", "two_factor_challenge_invalid", "two_factor_enrolled", "two_factor_not_started", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "invitation_email_mismatch", "two_factor_code_invalid", "two_factor_challenge_invalid", "two_factor_enrolled", "two_factor_not_started", "two_factor_off", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "sign_in_failed", "password_rejected", "username_taken", "password_incorrect", "password_reset_invalid", "sign_in_method_disabled", "last_sign_in_method", "sign_in_lockout", "secret_key_missing", "provider_not_found", "identity_in_use", "email_not_verified", "email_mismatch", "session_required", "discovery_failed", "provider_unavailable", "user_not_found", "member_exists", "member_not_found", "invitation_not_found", "last_project_admin", "internal_error"];
 export const v1Schema$defsMediaBackgroundKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["kind"]> = ["image", "video"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];

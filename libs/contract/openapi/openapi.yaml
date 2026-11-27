@@ -348,7 +348,10 @@ paths:
         username's failures. A user who has set up an authenticator app is not signed
         in by the password alone: the response is 200 `SecondStepRequired`, sets no
         session cookie and sets the challenge cookie; the sign-in is finished with
-        `POST /auth/second-step`.
+        `POST /auth/second-step`. When the install's two-factor mode is `required` and the
+        user has no authenticator app yet (admins included), the answer is 200
+        `EnrolmentRequired`, with the same challenge cookie and no session; the sign-in is
+        finished with `POST /auth/enrol/start` and `POST /auth/enrol/confirm`.
       security: []
       requestBody:
         required: true
@@ -358,13 +361,14 @@ paths:
               $ref: '#/components/schemas/PasswordSignInRequest'
       responses:
         '200':
-          description: The signed-in user, or the second step the sign-in still needs.
+          description: The signed-in user, the second step the sign-in still needs, or the enrolment it needs.
           content:
             application/json:
               schema:
                 oneOf:
                   - $ref: '#/components/schemas/SignedIn'
                   - $ref: '#/components/schemas/SecondStepRequired'
+                  - $ref: '#/components/schemas/EnrolmentRequired'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -404,6 +408,73 @@ paths:
               schema:
                 $ref: '#/components/schemas/SignedIn'
         '401':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/enrol/start:
+    post:
+      tags:
+        - Sign-in
+      operationId: startEnrol
+      summary: Start setting up an authenticator app during a required sign-in.
+      description: >-
+        The enrolment step of a password sign-in while the two-factor mode is `required`.
+        Reads the challenge cookie that `POST /auth/password/sign-in` set (`EnrolmentRequired`),
+        so no session is needed. Creates the user's secret, or a new one when the user starts
+        again, and returns it with the otpauth address a QR code carries. Nothing is turned on
+        until `POST /auth/enrol/confirm` checks a code. A missing, expired or already used
+        challenge answers 401 `two_factor_challenge_invalid`; with no valid
+        `TALEART_SECRET_KEY` the answer is 503 `secret_key_missing`.
+      security: []
+      responses:
+        '200':
+          description: The new secret and the address a QR code carries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwoFactorEnrolment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/enrol/confirm:
+    post:
+      tags:
+        - Sign-in
+      operationId: confirmEnrol
+      summary: Turn the authenticator app on with a code from it, and finish the required sign-in.
+      description: >-
+        The last step of a required sign-in, after `POST /auth/enrol/start`. Reads the challenge
+        cookie, checks the six-digit code from the app against the started secret and, when it is
+        right, turns the app on, makes the user's ten recovery codes, ends the challenge and sets
+        the `taleart_session` cookie (7 days). The recovery codes are shown once. A wrong code
+        answers 401 `two_factor_code_invalid` and counts toward five attempts; after five the
+        challenge is over (401 `two_factor_challenge_invalid`). Setup that was never started
+        answers 409 `two_factor_not_started`. Failures are throttled: while throttled the answer
+        is 429 `rate_limited` with `Retry-After`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrolConfirmRequest'
+      responses:
+        '200':
+          description: The signed-in user and the new recovery codes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrolConfirmResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         '429':
           $ref: '#/components/responses/Error'
@@ -655,9 +726,10 @@ paths:
       description: >-
         Creates a new secret and returns it with the otpauth address a QR code carries.
         Nothing is turned on until `POST /auth/account/two-factor/confirm` checks a code
-        from the app. Refused with 409 `two_factor_enrolled` when the user already has an
-        authenticator app, and with 503 `secret_key_missing` when the server has no valid
-        `TALEART_SECRET_KEY` to store the secret under.
+        from the app. Refused with 409 `two_factor_off` while the install's two-factor mode is
+        `off`, with 409 `two_factor_enrolled` when the user already has an authenticator app,
+        and with 503 `secret_key_missing` when the server has no valid `TALEART_SECRET_KEY` to
+        store the secret under.
       security:
         - session: []
       responses:
@@ -794,10 +866,10 @@ paths:
       tags:
         - Sign-in methods
       operationId: getAuthSettings
-      summary: Which sign-in methods are on.
+      summary: Which sign-in methods are on, and the two-factor mode.
       description: >-
-        Passkey and password on or off, and whether the server has the key that
-        encrypts provider secrets (`secretKeyConfigured`). Admins only.
+        Passkey and password on or off, the install-wide two-factor mode, and whether the
+        server has the key that encrypts provider secrets (`secretKeyConfigured`). Admins only.
       security:
         - session: []
       responses:
@@ -820,8 +892,10 @@ paths:
         Admins only. At least one method must stay on: none on answers 409
         `last_sign_in_method`. A change that would leave no method on that every
         admin can use (every admin needs a passkey, a password, or an identity of a
-        provider that is on) answers 409 `sign_in_lockout`. A fresh install has the
-        passkey on and the password off.
+        provider that is on) answers 409 `sign_in_lockout`. The two-factor mode (`off`,
+        `optional` or `required`) is set with the same request when given; `optional` and
+        `required` need the server's `TALEART_SECRET_KEY` and answer 409 `secret_key_missing`
+        without it. A fresh install has the passkey on, the password off and two-factor `off`.
       security:
         - session: []
       requestBody:
@@ -6818,6 +6892,40 @@ components:
           type: string
           minLength: 1
           maxLength: 64
+    EnrolmentRequired:
+      type: object
+      required: [enrolmentRequired]
+      additionalProperties: false
+      properties:
+        enrolmentRequired:
+          type: boolean
+          enum: [true]
+          description: >-
+            Always true. The password was right, and the install requires an authenticator app that
+            this user has not set up: `POST /auth/enrol/start`, then `POST /auth/enrol/confirm`.
+    EnrolConfirmRequest:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+    EnrolConfirmResponse:
+      type: object
+      required: [user, recoveryCodes]
+      additionalProperties: false
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        recoveryCodes:
+          type: array
+          description: Ten recovery codes, each `xxxxx-xxxxx`. Shown once; each works once.
+          minItems: 10
+          maxItems: 10
+          items:
+            type: string
     PasswordRegistrationRequest:
       type: object
       required: [name, email, username, password]
@@ -6926,9 +7034,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AccountIdentity'
+    TwoFactorMode:
+      type: string
+      enum: [off, optional, required]
+      description: >-
+        The install-wide two-factor mode. `off`: nobody can start an authenticator app, and an
+        enrolled user still gets the second step. `optional`: users may set one up. `required`:
+        every user, admins included, sets one up at their next password sign-in.
     TwoFactorStatus:
       type: object
-      required: [enrolled, recoveryCodesLeft]
+      required: [enrolled, recoveryCodesLeft, twoFactorMode]
       additionalProperties: false
       properties:
         enrolled:
@@ -6938,6 +7053,8 @@ components:
           type: integer
           minimum: 0
           description: How many of the user's recovery codes are still unused.
+        twoFactorMode:
+          $ref: '#/components/schemas/TwoFactorMode'
     TwoFactorEnrolment:
       type: object
       required: [secret, otpauthUri]
@@ -6984,12 +7101,14 @@ components:
             type: string
     AuthSettings:
       type: object
-      required: [passkeyEnabled, passwordEnabled, secretKeyConfigured]
+      required: [passkeyEnabled, passwordEnabled, twoFactorMode, secretKeyConfigured]
       properties:
         passkeyEnabled:
           type: boolean
         passwordEnabled:
           type: boolean
+        twoFactorMode:
+          $ref: '#/components/schemas/TwoFactorMode'
         secretKeyConfigured:
           type: boolean
           description: True when the server has a valid `TALEART_SECRET_KEY`, so provider secrets can be saved.
@@ -7001,6 +7120,9 @@ components:
           type: boolean
         passwordEnabled:
           type: boolean
+        twoFactorMode:
+          $ref: '#/components/schemas/TwoFactorMode'
+          description: The two-factor mode; left out, it stays as it is.
     AuthProviderKind:
       type: string
       enum: [oidc, google, apple]
@@ -7237,6 +7359,7 @@ components:
         - two_factor_challenge_invalid
         - two_factor_enrolled
         - two_factor_not_started
+        - two_factor_off
         - email_taken
         - tag_exists
         - tag_not_found
