@@ -42,6 +42,20 @@ const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', ap
   imports: [SettingsTabs, Drawer, ShowSwitch, ProviderDrawer],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
+    .two-factor-choices {
+      display: grid;
+      gap: var(--space-3);
+      margin: 0;
+      padding: 0;
+      border: 0;
+      min-width: 0;
+    }
+    .two-factor-choice {
+      align-items: flex-start;
+    }
+    .two-factor-choice__help {
+      display: block;
+    }
     .methods-section,
     .providers-section {
       max-width: 760px;
@@ -174,21 +188,21 @@ const KIND_LABELS: Record<AuthProvider['kind'], string> = { google: 'Google', ap
           <p class="muted">
             An authenticator app adds a second step after the password. The choice applies to everyone on this server.
           </p>
-          <fieldset class="method-list" id="two-factor-mode" aria-labelledby="two-factor-mode-title">
+          <fieldset class="two-factor-choices" id="two-factor-mode" aria-labelledby="two-factor-mode-title">
             @for (choice of twoFactorChoices; track choice.value) {
-              <label class="method">
-                <span class="method__text">
-                  <input
-                    type="radio"
-                    name="two-factor-mode"
-                    [value]="choice.value"
-                    [checked]="current.twoFactorMode === choice.value"
-                    [disabled]="toggling() !== null"
-                    (change)="setTwoFactorMode(choice.value)"
-                  />
-                  <span class="method__name">{{ choice.label }}</span>
+              <label class="checkbox two-factor-choice">
+                <input
+                  type="radio"
+                  name="two-factor-mode"
+                  [value]="choice.value"
+                  [checked]="current.twoFactorMode === choice.value"
+                  [disabled]="toggling() !== null"
+                  (change)="setTwoFactorMode(choice.value)"
+                />
+                <span>
+                  <strong>{{ choice.label }}</strong>
+                  <span class="muted two-factor-choice__help">{{ choice.help }}</span>
                 </span>
-                <span class="muted">{{ choice.help }}</span>
               </label>
             }
           </fieldset>

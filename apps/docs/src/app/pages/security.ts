@@ -30,7 +30,8 @@ import { RouterLink } from '@angular/router';
       </li>
       <li>
         <strong>Keep <code>TALEART_SECRET_KEY</code> safe.</strong> It encrypts the sign-in provider secrets (Google,
-        Apple, OIDC) stored in the database. If it is lost, those secrets cannot be read and must be entered again. If
+        Apple, OIDC) and the authenticator-app secrets stored in the database. If it is lost, the provider secrets cannot be
+        read and must be entered again. If
         it is copied, the stored secrets can be decrypted by anyone holding the database and the key.
       </li>
       <li>
@@ -49,6 +50,28 @@ import { RouterLink } from '@angular/router';
       off by default. The quick try in <code>.env.docker.example</code> turns it on so the setup screen works without a
       passkey device. On a real server, set it to <code>false</code> before the first start.
     </p>
+
+    <h2 id="two-factor">Two-factor sign-in</h2>
+    <ul>
+      <li>
+        <strong>Turn on Required once everyone has an app.</strong> Under <em>Settings > Sign-in methods</em>, the two-factor
+        mode Required blocks a person without an authenticator app at sign-in until they set one up, administrators included.
+        Optional leaves the choice to each person, and Off means nobody can set one up.
+      </li>
+      <li>
+        <strong>Use a real <code>TALEART_SECRET_KEY</code>.</strong> Optional and Required refuse to save without the key, and
+        the key must be private and not the placeholder from <code>.env.docker.example</code>. See the secrets above.
+      </li>
+      <li>
+        <strong>Store the recovery codes safely.</strong> The ten codes are shown once, and each works once. Keep them
+        somewhere other than the phone that runs the app, such as a password manager.
+      </li>
+      <li>
+        <strong>Plan for a lost phone.</strong> With the phone and the recovery codes both gone, there is no self-service
+        recovery. Another admin removes that user, and the user is invited again. Read
+        <a routerLink="/guides/sign-in-methods">Sign-in methods</a> for the steps.
+      </li>
+    </ul>
 
     <h2 id="https-and-cookies">HTTPS, cookies and passkeys</h2>
     <ul>

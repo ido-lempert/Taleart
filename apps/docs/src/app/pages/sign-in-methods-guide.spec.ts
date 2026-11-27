@@ -33,7 +33,7 @@ describe('the Sign-in methods guide', () => {
   });
 
   it('has the ten steps, in order, as a numbered list', () => {
-    const steps = [...page.querySelectorAll('ol.steps > li')];
+    const steps = [...page.querySelectorAll('#steps + ol.steps > li')];
     expect(steps.length).toBe(10);
     const headings = steps.map((step) => step.querySelector('h3')?.textContent?.trim() ?? '');
     expect(headings[0]).toBe('Open Settings > Sign-in methods.');
@@ -46,6 +46,43 @@ describe('the Sign-in methods guide', () => {
     expect(headings[7]).toBe('Let each user manage their own methods.');
     expect(headings[8]).toBe('Issue a one-time reset link for a user who forgot the password.');
     expect(headings[9]).toBe('Turn a method off safely.');
+  });
+
+  it('has the five two-factor steps, in order, under their own heading', () => {
+    const section = page.querySelector('#two-factor-sign-in');
+    expect(section?.tagName).toBe('H2');
+    expect(section?.textContent?.trim()).toBe('Two-factor sign-in with an authenticator app');
+    const steps = [...page.querySelectorAll('#two-factor-sign-in + p + ol.steps > li')];
+    expect(steps.length).toBe(5);
+    const headings = steps.map((step) => step.querySelector('h3')?.textContent?.trim() ?? '');
+    expect(headings).toEqual([
+      'Choose the two-factor mode.',
+      'Set up the app under My sign-in methods.',
+      'Save the ten recovery codes.',
+      'Check the section once it is on.',
+      'Sign in with the code.',
+    ]);
+  });
+
+  it('shows the two-factor screenshots in the order of the steps, each once', () => {
+    const steps = [...page.querySelectorAll('#two-factor-sign-in + p + ol.steps > li')];
+    const sources = steps.map((step) => step.querySelector('img')?.getAttribute('src') ?? '');
+    expect(sources).toEqual([
+      'images/twofactor-shot-01-mode.png',
+      'images/twofactor-shot-02-setup.png',
+      'images/twofactor-shot-03-recovery.png',
+      'images/twofactor-shot-04-on.png',
+      'images/twofactor-shot-05-code.png',
+    ]);
+  });
+
+  it('states the two-factor rules: the secret key, the five wrong codes, the recovery path and the lost phone', () => {
+    const text = page.textContent ?? '';
+    expect(text).toContain('secret_key_missing');
+    expect(text).toContain('Use a recovery code');
+    expect(text).toContain('Five wrong codes end the attempt');
+    expect(text).toContain('no self-service recovery');
+    expect(text).toContain('Turn off');
   });
 
   it('explains the secret key before the steps, with the command that generates it', () => {

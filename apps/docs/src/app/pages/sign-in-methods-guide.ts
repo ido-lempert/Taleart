@@ -219,6 +219,108 @@ const REDIRECT_SAMPLE = 'https://api.example.com/api/v1/auth/callback/google';
       </li>
     </ol>
 
+    <h2 id="two-factor-sign-in">Two-factor sign-in with an authenticator app</h2>
+    <p>
+      An authenticator app adds a second step after the password, or after a provider sign-in. The app makes a six-digit
+      code every 30 seconds (TOTP, RFC 6238, SHA-1), and any authenticator app works: Google Authenticator, Microsoft
+      Authenticator, 1Password, Authy or Aegis. The mode is chosen once for the whole install, and each person sets up
+      their own app. A passkey sign-in has no second step, because a passkey is already a strong factor.
+    </p>
+    <ol class="steps">
+      <li>
+        <h3 class="step-title" id="step-choose-the-two-factor-mode">Choose the two-factor mode.</h3> An admin opens
+        <em>Settings > Sign-in methods</em> and finds the <em>Two-factor sign-in</em> panel. The mode is one of three:
+        <ul>
+          <li><em>Off</em>, the default. Nobody can start setting up an app. A person who already has one still enters its code.</li>
+          <li><em>Optional</em>. Each person may turn the app on under <em>Settings > My sign-in methods</em>.</li>
+          <li><em>Required</em>. A person without an app is blocked at sign-in until they set one up. The check happens inside
+          the sign-in, before any session starts, and it applies to administrators too.</li>
+        </ul>
+        Optional and Required need <code>TALEART_SECRET_KEY</code> on the server, because the app's secret is stored encrypted.
+        Without the key the setting is refused with <code>secret_key_missing</code>.
+        <figure>
+          <img
+            src="images/twofactor-shot-01-mode.png"
+            alt="The Sign-in methods page of Settings with Passkey and Username and password both On, and the Two-factor sign-in panel below them. Its three choices are Off, Optional, which is selected, and Required, each with a line saying what it means."
+            width="1000"
+            height="1150"
+          />
+          <figcaption>The Two-factor sign-in choice on the Sign-in methods page, a real screenshot of the dashboard. Optional is selected.</figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <h3 class="step-title" id="step-set-up-the-authenticator-app">Set up the app under My sign-in methods.</h3> Each person
+        opens <em>Settings > My sign-in methods</em> and finds the <em>Authenticator app</em> section. Scan the QR code with the
+        app, or, when scanning is not possible, type the <em>Secret key</em> shown under it. Then enter the code the app
+        shows in <em>Code from your app</em> and choose <em>Turn on</em>. The code must be the current one.
+        <figure>
+          <img
+            src="images/twofactor-shot-02-setup.png"
+            alt="The My sign-in methods page with the Authenticator app section before it is turned on. It shows a QR code, the line Cannot scan? Type this key instead with the secret key and a Copy key button, an otpauth address, a Code from your app field and a Turn on button."
+            width="1000"
+            height="1483"
+          />
+          <figcaption>The Authenticator app set-up, a real screenshot of the dashboard. The QR code and key are from a preview account, not a real one.</figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <h3 class="step-title" id="step-save-the-recovery-codes">Save the ten recovery codes.</h3> Once the code is accepted,
+        TaleArt shows ten recovery codes. They are shown only once, so save them before choosing <em>I saved them</em>. Each
+        code works once, and a recovery code can stand in for the app's code at sign-in. <em>Make new codes</em> replaces all
+        of them, and the old ones stop working.
+        <figure>
+          <img
+            src="images/twofactor-shot-03-recovery.png"
+            alt="The Authenticator app section just after it was turned on. Above a list of ten recovery codes in three columns it says Save these codes now, and below the list are Copy all, Download and I saved them buttons."
+            width="1000"
+            height="1268"
+          />
+          <figcaption>The recovery codes shown once, a real screenshot of the dashboard. The codes in the picture are examples.</figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <h3 class="step-title" id="step-check-the-section-once-it-is-on">Check the section once it is on.</h3> When the codes are
+        saved, the section reads <em>On</em>, with the note that signing in with the password also asks for a code from the
+        app, and <em>10 recovery codes left</em>. The codes are not shown again. <em>Turn off</em> needs a current code from the
+        app or an unused recovery code, and it deletes the app and all recovery codes. In Required mode, <em>Turn off</em> is
+        refused.
+        <figure>
+          <img
+            src="images/twofactor-shot-04-on.png"
+            alt="The Authenticator app section once it is On. It reads Signing in with your password also asks for a code from this app, 10 recovery codes left, and has Turn off and Make new codes buttons. No codes are shown."
+            width="1000"
+            height="1033"
+          />
+          <figcaption>The section after the codes are saved, a real screenshot of the dashboard.</figcaption>
+        </figure>
+      </li>
+
+      <li>
+        <h3 class="step-title" id="step-sign-in-with-the-code">Sign in with the code.</h3> Sign in with the username and password,
+        or with a provider. The sign-in page then shows <em>Two-step sign-in</em> and asks for the <em>Authenticator code</em>.
+        Choose <em>Use a recovery code</em> to type one of the saved codes instead. Five wrong codes end the attempt, and the
+        person signs in again from the start. Wrong codes also count toward the username's wait. A code that was accepted
+        cannot be used again, and the code step is rate limited per address.
+        <figure>
+          <img
+            src="images/twofactor-shot-05-code.png"
+            alt="The second step of sign-in: a Two-step sign-in heading, an Authenticator code field with a Verify button, a Back button, and a Use a recovery code button."
+            width="1000"
+            height="700"
+          />
+          <figcaption>The second step at sign-in, a real screenshot of the dashboard, shown after the password is accepted.</figcaption>
+        </figure>
+      </li>
+    </ol>
+    <p>
+      Turning the app off is refused in Required mode. If a person loses the phone and also has no recovery codes left, there is
+      no self-service recovery. Another admin removes that user, and the user is invited again as described in
+      <a href="#step-invite-someone-to-join-with-a">Invite someone to join</a>. API tokens are unaffected by any of this.
+    </p>
+
     <h2 id="notes">Notes</h2>
     <ul>
       <li>Registration stays by invitation, plus the first admin on an empty install. There is no open sign-up.</li>
