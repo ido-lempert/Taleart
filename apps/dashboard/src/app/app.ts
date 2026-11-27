@@ -19,7 +19,6 @@ import { CreateDrawer } from './create-drawer';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { NewTaleGroupFlow } from './new-tale-group';
 import { Icon, Mark } from './icon';
-import { ROLE_LABELS } from './project-roles';
 import type { BareData, ShellData } from './app.routes';
 import { noteNavigation, pageAfterSwipe, settleNavigation, swipeStep, type SwipeStep } from './page-motion';
 
@@ -48,7 +47,6 @@ function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
 })
 export class App {
   protected readonly store = inject(DashboardStore);
-  protected readonly roleLabels = ROLE_LABELS;
   protected readonly auth = inject(AuthStore);
   private readonly newTaleGroup = inject(NewTaleGroupFlow);
   private readonly router = inject(Router);

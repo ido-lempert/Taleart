@@ -7116,11 +7116,10 @@ describe('App', () => {
     const rowOf = (root: HTMLElement, name: string) =>
       [...root.querySelectorAll<HTMLElement>('.group-row')].find((r) => r.textContent?.includes(name)) as HTMLElement;
 
-    it('shows the caller\'s role as a badge next to the project switcher', async () => {
+    it('shows no role label in the header', async () => {
       const { root } = await open('/zones', asRole('publisher'));
-      expect(root.querySelector('#project-role')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-        'Your role in this project: Publisher',
-      );
+      expect(root.querySelector('#project-role')).toBeNull();
+      expect(root.querySelector('.topbar')?.textContent).not.toContain('Your role in this project');
     });
 
     it('lets a viewer read a zone but change nothing: no create, edit, reorder or add controls', async () => {
@@ -7179,7 +7178,7 @@ describe('App', () => {
       expect(view.querySelector('.group-view__status [role=switch]')?.getAttribute('title')).toBe(
         'Needs the Publisher role or higher.',
       );
-      expect(root.querySelector('#project-role')?.textContent).toContain('Viewer');
+      expect(root.querySelector('#project-role')).toBeNull();
     });
 
     it('hides "New zone" from an editor on an empty project and says who can', async () => {

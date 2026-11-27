@@ -1,15 +1,5 @@
 @if (showShell()) {
   <!-- Shared by the top bar (wide screens) and the page heading (phones). -->
-  <ng-template #roleBadge>
-    <!-- An admin needs no role label in the header: the role shows only for the other roles. -->
-    @if (store.role(); as role) {
-      @if (role !== 'admin') {
-        <span class="role-badge" id="project-role" [attr.data-role]="role">
-          <span class="visually-hidden">Your role in this project: </span>{{ roleLabels[role] }}
-        </span>
-      }
-    }
-  </ng-template>
   <ng-template #createButton>
     @if (createRequest(); as request) {
       <button type="button" class="btn btn--primary" (click)="runCreate(request, $event)">
@@ -74,9 +64,6 @@
                 }
               </select>
             </div>
-            @if (!phone()) {
-              <ng-container *ngTemplateOutlet="roleBadge" />
-            }
           }
           @if (!phone()) {
             <ng-container *ngTemplateOutlet="createButton" />
@@ -129,9 +116,6 @@
         @if (phone()) {
           <div class="page-heading">
             <h1 class="page-heading__title" [class.visually-hidden]="shell().ownHeader">{{ shell().heading ?? 'Zones' }}</h1>
-            @if (store.projects().length > 0) {
-              <ng-container *ngTemplateOutlet="roleBadge" />
-            }
             <ng-container *ngTemplateOutlet="createButton" />
           </div>
         }
