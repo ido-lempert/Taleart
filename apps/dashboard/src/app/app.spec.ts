@@ -4984,7 +4984,8 @@ describe('App', () => {
         `${MEDIA_ORIGIN}/api/v1/projects/p1/media/file?key=media%2Fbeach.png`,
       );
       expect(drawer()?.textContent).toContain("First tale's image (default)");
-      expect(root.querySelector('.group .ring')?.classList.contains('ring--cover')).toBe(false);
+      // The picture fills the ring's circle, so the ring clips it, as it clips a cover.
+      expect(root.querySelector('.group .ring')?.classList.contains('ring--cover')).toBe(true);
     });
 
     it('takes the frame with "Use this frame" into the preview, and Save uploads that frame', async () => {
@@ -6216,12 +6217,10 @@ describe('App', () => {
         const { fixture, root } = await open('/tale-groups', data);
         nameButton(root, 'Loose').click();
         await settle(fixture);
-        http
-          .expectOne(`${API_BASE}/tale-groups/g2`)
-          .flush(
-            { error: { code: status === 404 ? 'tale_group_not_found' : 'forbidden', message: 'No' } },
-            { status, statusText: 'No' },
-          );
+        // The open read of g2 answers the status; the list's read of the same group (its tales for a picture) gets it too.
+        const failure = { error: { code: status === 404 ? 'tale_group_not_found' : 'forbidden', message: 'No' } };
+        for (const read of http.match(`${API_BASE}/tale-groups/g2`)) read.flush(failure, { status, statusText: 'No' });
+        for (const read of http.match((req) => req.url.startsWith(`${API_BASE}/tale-groups/`))) read.flush({ tales: [] });
         for (let i = 0; i < 20 && url() !== '/tale-groups'; i++) await settle(fixture);
         expect(url()).toBe('/tale-groups');
         expect(text(root.querySelector('.group-opening[role=alert]'))).toBe(

@@ -1,9 +1,9 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import type { ProjectTaleGroup, Zone } from '@taleart/contract/core';
-import { DashboardStore } from '../dashboard.store';
+import type { ProjectTaleGroup, Tale, Zone } from '@taleart/contract/core';
+import { API_BASE, DashboardStore } from '../dashboard.store';
 import { inChosenZones, TaleGroupsPage } from './tale-groups';
 
 const group = (id: string, name: string, zoneIds: string[]) =>
@@ -124,5 +124,112 @@ describe('TaleGroupsPage zone filter', () => {
     expect(names()).toEqual([]);
     expect(root.querySelector('.empty__title')?.textContent).toContain('No tale groups match this filter');
     expect(root.querySelector('.empty__text')?.textContent).toContain('No tale group is in the chosen zones.');
+  });
+});
+
+describe('TaleGroupsPage pictures (each row shows its picture or the placeholder)', () => {
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<TaleGroupsPage>;
+  let root: HTMLElement;
+  const COVER = '/api/v1/tale-groups/g1/cover';
+
+  const withMedia = (id: string, taleGroupId: string): Tale =>
+    ({
+      id,
+      projectId: 'p1',
+      taleGroupId,
+      title: id,
+      position: 0,
+      media: { kind: 'image', contentType: 'image/jpeg', url: `/api/v1/tales/${id}/media` },
+    }) as unknown as Tale;
+
+  const row = (name: string) =>
+    [...root.querySelectorAll<HTMLElement>('.group-item')].find(
+      (item) => item.querySelector('.group-row__open')?.textContent?.trim() === name,
+    ) as HTMLElement;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [TaleGroupsPage],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+
+    const store = TestBed.inject(DashboardStore);
+    store.projects.set([{ id: 'p1', name: 'Acme', role: 'admin' }]);
+    store.selectProject('p1');
+    store.projectTaleGroups.set({
+      p1: [
+        { ...group('g1', 'Care tips', []), cover: { kind: 'image', contentType: 'image/jpeg', animated: false, url: COVER } },
+        group('g2', 'Living room', []),
+        group('g3', 'Gamma', []),
+      ],
+    });
+    store.loaded.set(true);
+    http = TestBed.inject(HttpTestingController);
+
+    fixture = TestBed.createComponent(TaleGroupsPage);
+    root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    http.verify();
+    document.body.replaceChildren();
+  });
+
+  // Lets the reads and the renders they cause run: a tick, then the page's change detection.
+  async function settle(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve));
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+  }
+
+  // Answers the group reads the page makes for its rows: g2 has a tale with a picture, g1 and g3 none.
+  // The tale's document is read when its thumbnail renders, and fails here, so its own media shows.
+  async function answerGroupReads(): Promise<void> {
+    http.expectOne(`${API_BASE}/tale-groups/g1`).flush({ id: 'g1', tales: [] });
+    http.expectOne(`${API_BASE}/tale-groups/g2`).flush({ id: 'g2', tales: [withMedia('t9', 'g2')] });
+    http.expectOne(`${API_BASE}/tale-groups/g3`).flush({ id: 'g3', tales: [] });
+    await settle();
+    http.match(`${API_BASE}/tales/t9/document`).forEach((request) => request.flush({}, { status: 500, statusText: 'Server Error' }));
+    await settle();
+  }
+
+  it("shows a group's cover as its picture", async () => {
+    await answerGroupReads();
+    const img = row('Care tips').querySelector<HTMLImageElement>('.group-row__cover img');
+    expect(img?.getAttribute('src')).toBe(COVER);
+    expect(img?.getAttribute('alt')).toBe('');
+    expect(img?.getAttribute('loading')).toBe('lazy');
+  });
+
+  it("shows the first tale's picture for a group with no cover", async () => {
+    await answerGroupReads();
+    const img = row('Living room').querySelector<HTMLImageElement>('.group-row__cover img');
+    expect(img?.getAttribute('src')).toBe('/api/v1/tales/t9/media');
+    expect(img?.getAttribute('alt')).toBe('');
+  });
+
+  it('shows the initial as the placeholder of a group with no picture at all', async () => {
+    await answerGroupReads();
+    const cover = row('Gamma').querySelector<HTMLElement>('.group-row__cover');
+    expect(cover?.querySelector('img')).toBeNull();
+    expect(cover?.textContent?.trim()).toBe('G');
+  });
+
+  it("falls back to the first tale's picture when a group's cover fails to load", async () => {
+    http.expectOne(`${API_BASE}/tale-groups/g1`).flush({ id: 'g1', tales: [withMedia('t8', 'g1')] });
+    http.expectOne(`${API_BASE}/tale-groups/g2`).flush({ id: 'g2', tales: [] });
+    http.expectOne(`${API_BASE}/tale-groups/g3`).flush({ id: 'g3', tales: [] });
+    await settle();
+
+    row('Care tips').querySelector('.group-row__cover img')?.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    http.expectOne(`${API_BASE}/tales/t8/document`).flush({}, { status: 500, statusText: 'Server Error' });
+    await settle();
+    expect(row('Care tips').querySelector<HTMLImageElement>('.group-row__cover img')?.getAttribute('src')).toBe(
+      '/api/v1/tales/t8/media',
+    );
   });
 });

@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   Injectable,
@@ -13,15 +14,15 @@ import type { Tale } from '@taleart/contract/core';
 import type { TaleDocument, TaleDocumentRevision } from '@taleart/contract/tale-document';
 import { firstValueFrom } from 'rxjs';
 import { captureFrame, seekTo } from './cover-capture';
-import { API_BASE } from './dashboard.store';
+import { API_BASE, API_ORIGIN } from './dashboard.store';
 import { projectMediaSrc } from './project-media.service';
 
 /**
- * A tale's thumbnail in the dashboard (Tale Studio, dashboard list thumbnails): the tale's FIRST
- * background. An image background is its picture; a video background is its first frame, drawn
- * once by the cover capture and kept. A tale without a media background shows its canvas colour,
- * and a tale with neither shows a placeholder. A group's default thumbnail is that of its first
- * tale with a media background, else its first tale's colour (the same rule as the bar's cover).
+ * A tale's thumbnail outside the studio (the tale group page's cards, the group rows' default cover):
+ * the tale's FIRST media background (an image is its picture; a video background is its first frame,
+ * drawn once by the cover capture and kept). A tale without one shows its own media (`tale.media`, the
+ * same frame rule), else its canvas colour, and a tale with none shows a placeholder: the card's tone.
+ * A group's default thumbnail is that of its first tale with a picture, else its first tale's colour.
  */
 export type TaleThumbnail = { kind: 'image'; src: string } | { kind: 'color'; color: string | null };
 
@@ -86,6 +87,11 @@ export function backgroundColor(doc: TaleDocument | null | undefined): string | 
   const background = doc?.canvas?.background as { type?: unknown; color?: unknown } | undefined;
   if (background?.type !== 'color' || typeof background.color !== 'string') return null;
   return /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(background.color) ? background.color : null;
+}
+
+/** The API address of a tale's own media (its picture or video), or '' when it has none. */
+export function taleMediaSrc(tale: Tale): string {
+  return tale.media ? `${API_ORIGIN}${tale.media.url}` : '';
 }
 
 /** How long a video's first frame may take to load before its thumbnail gives up, in ms. */
@@ -162,6 +168,19 @@ export class TaleThumbnails {
     return first ?? { kind: 'color', color: null };
   }
 
+  /**
+   * A tale group with its tales (`GET /tale-groups/{id}`), read now and not kept: a list that shows
+   * only counts reads it for its default thumbnail. A failed read answers no tales.
+   */
+  groupTales(taleGroupId: string): Promise<readonly Tale[]> {
+    return firstValueFrom(
+      this.http.get<{ tales: Tale[] }>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}`),
+    ).then(
+      (group) => group.tales,
+      () => [],
+    );
+  }
+
   /** Drops a tale's cached document and thumbnail, so the next read sees what was saved. */
   forget(taleId: string): void {
     this.documents.delete(taleId);
@@ -182,7 +201,7 @@ export class TaleThumbnails {
     if (doc === undefined) {
       // The read failed: nothing is kept, so the next render asks again.
       this.thumbnails.delete(tale.id);
-      return { kind: 'color', color: null };
+      return (await this.mediaPicture(tale)) ?? { kind: 'color', color: null };
     }
     const background = firstBackground(doc);
     if (background) {
@@ -191,7 +210,16 @@ export class TaleThumbnails {
       const frame = await this.frame(src);
       if (frame) return { kind: 'image', src: frame };
     }
-    return { kind: 'color', color: backgroundColor(doc) };
+    return (await this.mediaPicture(tale)) ?? { kind: 'color', color: backgroundColor(doc) };
+  }
+
+  /** The tale's own media as its picture (an image, or a video's first frame); null when it has none or no frame. */
+  private async mediaPicture(tale: Tale): Promise<TaleThumbnail | null> {
+    if (!tale.media) return null;
+    const src = taleMediaSrc(tale);
+    if (tale.media.kind === 'image') return { kind: 'image', src };
+    const frame = await this.frame(src);
+    return frame ? { kind: 'image', src: frame } : null;
   }
 
   /** The tale's draft document (else its published one): null when it has none, undefined when the read failed. */
@@ -238,11 +266,10 @@ export class TaleThumbnails {
   selector: 'app-tale-thumbnail',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @let thumbnail = shown();
-    @if (thumbnail.kind === 'image') {
-      <img [class]="mediaClass()" [src]="thumbnail.src" alt="" loading="lazy" />
+    @if (picture(); as src) {
+      <img [class]="mediaClass()" [src]="src" alt="" loading="lazy" decoding="async" (error)="broken.set(src)" />
     } @else {
-      <span [class]="mediaClass()" [style.background-color]="thumbnail.color" aria-hidden="true"></span>
+      <span [class]="mediaClass()" [style.background-color]="colour()" aria-hidden="true"></span>
     }
   `,
 })
@@ -255,6 +282,17 @@ export class TaleThumbnailComponent {
   readonly mediaClass = input('');
 
   protected readonly shown = signal<TaleThumbnail>({ kind: 'color', color: null });
+  /** The picture whose file failed to load: it is shown as no picture, so the placeholder is seen instead. */
+  protected readonly broken = signal('');
+  /** The picture to show, or '' for none (the colour, or the placeholder when there is none). */
+  protected readonly picture = computed(() => {
+    const thumbnail = this.shown();
+    return thumbnail.kind === 'image' && thumbnail.src !== this.broken() ? thumbnail.src : '';
+  });
+  protected readonly colour = computed(() => {
+    const thumbnail = this.shown();
+    return thumbnail.kind === 'color' ? thumbnail.color : null;
+  });
 
   constructor() {
     effect((onCleanup) => {

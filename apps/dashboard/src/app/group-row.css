@@ -40,6 +40,12 @@ app-group-row {
 }
 .group-row__cover {
   grid-area: cover;
+  position: relative;
+}
+/* A picture fills the ring's circle and is clipped to it; the initial under it is the placeholder. */
+.group-row__cover .ring__cover {
+  position: absolute;
+  inset: 0;
 }
 .group-row__main {
   grid-area: main;

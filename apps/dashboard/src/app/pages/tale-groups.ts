@@ -20,6 +20,7 @@ import {
   type ContentStatus,
   type ProjectTaleGroup,
   type SettableStatus,
+  type Tale,
   type Zone,
 } from '@taleart/contract/core';
 import { DashboardStore, type TaleGroupSummary } from '../dashboard.store';
@@ -30,6 +31,7 @@ import { Icon } from '../icon';
 import type { MenuItem, MenuPick } from '../menu-button';
 import { gateMenu } from '../project-roles';
 import { statusActions, statusLabel } from '../status';
+import { TaleThumbnails } from '../tale-thumbnail';
 import { visibilityLine } from '../visibility';
 
 /** The filters of the Tale groups page (epic UX rework R14), as `?filter=` holds them; `all` is the default. */
@@ -346,6 +348,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                         [anyZone]="true"
                         [plain]="true"
                         [opens]="true"
+                        [thumbnailTales]="listTales()[group.id] ?? null"
                         (toggled)="switchGroup(group, $event)"
                         (picked)="picked(group, $event)"
                         (click)="rowClick(group, $event)"
@@ -436,6 +439,7 @@ export class TaleGroupsPage {
   private readonly location = inject(Location);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private readonly thumbnails = inject(TaleThumbnails);
 
   /**
    * `?filter=` (component input binding): a reload or a shared link opens on that filter. Choosing a
@@ -509,6 +513,21 @@ export class TaleGroupsPage {
   );
 
   protected readonly allGroups = computed(() => this.store.projectTaleGroupsOf(this.store.selectedProjectId()));
+  /**
+   * The tales of each listed group, by group id, read once for the page's visit: the project's list
+   * carries counts only, and a row with no cover shows its first tale's picture (story: the main picture).
+   */
+  protected readonly listTales = signal<Readonly<Record<string, readonly Tale[]>>>({});
+  private readonly listTalesRequested = new Set<string>();
+  private readonly readListTales = effect(() => {
+    for (const group of this.allGroups()) {
+      if (this.listTalesRequested.has(group.id)) continue;
+      this.listTalesRequested.add(group.id);
+      void this.thumbnails.groupTales(group.id).then((tales) => {
+        this.listTales.update((shown) => ({ ...shown, [group.id]: tales }));
+      });
+    }
+  });
   /** The project's groups in the chosen zones: what the radio filters count and narrow. */
   private readonly inZones = computed(() =>
     this.allGroups().filter((group) => inChosenZones(group, this.chosenZoneIds())),

@@ -1,11 +1,20 @@
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { TestBed } from '@angular/core/testing';
+import { Component, signal } from '@angular/core';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { Tale } from '@taleart/contract/core';
 import type { TaleDocument } from '@taleart/contract/tale-document';
 import { API_BASE } from './dashboard.store';
 import { projectMediaSrc } from './project-media.service';
-import { backgroundColor, documentPicture, firstBackground, FIRST_FRAME, TaleThumbnails } from './tale-thumbnail';
+import {
+  backgroundColor,
+  documentPicture,
+  firstBackground,
+  FIRST_FRAME,
+  TaleThumbnailComponent,
+  TaleThumbnails,
+  taleMediaSrc,
+} from './tale-thumbnail';
 
 const imageBackground = (key = 'media/beach.png') => ({ type: 'media', mediaKey: key, fit: 'cover', color: '#000000' });
 
@@ -241,3 +250,163 @@ describe('TaleThumbnails', () => {
     await expect(retry).resolves.toEqual({ kind: 'color', color: '#778899' });
   });
 });
+
+describe("a tale's own media as its picture", () => {
+  let http: HttpTestingController;
+  let frames: ReturnType<typeof vi.fn<(src: string) => Promise<string>>>;
+  let thumbnails: TaleThumbnails;
+
+  const withMedia = (id: string, kind: 'image' | 'video' = 'image'): Tale =>
+    ({
+      ...tale(id),
+      media: { kind, contentType: kind === 'image' ? 'image/jpeg' : 'video/mp4', url: `/api/v1/tales/${id}/media` },
+    }) as unknown as Tale;
+
+  beforeEach(() => {
+    frames = vi.fn<(src: string) => Promise<string>>(async () => 'blob:frame');
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: FIRST_FRAME, useValue: frames }],
+    });
+    http = TestBed.inject(HttpTestingController);
+    thumbnails = TestBed.inject(TaleThumbnails);
+  });
+
+  afterEach(() => http.verify());
+
+  it('is the address of the media, as the API serves it', () => {
+    expect(taleMediaSrc(withMedia('t1'))).toBe('/api/v1/tales/t1/media');
+    expect(taleMediaSrc(tale('t1'))).toBe('');
+  });
+
+  it('is the picture of a tale whose document has only a colour background', async () => {
+    const pending = thumbnails.forTales([withMedia('t1')]);
+    http.expectOne(`${API_BASE}/tales/t1/document`).flush({
+      document: doc({ type: 'color', color: '#000000' }),
+      revision: 1,
+      published: { document: null, revision: 0 },
+    });
+    await expect(pending).resolves.toEqual({ kind: 'image', src: '/api/v1/tales/t1/media' });
+    expect(frames).not.toHaveBeenCalled();
+  });
+
+  it("is the first frame of a video, drawn once", async () => {
+    const pending = thumbnails.forTales([withMedia('t1', 'video')]);
+    http.expectOne(`${API_BASE}/tales/t1/document`).flush({
+      document: doc({ type: 'color', color: '#000000' }),
+      revision: 1,
+      published: { document: null, revision: 0 },
+    });
+    await expect(pending).resolves.toEqual({ kind: 'image', src: 'blob:frame' });
+    expect(frames).toHaveBeenCalledWith('/api/v1/tales/t1/media');
+  });
+
+  it("is used when the document cannot be read", async () => {
+    const pending = thumbnails.forTales([withMedia('t1')]);
+    http.expectOne(`${API_BASE}/tales/t1/document`).flush({}, { status: 500, statusText: 'Server Error' });
+    await expect(pending).resolves.toEqual({ kind: 'image', src: '/api/v1/tales/t1/media' });
+  });
+
+  it("comes after a document's media background", async () => {
+    const pending = thumbnails.forTales([withMedia('t1')]);
+    http.expectOne(`${API_BASE}/tales/t1/document`).flush({
+      document: doc(imageBackground('media/beach.png')),
+      revision: 1,
+      published: { document: null, revision: 0 },
+    });
+    await expect(pending).resolves.toEqual({ kind: 'image', src: projectMediaSrc('p1', 'media/beach.png') });
+  });
+
+  it('reads a tale group with its tales, and answers none when the read fails', async () => {
+    const tales = thumbnails.groupTales('g1');
+    http.expectOne(`${API_BASE}/tale-groups/g1`).flush({ id: 'g1', tales: [withMedia('t1')] });
+    await expect(tales).resolves.toEqual([expect.objectContaining({ id: 't1' })]);
+
+    const failed = thumbnails.groupTales('g2');
+    http.expectOne(`${API_BASE}/tale-groups/g2`).flush({}, { status: 500, statusText: 'Server Error' });
+    await expect(failed).resolves.toEqual([]);
+  });
+});
+
+@Component({
+  imports: [TaleThumbnailComponent],
+  template: `<app-tale-thumbnail [tales]="tales()" mediaClass="tale-card__media" />`,
+})
+class ThumbnailHost {
+  readonly tales = signal<readonly Tale[]>([]);
+}
+
+describe('TaleThumbnailComponent', () => {
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<ThumbnailHost>;
+  let root: HTMLElement;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: FIRST_FRAME, useValue: vi.fn(async () => 'blob:frame') },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(ThumbnailHost);
+    root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+  });
+
+  afterEach(() => {
+    http.verify();
+    document.body.replaceChildren();
+  });
+
+  const settle = async () => {
+    await new Promise((resolve) => setTimeout(resolve));
+    fixture.detectChanges();
+  };
+
+  it("shows the tale's picture as a decorative, lazily loaded image", async () => {
+    const withMedia = { ...tale('t1'), media: { kind: 'image', contentType: 'image/jpeg', url: '/api/v1/tales/t1/media' } };
+    fixture.componentInstance.tales.set([withMedia as unknown as Tale]);
+    fixture.detectChanges();
+    http.expectOne(`${API_BASE}/tales/t1/document`).flush({}, { status: 500, statusText: 'Server Error' });
+    await settle();
+
+    const img = root.querySelector<HTMLImageElement>('img.tale-card__media');
+    expect(img?.getAttribute('src')).toBe('/api/v1/tales/t1/media');
+    expect(img?.getAttribute('alt')).toBe('');
+    expect(img?.getAttribute('loading')).toBe('lazy');
+    expect(root.querySelector('span.tale-card__media')).toBeNull();
+  });
+
+  it('shows the placeholder (no picture, no colour) for a tale with neither', async () => {
+    fixture.componentInstance.tales.set([tale('t1')]);
+    fixture.detectChanges();
+    http.expectOne(`${API_BASE}/tales/t1/document`).flush({
+      document: doc({ type: 'media', externalUrl: 'javascript:alert(1)', color: '#000000' }),
+      revision: 1,
+      published: { document: null, revision: 0 },
+    });
+    await settle();
+
+    expect(root.querySelector('img')).toBeNull();
+    const placeholder = root.querySelector<HTMLElement>('span.tale-card__media');
+    expect(placeholder?.getAttribute('aria-hidden')).toBe('true');
+    expect(placeholder?.style.backgroundColor).toBe('');
+  });
+
+  it('shows the placeholder instead of a picture that fails to load', async () => {
+    const withMedia = { ...tale('t1'), media: { kind: 'image', contentType: 'image/jpeg', url: '/api/v1/tales/t1/media' } };
+    fixture.componentInstance.tales.set([withMedia as unknown as Tale]);
+    fixture.detectChanges();
+    http.expectOne(`${API_BASE}/tales/t1/document`).flush({}, { status: 500, statusText: 'Server Error' });
+    await settle();
+
+    root.querySelector('img')?.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('span.tale-card__media')).not.toBeNull();
+  });
+});
+

@@ -1,10 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output, ViewEncapsulation } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal, ViewEncapsulation } from '@angular/core';
 import {
   groupShownStatus,
   isSwitchable,
   MAX_TALES_PER_GROUP,
   SHOWN_STATUS_LABELS,
   taleShownStatus,
+  type Tale,
   type TaleGroup,
 } from '@taleart/contract/core';
 import { DashboardStore } from './dashboard.store';
@@ -72,17 +73,16 @@ export function opensFromRowClick(event: MouseEvent): boolean {
     @let g = group();
     <div class="group-row" [class.group-row--opens]="opens()" [class.group-row--plain]="plain()">
       <ng-content select="[groupRowLead]" />
-      <span class="ring group-row__cover" [class.ring--cover]="!!g.cover" aria-hidden="true">
-        @if (g.cover; as cover) {
-          @if (cover.kind === 'video') {
-            <video class="ring__cover" [src]="store.coverSrc(g) + '#t=0.001'" [muted]="true" playsinline preload="metadata"></video>
+      <span class="ring group-row__cover" [class.ring--cover]="!!coverShown() || defaultTales().length > 0" aria-hidden="true">
+        {{ g.name.charAt(0) }}
+        @if (coverShown(); as src) {
+          @if (g.cover?.kind === 'video') {
+            <video class="ring__cover" [src]="src + '#t=0.001'" [muted]="true" playsinline preload="metadata" (error)="coverFailed.set(src)"></video>
           } @else {
-            <img class="ring__cover" [src]="store.coverSrc(g)" alt="" />
+            <img class="ring__cover" [src]="src" alt="" loading="lazy" decoding="async" (error)="coverFailed.set(src)" />
           }
         } @else if (defaultTales().length > 0) {
           <app-tale-thumbnail [tales]="defaultTales()" mediaClass="ring__cover" />
-        } @else {
-          {{ g.name.charAt(0) }}
         }
       </span>
       <div class="group-row__main">
@@ -144,6 +144,11 @@ export class GroupRow {
   readonly plain = input(false);
   /** The indicator speaks of any zone the group is in (the Tale groups page), not of this zone. */
   readonly anyZone = input(false);
+  /**
+   * The group's tales for its default thumbnail, when the row's group carries none (the Tale groups
+   * page's list holds counts only). Null for the group's own tales, if it has them.
+   */
+  readonly thumbnailTales = input<readonly Tale[] | null>(null);
 
   /** The switch asked for On (true) or Off (false). */
   readonly toggled = output<boolean>();
@@ -158,10 +163,24 @@ export class GroupRow {
   protected readonly switchReason = computed(() =>
     this.store.can('content.publish', this.group().projectId) ? '' : this.store.roleNeeded('content.publish'),
   );
-  /** The tales the group's default cover comes from (its first tale with a media background); none on a project's list. */
-  protected readonly defaultTales = computed(() => {
+  /** The tales the group's default cover comes from (its first tale with a picture); none on a project's list unless given. */
+  protected readonly defaultTales = computed<readonly Tale[]>(() => {
+    const given = this.thumbnailTales();
+    if (given) return given;
     const group = this.group();
     return 'tales' in group ? group.tales : [];
+  });
+  /** The URL of the group's cover, or '' when it has none. */
+  private readonly coverUrl = computed(() => {
+    const group = this.group();
+    return group.cover ? this.store.coverSrc(group) : '';
+  });
+  /** The cover whose file failed to load, so the row falls back to its tales' picture (or the initial). */
+  protected readonly coverFailed = signal('');
+  /** The cover to show, or '' when there is none or its file failed to load. */
+  protected readonly coverShown = computed(() => {
+    const url = this.coverUrl();
+    return url !== '' && url !== this.coverFailed() ? url : '';
   });
   protected readonly count = computed(() => shownCount(this.group()));
   protected readonly switchable = computed(() => isSwitchable(this.group().storedStatus));
