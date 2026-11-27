@@ -937,17 +937,28 @@ export class DashboardStore {
     taleGroupId: string,
     status: SettableStatus,
   ): Promise<{ message: string; group: TaleGroup | null }> {
-    let group: TaleGroup;
+    const result = await this.putTaleGroupStatus(taleGroupId, status);
+    if (result.group) await this.refresh();
+    return result;
+  }
+
+  /**
+   * As changeTaleGroupStatus without the refresh after it: the group is patched from the answer,
+   * and a bulk action (many groups, a few at a time) refreshes once when all of them are done.
+   */
+  async putTaleGroupStatus(
+    taleGroupId: string,
+    status: SettableStatus,
+  ): Promise<{ message: string; group: TaleGroup | null }> {
     try {
-      group = await firstValueFrom(
+      const group = await firstValueFrom(
         this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/status`, { status }),
       );
       this.applyGroupStatus(group);
+      return { message: '', group };
     } catch (err) {
       return { message: apiErrorMessage(err, 'The status was not changed. Try again.'), group: null };
     }
-    await this.refresh();
-    return { message: '', group };
   }
 
   // Shows a saved group status at once, from the API's answer, in every zone and project list and

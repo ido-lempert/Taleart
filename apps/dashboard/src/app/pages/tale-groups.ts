@@ -23,8 +23,12 @@ import {
   type Tale,
   type Zone,
 } from '@taleart/contract/core';
+import { BulkBar } from '../bulk-bar';
+import { runLimited } from '../bulk-run';
 import { DashboardStore, type TaleGroupSummary } from '../dashboard.store';
+import { Drawer } from '../drawer';
 import { GroupRow, opensFromRowClick } from '../group-row';
+import { createSelection } from '../selection';
 import { GroupView } from './group-view';
 import { ZonePreview } from './zone-preview';
 import { Icon } from '../icon';
@@ -121,7 +125,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
  */
 @Component({
   selector: 'app-tale-groups-page',
-  imports: [RouterLink, Icon, GroupRow, GroupView, ZonePreview],
+  imports: [RouterLink, Icon, GroupRow, GroupView, ZonePreview, BulkBar, Drawer],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .tale-groups__header {
@@ -223,6 +227,20 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
     }
     .group-opening {
       margin: 0 0 var(--space-3);
+    }
+    .tale-groups-list__head {
+      display: flex;
+      margin: 0 0 var(--space-2);
+    }
+    /* The row's first cell: the checkbox takes the reorder cell of a row with a lead (group-row.css). */
+    .group-row__select {
+      grid-area: reorder;
+      min-height: 0;
+      padding: 0;
+    }
+    .bulk-names {
+      margin: var(--space-2) 0 0;
+      padding-inline-start: var(--space-5);
     }
   `,
   template: `
@@ -334,6 +352,35 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                 </fieldset>
               }
               @if (groups().length > 0) {
+                <!-- Escape clears the selection while focus is in the list (its checkboxes, its rows, the bar). -->
+                <div class="tale-groups-list" (keydown.escape)="selection.clear()">
+                  @if (canSelect()) {
+                    <div class="tale-groups-list__head">
+                      <label class="checkbox">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all tale groups"
+                          [checked]="selection.allSelected()"
+                          [indeterminate]="selection.someSelected()"
+                          (change)="selection.toggleAll()"
+                        />
+                        <span>Select all</span>
+                      </label>
+                    </div>
+                    <app-bulk-bar [count]="selection.count()" (cleared)="selection.clear()">
+                      <button type="button" class="btn btn--danger btn--sm" id="bulk-archive" (click)="askBulkArchive()">
+                        Archive
+                      </button>
+                    </app-bulk-bar>
+                  }
+                  @if (bulkFailed().length > 0) {
+                    <div class="banner banner--inline" role="alert" id="bulk-failed">
+                      <app-icon name="alert" />
+                      <span>
+                        {{ bulkFailed().length }} could not be archived: {{ bulkFailedNames() }}. They stay selected.
+                      </span>
+                    </div>
+                  }
                 <ul class="group-items" [attr.aria-label]="listLabel()">
                   @for (group of groups(); track group.id) {
                     <li class="group-item">
@@ -346,13 +393,23 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                         [items]="menus().get(group.id) ?? []"
                         [saving]="saving().has(group.id)"
                         [anyZone]="true"
-                        [plain]="true"
+                        [plain]="!canSelect()"
                         [opens]="true"
                         [thumbnailTales]="listTales()[group.id] ?? null"
                         (toggled)="switchGroup(group, $event)"
                         (picked)="picked(group, $event)"
                         (click)="rowClick(group, $event)"
                       >
+                        @if (canSelect()) {
+                          <label groupRowLead class="checkbox group-row__select" (click)="$event.stopPropagation()">
+                            <input
+                              type="checkbox"
+                              [attr.aria-label]="'Select ' + group.name"
+                              [checked]="selection.isSelected(group.id)"
+                              (change)="selection.toggle(group.id)"
+                            />
+                          </label>
+                        }
                         <!-- Opens the group view here, placed in a zone or not (story 8.19). -->
                         <h3 class="group-row__name" groupRowName [id]="'project-group-' + group.id">
                           <button
@@ -403,6 +460,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                     </li>
                   }
                 </ul>
+                </div>
               } @else {
                 <div class="empty">
                   <p class="empty__title">No tale groups match this filter</p>
@@ -419,6 +477,53 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                   zone it is in.
                 </p>
               </div>
+            }
+            @if (bulk(); as run) {
+              <app-drawer
+                [heading]="bulkHeading()"
+                dialogRole="alertdialog"
+                describedBy="bulk-archive-text"
+                initialFocus="#bulk-archive-cancel"
+                [busy]="run.phase === 'running'"
+                (closed)="closeBulk()"
+              >
+                <div class="drawer__body">
+                  <p id="bulk-archive-text">
+                    They stop showing on your site. You can restore them from the Archived filter.
+                  </p>
+                  <ul class="bulk-names">
+                    @for (item of run.items.slice(0, 5); track item.id) {
+                      <li>{{ item.name }}</li>
+                    }
+                    @if (run.items.length > 5) {
+                      <li class="muted">+{{ run.items.length - 5 }} more</li>
+                    }
+                  </ul>
+                  @if (run.phase === 'running') {
+                    <p class="muted" role="status">Archiving {{ run.done }} of {{ run.items.length }}…</p>
+                  }
+                </div>
+                <div class="drawer__footer">
+                  <button
+                    type="button"
+                    class="btn btn--secondary"
+                    id="bulk-archive-cancel"
+                    [disabled]="run.phase === 'running'"
+                    (click)="closeBulk()"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--danger"
+                    id="bulk-archive-submit"
+                    [disabled]="run.phase === 'running'"
+                    (click)="confirmBulkArchive()"
+                  >
+                    {{ run.phase === 'running' ? 'Archiving…' : 'Archive ' + run.items.length + ' ' + (run.items.length === 1 ? 'group' : 'groups') }}
+                  </button>
+                </div>
+              </app-drawer>
             }
           </section>
         } @else if (!store.apiDown()) {
@@ -574,6 +679,76 @@ export class TaleGroupsPage {
         return 'Every tale group of this project is archived.';
     }
   });
+
+  /**
+   * The rows picked for a bulk action (the reusable selection, `selection.ts`): the list's visible
+   * groups. Checkboxes and the bar show only to a role that may archive (content.publish).
+   */
+  protected readonly selection = createSelection(
+    () => this.groups(),
+    (group: TaleGroupSummary) => group.id,
+  );
+  protected readonly canSelect = computed(() => this.store.can('content.publish'));
+  /** The bulk archive being confirmed, then run: the groups it names, and how many are done. */
+  protected readonly bulk = signal<{
+    phase: 'confirm' | 'running';
+    items: readonly { id: string; name: string }[];
+    done: number;
+  } | null>(null);
+  /** The groups the last bulk archive could not archive, kept selected until the next action. */
+  protected readonly bulkFailed = signal<readonly { id: string; name: string; message: string }[]>([]);
+  protected readonly bulkFailedNames = computed(() => this.bulkFailed().map((f) => f.name).join(', '));
+  protected readonly bulkHeading = computed(() => {
+    const count = this.bulk()?.items.length ?? 0;
+    return `Archive ${count} tale ${count === 1 ? 'group' : 'groups'}?`;
+  });
+
+  /** How many single-group status requests a bulk archive keeps in flight. */
+  private static readonly BULK_CONCURRENCY = 3;
+
+  /** Opens the confirmation for the selected groups. Archive is the only way a group leaves the list (the API has no delete). */
+  protected askBulkArchive(): void {
+    if (!this.canSelect() || this.selection.count() === 0) return;
+    this.bulkFailed.set([]);
+    this.bulk.set({
+      phase: 'confirm',
+      items: this.selection.selectedItems().map((group) => ({ id: group.id, name: group.name })),
+      done: 0,
+    });
+  }
+
+  /** Closes the confirmation; not while the archives run. */
+  protected closeBulk(): void {
+    if (this.bulk()?.phase === 'running') return;
+    this.bulk.set(null);
+  }
+
+  /**
+   * Archives each selected group through the status endpoint, three at a time, then refreshes once.
+   * The groups that archived leave the list; the ones that failed stay selected and are named.
+   */
+  protected async confirmBulkArchive(): Promise<void> {
+    const run = this.bulk();
+    if (!run || run.phase !== 'confirm' || !this.canSelect()) return;
+    this.bulk.set({ ...run, phase: 'running', done: 0 });
+    const outcome = await runLimited(
+      run.items,
+      TaleGroupsPage.BULK_CONCURRENCY,
+      async (item) => (await this.store.putTaleGroupStatus(item.id, 'archived')).message,
+      (done) => this.bulk.update((current) => (current ? { ...current, done } : current)),
+    );
+    await this.store.refresh();
+    const failed = outcome.failed.map(({ item, message }) => ({ id: item.id, name: item.name, message }));
+    this.selection.replace(failed.map((f) => f.id));
+    this.bulkFailed.set(failed);
+    this.bulk.set(null);
+    const archived = outcome.succeeded.length;
+    this.announce(
+      failed.length === 0
+        ? `${archived} tale ${archived === 1 ? 'group' : 'groups'} archived.`
+        : `${archived} archived. ${failed.length} could not be archived: ${this.bulkFailedNames()}.`,
+    );
+  }
 
   /** The group preview open, with the zone it shows the group in and the button that opened it; one at a time. */
   protected readonly preview = signal<{ zone: Zone; groupId: string; label: string; opener: HTMLElement } | null>(null);

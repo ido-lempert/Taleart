@@ -233,3 +233,166 @@ describe('TaleGroupsPage pictures (each row shows its picture or the placeholder
     );
   });
 });
+
+describe('TaleGroupsPage bulk archive (selection, bar, confirm, failures)', () => {
+  let http: HttpTestingController;
+  let store: DashboardStore;
+  let fixture: ComponentFixture<TaleGroupsPage>;
+  let root: HTMLElement;
+
+  const box = (name: string) => root.querySelector<HTMLInputElement>(`input[aria-label="Select ${name}"]`);
+  const pick = (name: string, checked = true) => {
+    const input = box(name) as HTMLInputElement;
+    input.checked = checked;
+    input.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+  };
+  const bar = () => root.querySelector<HTMLElement>('.bulk-bar');
+  const rowNames = () =>
+    [...root.querySelectorAll<HTMLButtonElement>('.group-row__open')].map((b) => b.textContent?.trim());
+  const dialogSubmit = () => document.querySelector<HTMLButtonElement>('#bulk-archive-submit');
+  // Lets the archive requests settle and the page render their answers.
+  async function settle(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve));
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+    fixture.detectChanges();
+  }
+  const archived = (id: string) =>
+    ({
+      ...group(id, id, []),
+      status: 'archived',
+      storedStatus: 'archived',
+      tales: [],
+    }) as unknown as ProjectTaleGroup;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [TaleGroupsPage],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+
+    store = TestBed.inject(DashboardStore);
+    vi.spyOn(store, 'refresh').mockResolvedValue();
+    store.projects.set([{ id: 'p1', name: 'Acme', role: 'admin' }]);
+    store.selectProject('p1');
+    store.projectTaleGroups.set({
+      p1: [
+        group('g1', 'Only alpha', ['z1']),
+        group('g2', 'Only beta', ['z2']),
+        group('g3', 'Only gamma', ['z3']),
+        group('g4', 'In no zone', []),
+        group('g5', 'Alpha and beta', ['z1', 'z2']),
+      ],
+    });
+    store.loaded.set(true);
+    http = TestBed.inject(HttpTestingController);
+
+    fixture = TestBed.createComponent(TaleGroupsPage);
+    root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('shows a checkbox per row and the select-all, and no bar until a row is picked', () => {
+    expect(box('Only alpha')).not.toBeNull();
+    expect(box('In no zone')).not.toBeNull();
+    expect(root.querySelector<HTMLInputElement>('input[aria-label="Select all tale groups"]')).not.toBeNull();
+    expect(bar()).toBeNull();
+    pick('Only alpha');
+    pick('Only beta');
+    expect(bar()?.querySelector('.bulk-bar__count')?.textContent?.trim()).toBe('2 selected');
+    expect(root.querySelector('app-bulk-bar [aria-live=polite]')?.textContent?.trim()).toBe('2 selected');
+  });
+
+  it('select all picks every row, shows it indeterminate after one, and Clear selection drops it', () => {
+    const all = root.querySelector<HTMLInputElement>('input[aria-label="Select all tale groups"]') as HTMLInputElement;
+    all.checked = true;
+    all.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(bar()?.querySelector('.bulk-bar__count')?.textContent?.trim()).toBe('5 selected');
+    expect(box('Only gamma')?.checked).toBe(true);
+
+    root.querySelector<HTMLButtonElement>('.bulk-bar__clear')?.click();
+    fixture.detectChanges();
+    expect(bar()).toBeNull();
+    expect(box('Only gamma')?.checked).toBe(false);
+
+    pick('Only gamma');
+    expect(all.indeterminate).toBe(true);
+    expect(all.checked).toBe(false);
+  });
+
+  it('Escape in the list clears the selection', () => {
+    pick('Only alpha');
+    box('Only alpha')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(bar()).toBeNull();
+  });
+
+  it('a checkbox does not open its group', () => {
+    pick('Only alpha');
+    expect(root.querySelector('app-group-view')).toBeNull();
+    expect(store.drawer()).toBeNull();
+  });
+
+  it('archives three groups with one status request each, then the list shows the rest', async () => {
+    pick('Only alpha');
+    pick('Only beta');
+    pick('Only gamma');
+    root.querySelector<HTMLButtonElement>('#bulk-archive')?.click();
+    fixture.detectChanges();
+    expect(dialogSubmit()?.textContent?.trim()).toBe('Archive 3 groups');
+    expect(document.body.textContent).toContain('Only alpha');
+
+    dialogSubmit()?.click();
+    fixture.detectChanges();
+    for (const id of ['g1', 'g2', 'g3']) {
+      const request = http.expectOne(`${API_BASE}/tale-groups/${id}/status`);
+      expect(request.request.method).toBe('PUT');
+      expect(request.request.body).toEqual({ status: 'archived' });
+      request.flush(archived(id));
+    }
+    await settle();
+
+    expect(store.refresh).toHaveBeenCalledTimes(1);
+    expect(rowNames()).toEqual(['In no zone', 'Alpha and beta']);
+    expect(bar()).toBeNull();
+    expect(document.querySelector('#bulk-failed')).toBeNull();
+    expect(document.querySelector('#bulk-archive-submit')).toBeNull();
+  });
+
+  it('keeps a group whose archive failed selected and names it', async () => {
+    pick('Only alpha');
+    pick('Only beta');
+    pick('Only gamma');
+    root.querySelector<HTMLButtonElement>('#bulk-archive')?.click();
+    fixture.detectChanges();
+    dialogSubmit()?.click();
+    fixture.detectChanges();
+
+    http.expectOne(`${API_BASE}/tale-groups/g1/status`).flush(archived('g1'));
+    http.expectOne(`${API_BASE}/tale-groups/g2/status`).flush({}, { status: 500, statusText: 'Server Error' });
+    http.expectOne(`${API_BASE}/tale-groups/g3/status`).flush(archived('g3'));
+    await settle();
+
+    const alert = root.querySelector<HTMLElement>('#bulk-failed');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent).toContain('1 could not be archived: Only beta');
+    expect(rowNames()).toEqual(['Only beta', 'In no zone', 'Alpha and beta']);
+    expect(box('Only beta')?.checked).toBe(true);
+    expect(bar()?.querySelector('.bulk-bar__count')?.textContent?.trim()).toBe('1 selected');
+  });
+
+  it('shows no checkboxes or bar to a role that cannot archive', () => {
+    store.projects.set([{ id: 'p1', name: 'Acme', role: 'viewer' }]);
+    fixture.detectChanges();
+    expect(rowNames().length).toBe(5);
+    expect(root.querySelector('input[type=checkbox]')).toBeNull();
+    expect(root.querySelector('input[aria-label="Select all tale groups"]')).toBeNull();
+  });
+});
