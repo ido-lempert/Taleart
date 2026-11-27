@@ -157,8 +157,12 @@ type Direction = 'earlier' | 'later';
     .zone-header__title {
       display: flex;
       flex-wrap: wrap;
-      align-items: baseline;
-      gap: var(--space-1) var(--space-4);
+      align-items: center;
+      gap: var(--space-1) var(--space-3);
+    }
+    .zone-header__icon {
+      flex: none;
+      color: var(--text);
     }
     .zone-header__title h2 {
       min-width: 0;

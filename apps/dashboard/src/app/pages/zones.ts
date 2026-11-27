@@ -166,11 +166,7 @@ import { ZonePreview } from './zone-preview';
                         [attr.aria-label]="'Display: ' + store.frameTypeLabel(frame.type)"
                         [attr.title]="store.frameTypeLabel(frame.type)"
                       >
-                        @if (frame.type === 'bar') {
-                          <app-icon name="zone-bar" />
-                        } @else if (frame.type === 'banner') {
-                          <app-icon name="zone-banner" />
-                        }
+                        <app-icon name="zone" [size]="28" />
                       </span>
                     }
                     <a class="zone-card__name" [routerLink]="['/zones', zone.id]">{{ zone.name }}</a>

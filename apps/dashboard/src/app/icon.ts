@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 export type IconName =
   | 'zones'
+  | 'zone'
   | 'projects'
   | 'audience'
   | 'plus'
@@ -58,6 +59,8 @@ export type IconName =
   template: `
     <svg
       class="icon"
+      [style.width.px]="size()"
+      [style.height.px]="size()"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -73,6 +76,13 @@ export type IconName =
           <rect x="14" y="3" width="7" height="7" rx="2" />
           <rect x="3" y="14" width="7" height="7" rx="2" />
           <rect x="14" y="14" width="7" height="7" rx="2" />
+        }
+        @case ('zone') {
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <rect x="7" y="7" width="5" height="5" rx="1" />
+          <rect x="12" y="7" width="5" height="5" rx="1" />
+          <rect x="7" y="12" width="5" height="5" rx="1" />
+          <rect x="12" y="12" width="5" height="5" rx="1" />
         }
         @case ('audience') {
           <circle cx="9" cy="8" r="3.5" />
@@ -267,6 +277,8 @@ export type IconName =
 })
 export class Icon {
   readonly name = input.required<IconName>();
+  /** Optional pixel size; the default comes from the global `.icon` rule (20px). */
+  readonly size = input<number | null>(null);
 }
 
 /**

@@ -32,6 +32,7 @@
       <header class="page-header zone-header">
         <a class="back-link" routerLink="/zones"><app-icon name="back" /> Zones</a>
         <div class="zone-header__title">
+          <app-icon class="zone-header__icon" name="zone" [size]="40" />
           <h2 class="page-header__title" id="zone-title" tabindex="-1">{{ zone.name }}</h2>
           <app-visibility class="zone-visibility" [visibility]="zone.visibility" viewing="zone" />
         </div>
