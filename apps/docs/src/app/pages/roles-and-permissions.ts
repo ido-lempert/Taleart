@@ -126,7 +126,7 @@ import { RouterLink } from '@angular/router';
     <figure>
       <img
         src="images/team-shot-editor-draft.png"
-        alt="Tale Studio open as an editor named Sam Cohen, with an Editor badge in the header. The toolbar reads All changes saved, Not visible: not updated yet, 1 change, and Ask a publisher to publish in place of a publish button."
+        alt="Tale Studio open as Sam Cohen, an editor, on the new tale Fresh arrivals, which is saved as a draft and never published. The toolbar reads All changes saved, Not visible: not updated yet, 1 change, and Ask a publisher to publish in place of a publish button."
         width="1280"
         height="800"
       />
@@ -175,7 +175,7 @@ import { RouterLink } from '@angular/router';
         <figure>
           <img
             src="images/team-shot-invitation-link.png"
-            alt="The Add or invite drawer after an invitation was created. The invitation link is shown with the note Works once, until Nov 7, 2026, This link is shown only now. Below it: Joins as Editor, Access: Until 31 Jan 2027, a Copy link button and a Done button."
+            alt="The Add or invite drawer after an invitation was created. The invitation link is shown with the note that it works once, until a date seven days ahead, and is shown only now. Below it: Joins as Editor, Access: Until 31 Jan 2027, a Copy link button and a Done button."
             width="1280"
             height="800"
           />
@@ -222,7 +222,7 @@ import { RouterLink } from '@angular/router';
         <figure>
           <img
             src="images/team-shot-pending-invitations.png"
-            alt="The Pending invitations table of the Team page with two rows: a Viewer with access until 31 Dec 2026 and an Editor with permanent access, both invited by Dana Levi on 31 Oct 2026, link expiring 7 Nov 2026, each with a Revoke button. The roles table starts below."
+            alt="The Pending invitations table of the Team page with two rows: a Viewer with access until 31 Dec 2026 and an Editor with permanent access, both invited by Dana Levi, with links that expire seven days after they were created, each with a Revoke button. The roles table starts below."
             width="1280"
             height="800"
           />
@@ -243,7 +243,7 @@ import { RouterLink } from '@angular/router';
         <figure>
           <img
             src="images/team-shot-activity.png"
-            alt="The Activity list at the bottom of the Team page, newest first: Dana Levi created an invitation link for a Viewer and for an Editor, changed Alex Rivera and Sam Cohen between roles, and added Noa Katz as Editor, Kim Park as Viewer, Alex Rivera as Publisher and Sam Cohen as Editor, each with its date and time."
+            alt="The Activity list at the bottom of the Team page, newest first: Dana Levi created an invitation link for a Viewer and for an Editor, added Noa Katz as Editor and Kim Park as Viewer, changed Sam Cohen from Publisher to Editor and back, added Sam Cohen as Editor, changed Alex Rivera from Publisher to Viewer and back, and added Alex Rivera as Publisher, each with its date and time."
             width="1280"
             height="800"
           />
