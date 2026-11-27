@@ -4,7 +4,8 @@ import type { Zone } from '@taleart/contract/core';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
-import { VisibilityIndicator } from '../visibility';
+import { visibilityMark, type VisibilityMark } from '../visibility';
+import { StatusMarker } from '../status-marker';
 import { zoneInstalled } from '../zone-setup';
 import { ZonePreview } from './zone-preview';
 
@@ -15,7 +16,7 @@ import { ZonePreview } from './zone-preview';
  */
 @Component({
   selector: 'app-zones-page',
-  imports: [RouterLink, Icon, VisibilityIndicator, ZonePreview],
+  imports: [RouterLink, Icon, StatusMarker, ZonePreview],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .zone-card {
@@ -66,7 +67,8 @@ import { ZonePreview } from './zone-preview';
       outline: 3px solid var(--focus);
       outline-offset: 2px;
     }
-    .zone-card app-visibility {
+    /* Beside the name; above the name's link, which covers the card. */
+    .zone-card app-status-marker {
       z-index: 1;
     }
     .zone-card__slug {
@@ -172,8 +174,10 @@ import { ZonePreview } from './zone-preview';
                       </span>
                     }
                     <a class="zone-card__name" [routerLink]="['/zones', zone.id]">{{ zone.name }}</a>
+                    @if (markOf(zone); as mark) {
+                      <app-status-marker [tone]="mark.tone" [text]="mark.text" />
+                    }
                   </div>
-                  <app-visibility [visibility]="zone.visibility" viewing="zone" />
                   <span class="zone-card__slug"><span class="visually-hidden">Slug </span><code class="key-prefix">{{ zone.slug }}</code></span>
                   <ul class="zone-card__summary" [attr.aria-label]="'Summary of ' + zone.name">
                     @if (!zone.frame) {
@@ -228,6 +232,11 @@ export class ZonesPage {
     if (zone.frame) {
       this.preview.set({ zone, label: `Preview of ${zone.name}`, opener: event.currentTarget as HTMLElement });
     }
+  }
+
+  /** The marker beside the zone's name: its visibility, as its tooltip says it (R7). */
+  protected markOf(zone: Zone): VisibilityMark | null {
+    return visibilityMark(zone.visibility, 'zone');
   }
 
   /** "Installed" or "Not installed", as the zone page header says it; '' while unknown. */

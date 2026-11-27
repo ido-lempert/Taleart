@@ -36,7 +36,8 @@ import { gateMenu } from '../project-roles';
 import { describeWindow, windowChip } from '../schedule';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { TaleThumbnailComponent } from '../tale-thumbnail';
-import { visibilityLine, VisibilityIndicator } from '../visibility';
+import { visibilityLine, visibilityMark, VisibilityIndicator, type VisibilityMark } from '../visibility';
+import { StatusMarker } from '../status-marker';
 import { DeleteTale, deletedMessage, type DeletedTale } from './delete-tale';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 
@@ -86,6 +87,7 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
     StatusBadge,
     ShowSwitch,
     VisibilityIndicator,
+    StatusMarker,
     MenuButton,
     CdkDropList,
     CdkDrag,
@@ -188,6 +190,10 @@ export class GroupView implements OnDestroy {
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected readonly needsBadge = needsBadge;
   protected readonly isSwitchable = isSwitchable;
+  /** The marker beside the switch: the group's visibility, as its tooltip says it (R7). */
+  protected readonly mark = computed<VisibilityMark | null>(() =>
+    visibilityMark(this.group().visibility, 'group', { targeting: this.group() }),
+  );
   protected readonly describeWindow = describeWindow;
   protected readonly windowChip = windowChip;
   protected readonly shownLabel = shownLabel;

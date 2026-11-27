@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { GroupAudience, Visibility, VisibilitySubject } from '@taleart/contract/core';
 import { formatLocal } from './schedule';
-import { TIP_HIDE_DELAY_MS, tipPosition, visibilityLine, VisibilityIndicator } from './visibility';
+import { TIP_HIDE_DELAY_MS, tipPosition, visibilityLine, visibilityMark, VisibilityIndicator } from './visibility';
 
 @Component({
   imports: [VisibilityIndicator],
@@ -287,5 +287,52 @@ describe('VisibilityIndicator (epic UX rework R7)', () => {
     const { host } = render(undefined);
     expect(host.children).toHaveLength(0);
     expect(text(host)).toBe('');
+  });
+});
+
+describe('visibilityMark (the status marker beside a name)', () => {
+  const notVisibleFor = (code: Visibility['reasons'][number]['code']): Visibility => ({
+    visible: false,
+    reasons: [{ code, subject: 'group', at }],
+  });
+
+  it('is green for visible content, and nothing while the visibility is unknown', () => {
+    expect(visibilityMark({ visible: true, reasons: [] }, 'zone')).toEqual({ tone: 'green', text: 'Visible on site' });
+    expect(visibilityMark(undefined, 'zone')).toBeNull();
+  });
+
+  it('says "in at least one zone" for a group read for every zone', () => {
+    expect(visibilityMark({ visible: true, reasons: [] }, 'group', { anyZone: true })?.text).toBe(
+      'Visible on site in at least one zone',
+    );
+  });
+
+  it('is green for a visible group with an audience, whose text names it', () => {
+    const targeting: GroupAudience = { tags: [{ name: 'vip' }], tagMatch: 'any' };
+    expect(visibilityMark({ visible: true, reasons: [] }, 'group', { targeting })).toEqual({
+      tone: 'green',
+      text: 'Visible on site · for viewers tagged vip',
+    });
+  });
+
+  it.each([
+    ['group-off', 'red'],
+    ['archived', 'red'],
+    ['zone-no-display', 'red'],
+    ['zone-not-installed', 'red'],
+    ['media-problem', 'red'],
+    ['starts-at', 'orange'],
+    ['not-in-any-zone', 'orange'],
+    ['no-tale-groups', 'orange'],
+    ['no-shown-tales', 'orange'],
+    ['media-processing', 'orange'],
+  ] as const)('is %s -> %s, with the status text of its first reason', (code, tone) => {
+    const mark = visibilityMark(notVisibleFor(code), 'group', { anyZone: true });
+    expect(mark?.tone).toBe(tone);
+    expect(mark?.text).toBe(visibilityLine(notVisibleFor(code), 'group'));
+  });
+
+  it('is red for content that is not visible with no reason given', () => {
+    expect(visibilityMark({ visible: false, reasons: [] }, 'tale')).toEqual({ tone: 'red', text: 'Not visible' });
   });
 });

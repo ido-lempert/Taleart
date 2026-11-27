@@ -12,7 +12,8 @@ import { MenuButton, type MenuItem, type MenuPick } from './menu-button';
 import { describeWindow, windowChip } from './schedule';
 import { needsBadge, ShowSwitch, StatusBadge } from './status';
 import { TaleThumbnailComponent } from './tale-thumbnail';
-import { VisibilityIndicator } from './visibility';
+import { visibilityMark, type VisibilityMark } from './visibility';
+import { StatusMarker } from './status-marker';
 
 /**
  * A group as the row shows it: a zone's list carries its tales, the project's list its counts
@@ -40,7 +41,7 @@ export function opensFromRowClick(event: MouseEvent): boolean {
   if (
     !target ||
     target.closest(
-      'button, a, input, select, label, [role=menu], .menu-button, .group-row__reorder, .status-badge, app-visibility',
+      'button, a, input, select, label, [role=menu], .menu-button, .group-row__reorder, .status-badge, app-status-marker',
     )
   ) {
     return false;
@@ -63,7 +64,7 @@ export function opensFromRowClick(event: MouseEvent): boolean {
  */
 @Component({
   selector: 'app-group-row',
-  imports: [MenuButton, ShowSwitch, StatusBadge, TaleThumbnailComponent, VisibilityIndicator],
+  imports: [MenuButton, ShowSwitch, StatusBadge, StatusMarker, TaleThumbnailComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styleUrl: './group-row.css',
@@ -85,7 +86,12 @@ export function opensFromRowClick(event: MouseEvent): boolean {
         }
       </span>
       <div class="group-row__main">
-        <ng-content select="[groupRowName]" />
+        <div class="group-row__title">
+          <ng-content select="[groupRowName]" />
+          @if (mark(); as m) {
+            <app-status-marker [tone]="m.tone" [text]="m.text" />
+          }
+        </div>
         <div class="group-row__meta">
           <span class="group-row__count">{{ count() }}<span class="group-row__max"> · max {{ maxTales }}</span></span>
           @if (g.tags.length > 0) {
@@ -117,7 +123,6 @@ export function opensFromRowClick(event: MouseEvent): boolean {
         @if (badge()) {
           <app-status-badge [status]="g.status" kind="group" />
         }
-        <app-visibility class="group-row__visibility" [visibility]="g.visibility" viewing="group" [anyZone]="anyZone()" [targeting]="g" />
         <ng-content select="[groupRowAction]" />
       </div>
       <app-menu-button class="group-row__menu" [label]="'More for ' + g.name" [items]="items()" (picked)="picked.emit($event)" />
@@ -145,6 +150,10 @@ export class GroupRow {
   /** A ⋯ menu item was chosen. */
   readonly picked = output<MenuPick>();
 
+  /** The marker beside the name: the group's visibility, as its tooltip says it (R7). */
+  protected readonly mark = computed<VisibilityMark | null>(() =>
+    visibilityMark(this.group().visibility, 'group', { anyZone: this.anyZone(), targeting: this.group() }),
+  );
   /** Why the switch is off limits for this caller: turning content on or off needs the Publisher role. */
   protected readonly switchReason = computed(() =>
     this.store.can('content.publish', this.group().projectId) ? '' : this.store.roleNeeded('content.publish'),

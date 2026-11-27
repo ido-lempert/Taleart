@@ -266,6 +266,10 @@ const passkeys = {
   authenticate: vi.fn(async () => ({ id: 'cred-1', type: 'public-key' })),
 };
 
+/** A status marker's text: its accessible name, which is also its tooltip's text. */
+const markText = (el: Element | null | undefined) =>
+  el?.querySelector('app-status-marker button')?.getAttribute('aria-label') ?? '';
+
 describe('App', () => {
   let http: HttpTestingController;
   let retryTiming: ApiRetryTiming;
@@ -2782,9 +2786,9 @@ describe('App', () => {
         'No tales yet · max 100',
       );
       expect(text(row(root, 'Spring').querySelector('.group-row__count'))).toBe('1 of 1 shown · max 100');
-      expect(text(row(root, 'Summer').querySelector('.group-row__status app-visibility'))).toBe('Visible on site');
+      expect(markText(row(root, 'Summer'))).toBe('Visible on site');
       expect(
-        text(row(root, 'Winter sale for the whole family').querySelector('.group-row__status app-visibility button')),
+        markText(row(root, 'Winter sale for the whole family')),
       ).toBe('Not visible: group is off');
       // The switch is named per group, its state in aria-checked.
       const winterSwitch = row(root, 'Winter sale for the whole family').querySelector('[role=switch]');
@@ -2984,7 +2988,7 @@ describe('App', () => {
       (row(root, 'Spring').querySelector('.group-row .status-badge') as HTMLElement).click();
       await settle(fixture);
       expect(isOpen('Spring')).toBe(false);
-      (row(root, 'Summer').querySelector('.group-row app-visibility') as HTMLElement).click();
+      (row(root, 'Summer').querySelector('.group-row app-status-marker') as HTMLElement).click();
       await settle(fixture);
       expect(isOpen('Summer')).toBe(false);
     });
@@ -3165,7 +3169,7 @@ describe('App', () => {
       expect(view.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe(
         'true',
       );
-      expect(view.querySelector('.group-view__head app-visibility')?.textContent?.trim()).toBe('Visible on site');
+      expect(markText(view.querySelector('.group-view__head'))).toBe('Visible on site');
       expect(menuItems(view, 'More for Summer').map((item) => item.label)).toEqual(GROUP_MENU);
       expect(view.querySelector('.group-view__count')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
         '4 of 4 shown · max 100',
@@ -4200,7 +4204,7 @@ describe('App', () => {
       const later = { visible: false, reasons: [{ code: 'starts-at', subject: 'group', at: utc(localStart) }] };
       const plain = { ...group, visibility: VISIBLE, tales: [taleA] };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [plain] } });
-      const line = () => groupRow(root, 'Summer').querySelector('.visibility__text')?.textContent?.trim();
+      const line = () => markText(groupRow(root, 'Summer'));
       expect(line()).toBe('Visible on site');
 
       pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
@@ -4510,7 +4514,7 @@ describe('App', () => {
       await flushRefresh(fixture, { ...data, groups: { z1: [shown] } });
       expect(drawer()).toBeNull();
       expect(root.textContent).not.toContain('its user lists were removed');
-      expect([...root.querySelectorAll('app-group-row app-visibility')].map((v) => v.textContent?.trim())).toContain(
+      expect([...root.querySelectorAll<HTMLElement>('app-group-row')].map(markText)).toContain(
         'Visible on site',
       );
     });
@@ -5306,11 +5310,9 @@ describe('App', () => {
       expect(text(root.querySelector('.page-header app-visibility'))).toBe('Visible on site');
 
       const summer = row(root, 'Summer');
-      expect(text(summer.querySelector('.group-row__status app-visibility'))).toBe('Visible on site');
+      expect(markText(summer)).toBe('Visible on site');
       const winter = row(root, 'Winter');
-      const line = winter.querySelector<HTMLButtonElement>('.group-row__status app-visibility button');
-      expect(text(line)).toBe('Not visible: group is off');
-      expect(text(root.querySelector(`#${line?.getAttribute('aria-describedby')}`))).toContain('group is off');
+      expect(markText(winter)).toBe('Not visible: group is off');
 
       // Every tale card has a dot, shown tales included, named by its line (in the group view, R11).
       const dots = [...(groupView()?.querySelectorAll('.tale-card app-visibility button') ?? [])].map((b) =>
@@ -5329,12 +5331,12 @@ describe('App', () => {
         zones: [bareZone, productZone],
       });
       const cards = [...root.querySelectorAll('.zone-card')];
-      expect(cards.map((c) => text(c.querySelector('app-visibility .visibility__line')))).toEqual([
+      expect(cards.map((c) => markText(c))).toEqual([
         'Not visible: zone has no display',
         'Visible on site',
       ]);
       // The indicator is not inside the card's link, so its button is a control of its own.
-      expect(cards[0].querySelector('a app-visibility')).toBeNull();
+      expect(cards[0].querySelector('a app-status-marker')).toBeNull();
       expect(cards[0].querySelector('a')?.getAttribute('href')).toBe('/zones/z1');
     });
 
@@ -5348,7 +5350,7 @@ describe('App', () => {
       await flushRefresh(fixture, { ...data, groups: { z1: [onGroup, on] } });
       await settle(fixture);
       expect(announced(root)).toBe('Winter is now on. Not visible: zone has no display');
-      expect(text(row(root, 'Winter').querySelector('.group-row__status app-visibility button'))).toBe(
+      expect(markText(row(root, 'Winter'))).toBe(
         'Not visible: zone has no display',
       );
     });
@@ -5366,7 +5368,7 @@ describe('App', () => {
       });
       await navigate(fixture, '/tale-groups');
       const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] > li')];
-      expect(rows.map((r) => text(r.querySelector('app-visibility .visibility__line')))).toEqual([
+      expect(rows.map((r) => markText(r))).toEqual([
         'Not visible: not in any zone',
         'Visible on site in at least one zone',
       ]);
@@ -5620,7 +5622,7 @@ describe('App', () => {
       expect(visible.querySelector('.group-row__count')?.textContent?.trim()).toBe('3 of 3 shown · max 100');
       expect(visible.querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar');
       expect(visible.querySelector('[role=switch]')?.getAttribute('aria-label')).toBe('Visible now on site');
-      expect(text(visible.querySelector('app-visibility .visibility__line'))).toBe(
+      expect(markText(visible)).toBe(
         'Visible on site in at least one zone',
       );
       expect(visible.querySelector('.group-row__reorder')).toBeNull();
@@ -5636,11 +5638,13 @@ describe('App', () => {
       expect(row('Ends later').querySelector('.window-chip')?.textContent).toContain('Ends');
       // A visible targeted group says who it is for (epic targeting R7), in its button's name; an
       // untargeted one, and a targeted one that is not visible, do not.
-      const targeted = row('Ends later').querySelector<HTMLElement>('app-visibility button.visibility__line');
-      expect(text(targeted)).toBe('Visible on site in at least one zone · for viewers tagged summer or vip');
-      expect(targeted?.getAttribute('aria-describedby')).toBeTruthy();
-      expect(visible.querySelector('app-visibility button')).toBeNull();
-      expect(text(row('Paused here').querySelector('app-visibility .visibility__line'))).toBe(
+      const targeted = row('Ends later').querySelector<HTMLElement>('app-status-marker button');
+      expect(targeted?.getAttribute('aria-label')).toBe(
+        'Visible on site in at least one zone · for viewers tagged summer or vip',
+      );
+      expect(targeted?.classList.contains('status-marker--green')).toBe(true);
+      expect(visible.querySelector('.status-marker--green')).not.toBeNull();
+      expect(markText(row('Paused here'))).toBe(
         'Not visible: group is off',
       );
       expect(row('Draft loose').querySelector('.group-row__count')?.textContent).toContain('No tales yet');
@@ -5882,8 +5886,8 @@ describe('App', () => {
       expect(summary(cards[1])).toEqual(['0 tale groups', 'Install: Not installed']);
       expect(summary(cards[2])).toEqual(['Display: No display yet', '0 tale groups']);
       expect(cards[0].querySelector('.zone-card__summary')?.getAttribute('aria-label')).toBe('Summary of Home bar');
-      expect(text(cards[0].querySelector('app-visibility .visibility__line'))).toBe('Visible on site');
-      expect(text(cards[1].querySelector('app-visibility .visibility__line'))).toBe('Not visible: zone not installed');
+      expect(markText(cards[0])).toBe('Visible on site');
+      expect(markText(cards[1])).toBe('Not visible: zone not installed');
     });
   });
 

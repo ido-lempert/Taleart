@@ -17,14 +17,17 @@ import {
   audienceDetail,
   audienceSummary,
   visibilityReasonText,
+  NOT_VISIBLE_TEXT,
   visibilitySummary,
   VISIBLE_ON_SITE_TEXT,
   withAudience,
   type GroupAudience,
   type Visibility,
+  type VisibilityReasonCode,
   type VisibilitySubject,
 } from '@taleart/contract/core';
 import { formatLocal } from './schedule';
+import type { StatusTone } from './status-marker';
 import { hideFromTopLayer, isOutside, placeAt, PopupListeners, showInTopLayer, viewportSize } from './top-layer';
 
 let nextId = 0;
@@ -38,6 +41,60 @@ const GAP = 8;
 /** "Visible on site" or "Not visible: <first reason>" for content of kind `viewing`, times in the browser's zone. */
 export function visibilityLine(visibility: Visibility, viewing: VisibilitySubject): string {
   return visibilitySummary(visibility, viewing, formatLocal);
+}
+
+/**
+ * The tone of each reason, by its code (the marker beside a name): red when something is off or
+ * missing, orange when it will change by itself or is only partly there.
+ */
+const REASON_TONE: Readonly<Record<VisibilityReasonCode, StatusTone>> = {
+  archived: 'red',
+  'group-blocked': 'red',
+  'group-off': 'red',
+  'tale-hidden': 'red',
+  'media-problem': 'red',
+  'ended-at': 'red',
+  'zone-no-display': 'red',
+  'zone-not-installed': 'red',
+  'audience-empty': 'red',
+  'audience-removed': 'red',
+  'media-processing': 'orange',
+  'not-updated-yet': 'orange',
+  'starts-at': 'orange',
+  'not-in-any-zone': 'orange',
+  'no-tale-groups': 'orange',
+  'no-shown-tales': 'orange',
+  'no-visible-groups': 'orange',
+};
+
+/** A status marker's tone and the text its tooltip (and accessible name) shows. */
+export interface VisibilityMark {
+  tone: StatusTone;
+  text: string;
+}
+
+/**
+ * The marker for a visibility (the zones list, the tale groups list, a tale group's header): green
+ * when visible, orange when visible with a targeted audience (who sees it depends on the viewer),
+ * otherwise red or orange by the first reason, whose text is the line the indicator shows. `anyZone`
+ * words a group read for every zone; `targeting` is the group's audience. Null while unknown.
+ */
+export function visibilityMark(
+  visibility: Visibility | undefined,
+  viewing: VisibilitySubject,
+  options: { anyZone?: boolean; targeting?: GroupAudience | null } = {},
+): VisibilityMark | null {
+  if (!visibility) return null;
+  if (visibility.visible) {
+    const base = options.anyZone ? `${VISIBLE_ON_SITE_TEXT} in at least one zone` : VISIBLE_ON_SITE_TEXT;
+    const audience = options.targeting ? audienceSummary(options.targeting) : null;
+    return { tone: 'green', text: withAudience(base, audience) };
+  }
+  const [first] = visibility.reasons;
+  return {
+    tone: first ? REASON_TONE[first.code] : 'red',
+    text: first ? visibilitySummary(visibility, viewing, formatLocal) : NOT_VISIBLE_TEXT,
+  };
 }
 
 /** Every reason content is not visible, in plain words, most useful first. */

@@ -91,6 +91,15 @@ app-group-row {
   min-width: 0;
   max-width: 22rem;
 }
+.group-row__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.group-row__title > :first-child {
+  min-width: 0;
+}
 .group-row__menu {
   grid-area: menu;
 }
