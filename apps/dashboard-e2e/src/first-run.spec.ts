@@ -71,7 +71,8 @@ test.describe.serial('first run and the Install tab (story 8.13)', () => {
     const media = await drawPngs(page);
 
     // Sign up: the first project is "My project" unless typed otherwise.
-    await act('Type your name', () => page.getByLabel('Name').fill('Ada Admin'));
+    // Exact: the password set-up (TALEART_SETUP_PASSWORD on the e2e API) has a Username field too.
+    await act('Type your name', () => page.getByLabel('Name', { exact: true }).fill('Ada Admin'));
     await act('Type your email', () => page.getByLabel('Email').fill('ada@example.test'));
     await act('Create passkey', () => page.getByRole('button', { name: 'Create passkey' }).click());
     await expect(page).toHaveURL(/\/zones$/);

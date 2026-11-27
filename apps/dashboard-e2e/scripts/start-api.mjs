@@ -48,6 +48,12 @@ const env = {
   // pinned-SDK test rebuilds it under the running API (story 8.21).
   WEB_SDK_FILE: sdk.bundleFile,
   SDK_BUILDS_DIR: sdk.buildsDir,
+  // Two-factor sign-in (two-factor.spec.ts): a throwaway key for the authenticator secrets, and the
+  // password variant of the first admin's set-up. Only this test server has them.
+  TALEART_SECRET_KEY: Buffer.alloc(32, 7).toString('base64'),
+  TALEART_SETUP_PASSWORD: 'true',
+  // Two-factor sign-in (two-factor.spec.ts): a throwaway key for the authenticator secrets, and the
+  // password variant of the first admin's set-up. Only this test server has them.
 };
 const child = spawn(process.execPath, [join(root, 'dist/apps/api/main.js')], { cwd: root, env, stdio: 'inherit' });
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
